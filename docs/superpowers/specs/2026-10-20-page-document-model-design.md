@@ -332,3 +332,16 @@ Item 6's editor is the agreed **hybrid**: a VS Code/VSCodium extension over a lo
 ## 14. Known pitfall carried from `HANDOVER.md`
 
 `yarn test:app` is bare `vitest` with **no `--watch=false`** — it enters watch mode and never exits. Always pass `--watch=false`, or use `yarn test:all`.
+
+## 15. Verified baseline (worktree, 2026-10-20)
+
+Measured in the worktree at commit `12d1e41`, before any Wave 1 change:
+
+| Gate | Result |
+| --- | --- |
+| `yarn test:typecheck` | exit 0 |
+| `yarn test:code` | exit 0 |
+| `yarn test:other` | exit 0 |
+| `yarn test:app --watch=false` | exit 0 — **120 files, 1606 passed, 48 skipped, 1 todo, 0 failed** |
+
+One caveat, recorded so a later failure can be told apart from it: an **earlier** run of the same suite in the same worktree reported `2 failed | 1604 passed`. Both failing files were `packages/excalidraw/tests/MermaidToExcalidraw.test.tsx` and `packages/excalidraw/tests/scene/export.test.ts`, and both **pass in isolation** (17/17, exit 0) — the flake signature `HANDOVER.md` §1 documents for exactly these two files under parallel load. The suite was re-run and came back fully green. Treat these two files as known-flaky; do not chase them, and re-run in isolation before believing a red suite.
