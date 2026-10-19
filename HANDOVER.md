@@ -6,51 +6,34 @@ Everything below was **measured on this working tree**, not assumed. Where a cla
 
 ---
 
-## 0. Read this first: there is no git repository
+## 0. Read this first: the git baseline now exists
 
-This is the single most important fact about the handover.
+> **Updated 2026-10-19 23:4x.** The original handover (written earlier the same day) opened with "there is no git repository" and told the incoming agent to run `git init` as the first action. **That has been done.** The rollback point this document assumes now exists. If you are reading a copy of the handover that still says otherwise, it predates the baseline commit.
+
+The tree is now a real git repository on branch `main`:
 
 ```
 $ git rev-parse --is-inside-work-tree
-fatal: not a git repository (or any of the parent directories): .git   # exit 128
+true
+$ git log --oneline -1
+960b144 chore: baseline - pre-handover snapshot of the working tree
 ```
 
-Checked and confirmed absent at every level:
+What was created, in order:
 
-| path             | `.git` present |
-| ---------------- | -------------- |
-| `excalidraw/`    | no             |
-| `NITTE - C/`     | no             |
-| `Desktop/`       | no             |
-| `C:\Users\user\` | no             |
+1. `git init -b main` (the repo previously had **no** `.git` at any level — not in `excalidraw/`, not in `NITTE - C/`, not in `Desktop/`, not in `C:\Users\user\`).
+2. `.gitignore` extended with the agent scratch artifacts (`.mavis-*.txt`, `.mavis-snapbak/`), which were not covered by upstream's ignore list and would otherwise have polluted the snapshot commit with ~2.9 MB of harness noise.
+3. `.gitattributes` completed. It previously held only `* text=auto eol=lf`; the `binary` lines for `png/jpg/jpeg/gif/ico/webp/pdf/woff/woff2/ttf/otf/eot/mp4/webm` are now present. See §3.3 — this is the single most valuable line for a Windows↔Linux handover.
+4. `git add -A && git commit` → **1,276 files**, 337,471 insertions, one commit. `.git` is 33 MB.
+5. Pushed to `https://github.com/Sairampv98/excalidraw-teacher-help` (public). `refs/heads/main` → `960b144`. A fresh `git clone` of that URL reproduces all 1,276 files with a clean tree.
 
-Git itself **is** installed (`git version 2.54.0.windows.1`), and a `.gitignore` is present (30 lines, upstream Excalidraw's). But there is no repository.
+### What this means for you now
 
-### What that means
-
-Every change made so far was applied **directly to the working tree**. There are no commits, no branches, no tags, no reflog, no stash, and no diff to read. Concretely, the incoming agent inherits:
-
-- **No baseline.** There is no "before" to compare against. It cannot see what this fork changed relative to upstream Excalidraw, and it cannot see what changed between two of its own edits.
-- **No rollback.** A bad edit cannot be undone with `git checkout`. There is no safety net at all.
-- **No review surface.** `git diff` — the single most-used tool for reviewing an agent's work — does not work here.
-- **No provenance.** The only record of intent is the code, the test suite, and the chat transcripts.
-
-### Do this before anything else
-
-```bash
-cd /path/to/excalidraw
-git init
-git add -A
-git commit -m "chore: baseline — pre-handover snapshot of the working tree"
-```
-
-That single commit is the rollback point the whole rest of this document assumes exists. Without it, the new agent is editing blind.
-
-Then, and only then, read the rest of this file. A few extra notes:
-
-- `git init` creates branch `master` by default. `git branch -m main` if you want the conventional name.
-- The baseline commit will be **large** — it is the whole tree, not a diff. That is expected and fine; it is a snapshot, not a change.
-- After `git init`, re-run `yarn install` so husky wires up the hooks (see §3.5). `yarn install` is safe _before_ `git init` too — husky v7 detects the missing repo and exits 0 — so the order is a convenience, not a requirement.
+- **There is a baseline.** `git diff` works. `git checkout -- <file>` rolls back. `git stash` works. You can see exactly what you changed before committing it.
+- **The baseline commit is a snapshot, not a change.** It contains the whole tree, so `git show --stat` on it lists 1,276 files. That is expected.
+- **It still is not upstream Excalidraw.** The baseline records _this fork's_ state, so it cannot show you what the fork changed relative to upstream. To diff against upstream you'd need a second remote — that has not been added.
+- **The pre-baseline history is gone.** The changes made before 2026-10-19 were applied straight to the working tree with no commits, so there is no per-change history for them. The single snapshot commit is the earliest possible rollback point.
+- **`yarn install` was re-run after `git init`**, so husky's `core.hooksPath` is wired to `.husky`. Note that the `.husky/pre-commit` body is entirely commented out — nothing is actually enforced (see §3.5).
 
 ### One thing to exclude from the baseline: `htr-sandbox/`
 
@@ -124,12 +107,14 @@ Run all four before considering any change done. This is the project's rule (`CL
 yarn test:typecheck   # tsc                              → must be 0 errors
 yarn test:code        # eslint --max-warnings=0 --ext ... → must be 0 warnings
 yarn test:other       # prettier --list-different        → must list nothing
-yarn test:app         # vitest                           → must be 0 failures
+yarn test:app --watch=false   # vitest                   → must be 0 failures
 ```
 
-Or all at once: `yarn test:all`.
+Or all at once: `yarn test:all` (which already passes `--watch=false` for you).
 
-**Current state (measured 2026-10-19): `1606 passed, 48 skipped, 1 todo, 0 failed`, across 120 test files.** Take that as the baseline; a red suite on arrival means something got broken in transit, not that the suite is flaky.
+> **Trap: `yarn test:app` on its own never exits.** The script is bare `"test:app": "vitest"` with no `--watch=false`, so it starts vitest in **watch mode** and sits there forever. It was measured here hanging for a full 40 minutes with no output, which reads exactly like a hung test suite but is not one. Always append `--watch=false` (or use `yarn test:all`).
+
+**Current state (measured 2026-10-19, re-verified in a clean clone): `1606 passed, 48 skipped, 1 todo, 0 failed`, across 120 test files, in ~102 s.** Take that as the baseline; a red suite on arrival means something got broken in transit, not that the suite is flaky.
 
 Two details that are easy to get wrong:
 
@@ -391,49 +376,40 @@ These are known and **not** fixed. None is a regression; they are decisions and 
 | 2 | **GIF paints above later z-order elements** | Accepted trade-off, documented in the code. Fixing it properly needs one canvas layer per GIF. |
 | 3 | **Page-2 paste path not live-tested** | The camera fix and the overlay geometry are both covered by tests (including one that asserts an image on page 2 lands inside the viewport under the real page-2 camera), but nobody has pasted a GIF onto page 2 in a live browser. Worth doing once. |
 | 4 | **Other fixes not yet live-tested by the user** | The user said they would test the camera/zoom/pan, markdown copy, off-page paste and card-grouping fixes later. |
-| 5 | **No git history** | See §0. The baseline commit is the first thing to do. |
+| 5 | **No git history** | **RESOLVED 2026-10-19.** The baseline commit `960b144` now exists on `main` and is pushed to `https://github.com/Sairampv98/excalidraw-teacher-help`. See §0. |
+| 6 | **`yarn test:app` hangs in watch mode** | The script is bare `vitest` with no `--watch=false`. Use `yarn test:app --watch=false`, or just `yarn test:all`. See §1. |
 
 ---
 
 ## 6. First 30 minutes for the incoming agent
 
+Steps 0–4 (repo init, line-ending pin, baseline commit) are **already done** — see §0. Start at step 5.
+
 ```bash
-# 0. move off /mnt/c and off a path with spaces
+# 0. (DONE) repo initialised, .gitattributes pinned, baseline commit 960b144 on main
+
+# 1. move off /mnt/c and off a path with spaces
 mkdir -p ~/projects
-cp -a "/mnt/c/Users/user/Desktop/NITTE - C/excalidraw" ~/projects/excalidraw
+git clone https://github.com/Sairampv98/excalidraw-teacher-help.git ~/projects/excalidraw
 cd ~/projects/excalidraw
 
-# 1. native binaries must be rebuilt for linux
+# 2. native binaries must be rebuilt for linux
 rm -rf node_modules excalidraw-app/node_modules packages/*/node_modules
 yarn install
 
-# 2. pin line endings BEFORE the first commit
-cat > .gitattributes <<'EOF'
-* text=auto eol=lf
-*.png binary
-*.jpg binary
-*.gif binary
-*.ico binary
-*.woff binary
-*.woff2 binary
-*.pdf binary
-EOF
+# 3. (DONE) line endings are pinned via .gitattributes — verify with: git ls-files --eol | grep w/crlf
+#     a space-free path also removes the quoting class of bugs entirely
 
-# 3. create the rollback point that does not currently exist
-git init
-git branch -m main
-git add -A
-git commit -m "chore: baseline — pre-handover snapshot of the working tree"
-
-# 4. wire husky (the pre-commit body is commented out; nothing is enforced)
-yarn install
+# 4. (DONE) husky is wired; note the pre-commit body is commented out, nothing is enforced
 
 # 5. prove the tree is green
-yarn test:typecheck && yarn test:code && yarn test:other && yarn test:app
+yarn test:typecheck && yarn test:code && yarn test:other && yarn test:app --watch=false
 
 # 6. run the app
 cd excalidraw-app && yarn vite --no-open --port 3000
 ```
+
+This exact sequence was executed on 2026-10-19 as a verification run: cloned to a space-free path (`C:\Users\user\projects\excalidraw`), `yarn install` in 55 s, all four gates green, dev server serving HTTP 200 on `http://localhost:3000` with zero console errors, and the fork's page bar navigating correctly (`1/1 → 2/2`, and `1/3 → 2/3 → 1/3`).
 
 Then read, in this order:
 
@@ -443,32 +419,16 @@ Then read, in this order:
 
 ---
 
-## 7. One gap to close: `AGENTS.md`
+## 7. `AGENTS.md` — gap closed
 
-This repo has **`CLAUDE.md` but no `AGENTS.md`**.
+> **Updated 2026-10-19.** The original handover opened this section with "This repo has `CLAUDE.md` but **no `AGENTS.md`**" and prescribed a ~12-line stub. `AGENTS.md` was written a few minutes later and is now present, so the gap is closed.
 
 | harness               | reads                                 |
 | --------------------- | ------------------------------------- |
 | Claude Code           | `CLAUDE.md` ✓ present                 |
-| opencode              | `AGENTS.md` ✗ **missing**             |
+| opencode              | `AGENTS.md` ✓ present                 |
 | most other CLI agents | `AGENTS.md` (or their own convention) |
 
-So handing this repo to opencode as-is means the agent gets **no project context at all** — it will not see the pages system, the code-card behaviour, the GIF architecture, the verification gate, or any of the traps in §4.
+The `AGENTS.md` that shipped is longer than the stub originally proposed — it covers the fork's feature list, the four-gate rule, the "tests encode fork behaviour" rule, the "new tests must have teeth" rule, LF/no-BOM, `yarn` over npm, and the known traps. It deliberately **points at this file** rather than duplicating it, so the two stay in step.
 
-A minimal `AGENTS.md` that points at this file is enough to close the gap:
-
-```markdown
-# AGENTS.md
-
-See [HANDOVER.md](./HANDOVER.md) for the full handover: project layout, the verification gate, the Windows→WSL migration checklist, and the known architecture (pages system, code cards, PDF export, GIF overlay).
-
-## Non-negotiables
-
-- Verify before claiming done: `yarn test:typecheck && yarn test:code && yarn test:other && yarn test:app`
-- Line endings are LF, no BOM. Do not introduce CRLF.
-- This repo is a modified fork. Its tests encode fork-specific behaviour — do not "fix" them to match upstream Excalidraw.
-- New tests must have teeth: revert the fix and confirm the test fails.
-- Use `yarn`, not npm. Do not add dependencies without a strong reason.
-```
-
-Keep `HANDOVER.md` as the single source of truth and let `AGENTS.md` point at it, rather than duplicating the content into two files that will drift.
+Keep it that way: `HANDOVER.md` is the single source of truth, `AGENTS.md` is the short harness-facing summary that points at it. Do not paste the long version into both.

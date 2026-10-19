@@ -29,10 +29,12 @@ Details and file paths for all of these are in `HANDOVER.md` §2.
 yarn test:typecheck   # tsc                        → 0 errors
 yarn test:code        # eslint --max-warnings=0    → 0 warnings
 yarn test:other       # prettier --list-different  → lists nothing
-yarn test:app         # vitest                     → 0 failures
+yarn test:app --watch=false   # vitest             → 0 failures
 ```
 
-`yarn test:all` runs all four. Current baseline: **1606 passed, 0 failed**, 120 files. `yarn test:update` rewrites snapshots — only when a snapshot change is the point.
+`yarn test:all` runs all four and already passes `--watch=false` for you. Current baseline: **1606 passed, 0 failed**, 120 files, ~102 s. `yarn test:update` rewrites snapshots — only when a snapshot change is the point.
+
+**Trap: bare `yarn test:app` never exits.** The script is `"test:app": "vitest"` with no `--watch=false`, so it starts vitest in watch mode and hangs indefinitely — it looks like a dead test suite but is not one. Always pass `--watch=false`.
 
 Note `yarn test:other` only covers non-`.ts`/`.tsx` files; TS formatting is enforced by ESLint via `eslint-plugin-prettier`, so `yarn test:code` covers it.
 
@@ -60,6 +62,8 @@ Note `yarn test:other` only covers non-`.ts`/`.tsx` files; TS formatting is enfo
 ## Environment
 
 Node ≥ 18 (local: v22.23.2, Dockerfile: node:24), Yarn 1.22.22.
+
+This **is** a git repository now: branch `main`, baseline commit `960b144`, remote `https://github.com/Sairampv98/excalidraw-teacher-help`. `git diff` and `git checkout` work — use them. Commit before and after your changes; the baseline is the only rollback point that exists.
 
 ```bash
 yarn install
