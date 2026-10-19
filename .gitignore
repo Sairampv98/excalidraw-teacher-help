@@ -36,3 +36,6 @@ htr-sandbox/
 # agent session scratch artifacts (not part of the fork)
 .mavis-*.txt
 .mavis-snapbak/
+
+# isolated feature worktrees (see HANDOVER.md / superpowers:using-git-worktrees)
+.worktrees/
