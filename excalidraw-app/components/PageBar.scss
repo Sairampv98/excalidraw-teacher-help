@@ -1,0 +1,233 @@
+/**
+ * Page bar — same visual language as the edge docks (islands + CSS vars), so it
+ * reads as part of the same chrome.
+ *
+ * Placement: bottom-centre. The toolbar dock's fallback edge is `bottom` and the
+ * properties dock's is `left`, but both are user-draggable; the bar therefore
+ * sits *below* the dock layer in z-order (80) so a dock that lands on top of it
+ * stays clickable instead of being trapped underneath.
+ */
+.excalidraw-page-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 32px);
+  padding: 6px;
+  pointer-events: auto;
+  z-index: 70;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background-color: var(--island-bg-color);
+  box-shadow: var(--shadow-island);
+  color: var(--text-primary-color, var(--icon-fill-color));
+}
+
+.excalidraw-page-bar__pages {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.excalidraw-page-bar__chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background-color: transparent;
+  color: inherit;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease,
+    color 140ms ease;
+
+  &:hover,
+  &:focus-visible {
+    background-color: var(--button-hover-bg, rgba(0, 0, 0, 0.06));
+  }
+
+  &--active {
+    border-color: var(--color-primary);
+    background-color: var(--color-primary);
+    color: var(--color-primary-contrast, #fff);
+
+    &:hover,
+    &:focus-visible {
+      background-color: var(--color-primary);
+    }
+  }
+}
+
+.excalidraw-page-bar__chip-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background-color: rgba(127, 127, 127, 0.24);
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.excalidraw-page-bar__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background-color: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease,
+    color 140ms ease, opacity 140ms ease;
+
+  &:hover:not(:disabled),
+  &:focus-visible:not(:disabled) {
+    background-color: var(--button-hover-bg, rgba(0, 0, 0, 0.06));
+  }
+
+  &:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+
+  &--danger:hover:not(:disabled),
+  &--danger:focus-visible:not(:disabled),
+  &[data-armed="true"] {
+    background-color: var(--color-danger, #e03131);
+    border-color: var(--color-danger, #e03131);
+    color: #fff;
+  }
+}
+
+.excalidraw-page-bar__counter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 44px;
+  padding: 0 6px;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.excalidraw-page-bar__divider {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 20px;
+  background-color: var(--color-border);
+}
+
+.excalidraw-page-bar__action {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background-color: transparent;
+  color: inherit;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease,
+    opacity 140ms ease;
+
+  &:hover:not(:disabled),
+  &:focus-visible:not(:disabled) {
+    background-color: var(--button-hover-bg, rgba(0, 0, 0, 0.06));
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+}
+
+.excalidraw-page-bar__error {
+  flex: 0 0 auto;
+  max-width: 220px;
+  overflow: hidden;
+  color: var(--color-danger, #e03131);
+  font-size: 0.6875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme--dark {
+  .excalidraw-page-bar {
+    background-color: var(--gray-60, #1b1b1f);
+  }
+
+  .excalidraw-page-bar__chip:hover,
+  .excalidraw-page-bar__chip:focus-visible,
+  .excalidraw-page-bar__icon:hover:not(:disabled),
+  .excalidraw-page-bar__icon:focus-visible:not(:disabled),
+  .excalidraw-page-bar__action:hover:not(:disabled),
+  .excalidraw-page-bar__action:focus-visible:not(:disabled),
+  .excalidraw-page-bar-hidden__handle:hover,
+  .excalidraw-page-bar-hidden__handle:focus-visible {
+    background-color: var(--gray-30, #2b2b31);
+  }
+}
+
+/**
+ * Collapsed state — the bar tucks into the very bottom edge of the viewport
+ * and leaves only a small handle, so it stops covering the canvas but is never
+ * more than one click away.
+ */
+.excalidraw-page-bar-hidden {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  z-index: 70;
+  pointer-events: auto;
+}
+
+.excalidraw-page-bar-hidden__handle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px 7px;
+  border: 1px solid var(--color-border);
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  background-color: var(--island-bg-color);
+  box-shadow: var(--shadow-island);
+  color: var(--text-primary-color, var(--icon-fill-color));
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 140ms ease, background-color 140ms ease;
+
+  &:hover,
+  &:focus-visible {
+    opacity: 1;
+  }
+}
+
+.excalidraw-page-bar-hidden__counter {
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.theme--dark .excalidraw-page-bar-hidden__handle {
+  background-color: var(--gray-60, #1b1b1f);
+}

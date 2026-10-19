@@ -1,0 +1,38 @@
+.DS_Store
+.env.development.local
+.env.local
+.env.production.local
+.env.test.local
+.envrc
+.eslintcache
+.history
+.idea
+.vercel
+.vscode
+.yarn
+*.log
+*.tgz
+build
+dist
+firebase
+logs
+node_modules
+npm-debug.log*
+package-lock.json
+yarn-debug.log*
+yarn-error.log*
+packages/excalidraw/types
+coverage
+dev-dist
+html
+meta*.json
+.claude
+
+# scratch sandbox from an earlier handwriting-recognition experiment:
+# 554 files / ~285 MB of ONNX models + its own node_modules. Not part of the
+# excalidraw fork — see HANDOVER.md §0.
+htr-sandbox/
+
+# agent session scratch artifacts (not part of the fork)
+.mavis-*.txt
+.mavis-snapbak/

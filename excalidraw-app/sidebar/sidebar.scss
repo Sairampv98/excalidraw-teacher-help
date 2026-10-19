@@ -1,0 +1,725 @@
+/**
+ * Sidebar contents for the folder + documents tabs.
+ */
+
+.app-sidebar-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  height: 100%;
+  overflow: hidden;
+  color: var(--text-primary-color);
+  font-size: 0.8125rem;
+}
+
+.app-sidebar-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.app-sidebar-primary,
+.app-sidebar-secondary {
+  flex: 0 0 auto;
+  min-width: 8rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface-high);
+  color: var(--text-primary-color);
+  font-size: 0.8125rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+
+  &:hover:not(:disabled) {
+    background-color: var(--color-surface-low);
+    border-color: var(--color-primary);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+}
+
+// buttons sitting in the action row share the width; standalone ones don't
+// stretch down the panel
+.app-sidebar-actions > .app-sidebar-primary,
+.app-sidebar-actions > .app-sidebar-secondary {
+  flex: 1 1 auto;
+}
+
+.app-sidebar-primary {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-contrast, #fff);
+
+  &:hover:not(:disabled) {
+    background-color: var(--color-primary-hover, var(--color-primary));
+    color: var(--color-primary-contrast, #fff);
+  }
+}
+
+.app-sidebar-empty,
+.app-sidebar-note {
+  margin: 0;
+  color: var(--text-secondary-color);
+  line-height: 1.5;
+}
+
+.app-sidebar-note {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+
+  strong {
+    color: var(--text-primary-color);
+    word-break: break-all;
+  }
+}
+
+// the copy made, the canvas click pending
+.app-sidebar-note--armed {
+  flex: 0 0 auto;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--color-primary);
+  border-radius: 0.35rem;
+  background-color: var(--color-surface-low);
+}
+
+// a gesture that was rejected — the result has to be stated, otherwise a
+// dropped file reads as a broken one
+.app-sidebar-note--warn {
+  flex: 0 0 auto;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--color-danger);
+  border-radius: 0.35rem;
+  background-color: var(--color-surface-low);
+  color: var(--color-danger);
+}
+
+// --- folder list -----------------------------------------------------------
+
+// the list owns the leftover height and scrolls on its own, so a folder with
+// hundreds of images never pushes the panel past the viewport
+.app-file-list-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.app-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.app-file-list__row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid transparent;
+  border-radius: 0.35rem;
+  background: none;
+  color: var(--text-primary-color);
+  font-family: inherit;
+  font-size: 0.75rem;
+  text-align: left;
+  // both gestures live on this row: click to copy-paste, drag to place
+  cursor: grab;
+
+  &:hover {
+    background-color: var(--color-surface-low);
+  }
+
+  &:active {
+    cursor: grabbing;
+  }
+}
+
+.app-file-list__row--active {
+  background-color: var(--color-surface-low);
+  border-color: var(--color-primary);
+}
+
+.app-file-list__thumb {
+  flex: 0 0 auto;
+  width: 2.5rem;
+  height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 0.25rem;
+  background-color: var(--color-surface-low);
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+}
+
+.app-file-list__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.app-file-list__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-file-list__size {
+  font-size: 0.625rem;
+  color: var(--text-secondary-color);
+}
+
+// --- documents -------------------------------------------------------------
+
+.app-doc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.app-doc-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+}
+
+// deliberately NOT a bordered action button: this reads back to the file list
+// we came from, it does not open a file picker
+.app-doc-back {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 0.25rem 0.35rem;
+  border: 0;
+  border-radius: 0.35rem;
+  background: none;
+  color: var(--text-primary-color);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    background-color: var(--color-surface-low);
+  }
+}
+
+.app-doc-back__arrow {
+  font-size: 0.875rem;
+  line-height: 1;
+  color: var(--text-secondary-color);
+}
+
+.app-doc-back__count {
+  font-size: 0.625rem;
+  font-weight: 400;
+  color: var(--text-secondary-color);
+}
+
+// lets you switch document without reading back to the list first
+.app-doc-step {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex: 0 0 auto;
+}
+
+.app-doc-step__btn {
+  width: 1.4rem;
+  padding: 0.1rem 0;
+  border: 1px solid var(--color-border);
+  border-radius: 0.25rem;
+  background-color: var(--color-surface-high);
+  color: var(--text-primary-color);
+  font-size: 0.75rem;
+  line-height: 1.2;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    border-color: var(--color-primary);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+}
+
+.app-doc-step__pos {
+  min-width: 2.5rem;
+  font-size: 0.625rem;
+  text-align: center;
+  color: var(--text-secondary-color);
+}
+
+.app-doc-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 0 0 auto;
+  min-width: 0;
+  font-size: 0.75rem;
+}
+
+.app-doc-title__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-doc-list__item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid transparent;
+  border-radius: 0.35rem;
+  background: none;
+  color: var(--text-primary-color);
+  font-family: inherit;
+  font-size: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background-color: var(--color-surface-low);
+  }
+}
+
+.app-doc-list__item--active {
+  background-color: var(--color-surface-low);
+  border-color: var(--color-primary);
+}
+
+.app-doc-list__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-doc-badge {
+  flex: 0 0 auto;
+  min-width: 2rem;
+  padding: 0.05rem 0.2rem;
+  border-radius: 0.2rem;
+  font-size: 0.5625rem;
+  font-weight: 600;
+  text-align: center;
+  color: #fff;
+  background-color: #6b7280;
+}
+
+.app-doc-badge--pdf {
+  background-color: #dc2626;
+}
+
+/**
+ * Drag target on the sidebar's left edge. `right` is set inline from the
+ * current width so it tracks `--right-sidebar-width` exactly.
+ */
+.app-sidebar-resizer {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  z-index: calc(var(--zIndex-ui-library) + 1);
+  cursor: col-resize;
+  touch-action: none;
+  background-color: transparent;
+  transition: background-color 140ms ease;
+
+  &:hover,
+  &:focus-visible {
+    background-color: var(--color-primary-hover, #6965db);
+    outline: none;
+  }
+
+  &[data-dragging="true"] {
+    background-color: var(--color-primary, #6965db);
+  }
+
+  // keep the canvas from selecting text or starting a drag under the cursor
+  body:has(&[data-dragging="true"]) * {
+    user-select: none;
+  }
+}
+
+.app-sidebar-fit-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  margin-left: 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background-color: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease,
+    color 140ms ease;
+
+  &:hover,
+  &:focus-visible {
+    background-color: var(--button-hover-bg, rgba(0, 0, 0, 0.06));
+  }
+
+  &[aria-pressed="true"] {
+    color: var(--color-primary, #6965db);
+    border-color: var(--color-primary, #6965db);
+  }
+}
+
+.app-doc-badge--markdown {
+  background-color: #7c3aed;
+}
+
+.app-doc-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1 1 auto;
+  min-height: 0;
+  // the body below scrolls internally; the viewer never grows past the panel
+  overflow: hidden;
+}
+
+.app-doc-pdf {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 12rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background-color: #fff;
+  overflow: auto;
+}
+
+// code and markdown share the box so they feel like the same viewer; the
+// zoom control is only rendered for markdown (the PDF has its own toolbar)
+.app-doc-zoom {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex: 0 0 auto;
+}
+
+.app-doc-zoom__level {
+  min-width: 3.2rem;
+  padding: 0.1rem 0.3rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.25rem;
+  background-color: var(--color-surface-high);
+  color: var(--text-primary-color);
+  font-family: inherit;
+  font-size: 0.625rem;
+  line-height: 1.2;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--color-primary);
+  }
+}
+
+.app-doc-code,
+.app-doc-markdown {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  // both axes: long lines and wide tables stay reachable instead of being
+  // clipped at the panel edge
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  // the library puts `user-select: none` on `.excalidraw`, which the whole
+  // sidebar inherits — a document you cannot select is a document you cannot
+  // quote, so both document bodies opt back in
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: auto;
+
+  pre {
+    margin: 0;
+    padding: 0.6rem;
+    font-family: Cascadia, "Cascadia Code", ui-monospace, SFMono-Regular, Menlo,
+      Consolas, monospace;
+  }
+
+  code {
+    font-family: inherit;
+  }
+
+  // the copy button is a control, not prose — it should not be selectable
+  .app-doc-copy-code {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+// the markdown body is scaled from this baseline, so everything below is sized
+// relative to it and the zoom control only has to touch one property
+.app-doc-markdown {
+  padding: 0.75rem;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  word-break: normal;
+  // the panel owns its own width. This body used to grow to fit its widest
+  // child, which pushed the sidebar's edge out over the canvas and left the
+  // document visibly spilling outside the panel it belongs to.
+  max-width: 100%;
+  box-sizing: border-box;
+  // The body scrolls *vertically only*, and nothing inside it is ever allowed
+  // to be wider than the panel (see the wrapping rules below). Those two facts
+  // are the whole fix, and they are load-bearing for two separate bugs:
+  //
+  // 1. A body that can also scroll sideways is a body the browser will scroll
+  //    sideways on its own — after a click, focusing the copy button (or any
+  //    other control inside) drags the whole document somewhere else. That is
+  //    what made the viewer appear to scroll by itself once it was zoomed in.
+  // 2. An inner box that scrolls sideways hides it behind a Chromium overlay
+  //    scrollbar, so wide content simply looked cut off with no way to reach
+  //    the end. Wrapping is the only thing that is reliably visible.
+  //
+  // `overflow-x: hidden` stays purely as a backstop for anything a future
+  // stylesheet reintroduces; on its own it would only hide the overflow.
+  overflow-x: hidden;
+  overflow-y: auto;
+  // keep a wheel gesture that ends here from chaining to the page behind
+  overscroll-behavior: contain;
+
+  // Prose wraps. Code keeps its own line breaks *and* wraps any line too long
+  // for the panel — `pre-wrap` rather than `pre`, which is what turns an
+  // unreachable horizontal scrollbar into a second line you can read.
+  pre,
+  pre code {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  pre {
+    margin: 0.5rem 0;
+    border-radius: 0.35rem;
+    // `hidden` is a backstop only; nothing should overflow here any more. The
+    // per-block copy button is a *sibling* of this `pre` (see
+    // `wrapCodeBlock`), so clipping here does not hide it.
+    overflow: hidden;
+    max-width: 100%;
+
+    code {
+      display: block;
+      max-width: 100%;
+    }
+  }
+
+  // A real table laid out to the panel's width, with its cells wrapping. The
+  // previous `display: block` + `overflow-x: auto` scrolled sideways behind an
+  // invisible scrollbar, so wide columns were unreachable rather than readable.
+  table {
+    table-layout: fixed;
+    width: 100%;
+    max-width: 100%;
+
+    th,
+    td {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  // media in a document never exceeds the panel either
+  img,
+  video {
+    max-width: 100%;
+    height: auto;
+  }
+
+  // a long unbroken run — a URL, an identifier, a file path, a long inline
+  // code span — wraps rather than forcing a horizontal scrollbar
+  p,
+  li,
+  blockquote,
+  dd,
+  dt,
+  td,
+  th,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  code {
+    overflow-wrap: anywhere;
+  }
+
+  p {
+    margin: 0.5rem 0;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    margin: 0.75rem 0 0.35rem;
+    line-height: 1.25;
+  }
+
+  h1 {
+    font-size: 1.5em;
+  }
+
+  h2 {
+    font-size: 1.3em;
+  }
+
+  h3 {
+    font-size: 1.15em;
+  }
+
+  ul,
+  ol {
+    margin: 0.5rem 0;
+    padding-left: 1.4rem;
+  }
+
+  blockquote {
+    margin: 0.5rem 0;
+    padding: 0.15rem 0 0.15rem 0.6rem;
+    border-left: 3px solid var(--color-border);
+    color: var(--text-secondary-color);
+  }
+
+  a {
+    color: var(--color-primary);
+  }
+
+  img {
+    max-width: 100%;
+  }
+
+  hr {
+    border: 0;
+    border-top: 1px solid var(--color-border);
+  }
+
+  table {
+    margin: 0.5rem 0;
+    border-collapse: collapse;
+  }
+
+  th,
+  td {
+    padding: 0.2rem 0.45rem;
+    border: 1px solid var(--color-border);
+    text-align: left;
+  }
+
+  th {
+    background-color: var(--color-surface-low);
+    font-weight: 600;
+  }
+
+  :not(pre) > code {
+    padding: 0.05rem 0.25rem;
+    border-radius: 0.25rem;
+    background-color: var(--color-surface-low);
+    font-size: 0.9em;
+  }
+}
+
+/**
+ * A fenced block plus its own copy button, pinned to the top-left corner of
+ * the box. The extra `padding-top` on the `<pre>` reserves the strip the button
+ * sits in, so it never covers the first line of code.
+ *
+ * Declared after `.app-doc-markdown` on purpose: the `pre` rules there set the
+ * same properties at the same specificity, so source order is what decides.
+ */
+.app-doc-codeblock {
+  position: relative;
+  margin: 0.5rem 0;
+
+  pre {
+    margin: 0;
+    padding-top: 2.4rem;
+  }
+}
+
+.app-doc-copy-code {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  border: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.12);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  border-bottom-right-radius: 0.35rem;
+  border-top-left-radius: inherit;
+  background: rgba(255, 255, 255, 0.08);
+  color: #e6edf3;
+  font-family: inherit;
+  font-size: 0.625rem;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.16);
+  }
+}
+
+.app-doc-copy-code--copied {
+  background: rgba(45, 164, 78, 0.28);
+  color: #7ee2a8;
+}
+
+.app-doc-code--loading {
+  padding: 0.6rem;
+  color: var(--text-secondary-color);
+  white-space: pre-wrap;
+}
+
+.app-doc-note,
+.app-doc-fallback {
+  font-size: 0.6875rem;
+  color: var(--text-secondary-color);
+  line-height: 1.5;
+}
