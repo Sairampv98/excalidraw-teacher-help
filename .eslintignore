@@ -10,3 +10,10 @@ examples/**/public
 dev-dist
 coverage
 htr-sandbox
+
+# The TINS kit is a vendored third-party artifact: it is copied in verbatim
+# and its KIT-VERSION stamp is computed over the file list, so a formatter
+# must not touch it. Same for the kit's own task files and the agent briefs.
+.tins/kit
+tasks
+docs/tins-tasks
