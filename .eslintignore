@@ -11,6 +11,13 @@ dev-dist
 coverage
 htr-sandbox
 
+# Prettier is pointed at this file with --ignore-path, which REPLACES its
+# default .gitignore. So anything git ignores but this file does not is still
+# scanned. These are the ones that are large, generated, or not product source.
+.venv
+.worktrees
+node_modules
+
 # The TINS kit is a vendored third-party artifact: it is copied in verbatim
 # and its KIT-VERSION stamp is computed over the file list, so a formatter
 # must not touch it. Same for the kit's own task files, the session records
