@@ -195,6 +195,35 @@ export const throttleRAF = <T extends any[]>(fn: (...args: T) => void) => {
 };
 
 /**
+ * Every sample the device produced for this pointer event.
+ *
+ * Browsers coalesce high-frequency pointer events: one `pointermove` dispatch
+ * can carry several positions that the device reported between two frames.
+ * `getCoalescedEvents()` exposes the whole batch.
+ *
+ * This matters because a throttled handler (`throttleRAF`) runs once per
+ * animation frame and only ever sees the *last* event of that frame — every
+ * intermediate position is dropped. Recovering the batch is what keeps a
+ * free-draw stroke's point count tied to the device's sample count instead of
+ * to the frame count.
+ *
+ * Feature-detected: the method is missing in jsdom and in older browsers, in
+ * which case the event itself is the only sample there is.
+ */
+export const getPointerSamples = (
+  event: PointerEvent,
+): readonly PointerEvent[] => {
+  if (typeof event.getCoalescedEvents === "function") {
+    const samples = event.getCoalescedEvents();
+    // a browser that coalesced nothing may hand back an empty list; the
+    // event itself is always a sample
+    return samples.length ? samples : [event];
+  }
+
+  return [event];
+};
+
+/**
  * Exponential ease-out method
  *
  * @param {number} k - The value to be tweened.

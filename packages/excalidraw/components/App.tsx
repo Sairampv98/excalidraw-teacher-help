@@ -72,6 +72,7 @@ import {
   sceneCoordsToViewportCoords,
   tupleToCoors,
   viewportCoordsToSceneCoords,
+  getPointerSamples,
   wrapEvent,
   updateObject,
   updateActiveTool,
@@ -678,6 +679,48 @@ class App extends React.Component<AppProps, AppState> {
    */
   private animatedImageFileIds: ReadonlySet<string> =
     NO_ANIMATED_IMAGE_FILE_IDS;
+  /**
+   * Cache for `syncAnimatedImageFileIds()`. The scan is O(visible elements)
+   * and it used to run on every render — i.e. on every frame of a stroke.
+   * It only has to run again when the visible elements or the files change.
+   */
+  private animatedImageFileIdsCache: {
+    elements: readonly NonDeletedExcalidrawElement[];
+    files: BinaryFiles;
+    fileIds: ReadonlySet<string>;
+  } | null = null;
+  /**
+   * Cache for `getAnimatedImageElements()`. The overlay is not free to
+   * re-render: it hands a fresh `images` array to `<AnimatedImageOverlay>`
+   * on every render, so the overlay re-rendered on every frame of a stroke.
+   */
+  private animatedImageElementsCache: {
+    elements: readonly NonDeletedExcalidrawElement[];
+    files: BinaryFiles;
+    images: ExcalidrawImageElement[];
+  } | null = null;
+  /**
+   * The element set the embeddables were last scanned for. The scan only
+   * matters when elements are added or removed — an embeddable is validated
+   * exactly once (the status is keyed by element id and never reset) — so
+   * there is no reason to walk every element on every `componentDidUpdate`.
+   */
+  private scannedElements: readonly NonDeletedExcalidrawElement[] | null = null;
+  /**
+   * Running bounding box of the free-draw element being drawn, in the
+   * element's local coordinates.
+   *
+   * A free-draw element's origin is fixed at pointer-down and its points are
+   * local offsets, so the box only ever grows. Tracking it keeps the
+   * per-frame size computation O(1) instead of O(number of points).
+   */
+  private freeDrawBounds: {
+    elementId: ExcalidrawFreeDrawElement["id"];
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+  } | null = null;
   private iFrameRefs = new Map<ExcalidrawElement["id"], HTMLIFrameElement>();
   /**
    * Indicates whether the embeddable's url has been validated for rendering.
@@ -1543,10 +1586,26 @@ class App extends React.Component<AppProps, AppState> {
   };
 
   private updateEmbeddables = () => {
+    const elements = this.scene.getNonDeletedElements();
+
+    // The scan only matters when the *set* of elements changed:
+    //
+    // - an embeddable is validated exactly once, because the status is keyed
+    //   by element id and is never reset (see `updateEmbedValidationStatus`),
+    // - and the iframe refs are garbage-collected when an element goes away.
+    //
+    // Both are structural changes, which the scene signals by handing out a
+    // new element list. Walking every element on every `componentDidUpdate`
+    // — i.e. on every frame of a stroke — bought nothing.
+    if (elements === this.scannedElements) {
+      return;
+    }
+    this.scannedElements = elements;
+
     const iframeLikes = new Set<ExcalidrawIframeLikeElement["id"]>();
 
     let updated = false;
-    this.scene.getNonDeletedElements().filter((element) => {
+    elements.filter((element) => {
       if (isEmbeddableElement(element)) {
         iframeLikes.add(element.id);
         if (!this.embedsValidationStatus.has(element.id)) {
@@ -2390,9 +2449,8 @@ class App extends React.Component<AppProps, AppState> {
                             }}
                           />
                           <AnimatedImageOverlay
-                            images={getAnimatedImageElements(
+                            images={this.getAnimatedImageElements(
                               visibleElements,
-                              this.files,
                             )}
                             files={this.files}
                             elementsMap={allElementsMap}
@@ -3250,22 +3308,72 @@ class App extends React.Component<AppProps, AppState> {
    * contents actually differ, so a board with no GIF — or one whose GIFs have
    * not changed — hands the static canvas the same reference and its render
    * config keeps comparing equal.
+   *
+   * The scan itself is memoised on the visible elements and the files: both
+   * are stable references while nothing changes, so the loop does not run
+   * again on every render (i.e. on every frame of a stroke).
    */
   private syncAnimatedImageFileIds = (
     elements: readonly NonDeletedExcalidrawElement[],
   ) => {
+    const cached = this.animatedImageFileIdsCache;
+
+    if (cached && cached.elements === elements && cached.files === this.files) {
+      return cached.fileIds;
+    }
+
     const next = animatedImageFileIds(elements, this.files);
 
     if (
       next.size === this.animatedImageFileIds.size &&
       [...next].every((fileId) => this.animatedImageFileIds.has(fileId))
     ) {
+      this.animatedImageFileIdsCache = {
+        elements,
+        files: this.files,
+        fileIds: this.animatedImageFileIds,
+      };
+
       return this.animatedImageFileIds;
     }
 
     this.animatedImageFileIds = next.size ? next : NO_ANIMATED_IMAGE_FILE_IDS;
 
+    this.animatedImageFileIdsCache = {
+      elements,
+      files: this.files,
+      fileIds: this.animatedImageFileIds,
+    };
+
     return this.animatedImageFileIds;
+  };
+
+  /**
+   * The animated images of the visible elements, for the DOM overlay that
+   * plays them.
+   *
+   * Memoised on the visible elements and the files, so the overlay gets the
+   * same array reference — and therefore does not have to re-render — while
+   * nothing has changed.
+   */
+  private getAnimatedImageElements = (
+    elements: readonly NonDeletedExcalidrawElement[],
+  ) => {
+    const cached = this.animatedImageElementsCache;
+
+    if (cached && cached.elements === elements && cached.files === this.files) {
+      return cached.images;
+    }
+
+    const images = getAnimatedImageElements(elements, this.files);
+
+    this.animatedImageElementsCache = {
+      elements,
+      files: this.files,
+      images,
+    };
+
+    return images;
   };
 
   public componentWillUnmount() {
@@ -9331,6 +9439,40 @@ class App extends React.Component<AppProps, AppState> {
     }
   };
 
+  /**
+   * The running bounding box of the free-draw element being drawn.
+   *
+   * The box is seeded from the element's points the first time the element is
+   * seen and grows from there, so the per-frame cost does not depend on how
+   * many points the stroke already has. The values are the same ones
+   * `getSizeFromPoints()` would compute — the box is only tracked, never
+   * recomputed from the whole array.
+   */
+  private getFreeDrawBounds = (element: ExcalidrawFreeDrawElement) => {
+    let bounds = this.freeDrawBounds;
+
+    if (!bounds || bounds.elementId !== element.id) {
+      bounds = {
+        elementId: element.id,
+        minX: Infinity,
+        minY: Infinity,
+        maxX: -Infinity,
+        maxY: -Infinity,
+      };
+
+      for (const [x, y] of element.points) {
+        bounds.minX = Math.min(bounds.minX, x);
+        bounds.minY = Math.min(bounds.minY, y);
+        bounds.maxX = Math.max(bounds.maxX, x);
+        bounds.maxY = Math.max(bounds.maxY, y);
+      }
+
+      this.freeDrawBounds = bounds;
+    }
+
+    return bounds;
+  };
+
   private handleFreeDrawElementOnPointerDown = (
     event: React.PointerEvent<HTMLElement>,
     elementType: ExcalidrawFreeDrawElement["type"],
@@ -10693,27 +10835,63 @@ class App extends React.Component<AppProps, AppState> {
 
         if (newElement.type === "freedraw") {
           const points = newElement.points;
-          const dx = pointerCoords.x - newElement.x;
-          const dy = pointerCoords.y - newElement.y;
 
-          const lastPoint = points.length > 0 && points[points.length - 1];
-          const discardPoint =
-            lastPoint && lastPoint[0] === dx && lastPoint[1] === dy;
+          // The browser coalesces the positions the device reported between
+          // two frames into a single event, and the throttle keeps only the
+          // last event of the frame. Without recovering the batch, every
+          // intermediate position is lost and the stroke ends up with one
+          // point per *frame* instead of one point per *sample*.
+          const samples = getPointerSamples(event);
 
-          if (!discardPoint) {
-            const pressures = newElement.simulatePressure
-              ? newElement.pressures
-              : [...newElement.pressures, event.pressure];
+          const bounds = this.getFreeDrawBounds(newElement);
 
+          let nextPoints = points;
+          let nextPressures = newElement.pressures;
+
+          for (const sample of samples) {
+            const sampleCoords = viewportCoordsToSceneCoords(
+              sample,
+              this.state,
+            );
+            const dx = sampleCoords.x - newElement.x;
+            const dy = sampleCoords.y - newElement.y;
+
+            const lastPoint =
+              nextPoints.length > 0 && nextPoints[nextPoints.length - 1];
+            const discardPoint =
+              lastPoint && lastPoint[0] === dx && lastPoint[1] === dy;
+
+            if (discardPoint) {
+              continue;
+            }
+
+            nextPoints = [...nextPoints, pointFrom<LocalPoint>(dx, dy)];
+
+            if (!newElement.simulatePressure) {
+              nextPressures = [...nextPressures, sample.pressure];
+            }
+
+            bounds.minX = Math.min(bounds.minX, dx);
+            bounds.minY = Math.min(bounds.minY, dy);
+            bounds.maxX = Math.max(bounds.maxX, dx);
+            bounds.maxY = Math.max(bounds.maxY, dy);
+          }
+
+          if (nextPoints.length !== points.length) {
             this.scene.mutateElement(
               newElement,
               {
-                points: [...points, pointFrom<LocalPoint>(dx, dy)],
-                pressures,
+                points: nextPoints,
+                pressures: nextPressures,
+                // the size is tracked incrementally, so the (growing) points
+                // array does not have to be walked again on every frame
+                width: bounds.maxX - bounds.minX,
+                height: bounds.maxY - bounds.minY,
               },
               {
                 informMutation: false,
                 isDragging: false,
+                skipSizeFromPoints: true,
               },
             );
 
@@ -11593,9 +11771,13 @@ class App extends React.Component<AppProps, AppState> {
             scenePointer.x,
             scenePointer.y,
           );
-          hitElements.forEach((hitElement) =>
-            this.elementsPendingErasure.add(hitElement.id),
-          );
+          // replaced, not mutated in place: the set is handed to the
+          // `<AnimatedImageOverlay>` as a prop, and a mutated set would keep
+          // the same identity while its contents changed
+          this.elementsPendingErasure = new Set([
+            ...this.elementsPendingErasure,
+            ...hitElements.map((hitElement) => hitElement.id),
+          ]);
         }
         this.eraseElements();
         return;

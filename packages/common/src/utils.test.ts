@@ -6,7 +6,7 @@ import {
 import { vi } from "vitest";
 
 // Import directly to avoid the @excalidraw/common throttleRAF mock from setupTests.ts.
-import { throttleRAF } from "./utils";
+import { getPointerSamples, throttleRAF } from "./utils";
 
 type RafCallback = FrameRequestCallback;
 
@@ -83,6 +83,44 @@ describe("@excalidraw/common/utils", () => {
     it("should return undefined if no mapped element is found", () => {
       expect(mapFind([1, 2], () => undefined)).toBe(undefined);
       expect(mapFind([1, 2], () => null)).toBe(undefined);
+    });
+  });
+
+  describe("getPointerSamples()", () => {
+    const makeSample = (x: number, y: number) =>
+      ({ clientX: x, clientY: y, pressure: 0.25 } as unknown as PointerEvent);
+
+    it("AC-13 returns every coalesced sample, not only the last one", () => {
+      const samples = [
+        makeSample(1, 1),
+        makeSample(2, 2),
+        makeSample(3, 3),
+        makeSample(4, 4),
+      ];
+
+      const event = {
+        clientX: 4,
+        clientY: 4,
+        getCoalescedEvents: () => samples,
+      } as unknown as PointerEvent;
+
+      const result = getPointerSamples(event);
+
+      expect(result).toHaveLength(samples.length);
+      expect([...result]).toEqual(samples);
+    });
+
+    it("AC-13 falls back to the single event when getCoalescedEvents is absent", () => {
+      const event = { clientX: 7, clientY: 9 } as unknown as PointerEvent;
+
+      expect(
+        typeof (event as { getCoalescedEvents?: unknown }).getCoalescedEvents,
+      ).toBe("undefined");
+
+      const result = getPointerSamples(event);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toBe(event);
     });
   });
 

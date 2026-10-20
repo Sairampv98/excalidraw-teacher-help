@@ -103,6 +103,34 @@ const normalizeDialogSnapshot = (dialog: Element) => {
   return dialogClone.outerHTML;
 };
 
+/**
+ * Wait until the dialog has settled on a *parsed* diagram.
+ *
+ * The dialog parses the editor's content as soon as it mounts, and the editor
+ * starts EMPTY before the example text is set. The mocked parser only accepts
+ * a definition whose first line is `flowchart TD`, so the empty first parse
+ * rejects and the dialog briefly shows "Invalid mermaid definition" before
+ * recovering when the example arrives.
+ *
+ * The old test only waited for a `canvas` to exist - but a canvas is rendered
+ * in the error state too, just with the container marked `invisible`. So the
+ * snapshot was taken at whichever state the dialog happened to be in, and the
+ * test failed intermittently under load. Waiting for the state each test
+ * actually asserts makes it deterministic.
+ */
+const waitForMermaidParsed = async (dialog: Element) => {
+  await waitFor(() => {
+    expect(
+      dialog.querySelector('[data-testid="ttd-dialog-output-error"]'),
+    ).toBeNull();
+    expect(
+      dialog
+        .querySelector(".ttd-dialog-output-canvas-container")
+        ?.classList.contains("invisible"),
+    ).toBe(false);
+  });
+};
+
 describe("Test <MermaidToExcalidraw/>", () => {
   beforeEach(async () => {
     await render(
@@ -119,6 +147,7 @@ describe("Test <MermaidToExcalidraw/>", () => {
   it("should open mermaid popup when active tool is mermaid", async () => {
     const dialog = document.querySelector(".ttd-dialog")!;
     await waitFor(() => expect(dialog.querySelector("canvas")).not.toBeNull());
+    await waitForMermaidParsed(dialog);
     expect(normalizeDialogSnapshot(dialog)).toMatchSnapshot();
   });
 
@@ -164,6 +193,7 @@ describe("Test <MermaidToExcalidraw/>", () => {
     const selector = ".ttd-dialog-input";
     let editor = await getTextEditor({ selector, waitForEditor: true });
 
+    await waitForMermaidParsed(dialog);
     expect(dialog.querySelector('[data-testid="mermaid-error"]')).toBeNull();
 
     expect(editor.textContent).toMatchSnapshot();

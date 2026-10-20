@@ -14,10 +14,17 @@
  * user is on.
  */
 
-import { MAX_ZOOM, sceneCoordsToViewportCoords } from "@excalidraw/common";
+import {
+  MAX_ZOOM,
+  sceneCoordsToViewportCoords,
+  viewportCoordsToSceneCoords,
+} from "@excalidraw/common";
 import { getCommonBounds, newElementWith } from "@excalidraw/element";
 
-import type { ExcalidrawElement } from "@excalidraw/element/types";
+import type {
+  ExcalidrawElement,
+  ExcalidrawFreeDrawElement,
+} from "@excalidraw/element/types";
 
 import type { AppState, ToolType } from "@excalidraw/excalidraw/types";
 
@@ -40,6 +47,7 @@ import { DEFAULT_PAGE_ID, PAGE_HEIGHT, PAGE_WIDTH } from "../types";
 
 import { render, fireEvent, act, waitFor, GlobalTestState } from "./test-utils";
 import { API } from "./helpers/api";
+import { UI } from "./helpers/ui";
 
 import type { NormalizedZoomValue, PageRect } from "../types";
 
@@ -623,5 +631,72 @@ describe("pages — document model", () => {
     expect(withoutPages.appState.pages).toHaveLength(1);
     expect(withoutPages.appState.pages[0].id).toBe(DEFAULT_PAGE_ID);
     expect(withoutPages.appState.currentPageId).toBe(DEFAULT_PAGE_ID);
+  });
+});
+
+describe("free-draw sampling", () => {
+  it("AC-14 keeps every coalesced sample of a free-draw stroke", async () => {
+    const { container } = await render(<Excalidraw />);
+    h.state.width = 1000;
+    h.state.height = 1000;
+
+    const canvas = container.querySelector("canvas.interactive")!;
+
+    UI.clickTool("freedraw");
+
+    fireEvent.pointerDown(canvas, { clientX: 20, clientY: 20 });
+
+    // the browser coalesces the positions the device reported between two
+    // frames into a single `pointermove` event; jsdom has no
+    // `PointerEvent`, so the event is built here and the coalesced batch is
+    // attached to it by hand
+    const samples = [
+      { clientX: 30, clientY: 25, pressure: 0.25 },
+      { clientX: 40, clientY: 30, pressure: 0.25 },
+      { clientX: 50, clientY: 35, pressure: 0.25 },
+      { clientX: 60, clientY: 40, pressure: 0.25 },
+      { clientX: 70, clientY: 45, pressure: 0.25 },
+    ];
+
+    const moveEvent = new MouseEvent("pointermove", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 70,
+      clientY: 45,
+    });
+    (moveEvent as unknown as PointerEvent).getCoalescedEvents = () =>
+      samples as unknown as PointerEvent[];
+
+    fireEvent(canvas, moveEvent);
+
+    const element = h.elements[
+      h.elements.length - 1
+    ] as ExcalidrawFreeDrawElement;
+
+    expect(element.type).toBe("freedraw");
+
+    // the stroke's initial point plus one point per coalesced sample — not
+    // one point per frame
+    expect(element.points.length).toBe(samples.length + 1);
+
+    // every sample made it in, in order, in the element's local coordinates
+    samples.forEach((sample, index) => {
+      const sceneCoords = viewportCoordsToSceneCoords(sample, h.state);
+      expect(element.points[index + 1]).toEqual([
+        sceneCoords.x - element.x,
+        sceneCoords.y - element.y,
+      ]);
+    });
+
+    // the pressures stay index-aligned with the points
+    expect(element.pressures.length).toBe(element.points.length);
+
+    fireEvent.pointerUp(canvas, { clientX: 70, clientY: 45 });
+
+    // the pointer-up contributes the final point of the stroke
+    expect(
+      (h.elements[h.elements.length - 1] as ExcalidrawFreeDrawElement).points
+        .length,
+    ).toBe(samples.length + 2);
   });
 });

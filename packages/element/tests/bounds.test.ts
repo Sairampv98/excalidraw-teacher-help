@@ -1,10 +1,14 @@
 import { pointFrom } from "@excalidraw/math";
 
-import { arrayToMap, ROUNDNESS } from "@excalidraw/common";
+import { arrayToMap, getSizeFromPoints, ROUNDNESS } from "@excalidraw/common";
 
 import type { LocalPoint } from "@excalidraw/math";
 
-import { getElementAbsoluteCoords, getElementBounds } from "../src/bounds";
+import {
+  getBoundsFromPoints,
+  getElementAbsoluteCoords,
+  getElementBounds,
+} from "../src/bounds";
 
 import type { ExcalidrawElement, ExcalidrawLinearElement } from "../src/types";
 
@@ -139,5 +143,48 @@ describe("getElementBounds", () => {
     expect(y1).toEqual(185.24770129343722);
     expect(x2).toEqual(481.4815539037601);
     expect(y2).toEqual(319.8162855827246);
+  });
+});
+
+describe("getSizeFromPoints", () => {
+  it("AC-15 returns the same bounds as before, in a single pass", () => {
+    const cases: LocalPoint[][] = [
+      [],
+      [pointFrom<LocalPoint>(0, 0)],
+      [pointFrom<LocalPoint>(3, 7)],
+      [pointFrom<LocalPoint>(-5, 2), pointFrom<LocalPoint>(4, -9)],
+      [pointFrom<LocalPoint>(1, 1), pointFrom<LocalPoint>(1, 1)],
+      [
+        pointFrom<LocalPoint>(10, 20),
+        pointFrom<LocalPoint>(-30, 40),
+        pointFrom<LocalPoint>(5, -60),
+      ],
+    ];
+
+    for (const points of cases) {
+      // the oracle: the library's own single-pass bounds function
+      const [minX, minY, maxX, maxY] = getBoundsFromPoints(points);
+
+      expect(getSizeFromPoints(points)).toEqual({
+        width: maxX - minX,
+        height: maxY - minY,
+      });
+    }
+  });
+
+  it("AC-15 sizes a long stroke without spreading the points into Math.max()", () => {
+    // the previous implementation spread the coordinates into
+    // `Math.max()`/`Math.min()`, which blows the argument limit on a stroke
+    // with this many points
+    const points: LocalPoint[] = [];
+
+    for (let i = 0; i < 200000; i++) {
+      points.push(pointFrom<LocalPoint>(i, -i));
+    }
+
+    expect(getSizeFromPoints(points)).toEqual({
+      width: 199999,
+      height: 199999,
+    });
   });
 });

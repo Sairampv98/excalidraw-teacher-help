@@ -3,7 +3,7 @@ id: wave2-draw-performance
 paths: packages/common,packages/element,packages/excalidraw,SPEC.md
 read: SPEC.md,docs/superpowers/specs/2026-10-20-draw-performance-design.md,AGENTS.md,HANDOVER.md
 base: main
-status: open
+status: merged
 ---
 
 Fix item 3: the pen tool produces broken, segmented curves instead of smooth strokes.

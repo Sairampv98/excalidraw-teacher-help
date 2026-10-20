@@ -176,7 +176,7 @@ type AnimatedImageOverlayProps = {
  * properly would need one canvas layer per animated image. In exchange the GIF
  * actually moves.
  */
-export const AnimatedImageOverlay = ({
+const AnimatedImageOverlayImpl = ({
   images,
   files,
   elementsMap,
@@ -226,3 +226,33 @@ export const AnimatedImageOverlay = ({
     </div>
   );
 };
+
+/**
+ * The overlay re-renders its whole `<img>` tree whenever it is rendered, so
+ * it must not be rendered when nothing it shows has changed. The camera and
+ * the viewport are rebuilt on every app state change, so they are compared by
+ * value rather than by reference.
+ */
+const areEqual = (
+  prev: AnimatedImageOverlayProps,
+  next: AnimatedImageOverlayProps,
+) =>
+  prev.images === next.images &&
+  prev.files === next.files &&
+  prev.elementsMap === next.elementsMap &&
+  prev.camera.zoom.value === next.camera.zoom.value &&
+  prev.camera.scrollX === next.camera.scrollX &&
+  prev.camera.scrollY === next.camera.scrollY &&
+  prev.viewport.width === next.viewport.width &&
+  prev.viewport.height === next.viewport.height &&
+  prev.elementsPendingErasure.size === next.elementsPendingErasure.size &&
+  [...prev.elementsPendingErasure].every((id) =>
+    next.elementsPendingErasure.has(id),
+  ) &&
+  prev.pendingFlowchartNodes === next.pendingFlowchartNodes &&
+  prev.croppingElementId === next.croppingElementId;
+
+export const AnimatedImageOverlay = React.memo(
+  AnimatedImageOverlayImpl,
+  areEqual,
+);

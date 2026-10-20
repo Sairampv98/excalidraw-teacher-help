@@ -42,6 +42,14 @@ export const mutateElement = <TElement extends Mutable<ExcalidrawElement>>(
     isDragging?: boolean;
     isBindingEnabled?: boolean;
     isMidpointSnappingEnabled?: boolean;
+    /**
+     * Skip the `getSizeFromPoints()` call.
+     *
+     * Only safe when `updates` carries an explicit `width`/`height`: the
+     * caller then already knows the size, and recomputing it would walk the
+     * whole (growing) points array on every frame.
+     */
+    skipSizeFromPoints?: boolean;
   },
 ) => {
   let didChange = false;
@@ -70,7 +78,7 @@ export const mutateElement = <TElement extends Mutable<ExcalidrawElement>>(
         options,
       ),
     };
-  } else if (typeof points !== "undefined") {
+  } else if (typeof points !== "undefined" && !options?.skipSizeFromPoints) {
     updates = { ...getSizeFromPoints(points), ...updates };
   }
 
