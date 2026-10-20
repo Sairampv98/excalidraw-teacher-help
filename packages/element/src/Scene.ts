@@ -416,6 +416,8 @@ export class Scene {
       isDragging: boolean;
       isBindingEnabled?: boolean;
       isMidpointSnappingEnabled?: boolean;
+      /** see `mutateElement()` — only safe with an explicit width/height */
+      skipSizeFromPoints?: boolean;
     } = {
       informMutation: true,
       isDragging: false,

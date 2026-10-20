@@ -6,14 +6,34 @@ import {
 
 import type { NullableGridSize } from "@excalidraw/excalidraw/types";
 
+/**
+ * The size of the box that bounds `points`.
+ *
+ * Single pass, in the spirit of `getBoundsFromPoints()` (`@excalidraw/element`):
+ * the previous implementation built two intermediate arrays and spread them
+ * into `Math.max()`/`Math.min()`, which is two allocations plus four spreads
+ * per call — and a spread over a very long array blows the argument limit.
+ * The result is bit-for-bit the same as before, including the `-Infinity`
+ * an empty array produces.
+ */
 export const getSizeFromPoints = (
   points: readonly (GlobalPoint | LocalPoint)[],
 ) => {
-  const xs = points.map((point) => point[0]);
-  const ys = points.map((point) => point[1]);
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const [x, y] of points) {
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  }
+
   return {
-    width: Math.max(...xs) - Math.min(...xs),
-    height: Math.max(...ys) - Math.min(...ys),
+    width: maxX - minX,
+    height: maxY - minY,
   };
 };
 
