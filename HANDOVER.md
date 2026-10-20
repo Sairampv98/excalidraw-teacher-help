@@ -148,14 +148,20 @@ Please file an issue ( https://github.com/jsx-eslint/jsx-ast-utils/issues/new )
 
 That is a **plugin limitation being printed, not a lint failure**. The gate still exits 0. Ignore it.
 
-### Known pre-existing flakes
+### The "known flakes" were a misdiagnosis — fixed 2026-10-20
 
-Do not chase these; they fail under parallel load and pass in isolation.
+> **Corrected.** An earlier version of this section said these two files were flaky under parallel load and that you should not chase them. **That was wrong**, and chasing them is exactly what found the real fault. Both were the _same_ fault, and it was not a flake.
 
-- `packages/excalidraw/tests/MermaidToExcalidraw.test.tsx` — _a different test in this file fails each run_, which is the flake signature, not a regression.
-- `packages/excalidraw/tests/scene/export.test.ts`
+`vitest.config.mts` set **no `exclude`**, so Vitest's defaults applied — and those defaults do not cover this repository's worktrees. When the suite ran from the repository root with a worktree present, every test file inside the worktree was collected a **second time**. The duplicate run resolved different paths (the worktree segment leaked into snapshot values, e.g. the exported font URLs), so:
 
-There is also one **obsolete snapshot** left over from earlier work: `exportToSvg > with a CJK font 2`. It is debris, not a failure.
+- `packages/excalidraw/tests/scene/export.test.ts` failed with a snapshot mismatch that named the worktree directory;
+- `packages/excalidraw/tests/MermaidToExcalidraw.test.tsx` failed with _a different test in the file each run_ — which is the signature of a file being collected and asserted twice, not of a race.
+
+**Fix:** `vitest.config.mts` now sets `exclude` explicitly, covering `.worktrees`, `.tins` and `htr-sandbox` in addition to Vitest's defaults (setting `exclude` replaces the defaults, so they are restated). `export.test.ts` now collects once — 15 tests, green — instead of twice.
+
+There is still one **obsolete snapshot** left over from earlier work: `exportToSvg > with a CJK font 2`. It is debris, not a failure.
+
+If you see a test fail with a path in its name that contains `.worktrees`, you are looking at a collection problem, not a code problem.
 
 ---
 
