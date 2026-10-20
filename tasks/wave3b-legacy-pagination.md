@@ -1,6 +1,6 @@
 ---
 id: wave3b-legacy-pagination
-paths: packages/excalidraw,SPEC.md
+paths: packages/excalidraw,SPEC.md,vitest.config.mts
 read: SPEC.md,packages/excalidraw/scene/pages.ts,packages/excalidraw/data/blob.ts,AGENTS.md,HANDOVER.md
 base: main
 status: open
