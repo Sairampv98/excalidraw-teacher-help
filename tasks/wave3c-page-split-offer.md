@@ -1,6 +1,6 @@
 ---
 id: wave3c-page-split-offer
-paths: packages/excalidraw,SPEC.md
+paths: packages/excalidraw,SPEC.md,docs/superpowers/specs
 read: SPEC.md,packages/excalidraw/scene/pages.ts,packages/excalidraw/data/blob.ts,packages/excalidraw/components/OverwriteConfirm/OverwriteConfirmState.ts,packages/excalidraw/components/Modal.tsx,packages/excalidraw/components/LayerUI.tsx,packages/excalidraw/tests/pages.test.tsx,docs/superpowers/specs/2026-10-21-page-split-offer-design.md,docs/tins-tasks/wave3c-page-split-offer-brief.md,AGENTS.md,HANDOVER.md
 base: main
 status: open
