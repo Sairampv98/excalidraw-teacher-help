@@ -705,6 +705,271 @@ export const growPagesToFitContent = (
     return { ...page, width, height };
   });
 
+/** the id the page at `index` (0-based) gets in a tiled document */
+const tiledPageId = (index: number): string => `page-${index + 1}`;
+
+/**
+ * Tiles the content of a scene across pages.
+ *
+ * A vanilla `.excalidraw` file has no pages: every element is stamped onto
+ * the first page, so a board that sprawls over several pages of *area* ends up
+ * as one enormous page. Its content is then mostly **outside** the page rect
+ * the camera is clamped to — unreachable — and the renderer draws every
+ * element of the board on every frame.
+ *
+ * This function turns such a scene into a paged document: the content is
+ * measured, re-anchored onto the scene origin, cut into a grid of page-sized
+ * cells and laid out again — one cell per page.
+ *
+ * ## What it does
+ *
+ * 1. **Measure** the bounding box of the *content* — the elements that are
+ *    neither deleted nor floating.
+ * 2. **Re-anchor**: the content is translated by `(-minX, -minY)`, so its
+ *    top-left lands on the scene origin. This is required: the first page's
+ *    rect always starts at x = 0, so content at a negative coordinate could
+ *    never be inside a page.
+ * 3. **Tile**: the content is cut into a grid of `pageWidth` x `pageHeight`
+ *    cells — `col = floor(x / pageWidth)`, `row = floor(y / pageHeight)` — and
+ *    the cells that hold no content are dropped.
+ * 4. **Size**: a page is as big as the content of its own cell needs: its
+ *    size is the bounding box of that content, measured in **cell-relative**
+ *    coordinates, with a minimum of `PAGE_WIDTH` x `PAGE_HEIGHT`. An element
+ *    that straddles a cell border therefore still fits — wholly — on its
+ *    page, instead of hanging over the page's edge where the camera cannot
+ *    reach it.
+ * 5. **Place**: the surviving cells become the pages, in **row major** order
+ *    (the top-left cell first, then left to right, then down), so the board
+ *    reads in reading order. The pages are laid out in the **cumulative**
+ *    order the library uses ({@link getPageRectAtIndex}): the pages have
+ *    differing widths, so they do not share a constant pitch, and the content
+ *    of a cell keeps its position *within* that cell.
+ *
+ * The cell of an element is decided by the element's **origin** — the same
+ * `x` / `y` the renderer places it by. A free-draw stroke's origin is
+ * *inside* the stroke rather than at its top-left corner, so a stroke can
+ * reach left of / above the cell it was assigned to, and a page — which can
+ * only grow to the right and downwards (D-5) — cannot contain it there. The
+ * content of such a cell is therefore pushed into its page by as much as it
+ * must be, and by no more; for everything else the push is zero.
+ *
+ * ## What it does not do
+ *
+ * - It does not **scale** anything: an element keeps its size, type and style.
+ * - It does not move a **floating** element: a floating element is not owned
+ *   by a page, so it is left exactly where it is.
+ * - It does not **tile** a **deleted** element: a deleted element is a
+ *   tombstone, not content, so it is re-anchored with the rest (it keeps its
+ *   place relative to its neighbours) but it is never given a page of its own.
+ * - It does not mutate its input: every element it moves becomes a new
+ *   object, and the elements it leaves alone are handed back untouched.
+ *
+ * ## "Already fits in one page"
+ *
+ * The content *fits* when its bounding box lies inside the **first** page's
+ * rect — `minX >= 0 && minY >= 0 && maxX <= pageWidth && maxY <= pageHeight`.
+ * That is a position test, not only a size test: a small scene sitting at
+ * x = 5000 does not fit (it would be outside the page rect, and therefore
+ * unreachable), so it is re-anchored onto the first page. An empty scene fits
+ * as well.
+ *
+ * When the content fits, the function is a **no-op**: the elements come back
+ * unchanged (the very same objects) and the page list is the single default
+ * page.
+ *
+ * ## The page geometry
+ *
+ * The page size defaults to the library's page size (`PAGE_WIDTH` x
+ * `PAGE_HEIGHT`), which is also the minimum: a page may only grow (D-1). The
+ * gap between two page rects belongs to the **page layout**, and the layout
+ * is the library's own cumulative one ({@link getPageRectAtIndex}), whose gap
+ * is the fixed `PAGE_SPACING` — a `spacing` of its own is therefore not
+ * supported, and asking for one is an error rather than a silent no-op.
+ */
+export const paginateContentIntoPages = (
+  elements: readonly ExcalidrawElement[],
+  options?: {
+    pageWidth?: number;
+    pageHeight?: number;
+    spacing?: number;
+  },
+): { elements: ExcalidrawElement[]; pages: ExcalidrawPage[] } => {
+  // a page may only grow (D-1), so a smaller request is raised to the
+  // library's minimum
+  const pageWidth = Math.max(options?.pageWidth ?? PAGE_WIDTH, PAGE_WIDTH);
+  const pageHeight = Math.max(options?.pageHeight ?? PAGE_HEIGHT, PAGE_HEIGHT);
+
+  // the gap between two page rects belongs to the page layout, and the
+  // layout is the library's own cumulative one — its gap is fixed
+  const spacing = options?.spacing ?? PAGE_SPACING;
+
+  if (spacing !== PAGE_SPACING) {
+    throw new Error(
+      `paginateContentIntoPages: the gap between two page rects is fixed at PAGE_SPACING (${PAGE_SPACING}) — the pages are laid out by the library's own cumulative layout, so a custom spacing is not supported.`,
+    );
+  }
+
+  /** the content: the elements a page owns — neither deleted nor floating */
+  const content = elements.filter(
+    (element) => !element.isDeleted && !element.floating,
+  );
+
+  /** the document as it is when there is nothing to tile */
+  const singlePage = (): {
+    elements: ExcalidrawElement[];
+    pages: ExcalidrawPage[];
+  } => ({
+    elements: [...elements],
+    pages: [getDefaultPage()],
+  });
+
+  if (!content.length) {
+    return singlePage();
+  }
+
+  const [minX, minY, maxX, maxY] = getCommonBounds(content);
+
+  // the content already lies inside the first page's rect: there is nothing
+  // to tile
+  if (minX >= 0 && minY >= 0 && maxX <= pageWidth && maxY <= pageHeight) {
+    return singlePage();
+  }
+
+  // the anchor: the content's top-left lands on the scene origin
+  const dx = -minX;
+  const dy = -minY;
+
+  /** the cell a re-anchored position falls into */
+  const cellOf = (x: number, y: number) => ({
+    col: Math.floor(x / pageWidth),
+    row: Math.floor(y / pageHeight),
+  });
+
+  const cellKey = (col: number, row: number) => `${row}:${col}`;
+
+  // the cells that hold content, and the elements in them
+  const cells = new Map<
+    string,
+    { col: number; row: number; elements: ExcalidrawElement[] }
+  >();
+
+  for (const element of content) {
+    const { col, row } = cellOf(element.x + dx, element.y + dy);
+    const key = cellKey(col, row);
+    const cell = cells.get(key);
+
+    if (cell) {
+      cell.elements.push(element);
+    } else {
+      cells.set(key, { col, row, elements: [element] });
+    }
+  }
+
+  // row major: the top-left cell first, then left to right, then down
+  const ordered = [...cells.values()].sort(
+    (a, b) => a.row - b.row || a.col - b.col,
+  );
+
+  /**
+   * The page that holds a cell, and how much the cell's content had to be
+   * pushed into it.
+   *
+   * The size of the page is the bounding box of the cell's own elements,
+   * measured in **cell-relative** coordinates — the position the element has
+   * inside its cell. The cell-relative box does not depend on the page
+   * layout, so the sizing cannot feed back into the placement: the sizes are
+   * settled first, and the origins follow from them.
+   *
+   * A page grows to the right and downwards only — its origin is derived from
+   * the layout and is not stored (D-5). A free-draw stroke's origin is
+   * *inside* the stroke rather than at its top-left corner, so a stroke can
+   * reach left of / above the cell it was assigned to. The cell's content is
+   * therefore pushed into its page by as much as it must be, and by no more:
+   * the shift is the negative part of the cell's bounding box, and it is zero
+   * for the common case (a rectangle, or a stroke that stays inside its
+   * cell).
+   */
+  const sized = ordered.map((cell, index) => {
+    const relative = cell.elements.map((element) => ({
+      ...element,
+      x: element.x + dx - cell.col * pageWidth,
+      y: element.y + dy - cell.row * pageHeight,
+    }));
+
+    const [minX, minY, maxX, maxY] = getCommonBounds(relative);
+
+    const shiftX = Math.min(0, minX);
+    const shiftY = Math.min(0, minY);
+
+    return {
+      shiftX,
+      shiftY,
+      page: {
+        id: tiledPageId(index),
+        name: `Page ${index + 1}`,
+        width: Math.max(pageWidth, maxX - shiftX),
+        height: Math.max(pageHeight, maxY - shiftY),
+      } as ExcalidrawPage,
+    };
+  });
+
+  const pages: ExcalidrawPage[] = sized.map((entry) => entry.page);
+
+  // the page origins: the library's own cumulative layout. The pages have
+  // differing widths, so the pitch is not a constant.
+  const pageRects = pages.map((_, index) => getPageRectAtIndex(pages, index));
+
+  const pageIndexByCell = new Map<string, number>();
+
+  ordered.forEach((cell, index) => {
+    pageIndexByCell.set(cellKey(cell.col, cell.row), index);
+  });
+
+  const nextElements = elements.map((element) => {
+    if (element.floating) {
+      // a floating element is not owned by its page: it is left exactly where
+      // it is
+      return element;
+    }
+
+    const x = element.x + dx;
+    const y = element.y + dy;
+
+    if (element.isDeleted) {
+      // a deleted element is not content: it is re-anchored with the rest (so
+      // it stays where it was relative to its neighbours) but it is never
+      // tiled onto a page
+      return {
+        ...element,
+        x,
+        y,
+        version: element.version + 1,
+        versionNonce: randomInteger(),
+      };
+    }
+
+    const { col, row } = cellOf(x, y);
+    const pageIndex = pageIndexByCell.get(cellKey(col, row))!;
+    const { shiftX, shiftY } = sized[pageIndex];
+    const rect = pageRects[pageIndex];
+
+    return {
+      ...element,
+      // the element keeps its position within its cell, and the cell is
+      // placed on its page
+      x: rect.x + (x - col * pageWidth) - shiftX,
+      y: rect.y + (y - row * pageHeight) - shiftY,
+      pageId: pages[pageIndex].id,
+      // the geometry changed, so this is a proper element delta for the
+      // history and the collab stream
+      version: element.version + 1,
+      versionNonce: randomInteger(),
+    };
+  });
+
+  return { elements: nextElements, pages };
+};
+
 /**
  * The rect the camera is clamped to: the page rect, widened by the bounding
  * box of the page's floating elements.

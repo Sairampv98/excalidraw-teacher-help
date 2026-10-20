@@ -3,7 +3,7 @@ id: wave3b-legacy-pagination
 paths: packages/excalidraw,SPEC.md,vitest.config.mts
 read: SPEC.md,packages/excalidraw/scene/pages.ts,packages/excalidraw/data/blob.ts,AGENTS.md,HANDOVER.md
 base: main
-status: open
+status: merged
 ---
 
 Library half of the legacy-file split: turn a vanilla file whose content sprawls

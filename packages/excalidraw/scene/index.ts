@@ -43,5 +43,6 @@ export {
   insertPageAfter,
   growPagesToFitContent,
   getPageClampRect,
+  paginateContentIntoPages,
 } from "./pages";
 export type { PageRect } from "../types";
