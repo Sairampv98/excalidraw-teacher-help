@@ -19,6 +19,8 @@ export {
 } from "./normalize";
 export {
   getPageRectByIndex,
+  getPageRectAtIndex,
+  getPageRect,
   getPageIndex,
   getCurrentPageRect,
   getFitPageZoom,
@@ -31,5 +33,14 @@ export {
   getPageViewportWidth,
   MIN_PAGE_VIEWPORT_WIDTH,
   getDefaultPage,
+  normalizePage,
+  getPageSize,
+  growPage,
+  shrinkPage,
+  scalePageContent,
+  deletePage,
+  deletePageElements,
+  growPagesToFitContent,
+  getPageClampRect,
 } from "./pages";
 export type { PageRect } from "../types";

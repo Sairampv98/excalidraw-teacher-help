@@ -1,21 +1,47 @@
-import { MIN_ZOOM } from "@excalidraw/common";
+import { MIN_ZOOM, randomInteger } from "@excalidraw/common";
 import { clamp } from "@excalidraw/math";
+
+import {
+  getCommonBounds,
+  isFreeDrawElement,
+  isLinearElement,
+} from "@excalidraw/element";
+
+import type { LocalPoint } from "@excalidraw/math";
 
 import type {
   ExcalidrawElement,
   OrderedExcalidrawElement,
 } from "@excalidraw/element/types";
 
-import { DEFAULT_PAGE_ID, PAGE_GAP, PAGE_HEIGHT, PAGE_WIDTH } from "../types";
+import {
+  CONTENT_SCALE_STEP,
+  DEFAULT_PAGE_ID,
+  PAGE_GAP,
+  PAGE_HEIGHT,
+  PAGE_SIZE_STEP,
+  PAGE_SPACING,
+  PAGE_WIDTH,
+} from "../types";
 
-import type { ExcalidrawPage, NormalizedZoomValue, PageRect } from "../types";
+import type {
+  ExcalidrawPage,
+  NormalizedZoomValue,
+  PageRect,
+  ResolvedExcalidrawPage,
+} from "../types";
 
 /**
  * Pages system.
  *
- * A page is a fixed-resolution rect laid out left-to-right in scene space:
+ * A page is a rect laid out left-to-right in scene space. Pages may differ in
+ * size, so the layout is computed from *cumulative* offsets:
  *
- *     page N  ->  x: (N - 1) * PAGE_GAP,  y: 0,  PAGE_WIDTH x PAGE_HEIGHT
+ *     page N  ->  x: sum(width of pages before N) + N * PAGE_SPACING
+ *
+ * (an index-based `index * PAGE_GAP` formula cannot express pages of differing
+ * sizes). For default-sized pages the two agree: `PAGE_GAP` is the pitch
+ * between two page origins, `PAGE_SPACING` the gap between the rects.
  *
  * The page — not the infinite canvas — is the viewport universe: the camera is
  * clamped so the visible region can never leave the current page's rect, and
@@ -23,13 +49,24 @@ import type { ExcalidrawPage, NormalizedZoomValue, PageRect } from "../types";
  * same rect the same way, the editor and the presenter stay in lockstep.
  */
 
-/** rect occupied by the page at `pageIndex` (0-based) in scene coords */
-export const getPageRectByIndex = (pageIndex: number): PageRect => ({
-  x: pageIndex * PAGE_GAP,
-  y: 0,
-  width: PAGE_WIDTH,
-  height: PAGE_HEIGHT,
+/** a page with its geometry resolved to concrete numbers */
+export const normalizePage = (
+  page: ExcalidrawPage,
+): ResolvedExcalidrawPage => ({
+  ...page,
+  // 1920x1080 is the *minimum* page size — a page may only grow
+  width: Math.max(page.width ?? PAGE_WIDTH, PAGE_WIDTH),
+  height: Math.max(page.height ?? PAGE_HEIGHT, PAGE_HEIGHT),
+  contentScale: page.contentScale ?? 1,
 });
+
+/** size of a page's rect in scene units */
+export const getPageSize = (
+  page: ExcalidrawPage,
+): { width: number; height: number } => {
+  const { width, height } = normalizePage(page);
+  return { width, height };
+};
 
 /** index of `pageId` within `pages`, falling back to the first page */
 export const getPageIndex = (
@@ -40,11 +77,57 @@ export const getPageIndex = (
   return index >= 0 ? index : 0;
 };
 
+/** rect occupied by the page at `pageIndex` (0-based) in scene coords */
+export const getPageRectAtIndex = (
+  pages: readonly ExcalidrawPage[],
+  pageIndex: number,
+): PageRect => {
+  let x = 0;
+
+  for (let index = 0; index < pageIndex; index++) {
+    const page = pages[index];
+    x += (page ? getPageSize(page).width : PAGE_WIDTH) + PAGE_SPACING;
+  }
+
+  const page = pages[pageIndex];
+  const { width, height } = page
+    ? getPageSize(page)
+    : { width: PAGE_WIDTH, height: PAGE_HEIGHT };
+
+  return { x, y: 0, width, height };
+};
+
+/** rect occupied by the page with `pageId` in scene coords */
+export const getPageRect = (
+  pages: readonly ExcalidrawPage[],
+  pageId: string,
+): PageRect => getPageRectAtIndex(pages, getPageIndex(pages, pageId));
+
+/**
+ * Rect occupied by the page at `pageIndex` (0-based) in scene coords.
+ *
+ * Without `pages` this assumes every page is the default size (the historical
+ * behaviour, and the only correct answer for a document whose pages all have
+ * the default size). Pass `pages` to lay out pages of differing sizes.
+ */
+export const getPageRectByIndex = (
+  pageIndex: number,
+  pages?: readonly ExcalidrawPage[],
+): PageRect =>
+  pages
+    ? getPageRectAtIndex(pages, pageIndex)
+    : {
+        x: pageIndex * PAGE_GAP,
+        y: 0,
+        width: PAGE_WIDTH,
+        height: PAGE_HEIGHT,
+      };
+
 /** rect of the currently selected page */
 export const getCurrentPageRect = (
   pages: readonly ExcalidrawPage[],
   currentPageId: string,
-): PageRect => getPageRectByIndex(getPageIndex(pages, currentPageId));
+): PageRect => getPageRect(pages, currentPageId);
 
 /**
  * Zoom at which the whole page fits inside the viewport. This is the minimum
@@ -53,15 +136,14 @@ export const getCurrentPageRect = (
 export const getFitPageZoom = (
   viewportWidth: number,
   viewportHeight: number,
+  pageWidth: number = PAGE_WIDTH,
+  pageHeight: number = PAGE_HEIGHT,
 ): NormalizedZoomValue => {
   if (viewportWidth <= 0 || viewportHeight <= 0) {
     return 1 as NormalizedZoomValue;
   }
 
-  const fit = Math.min(
-    viewportWidth / PAGE_WIDTH,
-    viewportHeight / PAGE_HEIGHT,
-  );
+  const fit = Math.min(viewportWidth / pageWidth, viewportHeight / pageHeight);
 
   // a viewport smaller than 10% of the page would make zooming out useless
   return Math.max(fit, MIN_ZOOM) as NormalizedZoomValue;
@@ -148,7 +230,12 @@ export const clampCameraToPage = ({
   pageRect: PageRect;
   maxZoom: number;
 }) => {
-  const minZoom = getFitPageZoom(viewportWidth, viewportHeight);
+  const minZoom = getFitPageZoom(
+    viewportWidth,
+    viewportHeight,
+    pageRect.width,
+    pageRect.height,
+  );
   const nextZoom = clamp(zoom, minZoom, Math.max(minZoom, maxZoom));
 
   // visible scene-space extent at this zoom
@@ -189,7 +276,12 @@ export const getCameraForPage = ({
   maxZoom: number;
 }) => {
   const zoom = Math.min(
-    getFitPageZoom(viewportWidth, viewportHeight),
+    getFitPageZoom(
+      viewportWidth,
+      viewportHeight,
+      pageRect.width,
+      pageRect.height,
+    ),
     maxZoom,
   ) as NormalizedZoomValue;
 
@@ -259,3 +351,258 @@ export const getDefaultPage = (): ExcalidrawPage => ({
   id: DEFAULT_PAGE_ID,
   name: "Page 1",
 });
+
+/**
+ * Doubles a page's rect. The page's *content* is left untouched — growing the
+ * page and scaling the page's content are two independent operations.
+ */
+export const growPage = (page: ExcalidrawPage): ExcalidrawPage => {
+  const { width, height } = getPageSize(page);
+
+  return {
+    ...page,
+    width: width * PAGE_SIZE_STEP,
+    height: height * PAGE_SIZE_STEP,
+  };
+};
+
+/**
+ * Halves a page's rect, never below the minimum page size. The inverse of
+ * {@link growPage}.
+ */
+export const shrinkPage = (page: ExcalidrawPage): ExcalidrawPage => {
+  const { width, height } = getPageSize(page);
+
+  return {
+    ...page,
+    width: Math.max(width / PAGE_SIZE_STEP, PAGE_WIDTH),
+    height: Math.max(height / PAGE_SIZE_STEP, PAGE_HEIGHT),
+  };
+};
+
+/**
+ * Scales the geometry of an element around a pivot.
+ *
+ * Scaled: `x`, `y`, `width`, `height`, free-draw / linear `points`,
+ * `strokeWidth` and (for text) `fontSize`.
+ *
+ * Not scaled: `angle`, `groupIds`, `boundElements`, `link`, `frameId` — those
+ * are references, not geometry.
+ */
+const scaleElementGeometry = <T extends ExcalidrawElement>(
+  element: T,
+  pivotX: number,
+  pivotY: number,
+  factor: number,
+): T => {
+  const x = pivotX + (element.x - pivotX) * factor;
+  const y = pivotY + (element.y - pivotY) * factor;
+
+  if (isLinearElement(element) || isFreeDrawElement(element)) {
+    return {
+      ...element,
+      x,
+      y,
+      width: element.width * factor,
+      height: element.height * factor,
+      strokeWidth: element.strokeWidth * factor,
+      points: element.points.map(
+        ([pointX, pointY]) => [pointX * factor, pointY * factor] as LocalPoint,
+      ),
+    } as T;
+  }
+
+  if (element.type === "text") {
+    return {
+      ...element,
+      x,
+      y,
+      width: element.width * factor,
+      height: element.height * factor,
+      strokeWidth: element.strokeWidth * factor,
+      fontSize: element.fontSize * factor,
+    } as T;
+  }
+
+  return {
+    ...element,
+    x,
+    y,
+    width: element.width * factor,
+    height: element.height * factor,
+    strokeWidth: element.strokeWidth * factor,
+  } as T;
+};
+
+/**
+ * Scales the content of a page around the page's origin.
+ *
+ * The page rect is left untouched — that is {@link growPage}'s job — and
+ * floating elements are left untouched too: a floating element does not belong
+ * to the page's coordinate space.
+ *
+ * The scale is written into the *stored* element geometry, it is not a
+ * render-time multiplier. The scale step is 0.5 and its inverse 2, both exact in
+ * binary floating point, so scaling down and back up is lossless.
+ */
+export const scalePageContent = <
+  T extends ExcalidrawElement = ExcalidrawElement,
+>({
+  elements,
+  pages,
+  pageId,
+  factor = CONTENT_SCALE_STEP,
+}: {
+  elements: readonly T[];
+  pages: readonly ExcalidrawPage[];
+  pageId: string;
+  factor?: number;
+}): { pages: readonly ExcalidrawPage[]; elements: readonly T[] } => {
+  if (!pages.some((page) => page.id === pageId)) {
+    return { pages, elements };
+  }
+
+  // the pivot is the page's origin, so content keeps its position relative to
+  // the page
+  const pivot = getPageRect(pages, pageId);
+
+  return {
+    pages: pages.map((page) =>
+      page.id === pageId
+        ? { ...page, contentScale: (page.contentScale ?? 1) * factor }
+        : page,
+    ),
+    elements: elements.map((element) =>
+      element.pageId === pageId && !element.floating
+        ? scaleElementGeometry(element, pivot.x, pivot.y, factor)
+        : element,
+    ),
+  };
+};
+
+/**
+ * Removes a page.
+ *
+ * The page's *elements* are not touched here — see
+ * {@link deletePageElements} — so that the caller can soft-delete them and
+ * undo restores the page and its content together.
+ *
+ * Deleting the last page leaves a single, empty page behind: a document
+ * always has at least one page.
+ */
+export const deletePage = ({
+  pages,
+  currentPageId,
+  pageId,
+}: {
+  pages: readonly ExcalidrawPage[];
+  currentPageId: string;
+  pageId: string;
+}): { pages: readonly ExcalidrawPage[]; currentPageId: string } => {
+  const index = pages.findIndex((page) => page.id === pageId);
+
+  if (index < 0) {
+    return { pages, currentPageId };
+  }
+
+  const remaining = pages.filter((page) => page.id !== pageId);
+
+  if (!remaining.length) {
+    const page = getDefaultPage();
+    return { pages: [page], currentPageId: page.id };
+  }
+
+  return {
+    pages: remaining,
+    currentPageId:
+      currentPageId === pageId
+        ? // the page before the deleted one, or the first page left
+          (remaining[index - 1] ?? remaining[0]).id
+        : currentPageId,
+  };
+};
+
+/**
+ * Soft-deletes the elements of a page.
+ *
+ * Soft-deleted (rather than removed) so that undoing the page deletion brings
+ * the content back with the page record. The version is bumped so that the
+ * change is a proper element delta for the history and the collab stream.
+ */
+export const deletePageElements = <T extends ExcalidrawElement>(
+  elements: readonly T[],
+  pageId: string,
+): readonly T[] =>
+  elements.map((element) =>
+    element.pageId === pageId && !element.isDeleted
+      ? ({
+          ...element,
+          isDeleted: true,
+          version: element.version + 1,
+          versionNonce: randomInteger(),
+        } as T)
+      : element,
+  );
+
+/**
+ * Grows pages so that they contain the content restored onto them.
+ *
+ * A page's origin is derived from the layout (it cannot be stored on the
+ * page), so a page can only grow to the right and downwards. Content that sits
+ * to the left of / above the page's origin cannot be contained by growing the
+ * page — such content has to be marked floating (D-4) to be reachable.
+ */
+export const growPagesToFitContent = (
+  pages: readonly ExcalidrawPage[],
+  elements: readonly ExcalidrawElement[],
+): readonly ExcalidrawPage[] =>
+  pages.map((page) => {
+    const pageElements = elements.filter(
+      (element) =>
+        element.pageId === page.id && !element.isDeleted && !element.floating,
+    );
+
+    if (!pageElements.length) {
+      return page;
+    }
+
+    const rect = getPageRect(pages, page.id);
+    const [, , maxX, maxY] = getCommonBounds(pageElements);
+
+    const width = Math.max(rect.width, maxX - rect.x);
+    const height = Math.max(rect.height, maxY - rect.y);
+
+    if (width === rect.width && height === rect.height) {
+      return page;
+    }
+
+    return { ...page, width, height };
+  });
+
+/**
+ * The rect the camera is clamped to: the page rect, widened by the bounding
+ * box of the page's floating elements.
+ *
+ * A floating element is not owned by its page's coordinate space, so it may
+ * sit outside the page rect — and the camera has to be able to reach it.
+ */
+export const getPageClampRect = (
+  pageRect: PageRect,
+  floatingElements: readonly ExcalidrawElement[],
+): PageRect => {
+  if (!floatingElements.length) {
+    return pageRect;
+  }
+
+  const [minX, minY, maxX, maxY] = getCommonBounds(floatingElements);
+
+  const x = Math.min(pageRect.x, minX);
+  const y = Math.min(pageRect.y, minY);
+
+  return {
+    x,
+    y,
+    width: Math.max(pageRect.x + pageRect.width, maxX) - x,
+    height: Math.max(pageRect.y + pageRect.height, maxY) - y,
+  };
+};

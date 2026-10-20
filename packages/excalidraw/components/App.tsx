@@ -370,8 +370,8 @@ import {
   getCurrentPageRect,
   getElementsWithinSelection,
   getNormalizedZoom,
-  getPageIndex,
-  getPageRectByIndex,
+  getPageClampRect,
+  getPageRect,
   getPageViewportWidth,
   getSelectedElements,
   hasBackground,
@@ -512,6 +512,7 @@ import type {
   Offsets,
   PageRect,
 } from "../types";
+import type { ExcalidrawPage } from "../types";
 import type { RoughCanvas } from "roughjs/bin/canvas";
 import type { Action, ActionResult } from "../actions/types";
 
@@ -4690,7 +4691,11 @@ class App extends React.Component<AppProps, AppState> {
    * Stable object identity per page so the static canvas doesn't re-render on
    * every App render (its props are shallow-compared).
    */
-  private pageRectCache: { index: number; rect: PageRect } | null = null;
+  private pageRectCache: {
+    pages: readonly ExcalidrawPage[];
+    pageId: string;
+    rect: PageRect;
+  } | null = null;
 
   /**
    * Whether we have already framed the camera on a page. The clamp only reacts
@@ -4705,10 +4710,17 @@ class App extends React.Component<AppProps, AppState> {
       return null;
     }
 
-    const index = getPageIndex(this.state.pages, this.state.currentPageId);
+    const { pages, currentPageId } = this.state;
 
-    if (this.pageRectCache?.index !== index) {
-      this.pageRectCache = { index, rect: getPageRectByIndex(index) };
+    if (
+      this.pageRectCache?.pages !== pages ||
+      this.pageRectCache?.pageId !== currentPageId
+    ) {
+      this.pageRectCache = {
+        pages,
+        pageId: currentPageId,
+        rect: getPageRect(pages, currentPageId),
+      };
     }
 
     return this.pageRectCache.rect;
@@ -4736,7 +4748,17 @@ class App extends React.Component<AppProps, AppState> {
         this.pageViewportInset,
       ),
       viewportHeight: baseState.height,
-      pageRect: getCurrentPageRect(baseState.pages, baseState.currentPageId),
+      // a floating element is not owned by its page, so it may sit outside the
+      // page rect — the camera has to be able to reach it
+      pageRect: getPageClampRect(
+        getCurrentPageRect(baseState.pages, baseState.currentPageId),
+        this.scene
+          .getNonDeletedElements()
+          .filter(
+            (element) =>
+              element.pageId === baseState.currentPageId && element.floating,
+          ),
+      ),
       maxZoom: MAX_ZOOM,
     });
   };

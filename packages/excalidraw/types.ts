@@ -124,16 +124,40 @@ export const CANVAS_BACKGROUND_PATTERNS: readonly CanvasBackgroundPattern[] = [
 ];
 
 /**
- * Fixed page geometry. A page is a fixed-resolution rect in scene space; the
- * camera is clamped to it and zoom only ever reveals *part* of it, so the same
- * page maps identically on every display (editor + presenter).
+ * Page geometry. A page is a rect in scene space; the camera is clamped to it
+ * and zoom only ever reveals *part* of it, so the same page maps identically on
+ * every display (editor + presenter).
+ *
+ * 1920x1080 is the *minimum* page size — a page may grow, never shrink below
+ * it (see `growPage` / `shrinkPage` in `scene/pages.ts`).
  */
 export const PAGE_WIDTH = 1920;
 export const PAGE_HEIGHT = 1080;
-/** horizontal gap between consecutive page rects */
-export const PAGE_GAP = PAGE_WIDTH + 200;
+/**
+ * Horizontal gap between two consecutive page rects.
+ *
+ * `PAGE_GAP` is the *pitch* between two default-sized pages — the distance
+ * between their origins — and is kept as-is for backwards compatibility. The
+ * gap between the rects themselves is `PAGE_SPACING`.
+ */
+export const PAGE_SPACING = 200;
+/** distance between the origins of two default-sized pages */
+export const PAGE_GAP = PAGE_WIDTH + PAGE_SPACING;
 
 export const DEFAULT_PAGE_ID = "page-1";
+
+/**
+ * Linear multiplier applied to a page rect by "grow page" / "shrink page".
+ */
+export const PAGE_SIZE_STEP = 2;
+
+/**
+ * Multiplier applied to a page's element geometry by "scale content".
+ *
+ * 0.5 and its inverse 2 are both exact in binary floating point, so scaling
+ * down and back up is lossless.
+ */
+export const CONTENT_SCALE_STEP = 0.5;
 
 /**
  * Default width of the docked sidebar in css px. Matches the value the editor
@@ -145,6 +169,35 @@ export const DEFAULT_SIDEBAR_WIDTH = 302;
 export type ExcalidrawPage = {
   id: string;
   name: string;
+  /**
+   * Page rect width in scene units. Defaults to `PAGE_WIDTH`; a page may only
+   * grow, never shrink below the minimum.
+   *
+   * Optional so that documents written before pages carried a size (and hosts
+   * that construct pages themselves) keep working — `normalizePage` resolves
+   * the defaults.
+   */
+  width?: number;
+  /**
+   * Page rect height in scene units. Defaults to `PAGE_HEIGHT`; a page may
+   * only grow, never shrink below the minimum.
+   */
+  height?: number;
+  /**
+   * Linear scale of the page's content, relative to the page's minimum size
+   * (1 = the content is at its original size). Defaults to 1.
+   *
+   * "Grow page" does not change it — it changes the room around the content,
+   * not the content.
+   */
+  contentScale?: number;
+};
+
+/** a page whose geometry has been resolved to concrete numbers */
+export type ResolvedExcalidrawPage = ExcalidrawPage & {
+  width: number;
+  height: number;
+  contentScale: number;
 };
 
 /** a page's fixed-size rect in scene coordinates */
@@ -302,6 +355,15 @@ export type ObservedAppState = ObservedStandaloneAppState &
 export type ObservedStandaloneAppState = {
   name: AppState["name"];
   viewBackgroundColor: AppState["viewBackgroundColor"];
+  /**
+   * The document's page list and the page the user is on.
+   *
+   * Observed (D-8) so that adding, renaming, resizing or deleting a page is
+   * an undoable, collab-synced operation — page changes used to be invisible
+   * to the history and to collaborators.
+   */
+  pages: AppState["pages"];
+  currentPageId: AppState["currentPageId"];
 };
 
 export type ObservedElementsAppState = {

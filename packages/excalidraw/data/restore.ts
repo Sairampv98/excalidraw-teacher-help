@@ -101,6 +101,18 @@ type RestoredAppState = Omit<
 
 const MAX_ARROW_PX = 75_000;
 
+/**
+ * App state keys that describe the *document's* structure rather than the
+ * user's view preferences.
+ *
+ * These are never taken from the running app when restoring a file: a file
+ * that does not define them must not inherit the app's document structure.
+ */
+const DOCUMENT_STRUCTURE_KEYS: ReadonlySet<keyof AppState> = new Set([
+  "pages",
+  "currentPageId",
+]);
+
 const restoreLinearElementPoints = (
   points: unknown,
   width: unknown,
@@ -328,7 +340,13 @@ const repairBinding = <T extends ExcalidrawArrowElement>(
 };
 
 const restoreElementWithProperties = <
-  T extends Required<Omit<ExcalidrawElement, "customData">> & {
+  T extends Omit<
+    Required<Omit<ExcalidrawElement, "customData">>,
+    // `floating` is opt-in and is never set automatically — an element that
+    // does not carry the flag must not grow one on restore
+    "floating"
+  > & {
+    floating?: boolean;
     customData?: ExcalidrawElement["customData"];
     /** @deprecated */
     boundElementIds?: readonly ExcalidrawElement["id"][];
@@ -776,6 +794,11 @@ export const restoreElements = <T extends ExcalidrawElement>(
         refreshDimensions?: boolean;
         repairBindings?: boolean;
         deleteInvisibleElements?: boolean;
+        /**
+         * The page elements without a `pageId` belong to — the document's first
+         * page. Defaults to the default page.
+         */
+        defaultPageId?: string;
       }
     | undefined,
 ): CombineBrandsIfNeeded<T, OrderedExcalidrawElement> => {
@@ -785,6 +808,7 @@ export const restoreElements = <T extends ExcalidrawElement>(
   const existingElementsMap = existingElements
     ? arrayToMap(existingElements)
     : null;
+  const defaultPageId = opts?.defaultPageId ?? DEFAULT_PAGE_ID;
 
   const restoredElements = syncInvalidIndices(
     (targetElements || []).reduce((elements, element) => {
@@ -809,6 +833,15 @@ export const restoreElements = <T extends ExcalidrawElement>(
       }
       if (migratedElement) {
         const localElement = existingElementsMap?.get(element.id);
+
+        // elements saved before pages existed have no `pageId` — they belong to
+        // the document's first page
+        if (
+          (element as { pageId?: string }).pageId === undefined &&
+          migratedElement.pageId !== defaultPageId
+        ) {
+          migratedElement = { ...migratedElement, pageId: defaultPageId };
+        }
 
         const shouldMarkAsDeleted =
           opts?.deleteInvisibleElements && isInvisiblySmallElement(element);
@@ -1016,6 +1049,27 @@ const LegacyAppStateMigrations: {
   },
 };
 
+/**
+ * The pages a file defines.
+ *
+ * A file's structure is *never* inherited from the running app: a file that
+ * defines no pages restores to exactly one page, whatever the app is showing.
+ */
+export const getFilePages = (
+  appState: ImportedDataState["appState"] | null | undefined,
+): readonly ExcalidrawPage[] => {
+  const pages = appState?.pages;
+
+  if (!Array.isArray(pages)) {
+    return [];
+  }
+
+  // guard against a stale/empty `pages` array (hand-edited or older storage)
+  return pages.filter(
+    (page) => !!page && typeof page.id === "string" && !!page.id,
+  );
+};
+
 export const restoreAppState = (
   appState: ImportedDataState["appState"],
   localAppState: Partial<AppState> | null | undefined,
@@ -1047,7 +1101,13 @@ export const restoreAppState = (
     // value to the new one
     const suppliedValue = appState[key];
 
-    const localValue = localAppState ? localAppState[key] : undefined;
+    // the local app state is a fallback for *view preferences* only — never for
+    // the document's own structure. A file that does not define its pages must
+    // not inherit the running app's pages or current page.
+    const localValue =
+      localAppState && !DOCUMENT_STRUCTURE_KEYS.has(key)
+        ? localAppState[key]
+        : undefined;
     (nextAppState as any)[key] =
       suppliedValue !== undefined
         ? suppliedValue

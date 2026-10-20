@@ -1000,6 +1000,8 @@ const getDefaultObservedAppState = (): ObservedAppState => {
     croppingElementId: null,
     activeLockedId: null,
     lockedMultiSelections: {},
+    pages: [],
+    currentPageId: "",
   };
 };
 
@@ -1021,6 +1023,10 @@ export const getObservedAppState = (
           isEditing: !!appState.selectedLinearElement.isEditing,
         }
       : null,
+    // page operations are document operations: they belong to the undo history
+    // and to the collab stream (D-8)
+    pages: appState.pages,
+    currentPageId: appState.currentPageId,
   };
 
   Reflect.defineProperty(observedAppState, hiddenObservedAppStateProp, {

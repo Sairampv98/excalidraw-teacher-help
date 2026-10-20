@@ -13,13 +13,16 @@ import type { ExcalidrawElement, FileId } from "@excalidraw/element/types";
 import { cleanAppStateForExport } from "../appState";
 
 import { CanvasError, ImageSceneDataError } from "../errors";
-import { calculateScrollCenter } from "../scene";
+import { calculateScrollCenter, growPagesToFitContent } from "../scene";
 import { decodeSvgBase64Payload } from "../scene/export";
+
+import { DEFAULT_PAGE_ID } from "../types";
 
 import { base64ToString, stringToBase64, toByteString } from "./encode";
 import { nativeFileSystemSupported } from "./filesystem";
 import { isValidExcalidrawData, isValidLibrary } from "./json";
 import {
+  getFilePages,
   restoreAppState,
   restoreElements,
   restoreLibraryItems,
@@ -158,24 +161,38 @@ export const loadSceneOrLibraryFromBlob = async (
       throw error;
     }
     if (isValidExcalidrawData(data)) {
+      // the file's own pages win; elements without a page belong to its first
+      // page, and a file that defines no pages restores to exactly one page
+      const filePages = getFilePages(data.appState);
+      const defaultPageId = filePages[0]?.id ?? DEFAULT_PAGE_ID;
+
+      const elements = restoreElements(data.elements, localElements, {
+        repairBindings: true,
+        deleteInvisibleElements: true,
+        defaultPageId,
+      });
+
+      const appState = restoreAppState(
+        {
+          theme: localAppState?.theme,
+          fileHandle: fileHandle || blob.handle || null,
+          ...cleanAppStateForExport(data.appState || {}),
+          ...(localAppState
+            ? calculateScrollCenter(data.elements || [], localAppState)
+            : {}),
+        },
+        localAppState,
+      );
+
       return {
         type: MIME_TYPES.excalidraw,
         data: {
-          elements: restoreElements(data.elements, localElements, {
-            repairBindings: true,
-            deleteInvisibleElements: true,
-          }),
-          appState: restoreAppState(
-            {
-              theme: localAppState?.theme,
-              fileHandle: fileHandle || blob.handle || null,
-              ...cleanAppStateForExport(data.appState || {}),
-              ...(localAppState
-                ? calculateScrollCenter(data.elements || [], localAppState)
-                : {}),
-            },
-            localAppState,
-          ),
+          elements,
+          appState: {
+            ...appState,
+            // imported content must be reachable: a page grows to contain it
+            pages: growPagesToFitContent(appState.pages, elements),
+          },
           files: data.files || {},
         },
       };

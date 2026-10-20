@@ -74,6 +74,17 @@ type _ExcalidrawElementBase = Readonly<{
   frameId: string | null;
   /** id of the page this element belongs to (see `ExcalidrawPage`) */
   pageId: string;
+  /**
+   * Whether this element is *floating*: not owned by its page's coordinate
+   * space.
+   *
+   * A floating element is excluded from "scale content", may sit outside the
+   * page rect, and widens the camera clamp domain to the union of the page
+   * rect and the floating elements' bounding box.
+   *
+   * The flag is opt-in and is never set automatically.
+   */
+  floating?: boolean;
   /** other elements that are bound to this element */
   boundElements: readonly BoundElement[] | null;
   /** epoch (ms) timestamp of last element update */
