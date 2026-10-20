@@ -38,8 +38,10 @@ import {
   clampCameraToPage,
   deletePage,
   deletePageElements,
+  getElementsForPage,
   getPageClampRect,
   getPageRect,
+  paginateContentIntoPages,
   scalePageContent,
   translateContentForPageLayout,
 } from "../scene/pages";
@@ -703,6 +705,174 @@ describe("pages — document model", () => {
     expect(withoutPages.appState.pages).toHaveLength(1);
     expect(withoutPages.appState.pages[0].id).toBe(DEFAULT_PAGE_ID);
     expect(withoutPages.appState.currentPageId).toBe(DEFAULT_PAGE_ID);
+  });
+
+  /**
+   * Tiling a legacy scene across pages.
+   *
+   * A vanilla file has no pages: every element is stamped onto the first
+   * page, so a board that sprawls over several pages of area becomes one
+   * enormous page whose content is mostly outside the rect the camera is
+   * clamped to — unreachable, and drawn on every frame.
+   *
+   * The assertions go through the library's own page layout (`getPageRect`)
+   * and its own camera clamp, not through a re-derivation of the tiling
+   * arithmetic, so a self-consistent-but-wrong implementation cannot pass.
+   */
+  it("AC-18 tiles the content across pages, one cell per page", () => {
+    /** a rectangle as it comes out of a legacy file: on the first page */
+    const legacyRect = (x: number, y: number) =>
+      newElementWith(
+        API.createElement({ type: "rectangle", x, y, width: 100, height: 50 }),
+        { pageId: DEFAULT_PAGE_ID },
+      );
+
+    // a legacy scene: the content sprawls over several pages of area and
+    // does not even start at the origin
+    const topLeft = legacyRect(-100, -50);
+    const topRight = legacyRect(1820, -50);
+    const bottomLeft = legacyRect(-100, 1030);
+    const far = legacyRect(4000, 3000);
+    // a deleted element is not content: it is a tombstone
+    const tombstone = newElementWith(legacyRect(100, 100), {
+      isDeleted: true,
+    });
+
+    const elements = [topLeft, topRight, bottomLeft, far, tombstone];
+
+    const { elements: next, pages } = paginateContentIntoPages(elements);
+
+    // four cells hold content — the top-left one, its right neighbour, the
+    // one below it and a far one. The grid the content spans is 3 x 3, so the
+    // five empty cells are dropped
+    expect(pages).toHaveLength(4);
+    expect(pages.map((page) => page.name)).toEqual([
+      "Page 1",
+      "Page 2",
+      "Page 3",
+      "Page 4",
+    ]);
+
+    // row major: the top-left cell first, then left to right, then down
+    const onPage = (index: number) =>
+      getElementsForPage(next, pages[index].id)
+        .filter((element) => !element.isDeleted)
+        .map((element) => element.id);
+
+    expect(onPage(0)).toEqual([topLeft.id]);
+    expect(onPage(1)).toEqual([topRight.id]);
+    expect(onPage(2)).toEqual([bottomLeft.id]);
+    expect(onPage(3)).toEqual([far.id]);
+
+    // every page holds only its own elements, and no element is left without
+    // a page
+    for (const page of pages) {
+      const onIt = getElementsForPage(next, page.id);
+
+      expect(onIt.length).toBeGreaterThan(0);
+    }
+
+    expect(
+      pages.flatMap((page) =>
+        getElementsForPage(next, page.id).filter(
+          (element) => !element.isDeleted,
+        ),
+      ),
+    ).toHaveLength(4);
+
+    // the content was re-anchored: nothing sits at a negative coordinate any
+    // more
+    for (const element of next) {
+      expect(element.x).toBeGreaterThanOrEqual(0);
+      expect(element.y).toBeGreaterThanOrEqual(0);
+    }
+
+    // and every element is inside the rect of the page it is on — the
+    // library's own layout, and the camera that is clamped to it
+    for (const page of pages) {
+      expectReachableByClampedCamera(
+        getElementsForPage(next, page.id).filter(
+          (element) => !element.isDeleted,
+        ),
+        getPageRect(pages, page.id),
+      );
+    }
+
+    // a deleted element is not content: it is re-anchored with the rest, but
+    // it is never tiled onto a page of its own
+    const reanchoredTombstone = next.find(
+      (element) => element.id === tombstone.id,
+    )!;
+
+    expect(reanchoredTombstone.x).toBe(200);
+    expect(reanchoredTombstone.y).toBe(150);
+    expect(reanchoredTombstone.pageId).toBe(tombstone.pageId);
+
+    // nothing was scaled, and everything but the position is preserved
+    const moved = next.find((element) => element.id === topLeft.id)!;
+
+    expect(moved.width).toBe(topLeft.width);
+    expect(moved.height).toBe(topLeft.height);
+    expect(moved.seed).toBe(topLeft.seed);
+    expect(moved.version).toBe(topLeft.version + 1);
+
+    // the input was not mutated
+    expect(topLeft.x).toBe(-100);
+    expect(topLeft.y).toBe(-50);
+  });
+
+  it("AC-19 leaves content that already fits on one page alone, and never moves a floating element", () => {
+    const legacyRect = (x: number, y: number) =>
+      newElementWith(
+        API.createElement({ type: "rectangle", x, y, width: 100, height: 50 }),
+        { pageId: DEFAULT_PAGE_ID },
+      );
+
+    // content that already lies inside the first page's rect
+    const fits = legacyRect(100, 100);
+
+    const { elements: unchanged, pages: onePage } = paginateContentIntoPages([
+      fits,
+    ]);
+
+    // the same single page, and the content is not touched at all — not even
+    // re-created
+    expect(onePage).toHaveLength(1);
+    expect(onePage[0].id).toBe(DEFAULT_PAGE_ID);
+    expect(onePage[0].name).toBe("Page 1");
+
+    expect(unchanged).toHaveLength(1);
+    expect(unchanged[0]).toBe(fits);
+    expect(unchanged[0].x).toBe(100);
+    expect(unchanged[0].y).toBe(100);
+
+    // and that page holds the content
+    expect(getElementsForPage(unchanged, onePage[0].id)).toHaveLength(1);
+
+    // a floating element is never moved — not even when the content around
+    // it is tiled across pages
+    const floating = newElementWith(legacyRect(3000, 3000), {
+      floating: true,
+    });
+    const spread = legacyRect(4000, 3000);
+    const spreadToo = legacyRect(6000, 3000);
+
+    const { elements: tiled, pages } = paginateContentIntoPages([
+      spread,
+      spreadToo,
+      floating,
+    ]);
+
+    expect(pages).toHaveLength(2);
+
+    const tiledFloating = tiled.find(
+      (element) => element.id === floating.id,
+    )!;
+
+    expect(tiledFloating).toBe(floating);
+    expect(tiledFloating.x).toBe(3000);
+    expect(tiledFloating.y).toBe(3000);
+    expect(tiledFloating.pageId).toBe(floating.pageId);
   });
 });
 

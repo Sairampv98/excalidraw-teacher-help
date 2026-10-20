@@ -454,6 +454,7 @@ export {
   insertPageAfter,
   growPagesToFitContent,
   getPageClampRect,
+  paginateContentIntoPages,
 } from "./scene";
 
 export { CommandPalette } from "./components/CommandPalette/CommandPalette";
