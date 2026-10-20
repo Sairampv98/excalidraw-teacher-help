@@ -8,6 +8,8 @@ import type { AppState } from "@excalidraw/excalidraw/types";
 
 import { STORAGE_KEYS } from "../app_constants";
 
+import { getDocumentBytes } from "./documentStats";
+
 export const saveUsernameToLocalStorage = (username: string) => {
   try {
     localStorage.setItem(
@@ -77,7 +79,9 @@ export const getElementsStorageSize = () => {
   try {
     const elements = localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS);
     const elementsSize = elements?.length || 0;
-    return elementsSize;
+    // the document itself lives in the document store now, so its size is
+    // tracked there (D-10)
+    return elementsSize + getDocumentBytes();
   } catch (error: any) {
     console.error(error);
     return 0;

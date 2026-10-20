@@ -48,6 +48,10 @@ export const STORAGE_KEYS = {
   LOCAL_STORAGE_COLLAB: "excalidraw-collab",
   LOCAL_STORAGE_THEME: "excalidraw-theme",
   LOCAL_STORAGE_DEBUG: "excalidraw-debug",
+  /** the document's page index, written by the localStorage document store */
+  LOCAL_STORAGE_DOCUMENT_PAGES: "excalidraw-document-pages",
+  /** prefix of the document's per-page element buckets */
+  LOCAL_STORAGE_DOCUMENT_ELEMENTS: "excalidraw-document-elements",
   VERSION_DATA_STATE: "version-dataState",
   VERSION_FILES: "version-files",
 

@@ -170,6 +170,91 @@
   white-space: nowrap;
 }
 
+/** the storage backend the document is persisted through */
+.excalidraw-page-bar__storage {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--text-primary-color, var(--icon-fill-color));
+  font-size: 0.625rem;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/**
+ * The page list.
+ *
+ * Only the rows around the scroll position are rendered (the list is
+ * virtualised), so the inner element is as tall as the whole list while the
+ * rows themselves are absolutely positioned inside it.
+ */
+.excalidraw-page-bar__page-list-panel {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 1;
+}
+
+.excalidraw-page-bar__page-list {
+  width: 220px;
+  max-height: 256px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background-color: var(--island-bg-color);
+  box-shadow: var(--shadow-island);
+  scrollbar-width: thin;
+}
+
+.excalidraw-page-bar__page-list-inner {
+  position: relative;
+  width: 100%;
+}
+
+.excalidraw-page-bar__page-row {
+  position: absolute;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: none;
+  background-color: transparent;
+  color: inherit;
+  font-size: 0.75rem;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    background-color: var(--button-hover-bg, rgba(0, 0, 0, 0.06));
+  }
+
+  &[aria-selected="true"] {
+    background-color: var(--color-primary);
+    color: var(--color-primary-contrast, #fff);
+  }
+}
+
+.excalidraw-page-bar__page-row-index {
+  flex: 0 0 auto;
+  min-width: 18px;
+  color: inherit;
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+  text-align: right;
+}
+
+.excalidraw-page-bar__page-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .theme--dark {
   .excalidraw-page-bar {
     background-color: var(--gray-60, #1b1b1f);

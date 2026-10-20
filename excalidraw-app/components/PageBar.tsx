@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  deletePage,
+  deletePageElements,
+  growPage,
+  scalePageContent,
+  shrinkPage,
   useExcalidrawAPI,
   useExcalidrawStateValue,
 } from "@excalidraw/excalidraw";
@@ -11,6 +16,12 @@ import type { ExcalidrawPage } from "@excalidraw/excalidraw/types";
 
 import { exportAllPages } from "../pages/exportPages";
 import { STORAGE_KEYS } from "../app_constants";
+import {
+  documentStoreBackendAtom,
+  documentStoreErrorAtom,
+} from "../data/LocalData";
+import { useAtomValue } from "../app-jotai";
+import { recordPageSwitch } from "../data/documentStats";
 
 import "./PageBar.scss";
 
@@ -19,6 +30,15 @@ const FIRST_PAGE_ID = "page-1";
 
 /** how long a destructive action stays armed before it disarms itself */
 const CONFIRM_WINDOW_MS = 4000;
+
+/** height of one row in the page list, in css px */
+const PAGE_ROW_HEIGHT = 32;
+
+/** how many rows of the page list are rendered at once */
+const PAGE_LIST_VISIBLE_ROWS = 8;
+
+/** how many rows are rendered above and below the visible window */
+const PAGE_LIST_OVERSCAN = 2;
 
 type IconProps = { size?: number };
 
@@ -38,6 +58,24 @@ const TrashIcon = ({ size = 16 }: IconProps) => (
     <path d="M8 6V4h8v2" />
     <path d="M19 6l-1 14H6L5 6" />
     <path d="M10 11v6M14 11v6" />
+  </svg>
+);
+
+const PageTrashIcon = ({ size = 16 }: IconProps) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M6 3h9l4 4v14H6z" />
+    <path d="M15 3v4h4" />
+    <path d="M10 12l5 5M15 12l-5 5" />
   </svg>
 );
 
@@ -139,6 +177,78 @@ const ChevronUpIcon = ({ size = 16 }: IconProps) => (
   </svg>
 );
 
+const GrowIcon = ({ size = 16 }: IconProps) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M4 9V4h5" />
+    <path d="M20 15v5h-5" />
+    <path d="M4 4l6 6" />
+    <path d="M20 20l-6-6" />
+  </svg>
+);
+
+const ShrinkIcon = ({ size = 16 }: IconProps) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M10 4v5H5" />
+    <path d="M14 20v-5h5" />
+    <path d="M10 9L4 4" />
+    <path d="M14 15l6 5" />
+  </svg>
+);
+
+const ScaleContentIcon = ({ size = 16 }: IconProps) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="4" y="4" width="16" height="16" rx="2" />
+    <path d="M9 12h6" />
+    <path d="M12 9v6" />
+  </svg>
+);
+
+const ListIcon = ({ size = 16 }: IconProps) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M4 6h16M4 12h16M4 18h16" />
+  </svg>
+);
+
 /**
  * Page bar: navigation + page-set management.
  *
@@ -152,6 +262,9 @@ const ChevronUpIcon = ({ size = 16 }: IconProps) => (
  *   n / m — current page indicator
  *   +     — add a page
  *   x     — clear the content of the current page
+ *   list  — the page list, virtualised (a document may hold thousands of pages)
+ *   grow/shrink — the current page's rect
+ *   scale — the current page's content
  *   v     — tuck the whole bar into the bottom edge (it leaves a small handle
  *           there so it can be brought back)
  */
@@ -160,10 +273,13 @@ const PageBar = () => {
   // only rerenders when `pages` / `currentPageId` actually change
   const appState = useExcalidrawStateValue(["pages", "currentPageId"]);
 
+  const backend = useAtomValue(documentStoreBackendAtom);
+  const documentError = useAtomValue(documentStoreErrorAtom);
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // two-step confirm for the destructive controls
-  const [armed, setArmed] = useState<"all" | "page" | null>(null);
+  const [armed, setArmed] = useState<"all" | "clear" | "delete" | null>(null);
   const armTimer = useRef<number | null>(null);
   const [hidden, setHidden] = useState(() => {
     try {
@@ -175,6 +291,16 @@ const PageBar = () => {
       return false;
     }
   });
+
+  // the page list is a virtualised window: only the rows around the scroll
+  // position are rendered, so a document with thousands of pages does not
+  // create thousands of DOM nodes
+  const [listOpen, setListOpen] = useState(false);
+  const [listScrollTop, setListScrollTop] = useState(0);
+  const listRef = useRef<HTMLDivElement>(null);
+  // when a page switch is in flight, the latency is recorded once the editor
+  // has re-rendered with the new page
+  const switchStartedAt = useRef<number | null>(null);
 
   const pages = useMemo<readonly ExcalidrawPage[]>(
     () => appState?.pages ?? [],
@@ -188,6 +314,16 @@ const PageBar = () => {
   );
   const isFirst = currentIndex <= 0;
   const isLast = currentIndex >= pages.length - 1;
+
+  const firstVisibleIndex = Math.max(
+    0,
+    Math.floor(listScrollTop / PAGE_ROW_HEIGHT) - PAGE_LIST_OVERSCAN,
+  );
+  const lastVisibleIndex = Math.min(
+    pages.length,
+    firstVisibleIndex + PAGE_LIST_VISIBLE_ROWS + PAGE_LIST_OVERSCAN * 2,
+  );
+  const visiblePages = pages.slice(firstVisibleIndex, lastVisibleIndex);
 
   // disarm automatically so a stray second click can't wipe the board much later
   useEffect(() => {
@@ -205,7 +341,35 @@ const PageBar = () => {
     };
   }, [armed]);
 
-  const arm = useCallback((which: "all" | "page") => {
+  // bring the current page into view when the list is opened
+  useEffect(() => {
+    if (!listOpen) {
+      return;
+    }
+    const element = listRef.current;
+    if (!element) {
+      return;
+    }
+    const target = Math.max(
+      0,
+      currentIndex * PAGE_ROW_HEIGHT -
+        (PAGE_LIST_VISIBLE_ROWS * PAGE_ROW_HEIGHT) / 2,
+    );
+    element.scrollTop = target;
+    setListScrollTop(target);
+  }, [listOpen, currentIndex]);
+
+  // the page-switch latency is the time from the click to the editor showing
+  // the new page
+  useEffect(() => {
+    if (switchStartedAt.current === null) {
+      return;
+    }
+    recordPageSwitch(performance.now() - switchStartedAt.current);
+    switchStartedAt.current = null;
+  }, [currentPageId]);
+
+  const arm = useCallback((which: "all" | "clear" | "delete") => {
     setArmed((current) => (current === which ? null : which));
   }, []);
 
@@ -218,6 +382,7 @@ const PageBar = () => {
       ) {
         return;
       }
+      switchStartedAt.current = performance.now();
       // the editor re-frames the view on the newly selected page
       excalidrawAPI.updateScene({ appState: { currentPageId: pageId } });
     },
@@ -270,6 +435,36 @@ const PageBar = () => {
     });
   }, [excalidrawAPI, currentPageId]);
 
+  /**
+   * Drop the current page.
+   *
+   * The page's elements are soft-deleted rather than removed, so that undoing
+   * brings the page and its content back together. Deleting the last page
+   * leaves a single, empty page behind — a document always has one page.
+   */
+  const deleteCurrentPage = useCallback(() => {
+    if (!excalidrawAPI || excalidrawAPI.isDestroyed || !currentPageId) {
+      return;
+    }
+
+    const elements = excalidrawAPI.getSceneElements();
+
+    const { pages: nextPages, currentPageId: nextCurrentPageId } = deletePage({
+      pages,
+      currentPageId,
+      pageId: currentPageId,
+    });
+
+    excalidrawAPI.updateScene({
+      elements: deletePageElements(elements, currentPageId),
+      appState: {
+        pages: nextPages,
+        currentPageId: nextCurrentPageId,
+        selectedElementIds: {},
+      },
+    });
+  }, [excalidrawAPI, pages, currentPageId]);
+
   /** drop every page and every element, back to one empty page */
   const deleteAllPages = useCallback(() => {
     if (!excalidrawAPI || excalidrawAPI.isDestroyed) {
@@ -294,7 +489,7 @@ const PageBar = () => {
 
   /** two-step: first click arms, second click runs the action */
   const guardDestructive = useCallback(
-    (which: "all" | "page", run: () => void) => {
+    (which: "all" | "clear" | "delete", run: () => void) => {
       if (armed === which) {
         setArmed(null);
         run();
@@ -303,6 +498,64 @@ const PageBar = () => {
       }
     },
     [armed, arm],
+  );
+
+  /** replaces the current page's record — the other pages are left alone */
+  const updateCurrentPage = useCallback(
+    (update: (page: ExcalidrawPage) => ExcalidrawPage) => {
+      if (!excalidrawAPI || excalidrawAPI.isDestroyed || !currentPageId) {
+        return;
+      }
+
+      excalidrawAPI.updateScene({
+        appState: {
+          pages: pages.map((page) =>
+            page.id === currentPageId ? update(page) : page,
+          ),
+        },
+      });
+    },
+    [excalidrawAPI, pages, currentPageId],
+  );
+
+  /** doubles the page's rect — the content's geometry is left untouched */
+  const growCurrentPage = useCallback(
+    () => updateCurrentPage(growPage),
+    [updateCurrentPage],
+  );
+
+  /** halves the page's rect — the inverse of growing it */
+  const shrinkCurrentPage = useCallback(
+    () => updateCurrentPage(shrinkPage),
+    [updateCurrentPage],
+  );
+
+  /**
+   * Scales the current page's content around the page's origin.
+   *
+   * The page rect is left untouched — growing the page is a separate action.
+   */
+  const scaleCurrentPageContent = useCallback(
+    (factor: number) => {
+      if (!excalidrawAPI || excalidrawAPI.isDestroyed || !currentPageId) {
+        return;
+      }
+
+      const elements = excalidrawAPI.getSceneElements();
+
+      const { pages: nextPages, elements: nextElements } = scalePageContent({
+        elements,
+        pages,
+        pageId: currentPageId,
+        factor,
+      });
+
+      excalidrawAPI.updateScene({
+        elements: nextElements,
+        appState: { pages: nextPages },
+      });
+    },
+    [excalidrawAPI, pages, currentPageId],
   );
 
   const onExportAll = useCallback(async () => {
@@ -446,16 +699,86 @@ const PageBar = () => {
       <button
         type="button"
         className="excalidraw-page-bar__icon excalidraw-page-bar__icon--danger"
-        onClick={() => guardDestructive("page", clearCurrentPage)}
+        onClick={() => guardDestructive("clear", clearCurrentPage)}
         title={
-          armed === "page"
+          armed === "clear"
             ? "Click again to clear this page"
             : "Clear this page"
         }
         aria-label="Clear this page"
-        data-armed={armed === "page" ? "true" : undefined}
+        data-armed={armed === "clear" ? "true" : undefined}
       >
         <CloseIcon />
+      </button>
+
+      <button
+        type="button"
+        className="excalidraw-page-bar__icon excalidraw-page-bar__icon--danger"
+        onClick={() => guardDestructive("delete", deleteCurrentPage)}
+        title={
+          armed === "delete"
+            ? "Click again to delete this page"
+            : "Delete this page"
+        }
+        aria-label="Delete this page"
+        data-armed={armed === "delete" ? "true" : undefined}
+      >
+        <PageTrashIcon />
+      </button>
+
+      <span className="excalidraw-page-bar__divider" aria-hidden="true" />
+
+      <button
+        type="button"
+        className="excalidraw-page-bar__icon"
+        onClick={growCurrentPage}
+        title="Grow this page"
+        aria-label="Grow this page"
+      >
+        <GrowIcon />
+      </button>
+
+      <button
+        type="button"
+        className="excalidraw-page-bar__icon"
+        onClick={shrinkCurrentPage}
+        title="Shrink this page"
+        aria-label="Shrink this page"
+      >
+        <ShrinkIcon />
+      </button>
+
+      <button
+        type="button"
+        className="excalidraw-page-bar__icon"
+        onClick={() => scaleCurrentPageContent(0.5)}
+        title="Scale this page's content down"
+        aria-label="Scale this page's content down"
+      >
+        <ScaleContentIcon />
+      </button>
+
+      <button
+        type="button"
+        className="excalidraw-page-bar__icon"
+        onClick={() => scaleCurrentPageContent(2)}
+        title="Scale this page's content up"
+        aria-label="Scale this page's content up"
+      >
+        <ScaleContentIcon />
+      </button>
+
+      <span className="excalidraw-page-bar__divider" aria-hidden="true" />
+
+      <button
+        type="button"
+        className="excalidraw-page-bar__icon"
+        onClick={() => setListOpen((open) => !open)}
+        title={listOpen ? "Hide the page list" : "Show the page list"}
+        aria-label="Show the page list"
+        aria-expanded={listOpen}
+      >
+        <ListIcon />
       </button>
 
       {confirmArmed && (
@@ -479,10 +802,68 @@ const PageBar = () => {
         {busy ? "Exporting…" : "Export pages"}
       </button>
 
-      {error && (
-        <span className="excalidraw-page-bar__error" role="alert">
-          {error}
+      {backend && (
+        <span
+          className="excalidraw-page-bar__storage"
+          title={
+            backend === "indexeddb"
+              ? "The document is stored in IndexedDB"
+              : "IndexedDB is unavailable — the document is stored in localStorage"
+          }
+          data-backend={backend}
+        >
+          {backend === "indexeddb" ? "IndexedDB" : "localStorage"}
         </span>
+      )}
+
+      {(error || documentError) && (
+        <span className="excalidraw-page-bar__error" role="alert">
+          {error ?? documentError}
+        </span>
+      )}
+
+      {listOpen && (
+        <div className="excalidraw-page-bar__page-list-panel">
+          <div
+            className="excalidraw-page-bar__page-list"
+            role="listbox"
+            aria-label="Page list"
+            ref={listRef}
+            onScroll={(event) =>
+              setListScrollTop(event.currentTarget.scrollTop)
+            }
+          >
+            <div
+              className="excalidraw-page-bar__page-list-inner"
+              style={{ height: pages.length * PAGE_ROW_HEIGHT }}
+            >
+              {visiblePages.map((page, offset) => {
+                const index = firstVisibleIndex + offset;
+
+                return (
+                  <button
+                    key={page.id}
+                    type="button"
+                    role="option"
+                    aria-selected={page.id === currentPageId}
+                    className="excalidraw-page-bar__page-row"
+                    data-page-id={page.id}
+                    data-page-index={index}
+                    style={{ top: index * PAGE_ROW_HEIGHT }}
+                    onClick={() => switchPage(page.id)}
+                  >
+                    <span className="excalidraw-page-bar__page-row-index">
+                      {index + 1}
+                    </span>
+                    <span className="excalidraw-page-bar__page-row-name">
+                      {page.name}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

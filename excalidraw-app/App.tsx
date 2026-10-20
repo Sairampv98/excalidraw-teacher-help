@@ -239,6 +239,11 @@ const initializeScene = async (opts: {
 
   const localDataState = importFromLocalStorage();
 
+  // the document — its page list and its content — is persisted through the
+  // document store (D-6). The legacy localStorage snapshot is only read when
+  // the store has never been written (the migration path).
+  const storedDocument = await LocalData.loadDocument();
+
   let scene: Omit<
     RestoredDataState,
     // we're not storing files in the scene database/localStorage, and instead
@@ -247,11 +252,24 @@ const initializeScene = async (opts: {
   > & {
     scrollToContent?: boolean;
   } = {
-    elements: restoreElements(localDataState?.elements, null, {
-      repairBindings: true,
-      deleteInvisibleElements: true,
-    }),
-    appState: restoreAppState(localDataState?.appState, null),
+    elements:
+      storedDocument?.elements ??
+      restoreElements(localDataState?.elements, null, {
+        repairBindings: true,
+        deleteInvisibleElements: true,
+      }),
+    appState: restoreAppState(
+      {
+        ...localDataState?.appState,
+        ...(storedDocument
+          ? {
+              pages: storedDocument.pages,
+              currentPageId: storedDocument.currentPageId,
+            }
+          : {}),
+      },
+      null,
+    ),
   };
 
   let roomLinkData = getCollaborationLinkData(window.location.href);
