@@ -631,6 +631,14 @@
       }
     }
   },
+  "pageSplit": {
+    "title": "This drawing is bigger than one page",
+    "description": "Its content covers {{count}} pages. How should it open?",
+    "split": "Split across pages",
+    "splitRecommended": "Split across pages (recommended)",
+    "keep": "Keep on one big page",
+    "cancel": "Cancel"
+  },
   "mermaid": {
     "title": "Mermaid to Excalidraw",
     "button": "Insert",
