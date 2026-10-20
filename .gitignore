@@ -39,3 +39,17 @@ htr-sandbox/
 
 # isolated feature worktrees (see HANDOVER.md / superpowers:using-git-worktrees)
 .worktrees/
+
+# TINS kit reference material (inputs to the retrofit, not project files)
+tins-kit-old-vs-new.zip
+TINS-PLAYBOOK-PACK.zip
+TINS-PLAYBOOK.md
+token-saving-harness-vscode.md
+
+# local search harness for VS Code / Copilot (machine-specific)
+.venv/
+.vscode/
+
+# TINS runtime: the kit itself (.tins/kit) IS tracked. These are outputs.
+.tins/merge-tmp-*/
+.tins/state-*.tap

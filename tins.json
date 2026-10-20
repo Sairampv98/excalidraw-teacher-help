@@ -1,0 +1,16 @@
+{
+  "gate": ["node scripts/tins-gate.mjs"],
+  "setup": [],
+  "gate_timeout_s": 2400,
+  "behaviour_paths": [
+    "packages/excalidraw/scene",
+    "packages/excalidraw/data",
+    "packages/excalidraw/element",
+    "packages/excalidraw/types.ts",
+    "packages/excalidraw/appState.ts",
+    "packages/excalidraw/tests",
+    "excalidraw-app/components",
+    "excalidraw-app/data",
+    "excalidraw-app/tests"
+  ]
+}

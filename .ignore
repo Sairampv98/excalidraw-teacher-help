@@ -1,0 +1,15 @@
+# ripgrep reads this file automatically. Anything listed here is skipped by the
+# local search tools, even if it is not in .gitignore.
+#
+# .gitignore already covers: node_modules/, htr-sandbox/, .mavis-snapbak/,
+# dist/, build/, coverage/, dev-dist/, packages/excalidraw/types/
+#
+# This file covers what is large or vendored but still tracked.
+
+# vendored font payloads (a 20 MB TTF lives here)
+scripts/woff2/
+
+# the local search server itself
+.harness/
+.venv/
+.vscode/
