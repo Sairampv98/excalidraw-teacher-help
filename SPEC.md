@@ -7,6 +7,8 @@ The source of truth for this project. Rows are `D-n` (decisions) and `AC-n` (acc
 
 Wave 1 (this file) covers user items 1, 4, 5 and 8. The design that these rows implement is `docs/superpowers/specs/2026-10-20-page-document-model-design.md`.
 
+Wave 2 (this file, rows D-12, AC-10, AC-11) covers user item 2 — content inserted while a later page is active must land on that page. Its design is `docs/superpowers/specs/2026-10-20-image-page-stamping-design.md`.
+
 ---
 
 ## Decisions
@@ -24,6 +26,7 @@ Wave 1 (this file) covers user items 1, 4, 5 and 8. The design that these rows i
 | D-9 | page list and deletion | locked | The `PageBar` page list is **virtualised** — only the visible window of rows is rendered — so a document with thousands of pages does not create thousands of DOM nodes. A **single-page delete** control is added, using the existing two-step `guardDestructive` pattern. Deleting the last remaining page leaves one empty page rather than an empty document. |
 | D-10 | measured, not guessed | locked | The document is instrumented: total and per-page element counts, save latency, page-switch latency, page count, active storage backend. A lazy-hydration redesign (loading only the current page's elements into memory) is **deferred** until a real document crosses a measured threshold: save p95 > 250 ms, page-switch p95 > 120 ms, more than 50,000 elements, or more than 2,000 pages. |
 | D-11 | no new dependency | locked | Wave 1 adds **no** dependency. Everything it needs is already available: `idb-keyval` (storage), the existing `files-db` binary store (images/GIFs), and the existing fractional-indexing package. |
+| D-12 | insertion belongs to the current page | locked | An element inserted into the **live** scene belongs to the page the user is acting on. Neither element factory can know it — `newElement()` cannot ask the app (that would be a dependency cycle) and `restoreElements()` resolves from the **file** — so one authoritative helper (`stampCurrentPage`, `scene/pages.ts`) stamps the current page onto the elements, and **every** insertion path goes through it: draw, paste, library, chart, the app's sidebar insert (image and code card), and the two actions that create an element ("wrap selection in frame", "wrap text in container"). The stamp is applied **in place**, because callers keep a reference to the element they created and go on to mutate it (drag handles, binding, text editing). Restoring a file is the one exception and does not come through the helper (D-7). |
 | D-100 | @babel/preset-env @excalidraw/eslint-config @excalidraw/prettier-config @types/chai @types/jest @types/lodash.throttle @types/react @types/react-dom @types/socket.io-client @vitejs/plugin-react @vitest/coverage-v8 @vitest/ui chai dotenv eslint-config-prettier eslint-config-react-app eslint-plugin-import eslint-plugin-prettier http-server husky jsdom lint-staged pepjs prettier rewire rimraf typescript vite vite-plugin-checker vite-plugin-ejs vite-plugin-pwa vite-plugin-svgr vitest vitest-canvas-mock | locked | The fork's pre-existing toolchain, inherited from upstream Excalidraw. Locked here unchanged: Wave 1 neither adds nor upgrades any of them, and the dependency lint in `.tins/kit/src/spec.mjs` requires every root `package.json` dependency to be named in a locked decision row. |
 | D-200 | no behavioural change without a row | locked | Any change to the behaviour paths in `tins.json` must add or change a row in this file, or the session close is refused. This is the kit's rule made mechanical, and it is how "never fix a defect in code alone" is enforced. |
 
@@ -47,13 +50,24 @@ Every row names the test file that checks it. The file must exist and must menti
 
 ---
 
+## Acceptance — Wave 2
+
+Same row format as Wave 1: the check cell names a file that must exist and must mention the row's id.
+
+| id | label | check | detail |
+| --- | --- | --- | --- |
+| AC-10 | paste lands on the current page | `packages/excalidraw/tests/pages.test.tsx` | A paste is an insertion into the live scene, so it belongs to the page the user is on: pasting while page 2 is active puts the pasted element on page 2. The regression: the paste path kept the clipboard's own page (the first page), so the pasted content was in the document — the exporter drew it — but the canvas filtered it out, and the user saw nothing. Test: `AC-10 pastes onto the page being edited`. |
+| AC-11 | sidebar insert lands on the current page | `excalidraw-app/tests/pageBar.test.tsx` | The app's sidebar insert path puts the inserted content on the page the user is on: inserting an image while page 2 is active puts the element on page 2. The regression: the insert path built the element with `newImageElement` and no page, so it landed on the first page and was invisible on the canvas. The code card behind the same helper is covered by the same rule. Test: `AC-11 inserts an image onto the page being edited`. |
+| AC-12 | the text-editor helper waits for a real editor | `packages/excalidraw/tests/MermaidToExcalidraw.test.tsx` | The shared `getTextEditor` helper must not return the TTD dialog's loading placeholder. The dialog renders three things with the `ttd-dialog-input` class — the CodeMirror container, a plain textarea fallback, and a loading spinner — and starts in the loading state, so waiting only for the node to exist returned the spinner, whose textContent is empty. That is what made the mermaid test fail intermittently under parallel load, and it blocked this task's gate. Test: `AC-12 waits for a real editor and not the loading placeholder`. |
+
+---
+
 ## Later waves — not implemented by this task
 
 These are recorded so the numbering does not shift. Their design documents are in `docs/superpowers/specs/`.
 
 | area | items | design document |
 | --- | --- | --- |
-| image and GIF page stamping | 2 | `2026-10-20-image-page-stamping-design.md` |
 | draw performance | 3 | `2026-10-20-draw-performance-design.md` |
 | canvas panels (the shared primitive) | 6, 7, 10, 11 | `2026-10-20-canvas-panel-foundation-design.md` |
 | VS Code bridge | 6 | `2026-10-20-vscode-bridge-design.md` |

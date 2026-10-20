@@ -3,7 +3,7 @@ id: wave2-page-stamping
 paths: packages/excalidraw,excalidraw-app,packages/common,packages/element,packages/utils,SPEC.md
 read: SPEC.md,docs/superpowers/specs/2026-10-20-image-page-stamping-design.md,docs/tins-tasks/wave1-page-model-brief.md,AGENTS.md,HANDOVER.md
 base: main
-status: open
+status: merged
 ---
 
 Fix item 2: content inserted on a page other than page 1 is invisible.

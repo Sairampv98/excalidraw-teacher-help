@@ -9,7 +9,7 @@ import {
   newImageElement,
   newTextElement,
 } from "@excalidraw/element";
-import { reconcileElements } from "@excalidraw/excalidraw";
+import { reconcileElements, stampCurrentPage } from "@excalidraw/excalidraw";
 import {
   generateIdFromFile,
   getDataURL,
@@ -40,10 +40,18 @@ const appendElements = (
 ) => {
   const existing = api.getSceneElements();
 
+  // Pages: content inserted into the live scene belongs to the page the user is
+  // acting on. The element factories cannot know it — `newImageElement()` and
+  // friends default to the first page — so it is stamped here, through the same
+  // helper the library's own insertion paths use. Without it, an image (or a
+  // code card) inserted while a later page was active landed on page 1 and was
+  // invisible on the canvas even though it was in the document.
+  const stamped = stampCurrentPage(added, api.getAppState().currentPageId);
+
   api.updateScene({
     elements: reconcileElements(
       existing,
-      [...existing, ...added] as RemoteExcalidrawElement[],
+      [...existing, ...stamped] as RemoteExcalidrawElement[],
       api.getAppState(),
     ),
     appState,

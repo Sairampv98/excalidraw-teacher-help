@@ -9,7 +9,9 @@
  *
  * The `AC-1`..`AC-5` block below covers the *document* model: a file's pages
  * are the file's own, never the running app's, and imported content has to be
- * reachable by the clamped camera.
+ * reachable by the clamped camera. `AC-10` covers the *insertion* rule: a
+ * paste is an insertion into the live scene, so it belongs to the page the
+ * user is on.
  */
 
 import { MAX_ZOOM, sceneCoordsToViewportCoords } from "@excalidraw/common";
@@ -20,6 +22,9 @@ import type { ExcalidrawElement } from "@excalidraw/element/types";
 import type { AppState, ToolType } from "@excalidraw/excalidraw/types";
 
 import { getDefaultAppState } from "../appState";
+import { actionWrapTextInContainer } from "../actions/actionBoundText";
+import { actionWrapSelectionInFrame } from "../actions/actionFrame";
+import { createPasteEvent, serializeAsClipboardJSON } from "../clipboard";
 import { loadFromBlob } from "../data";
 import { Excalidraw } from "../index";
 import {
@@ -33,7 +38,7 @@ import {
 } from "../scene/pages";
 import { DEFAULT_PAGE_ID, PAGE_HEIGHT, PAGE_WIDTH } from "../types";
 
-import { render, fireEvent } from "./test-utils";
+import { render, fireEvent, act, waitFor, GlobalTestState } from "./test-utils";
 import { API } from "./helpers/api";
 
 import type { NormalizedZoomValue, PageRect } from "../types";
@@ -120,6 +125,109 @@ describe("pages", () => {
 
     h.setState({ currentPageId: "page-2" });
     expect(nonDeleted()[0].pageId).toBe("page-2");
+  });
+
+  it("AC-10 pastes onto the page being edited", async () => {
+    await render(<Excalidraw pagesEnabled={true} autoFocus={true} />);
+    h.state.width = 1000;
+    h.state.height = 1000;
+
+    act(() => {
+      h.setState({ pages: TWO_PAGES, currentPageId: "page-2" });
+    });
+
+    // the content was copied on page 1 and is pasted on page 2 — the case that
+    // used to break: the paste kept the clipboard's own page, so the content
+    // landed on page 1 and the canvas (which draws the current page only)
+    // showed nothing
+    const copiedOnPage1 = newElementWith(
+      API.createElement({ type: "rectangle" }),
+      { pageId: "page-1" },
+    );
+
+    const clipboardJSON = await serializeAsClipboardJSON({
+      elements: [copiedOnPage1],
+      files: null,
+    });
+
+    // jsdom has no layout, so `elementFromPoint` cannot resolve the canvas on
+    // its own — the paste handler needs it to know the paste targets the canvas
+    const elementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => GlobalTestState.canvas;
+
+    try {
+      document.dispatchEvent(
+        createPasteEvent({ types: { "text/plain": clipboardJSON } }),
+      );
+
+      await waitFor(() => {
+        expect(h.elements.length).toBe(1);
+      });
+    } finally {
+      document.elementFromPoint = elementFromPoint;
+    }
+
+    // the pasted content belongs to the page the user is on — it used to land
+    // on the first page, which made it invisible on every later page
+    expect(h.elements[0].pageId).toBe("page-2");
+  });
+
+  it("puts a frame wrapped around the selection on the page being edited", async () => {
+    await render(<Excalidraw pagesEnabled={true} />);
+    h.state.width = 1000;
+    h.state.height = 1000;
+
+    act(() => {
+      h.setState({ pages: TWO_PAGES, currentPageId: "page-2" });
+    });
+
+    const rectangle = API.createElement({ type: "rectangle" });
+    act(() => {
+      h.elements = [rectangle];
+    });
+    API.setSelectedElements([rectangle]);
+
+    act(() => {
+      (h.app as any).actionManager.executeAction(
+        actionWrapSelectionInFrame,
+        "ui",
+      );
+    });
+
+    // the frame is new content in the live scene, so it belongs to the page
+    // the user is on
+    const frame = nonDeleted().find((el) => el.type === "frame");
+    expect(frame).toBeDefined();
+    expect(frame!.pageId).toBe("page-2");
+  });
+
+  it("puts a container wrapped around text on the page being edited", async () => {
+    await render(<Excalidraw pagesEnabled={true} />);
+    h.state.width = 1000;
+    h.state.height = 1000;
+
+    act(() => {
+      h.setState({ pages: TWO_PAGES, currentPageId: "page-2" });
+    });
+
+    const text = API.createElement({ type: "text" });
+    act(() => {
+      h.elements = [text];
+    });
+    API.setSelectedElements([text]);
+
+    act(() => {
+      (h.app as any).actionManager.executeAction(
+        actionWrapTextInContainer,
+        "ui",
+      );
+    });
+
+    // the container is new content in the live scene, so it belongs to the
+    // page the user is on
+    const container = nonDeleted().find((el) => el.type === "rectangle");
+    expect(container).toBeDefined();
+    expect(container!.pageId).toBe("page-2");
   });
 });
 

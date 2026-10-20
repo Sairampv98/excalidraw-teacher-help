@@ -20,7 +20,7 @@ import type { ExcalidrawElement } from "@excalidraw/element/types";
 
 import { setCursorForShape } from "../cursor";
 import { frameToolIcon } from "../components/icons";
-import { getSelectedElements } from "../scene";
+import { getSelectedElements, stampCurrentPage } from "../scene";
 
 import { register } from "./register";
 
@@ -184,6 +184,14 @@ export const actionWrapSelectionInFrame = register({
       width: x2 - x1 + PADDING * 2,
       height: y2 - y1 + PADDING * 2,
     });
+
+    // Pages: the frame is new content in the live scene, so it belongs to the
+    // page the user is acting on. `newFrameElement()` cannot know it and
+    // defaults to the first page, which would have put the frame (and the
+    // clipping of its children) on the wrong page.
+    if (app.props.pagesEnabled) {
+      stampCurrentPage([frame], app.state.currentPageId);
+    }
 
     // for a selected partial group, we want to remove it from the remainder of the group
     if (appState.editingGroupId) {

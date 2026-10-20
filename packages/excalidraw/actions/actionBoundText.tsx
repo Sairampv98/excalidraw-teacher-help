@@ -47,6 +47,8 @@ import type { Mutable } from "@excalidraw/common/utility-types";
 
 import type { Radians } from "@excalidraw/math";
 
+import { stampCurrentPage } from "../scene";
+
 import { register } from "./register";
 
 import type { AppState } from "../types";
@@ -274,6 +276,14 @@ export const actionWrapTextInContainer = register({
           groupIds: textElement.groupIds,
           frameId: textElement.frameId,
         });
+
+        // Pages: the container is new content in the live scene, so it belongs
+        // to the page the user is acting on. `newElement()` cannot know it and
+        // defaults to the first page, which would have left the container on
+        // another page than the text it wraps.
+        if (app.props.pagesEnabled) {
+          stampCurrentPage([container], app.state.currentPageId);
+        }
 
         // update bindings
         if (textElement.boundElements?.length) {
