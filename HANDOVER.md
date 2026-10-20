@@ -114,7 +114,7 @@ Or all at once: `yarn test:all` (which already passes `--watch=false` for you).
 
 > **Trap: `yarn test:app` on its own never exits.** The script is bare `"test:app": "vitest"` with no `--watch=false`, so it starts vitest in **watch mode** and sits there forever. It was measured here hanging for a full 40 minutes with no output, which reads exactly like a hung test suite but is not one. Always append `--watch=false` (or use `yarn test:all`).
 
-**Current state (measured 2026-10-19, re-verified in a clean clone): `1606 passed, 48 skipped, 1 todo, 0 failed`, across 120 test files, in ~102 s.** Take that as the baseline; a red suite on arrival means something got broken in transit, not that the suite is flaky.
+**Current state (measured 2026-10-20, after the Wave 1 page/document-model merge): `1621 passed, 48 skipped, 1 todo, 0 failed`, across 121 test files, in ~115 s.** Take that as the baseline; a red suite on arrival means something got broken in transit, not that the suite is flaky. There is one obsolete snapshot (`exportToSvg > with a CJK font 2`) — debris, not a failure.
 
 Two details that are easy to get wrong:
 
