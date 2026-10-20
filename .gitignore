@@ -49,6 +49,8 @@ token-saving-harness-vscode.md
 # local search harness for VS Code / Copilot (machine-specific)
 .venv/
 .vscode/
+__pycache__/
+*.pyc
 
 # TINS runtime: the kit itself (.tins/kit) IS tracked. These are outputs.
 .tins/merge-tmp-*/
