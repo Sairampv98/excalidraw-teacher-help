@@ -581,6 +581,125 @@ export const deletePageElements = <T extends ExcalidrawElement>(
   );
 
 /**
+ * Translates the content of every page whose rect moved, so that the content
+ * of a page follows its page.
+ *
+ * A page's position is *positional*: its x is the sum of the widths of the
+ * pages before it plus the spacing (see {@link getPageRectAtIndex}). Its
+ * content, on the other hand, lives in absolute scene coordinates and is
+ * never moved when the page list changes. Deleting a page in the middle
+ * therefore shifts every later page one pitch to the left while their content
+ * stays exactly where it was — stranded a page to the left of the page that
+ * now holds it, so those pages look empty even though the content is still in
+ * the document.
+ *
+ * This is the single mechanism that keeps content and page together: the
+ * caller hands over the page list *before* the change and *after* it, and
+ * every page that moved has its elements translated by the difference.
+ * Deleting a page, inserting one, reordering the pages and resizing a page
+ * are the same operation as far as the content is concerned.
+ *
+ * - only `x` and `y` are translated — nothing is scaled
+ * - a **floating** element is not owned by its page's coordinate space and is
+ *   left alone
+ * - the elements of a page that no longer exists are left alone: they go
+ *   with the page (see {@link deletePageElements})
+ */
+export const translateContentForPageLayout = <
+  T extends ExcalidrawElement = ExcalidrawElement,
+>({
+  elements,
+  previousPages,
+  nextPages,
+}: {
+  elements: readonly T[];
+  previousPages: readonly ExcalidrawPage[];
+  nextPages: readonly ExcalidrawPage[];
+}): readonly T[] => {
+  const offsets = new Map<string, { dx: number; dy: number }>();
+
+  for (const page of previousPages) {
+    if (!nextPages.some((next) => next.id === page.id)) {
+      // the page is gone — its content goes with it
+      continue;
+    }
+
+    const before = getPageRect(previousPages, page.id);
+    const after = getPageRect(nextPages, page.id);
+
+    const dx = after.x - before.x;
+    const dy = after.y - before.y;
+
+    if (dx !== 0 || dy !== 0) {
+      offsets.set(page.id, { dx, dy });
+    }
+  }
+
+  if (!offsets.size) {
+    return elements;
+  }
+
+  return elements.map((element) => {
+    if (element.floating) {
+      // a floating element is not owned by its page
+      return element;
+    }
+
+    const offset = offsets.get(element.pageId);
+
+    if (!offset) {
+      return element;
+    }
+
+    return {
+      ...element,
+      x: element.x + offset.dx,
+      y: element.y + offset.dy,
+      // the geometry changed, so this is a proper element delta for the
+      // history and the collab stream
+      version: element.version + 1,
+      versionNonce: randomInteger(),
+    } as T;
+  });
+};
+
+/** the default page name, e.g. "Page 3" */
+const DEFAULT_PAGE_NAME = /^Page \d+$/;
+
+/**
+ * Inserts a page *after* the page the user is on.
+ *
+ * The new page takes the slot right after `afterPageId`, so every page that
+ * follows it moves one pitch to the right — and its content has to move with
+ * it (see {@link translateContentForPageLayout}).
+ *
+ * The pages that carry the default name are renamed so that the names stay
+ * sequential; a page with a name of its own (a file's pages, say) keeps it.
+ */
+export const insertPageAfter = ({
+  pages,
+  afterPageId,
+  pageId,
+}: {
+  pages: readonly ExcalidrawPage[];
+  afterPageId: string;
+  pageId: string;
+}): readonly ExcalidrawPage[] => {
+  const insertIndex = getPageIndex(pages, afterPageId) + 1;
+
+  const nextPages = [
+    ...pages.slice(0, insertIndex),
+    { id: pageId, name: `Page ${insertIndex + 1}` },
+    ...pages.slice(insertIndex),
+  ];
+
+  return nextPages.map((page, index) => {
+    const name = `Page ${index + 1}`;
+    return DEFAULT_PAGE_NAME.test(page.name) ? { ...page, name } : page;
+  });
+};
+
+/**
  * Grows pages so that they contain the content restored onto them.
  *
  * A page's origin is derived from the layout (it cannot be stored on the

@@ -42,6 +42,7 @@ import {
   getPageRect,
   growPage,
   scalePageContent,
+  translateContentForPageLayout,
 } from "../scene/pages";
 import { DEFAULT_PAGE_ID, PAGE_HEIGHT, PAGE_WIDTH } from "../types";
 
@@ -592,6 +593,86 @@ describe("pages — document model", () => {
     expect(lastElements.filter((element) => !element.isDeleted)).toHaveLength(
       0,
     );
+  });
+
+  it("AC-16 keeps the later pages' content inside their own pages", () => {
+    const pages = [
+      { id: "page-1", name: "Page 1" },
+      { id: "page-2", name: "Page 2" },
+      { id: "page-3", name: "Page 3" },
+    ];
+
+    // one element per page, each sitting inside its own page's rect
+    const elements = pages.map((page) =>
+      newElementWith(
+        API.createElement({
+          type: "rectangle",
+          x: getPageRect(pages, page.id).x + 100,
+          y: 200,
+          width: 200,
+          height: 100,
+        }),
+        { pageId: page.id },
+      ),
+    );
+
+    // a floating element is not owned by its page, so it must not move
+    const floating = newElementWith(
+      API.createElement({
+        type: "rectangle",
+        x: getPageRect(pages, "page-3").x + 300,
+        y: 200,
+        width: 100,
+        height: 50,
+      }),
+      { pageId: "page-3", floating: true },
+    );
+
+    // deleting the middle page shifts the last page one pitch to the left
+    const { pages: nextPages } = deletePage({
+      pages,
+      currentPageId: "page-2",
+      pageId: "page-2",
+    });
+
+    const nextElements = deletePageElements(
+      translateContentForPageLayout({
+        elements: [...elements, floating],
+        previousPages: pages,
+        nextPages,
+      }),
+      "page-2",
+    );
+
+    const onPage3 = nextElements.filter(
+      (element) => element.pageId === "page-3",
+    );
+
+    // the content of the last page followed its page — it is still inside
+    // that page's rect, and still where it was *relative* to it
+    expectReachableByClampedCamera(
+      onPage3.filter((element) => !element.floating),
+      getPageRect(nextPages, "page-3"),
+    );
+
+    expect(onPage3[0].x).toBe(getPageRect(nextPages, "page-3").x + 100);
+
+    // the floating element did not move — it is not owned by its page
+    expect(onPage3[1]).toBe(floating);
+    expect(floating.x).toBe(getPageRect(pages, "page-3").x + 300);
+
+    // the first page did not move, so neither did its content
+    const onPage1 = nextElements.filter(
+      (element) => element.pageId === "page-1",
+    );
+
+    expect(onPage1[0].x).toBe(elements[0].x);
+    expectReachableByClampedCamera(onPage1, getPageRect(nextPages, "page-1"));
+
+    // the deleted page's content goes with it
+    expect(
+      nextElements.find((element) => element.pageId === "page-2")!.isDeleted,
+    ).toBe(true);
   });
 
   it("AC-5 restores a file's own pages in isolation", async () => {

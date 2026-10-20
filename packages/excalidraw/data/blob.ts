@@ -13,7 +13,11 @@ import type { ExcalidrawElement, FileId } from "@excalidraw/element/types";
 import { cleanAppStateForExport } from "../appState";
 
 import { CanvasError, ImageSceneDataError } from "../errors";
-import { calculateScrollCenter, growPagesToFitContent } from "../scene";
+import {
+  calculateScrollCenter,
+  growPagesToFitContent,
+  translateContentForPageLayout,
+} from "../scene";
 import { decodeSvgBase64Payload } from "../scene/export";
 
 import { DEFAULT_PAGE_ID } from "../types";
@@ -184,14 +188,24 @@ export const loadSceneOrLibraryFromBlob = async (
         localAppState,
       );
 
+      // the file's own pages are the layout its content was authored against
+      const restoredPages = appState.pages;
+
+      // imported content must be reachable: a page grows to contain it, and
+      // the pages that follow it move — so their content moves with them
+      const grownPages = growPagesToFitContent(restoredPages, elements);
+
       return {
         type: MIME_TYPES.excalidraw,
         data: {
-          elements,
+          elements: translateContentForPageLayout({
+            elements,
+            previousPages: restoredPages,
+            nextPages: grownPages,
+          }),
           appState: {
             ...appState,
-            // imported content must be reachable: a page grows to contain it
-            pages: growPagesToFitContent(appState.pages, elements),
+            pages: grownPages,
           },
           files: data.files || {},
         },

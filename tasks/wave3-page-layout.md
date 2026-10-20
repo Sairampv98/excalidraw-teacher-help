@@ -3,7 +3,7 @@ id: wave3-page-layout
 paths: packages/excalidraw,excalidraw-app,SPEC.md
 read: SPEC.md,packages/excalidraw/scene/pages.ts,excalidraw-app/components/PageBar.tsx,AGENTS.md,HANDOVER.md
 base: main
-status: open
+status: merged
 ---
 
 CRITICAL FIX: deleting a page in the middle of a document strands the content of

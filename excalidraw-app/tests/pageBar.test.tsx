@@ -23,7 +23,12 @@
  * here — a copied formula is how a wrong sign once shipped a real bug.
  */
 
-import { Excalidraw, getPageRect } from "@excalidraw/excalidraw";
+import {
+  Excalidraw,
+  getCameraForPage,
+  getPageRect,
+} from "@excalidraw/excalidraw";
+import { MAX_ZOOM, sceneCoordsToViewportCoords } from "@excalidraw/common";
 import { newElementWith } from "@excalidraw/element";
 import { PAGE_HEIGHT, PAGE_WIDTH } from "@excalidraw/excalidraw/types";
 import { API } from "@excalidraw/excalidraw/tests/helpers/api";
@@ -33,7 +38,11 @@ import {
   render,
 } from "@excalidraw/excalidraw/tests/test-utils";
 
-import type { ExcalidrawPage } from "@excalidraw/excalidraw/types";
+import type {
+  ExcalidrawPage,
+  NormalizedZoomValue,
+  PageRect,
+} from "@excalidraw/excalidraw/types";
 
 import { Provider, appJotaiStore } from "../app-jotai";
 import { STORAGE_KEYS } from "../app_constants";
@@ -67,6 +76,47 @@ const elementOn = (pageId: string, x: number, y: number) =>
     API.createElement({ type: "rectangle", x, y, width: 200, height: 100 }),
     { pageId },
   );
+
+/** tolerance for float drift, in CSS px */
+const EPS = 0.001;
+
+const VIEWPORT_WIDTH = 1200;
+const VIEWPORT_HEIGHT = 800;
+
+/**
+ * Asserts that the content is inside the page it belongs to.
+ *
+ * The check goes through the library's own conversion: the camera that frames
+ * the whole page has to show the content, so the user sees it when they
+ * switch to that page.
+ */
+const expectInsideItsPage = (
+  element: { x: number; y: number },
+  pageRect: PageRect,
+) => {
+  const camera = getCameraForPage({
+    viewportWidth: VIEWPORT_WIDTH,
+    viewportHeight: VIEWPORT_HEIGHT,
+    pageRect,
+    maxZoom: MAX_ZOOM,
+  });
+
+  const viewport = sceneCoordsToViewportCoords(
+    { sceneX: element.x, sceneY: element.y },
+    {
+      zoom: { value: camera.zoom as NormalizedZoomValue },
+      offsetLeft: 0,
+      offsetTop: 0,
+      scrollX: camera.scrollX,
+      scrollY: camera.scrollY,
+    },
+  );
+
+  expect(viewport.x).toBeGreaterThanOrEqual(-EPS);
+  expect(viewport.x).toBeLessThanOrEqual(VIEWPORT_WIDTH + EPS);
+  expect(viewport.y).toBeGreaterThanOrEqual(-EPS);
+  expect(viewport.y).toBeLessThanOrEqual(VIEWPORT_HEIGHT + EPS);
+};
 
 const renderPageBar = async (
   pages: ExcalidrawPage[],
@@ -158,6 +208,83 @@ describe("page bar", () => {
 
     // the deleted page's content goes with it
     expect(h.elements[0].isDeleted).toBe(true);
+  });
+
+  it("AC-6 moves the pages that follow the deleted one, with their content", async () => {
+    const pages = makePages(3);
+
+    const { getByLabelText } = await renderPageBar(pages, "page-2");
+
+    const onPage2 = elementOn("page-2", 100, 100);
+    const onPage3 = elementOn(
+      "page-3",
+      getPageRect(pages, "page-3").x + 100,
+      200,
+    );
+
+    act(() => {
+      h.elements = [onPage2, onPage3];
+    });
+
+    const deleteButton = getByLabelText("Delete this page");
+
+    // the first click only arms the control
+    fireEvent.click(deleteButton);
+
+    expect(deleteButton.getAttribute("data-armed")).toBe("true");
+
+    // the second click deletes the page — and only that page
+    fireEvent.click(deleteButton);
+
+    expect(h.state.pages.map((page) => page.id)).toEqual(["page-1", "page-3"]);
+
+    // the deleted page's content goes with it
+    expect(h.elements[0].isDeleted).toBe(true);
+
+    // the page that followed moved one pitch to the left ...
+    expect(getPageRect(h.state.pages, "page-3").x).toBeLessThan(
+      getPageRect(pages, "page-3").x,
+    );
+
+    // ... and its content moved with it, so the page is not empty
+    expect(h.elements[1].x).toBe(getPageRect(h.state.pages, "page-3").x + 100);
+
+    expectInsideItsPage(h.elements[1], getPageRect(h.state.pages, "page-3"));
+  });
+
+  it("AC-17 inserts a page after the current one and moves the later pages with it", async () => {
+    const pages = makePages(3);
+
+    const { getByLabelText } = await renderPageBar(pages, "page-2");
+
+    const onPage3 = elementOn(
+      "page-3",
+      getPageRect(pages, "page-3").x + 100,
+      200,
+    );
+
+    act(() => {
+      h.elements = [onPage3];
+    });
+
+    fireEvent.click(getByLabelText("Add a page"));
+
+    // the new page went in right after the page the user was on
+    expect(h.state.pages).toHaveLength(4);
+    expect(h.state.pages[1].id).toBe("page-2");
+    expect(h.state.pages[2].id).not.toBe("page-3");
+    expect(h.state.pages[3].id).toBe("page-3");
+    expect(h.state.currentPageId).toBe(h.state.pages[2].id);
+
+    // the pages that followed moved one pitch to the right ...
+    expect(getPageRect(h.state.pages, "page-3").x).toBeGreaterThan(
+      getPageRect(pages, "page-3").x,
+    );
+
+    // ... and their content moved with them, so they are not empty
+    expect(h.elements[0].x).toBe(getPageRect(h.state.pages, "page-3").x + 100);
+
+    expectInsideItsPage(h.elements[0], getPageRect(h.state.pages, "page-3"));
   });
 
   it("AC-7 persists 10,000 pages through the document store", async () => {
