@@ -732,14 +732,26 @@ const tiledPageId = (index: number): string => `page-${index + 1}`;
  * 3. **Tile**: the content is cut into a grid of `pageWidth` x `pageHeight`
  *    cells — `col = floor(x / pageWidth)`, `row = floor(y / pageHeight)` — and
  *    the cells that hold no content are dropped.
- * 4. **Place**: the surviving cells become the pages, in **row major** order
+ * 4. **Size**: a page is as big as the content of its own cell needs: its
+ *    size is the bounding box of that content, measured in **cell-relative**
+ *    coordinates, with a minimum of `PAGE_WIDTH` x `PAGE_HEIGHT`. An element
+ *    that straddles a cell border therefore still fits — wholly — on its
+ *    page, instead of hanging over the page's edge where the camera cannot
+ *    reach it.
+ * 5. **Place**: the surviving cells become the pages, in **row major** order
  *    (the top-left cell first, then left to right, then down), so the board
- *    reads in reading order. The page at index `P` has its rect at
- *    `x = P * (pageWidth + spacing)`, and the content of the cell
- *    `(col, row)` keeps its position *within* that cell.
+ *    reads in reading order. The pages are laid out in the **cumulative**
+ *    order the library uses ({@link getPageRectAtIndex}): the pages have
+ *    differing widths, so they do not share a constant pitch, and the content
+ *    of a cell keeps its position *within* that cell.
  *
  * The cell of an element is decided by the element's **origin** — the same
- * `x` / `y` the renderer places it by.
+ * `x` / `y` the renderer places it by. A free-draw stroke's origin is
+ * *inside* the stroke rather than at its top-left corner, so a stroke can
+ * reach left of / above the cell it was assigned to, and a page — which can
+ * only grow to the right and downwards (D-5) — cannot contain it there. The
+ * content of such a cell is therefore pushed into its page by as much as it
+ * must be, and by no more; for everything else the push is zero.
  *
  * ## What it does not do
  *
@@ -768,16 +780,11 @@ const tiledPageId = (index: number): string => `page-${index + 1}`;
  * ## The page geometry
  *
  * The page size defaults to the library's page size (`PAGE_WIDTH` x
- * `PAGE_HEIGHT`) and the gap between two page rects to `PAGE_SPACING`, so the
- * returned pages land exactly where the library's own layout
- * ({@link getPageRectAtIndex}) puts them and every element ends up inside its
- * page.
- *
- * A `pageWidth` / `pageHeight` below the library's minimum is raised to it: a
- * page may only grow (D-1). A `spacing` other than `PAGE_SPACING` is
- * honoured by the arithmetic here, but the library lays the page rects out
- * with a fixed `PAGE_SPACING` gap — so a custom spacing and the library's own
- * layout disagree.
+ * `PAGE_HEIGHT`), which is also the minimum: a page may only grow (D-1). The
+ * gap between two page rects belongs to the **page layout**, and the layout
+ * is the library's own cumulative one ({@link getPageRectAtIndex}), whose gap
+ * is the fixed `PAGE_SPACING` — a `spacing` of its own is therefore not
+ * supported, and asking for one is an error rather than a silent no-op.
  */
 export const paginateContentIntoPages = (
   elements: readonly ExcalidrawElement[],
@@ -791,7 +798,16 @@ export const paginateContentIntoPages = (
   // library's minimum
   const pageWidth = Math.max(options?.pageWidth ?? PAGE_WIDTH, PAGE_WIDTH);
   const pageHeight = Math.max(options?.pageHeight ?? PAGE_HEIGHT, PAGE_HEIGHT);
+
+  // the gap between two page rects belongs to the page layout, and the
+  // layout is the library's own cumulative one — its gap is fixed
   const spacing = options?.spacing ?? PAGE_SPACING;
+
+  if (spacing !== PAGE_SPACING) {
+    throw new Error(
+      `paginateContentIntoPages: the gap between two page rects is fixed at PAGE_SPACING (${PAGE_SPACING}) — the pages are laid out by the library's own cumulative layout, so a custom spacing is not supported.`,
+    );
+  }
 
   /** the content: the elements a page owns — neither deleted nor floating */
   const content = elements.filter(
@@ -831,12 +847,22 @@ export const paginateContentIntoPages = (
 
   const cellKey = (col: number, row: number) => `${row}:${col}`;
 
-  // the cells that hold content
-  const cells = new Map<string, { col: number; row: number }>();
+  // the cells that hold content, and the elements in them
+  const cells = new Map<
+    string,
+    { col: number; row: number; elements: ExcalidrawElement[] }
+  >();
 
   for (const element of content) {
     const { col, row } = cellOf(element.x + dx, element.y + dy);
-    cells.set(cellKey(col, row), { col, row });
+    const key = cellKey(col, row);
+    const cell = cells.get(key);
+
+    if (cell) {
+      cell.elements.push(element);
+    } else {
+      cells.set(key, { col, row, elements: [element] });
+    }
   }
 
   // row major: the top-left cell first, then left to right, then down
@@ -844,20 +870,60 @@ export const paginateContentIntoPages = (
     (a, b) => a.row - b.row || a.col - b.col,
   );
 
-  const pages: ExcalidrawPage[] = ordered.map((_, index) => ({
-    id: tiledPageId(index),
-    name: `Page ${index + 1}`,
-    width: pageWidth,
-    height: pageHeight,
-  }));
+  /**
+   * The page that holds a cell, and how much the cell's content had to be
+   * pushed into it.
+   *
+   * The size of the page is the bounding box of the cell's own elements,
+   * measured in **cell-relative** coordinates — the position the element has
+   * inside its cell. The cell-relative box does not depend on the page
+   * layout, so the sizing cannot feed back into the placement: the sizes are
+   * settled first, and the origins follow from them.
+   *
+   * A page grows to the right and downwards only — its origin is derived from
+   * the layout and is not stored (D-5). A free-draw stroke's origin is
+   * *inside* the stroke rather than at its top-left corner, so a stroke can
+   * reach left of / above the cell it was assigned to. The cell's content is
+   * therefore pushed into its page by as much as it must be, and by no more:
+   * the shift is the negative part of the cell's bounding box, and it is zero
+   * for the common case (a rectangle, or a stroke that stays inside its
+   * cell).
+   */
+  const sized = ordered.map((cell, index) => {
+    const relative = cell.elements.map((element) => ({
+      ...element,
+      x: element.x + dx - cell.col * pageWidth,
+      y: element.y + dy - cell.row * pageHeight,
+    }));
+
+    const [minX, minY, maxX, maxY] = getCommonBounds(relative);
+
+    const shiftX = Math.min(0, minX);
+    const shiftY = Math.min(0, minY);
+
+    return {
+      shiftX,
+      shiftY,
+      page: {
+        id: tiledPageId(index),
+        name: `Page ${index + 1}`,
+        width: Math.max(pageWidth, maxX - shiftX),
+        height: Math.max(pageHeight, maxY - shiftY),
+      } as ExcalidrawPage,
+    };
+  });
+
+  const pages: ExcalidrawPage[] = sized.map((entry) => entry.page);
+
+  // the page origins: the library's own cumulative layout. The pages have
+  // differing widths, so the pitch is not a constant.
+  const pageRects = pages.map((_, index) => getPageRectAtIndex(pages, index));
 
   const pageIndexByCell = new Map<string, number>();
 
   ordered.forEach((cell, index) => {
     pageIndexByCell.set(cellKey(cell.col, cell.row), index);
   });
-
-  const pitch = pageWidth + spacing;
 
   const nextElements = elements.map((element) => {
     if (element.floating) {
@@ -884,15 +950,16 @@ export const paginateContentIntoPages = (
 
     const { col, row } = cellOf(x, y);
     const pageIndex = pageIndexByCell.get(cellKey(col, row))!;
-    const page = pages[pageIndex];
+    const { shiftX, shiftY } = sized[pageIndex];
+    const rect = pageRects[pageIndex];
 
     return {
       ...element,
       // the element keeps its position within its cell, and the cell is
       // placed on its page
-      x: pageIndex * pitch + (x - col * pageWidth),
-      y: y - row * pageHeight,
-      pageId: page.id,
+      x: rect.x + (x - col * pageWidth) - shiftX,
+      y: rect.y + (y - row * pageHeight) - shiftY,
+      pageId: pages[pageIndex].id,
       // the geometry changed, so this is a proper element delta for the
       // history and the collab stream
       version: element.version + 1,

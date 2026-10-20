@@ -27,6 +27,7 @@ const { getPageRect, paginateContentIntoPages } = await import(
   "../scene/pages"
 );
 const { DEFAULT_PAGE_ID } = await import("../types");
+const { getCommonBounds } = await import("@excalidraw/element");
 
 const file = process.argv[2] ?? "C:/Users/user/projects/day-1.excalidraw";
 
@@ -63,26 +64,60 @@ console.info(`pages:           ${pages.length}`);
 console.info(`per page:        max ${Math.max(...perPage)}, median ${median}`);
 console.info(`counts:          ${perPage.join(", ")}`);
 
-// an element whose origin is inside its page, but whose box sticks out of
-// it (an element wider than the page, or one that straddles a cell border)
+// an element whose box sticks out of its page's rect. The box is the
+// library's own bounds — what the renderer draws and what the camera clamp
+// has to cover — not the element's stored `x`/`y`/`width`/`height`, which for
+// a free-draw stroke is not the same thing.
+const TOLERANCE = 1e-6;
+
 const overflow = tiled.map((element) => {
   if (element.isDeleted || element.floating) {
     return 0;
   }
 
   const rect = getPageRect(pages, element.pageId);
+  const [minX, minY, maxX, maxY] = getCommonBounds([element]);
 
   return Math.max(
-    rect.x - element.x,
-    rect.y - element.y,
-    element.x + element.width - (rect.x + rect.width),
-    element.y + element.height - (rect.y + rect.height),
+    rect.x - minX,
+    rect.y - minY,
+    maxX - (rect.x + rect.width),
+    maxY - (rect.y + rect.height),
     0,
   );
 });
 
-const offPage = overflow.filter((over) => over > 0);
+const offPage = overflow.filter((over) => over > TOLERANCE);
 
 console.info(
   `off-page:        ${offPage.length} (worst ${Math.max(...offPage)}px)`,
 );
+
+// the page sizes, so a page that had to grow for its content is visible
+console.info(
+  `page sizes:      ${pages
+    .map(
+      (page) =>
+        `${Math.round(page.width ?? 0)}x${Math.round(page.height ?? 0)}`,
+    )
+    .join(", ")}`,
+);
+
+// the offenders, with the detail that explains them
+const offenders = tiled
+  .map((element, index) => ({ element, over: overflow[index] }))
+  .filter((entry) => entry.over > 0)
+  .slice(0, 5);
+
+for (const { element, over } of offenders) {
+  const rect = getPageRect(pages, element.pageId);
+  const bounds = getCommonBounds([element]);
+
+  console.info(
+    `  ${element.type} x=${element.x} y=${element.y} w=${element.width} h=${
+      element.height
+    } bounds=${bounds.join(",")} page=${element.pageId} rect=${rect.x},${
+      rect.y
+    },${rect.width},${rect.height} over=${over}`,
+  );
+}

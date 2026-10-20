@@ -20,11 +20,13 @@ import {
   viewportCoordsToSceneCoords,
 } from "@excalidraw/common";
 import { getCommonBounds, newElementWith } from "@excalidraw/element";
+import { pointFrom } from "@excalidraw/math";
 
 import type {
   ExcalidrawElement,
   ExcalidrawFreeDrawElement,
 } from "@excalidraw/element/types";
+import type { LocalPoint } from "@excalidraw/math";
 
 import type { AppState, ToolType } from "@excalidraw/excalidraw/types";
 
@@ -45,7 +47,12 @@ import {
   scalePageContent,
   translateContentForPageLayout,
 } from "../scene/pages";
-import { DEFAULT_PAGE_ID, PAGE_HEIGHT, PAGE_WIDTH } from "../types";
+import {
+  DEFAULT_PAGE_ID,
+  PAGE_HEIGHT,
+  PAGE_SPACING,
+  PAGE_WIDTH,
+} from "../types";
 
 import { render, fireEvent, act, waitFor, GlobalTestState } from "./test-utils";
 import { API } from "./helpers/api";
@@ -871,6 +878,74 @@ describe("pages — document model", () => {
     expect(tiledFloating.x).toBe(3000);
     expect(tiledFloating.y).toBe(3000);
     expect(tiledFloating.pageId).toBe(floating.pageId);
+  });
+
+  it("AC-20 puts every element fully inside its page and lays the pages out cumulatively", () => {
+    /** a rectangle as it comes out of a legacy file: on the first page */
+    const legacyRect = (x: number, y: number, width = 100, height = 50) =>
+      newElementWith(
+        API.createElement({ type: "rectangle", x, y, width, height }),
+        { pageId: DEFAULT_PAGE_ID },
+      );
+
+    // a scene whose content straddles the cell borders: the wide element
+    // starts near the right edge of its cell and reaches past it
+    const topLeft = legacyRect(-100, -50);
+    const straddling = legacyRect(3520, -50, 400);
+    const bottomLeft = legacyRect(-100, 1030);
+
+    // a free-draw stroke whose origin is *inside* the stroke: the stroke
+    // reaches left of and above its own origin, and a page — which can only
+    // grow to the right and downwards — cannot contain it there
+    const stroke = newElementWith(
+      API.createElement({
+        type: "freedraw",
+        x: 3790,
+        y: 2130,
+        points: [
+          pointFrom<LocalPoint>(-100, -50),
+          pointFrom<LocalPoint>(20, 10),
+        ],
+      }),
+      { pageId: DEFAULT_PAGE_ID },
+    );
+
+    const { elements: next, pages } = paginateContentIntoPages([
+      topLeft,
+      straddling,
+      bottomLeft,
+      stroke,
+    ]);
+
+    // the page that holds the straddling element grew to hold it — a page is
+    // as big as its own content needs
+    expect(pages).toHaveLength(4);
+    expect(pages[0].width).toBe(PAGE_WIDTH);
+    expect(pages[1].width).toBeGreaterThan(PAGE_WIDTH);
+
+    // every element lies FULLY inside the rect of the page it is on — the
+    // library's own page layout, and its own bounding box
+    for (const element of next) {
+      const rect = getPageRect(pages, element.pageId);
+      const [minX, minY, maxX, maxY] = getCommonBounds([element]);
+
+      expect(minX).toBeGreaterThanOrEqual(rect.x - EPS);
+      expect(minY).toBeGreaterThanOrEqual(rect.y - EPS);
+      expect(maxX).toBeLessThanOrEqual(rect.x + rect.width + EPS);
+      expect(maxY).toBeLessThanOrEqual(rect.y + rect.height + EPS);
+    }
+
+    // and the pages follow one another in the library's cumulative order: the
+    // distance between two origins is the width of the page before them plus
+    // the spacing, so a wider page pushes the pages after it — and they never
+    // overlap
+    for (let index = 1; index < pages.length; index++) {
+      const previous = getPageRect(pages, pages[index - 1].id);
+      const current = getPageRect(pages, pages[index].id);
+
+      expect(current.x - previous.x).toBe(previous.width + PAGE_SPACING);
+      expect(current.x).toBeGreaterThanOrEqual(previous.x + previous.width);
+    }
   });
 });
 
