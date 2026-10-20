@@ -66,6 +66,14 @@ Same row format as Wave 1: the check cell names a file that must exist and must 
 | AC-14 | a stroke keeps every sample | `packages/excalidraw/tests/pages.test.tsx` | A free-draw stroke whose `pointermove` carries N coalesced samples keeps **all N** points — the stroke's point count tracks the device's samples, not the frame count — and the recorded `pressures` array stays index-aligned with the `points` array. Test: `AC-14 keeps every coalesced sample of a free-draw stroke`. |
 | AC-15 | the bounding box is a single pass | `packages/element/tests/bounds.test.ts` | `getSizeFromPoints()` returns the **same** bounds as before — it is checked against the library's own single-pass `getBoundsFromPoints()` — and it does so in a single pass, so it no longer spreads the coordinates into `Math.max()`/`Math.min()` and cannot blow the argument limit on a long stroke. Tests: `AC-15 returns the same bounds as before, in a single pass`, `AC-15 sizes a long stroke without spreading the points into Math.max()`. |
 
+### Also changed, deliberately without an acceptance row
+
+Three **whole-scene scans** were removed from the per-frame path: `updateEmbeddables` is now gated on the element set changing, and `syncAnimatedImageFileIds` and `getAnimatedImageElements` are memoised on the visible elements and the files. `AnimatedImageOverlay` is now wrapped in `React.memo` with a comparator that compares the camera and the viewport by value, because both are rebuilt on every app state change.
+
+This is a **behaviour-preserving optimisation**, not a behaviour change: the same GIFs render, the same embeddables validate, the same output is produced. It is recorded here rather than given an acceptance row because a row would need to assert an _implementation_ detail (how many times a component renders) rather than a behaviour, and this project does not have a render-count harness.
+
+It is covered indirectly and adequately by the existing animated-image and embeddable tests, which still pass. Its purpose is to stop the frame rate collapsing as a document grows — which is what made CAUSE 1 (the discarded pointer samples) visible to the user in the first place.
+
 ---
 
 ## Later waves — not implemented by this task
