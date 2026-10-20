@@ -41,6 +41,8 @@ export {
   scalePageContent,
   deletePage,
   deletePageElements,
+  translateContentForPageLayout,
+  insertPageAfter,
   growPagesToFitContent,
   getPageClampRect,
 } from "./pages";

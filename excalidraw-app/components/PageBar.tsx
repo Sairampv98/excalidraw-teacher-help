@@ -4,8 +4,10 @@ import {
   deletePage,
   deletePageElements,
   growPage,
+  insertPageAfter,
   scalePageContent,
   shrinkPage,
+  translateContentForPageLayout,
   useExcalidrawAPI,
   useExcalidrawStateValue,
 } from "@excalidraw/excalidraw";
@@ -399,21 +401,37 @@ const PageBar = () => {
     [pages, currentIndex, switchPage],
   );
 
+  /**
+   * Adds a page *after* the page the user is on.
+   *
+   * The pages that follow it move one pitch to the right, and their content
+   * moves with them — the content lives in absolute scene coordinates, so
+   * without the translation it would be left behind on the page before.
+   */
   const addPage = useCallback(() => {
     if (!excalidrawAPI || excalidrawAPI.isDestroyed) {
       return;
     }
 
-    const nextIndex = pages.length;
-    const page: ExcalidrawPage = {
-      id: `page-${randomId()}`,
-      name: `Page ${nextIndex + 1}`,
-    };
+    const pageId = `page-${randomId()}`;
+
+    const nextPages = insertPageAfter({
+      pages,
+      afterPageId: currentPageId ?? "",
+      pageId,
+    });
+
+    const nextElements = translateContentForPageLayout({
+      elements: excalidrawAPI.getSceneElementsIncludingDeleted(),
+      previousPages: pages,
+      nextPages,
+    });
 
     excalidrawAPI.updateScene({
-      appState: { pages: [...pages, page], currentPageId: page.id },
+      elements: nextElements,
+      appState: { pages: nextPages, currentPageId: pageId },
     });
-  }, [excalidrawAPI, pages]);
+  }, [excalidrawAPI, pages, currentPageId]);
 
   /** soft-delete every element that belongs to the current page */
   const clearCurrentPage = useCallback(() => {
@@ -441,6 +459,11 @@ const PageBar = () => {
    * The page's elements are soft-deleted rather than removed, so that undoing
    * brings the page and its content back together. Deleting the last page
    * leaves a single, empty page behind — a document always has one page.
+   *
+   * The pages that follow the deleted one move one pitch to the left, and
+   * their content moves with them: the content lives in absolute scene
+   * coordinates, so without the translation it would be stranded on the page
+   * before the one that now holds it — and those pages would look empty.
    */
   const deleteCurrentPage = useCallback(() => {
     if (!excalidrawAPI || excalidrawAPI.isDestroyed || !currentPageId) {
@@ -455,8 +478,14 @@ const PageBar = () => {
       pageId: currentPageId,
     });
 
+    const nextElements = translateContentForPageLayout({
+      elements,
+      previousPages: pages,
+      nextPages,
+    });
+
     excalidrawAPI.updateScene({
-      elements: deletePageElements(elements, currentPageId),
+      elements: deletePageElements(nextElements, currentPageId),
       appState: {
         pages: nextPages,
         currentPageId: nextCurrentPageId,
