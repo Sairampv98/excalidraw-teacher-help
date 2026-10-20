@@ -746,6 +746,9 @@ const tiledPageId = (index: number): string => `page-${index + 1}`;
  * - It does not **scale** anything: an element keeps its size, type and style.
  * - It does not move a **floating** element: a floating element is not owned
  *   by a page, so it is left exactly where it is.
+ * - It does not **tile** a **deleted** element: a deleted element is a
+ *   tombstone, not content, so it is re-anchored with the rest (it keeps its
+ *   place relative to its neighbours) but it is never given a page of its own.
  * - It does not mutate its input: every element it moves becomes a new
  *   object, and the elements it leaves alone are handed back untouched.
  *
@@ -787,10 +790,7 @@ export const paginateContentIntoPages = (
   // a page may only grow (D-1), so a smaller request is raised to the
   // library's minimum
   const pageWidth = Math.max(options?.pageWidth ?? PAGE_WIDTH, PAGE_WIDTH);
-  const pageHeight = Math.max(
-    options?.pageHeight ?? PAGE_HEIGHT,
-    PAGE_HEIGHT,
-  );
+  const pageHeight = Math.max(options?.pageHeight ?? PAGE_HEIGHT, PAGE_HEIGHT);
   const spacing = options?.spacing ?? PAGE_SPACING;
 
   /** the content: the elements a page owns — neither deleted nor floating */

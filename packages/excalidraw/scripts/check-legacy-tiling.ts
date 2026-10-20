@@ -23,7 +23,9 @@ import type { ExcalidrawElement } from "@excalidraw/element/types";
 globalThis.devicePixelRatio = 1;
 
 const { restoreElements } = await import("../data/restore");
-const { getPageRect, paginateContentIntoPages } = await import("../scene/pages");
+const { getPageRect, paginateContentIntoPages } = await import(
+  "../scene/pages"
+);
 const { DEFAULT_PAGE_ID } = await import("../types");
 
 const file = process.argv[2] ?? "C:/Users/user/projects/day-1.excalidraw";
@@ -42,9 +44,8 @@ const { elements: tiled, pages } = paginateContentIntoPages(elements);
 
 const perPage = pages.map(
   (page) =>
-    tiled.filter(
-      (element) => element.pageId === page.id && !element.isDeleted,
-    ).length,
+    tiled.filter((element) => element.pageId === page.id && !element.isDeleted)
+      .length,
 );
 
 const sorted = [...perPage].sort((a, b) => a - b);
@@ -82,4 +83,6 @@ const overflow = tiled.map((element) => {
 
 const offPage = overflow.filter((over) => over > 0);
 
-console.info(`off-page:        ${offPage.length} (worst ${Math.max(...offPage)}px)`);
+console.info(
+  `off-page:        ${offPage.length} (worst ${Math.max(...offPage)}px)`,
+);

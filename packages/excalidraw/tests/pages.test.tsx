@@ -865,9 +865,7 @@ describe("pages — document model", () => {
 
     expect(pages).toHaveLength(2);
 
-    const tiledFloating = tiled.find(
-      (element) => element.id === floating.id,
-    )!;
+    const tiledFloating = tiled.find((element) => element.id === floating.id)!;
 
     expect(tiledFloating).toBe(floating);
     expect(tiledFloating.x).toBe(3000);
