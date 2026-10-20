@@ -62,7 +62,11 @@ const STEPS = [
     cmd: EXE.prettier,
     args: [
       "**/*.{css,scss,json,md,html,yml}",
+      // Two ignore paths on purpose. A single --ignore-path REPLACES prettier's
+      // defaults, so naming only .eslintignore would mean .gitignore stopped
+      // being honoured and every ignored-but-present file got scanned.
       "--ignore-path=.eslintignore",
+      "--ignore-path=.gitignore",
       "--list-different",
     ],
     note: "prettier --list-different",
