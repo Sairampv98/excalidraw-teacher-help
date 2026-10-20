@@ -177,7 +177,24 @@ const ChevronUpIcon = ({ size = 16 }: IconProps) => (
   </svg>
 );
 
-const ScaleContentIcon = ({ size = 16 }: IconProps) => (
+const ScaleContentDownIcon = ({ size = 16 }: IconProps) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="4" y="4" width="16" height="16" rx="2" />
+    <path d="M9 12h6" />
+  </svg>
+);
+
+const ScaleContentUpIcon = ({ size = 16 }: IconProps) => (
   <svg
     width={size}
     height={size}
@@ -695,7 +712,7 @@ const PageBar = () => {
         title="Scale this page's content down"
         aria-label="Scale this page's content down"
       >
-        <ScaleContentIcon />
+        <ScaleContentDownIcon />
       </button>
 
       <button
@@ -705,7 +722,7 @@ const PageBar = () => {
         title="Scale this page's content up"
         aria-label="Scale this page's content up"
       >
-        <ScaleContentIcon />
+        <ScaleContentUpIcon />
       </button>
 
       <span className="excalidraw-page-bar__divider" aria-hidden="true" />
