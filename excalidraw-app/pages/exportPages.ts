@@ -1,7 +1,7 @@
 import {
   exportToCanvas,
   getOrderedElementsForPage,
-  getPageRectByIndex,
+  getPageRect,
 } from "@excalidraw/excalidraw";
 
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
@@ -60,14 +60,16 @@ export const exportAllPages = async (
 
   const images: PdfPageImage[] = [];
 
-  for (const [index, page] of appState.pages.entries()) {
+  for (const page of appState.pages) {
     const pageElements = getOrderedElementsForPage(allElements, page.id);
 
     const canvas = await exportToCanvas({
       elements: pageElements,
       appState: exportAppState,
       files,
-      pageRect: getPageRectByIndex(index),
+      // the page's own rect — pages may differ in size, so the index alone
+      // does not tell us where the page sits
+      pageRect: getPageRect(appState.pages, page.id),
     });
 
     images.push(await encodeCanvasForPdf(canvas));

@@ -422,12 +422,17 @@ export {
   PAGE_WIDTH,
   PAGE_HEIGHT,
   PAGE_GAP,
+  PAGE_SPACING,
+  PAGE_SIZE_STEP,
+  CONTENT_SCALE_STEP,
   DEFAULT_PAGE_ID,
   DEFAULT_SIDEBAR_WIDTH,
 } from "./types";
-export type { ExcalidrawPage, PageRect } from "./types";
+export type { ExcalidrawPage, PageRect, ResolvedExcalidrawPage } from "./types";
 export {
   getPageRectByIndex,
+  getPageRectAtIndex,
+  getPageRect,
   getPageIndex,
   getCurrentPageRect,
   getFitPageZoom,
@@ -440,6 +445,15 @@ export {
   getDefaultPage,
   getPageViewportWidth,
   MIN_PAGE_VIEWPORT_WIDTH,
+  normalizePage,
+  getPageSize,
+  growPage,
+  shrinkPage,
+  scalePageContent,
+  deletePage,
+  deletePageElements,
+  growPagesToFitContent,
+  getPageClampRect,
 } from "./scene";
 
 export { CommandPalette } from "./components/CommandPalette/CommandPalette";
