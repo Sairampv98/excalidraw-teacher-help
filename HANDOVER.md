@@ -148,20 +148,21 @@ Please file an issue ( https://github.com/jsx-eslint/jsx-ast-utils/issues/new )
 
 That is a **plugin limitation being printed, not a lint failure**. The gate still exits 0. Ignore it.
 
-### The "known flakes" were a misdiagnosis — fixed 2026-10-20
+### The "known flakes" are gone — they had two different causes, both fixed 2026-10-20
 
-> **Corrected.** An earlier version of this section said these two files were flaky under parallel load and that you should not chase them. **That was wrong**, and chasing them is exactly what found the real fault. Both were the _same_ fault, and it was not a flake.
+> **Corrected twice.** An earlier version of this section said these two files were flaky under parallel load and that you should not chase them. **That was wrong**, and chasing them is exactly what found the real faults. They were not one fault, and neither was a flake.
 
-`vitest.config.mts` set **no `exclude`**, so Vitest's defaults applied — and those defaults do not cover this repository's worktrees. When the suite ran from the repository root with a worktree present, every test file inside the worktree was collected a **second time**. The duplicate run resolved different paths (the worktree segment leaked into snapshot values, e.g. the exported font URLs), so:
-
-- `packages/excalidraw/tests/scene/export.test.ts` failed with a snapshot mismatch that named the worktree directory;
-- `packages/excalidraw/tests/MermaidToExcalidraw.test.tsx` failed with _a different test in the file each run_ — which is the signature of a file being collected and asserted twice, not of a race.
+**Cause 1 — duplicate test collection.** `vitest.config.mts` set **no `exclude`**, so Vitest's defaults applied — and those defaults do not cover this repository's worktrees. When the suite ran from the repository root with a worktree present, every test file inside the worktree was collected a **second time**. The duplicate run resolved different paths (the worktree segment leaked into snapshot values, e.g. the exported font URLs). That is what broke `packages/excalidraw/tests/scene/export.test.ts`.
 
 **Fix:** `vitest.config.mts` now sets `exclude` explicitly, covering `.worktrees`, `.tins` and `htr-sandbox` in addition to Vitest's defaults (setting `exclude` replaces the defaults, so they are restated). `export.test.ts` now collects once — 15 tests, green — instead of twice.
 
+**Cause 2 — a race in the shared test helper.** `packages/excalidraw/tests/queries/dom.ts` `getTextEditor` waited only for an element with the given selector to **exist**. The TTD dialog renders three different things with the class `ttd-dialog-input`: the CodeMirror container, a plain `<textarea>` fallback, and a **loading placeholder** (`ttd-dialog-input--loading`) holding a spinner. It starts in the loading state and swaps in the real editor from an effect that lazy-loads CodeMirror, so the placeholder is present from the first paint. Under load the helper therefore returned the **spinner**, whose `textContent` is the empty string — which is how `packages/excalidraw/tests/MermaidToExcalidraw.test.tsx` came to fail with "a different test in the file each run". That signature was a race, not a double-assertion.
+
+**Fix:** the helper now waits for an element that is actually an editor — a `textarea`/`input`, or a container holding CodeMirror's `.cm-content` — and the loading placeholder is rejected explicitly. Covered by `AC-12`, whose teeth check is deterministic (a controlled DOM, not a race).
+
 There is still one **obsolete snapshot** left over from earlier work: `exportToSvg > with a CJK font 2`. It is debris, not a failure.
 
-If you see a test fail with a path in its name that contains `.worktrees`, you are looking at a collection problem, not a code problem.
+Two heuristics worth keeping: if a test fails with a path in its name that contains `.worktrees`, you are looking at a collection problem, not a code problem; and if a test fails with an **empty** value where it expected content, suspect a helper that waited for the wrong thing rather than the code under test.
 
 ---
 
