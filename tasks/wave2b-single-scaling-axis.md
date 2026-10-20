@@ -3,7 +3,7 @@ id: wave2b-single-scaling-axis
 paths: packages/excalidraw,excalidraw-app,SPEC.md
 read: SPEC.md,excalidraw-app/components/PageBar.tsx,packages/excalidraw/scene/pages.ts,AGENTS.md,HANDOVER.md
 base: main
-status: open
+status: merged
 ---
 
 Remove the Grow this page / Shrink this page controls. Scaling the content down

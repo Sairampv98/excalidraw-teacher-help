@@ -128,8 +128,9 @@ export const CANVAS_BACKGROUND_PATTERNS: readonly CanvasBackgroundPattern[] = [
  * and zoom only ever reveals *part* of it, so the same page maps identically on
  * every display (editor + presenter).
  *
- * 1920x1080 is the *minimum* page size — a page may grow, never shrink below
- * it (see `growPage` / `shrinkPage` in `scene/pages.ts`).
+ * 1920x1080 is the *minimum* page size — a page grows to contain the content
+ * restored onto it (see `growPagesToFitContent` in `scene/pages.ts`) and never
+ * shrinks below it.
  */
 export const PAGE_WIDTH = 1920;
 export const PAGE_HEIGHT = 1080;
@@ -145,11 +146,6 @@ export const PAGE_SPACING = 200;
 export const PAGE_GAP = PAGE_WIDTH + PAGE_SPACING;
 
 export const DEFAULT_PAGE_ID = "page-1";
-
-/**
- * Linear multiplier applied to a page rect by "grow page" / "shrink page".
- */
-export const PAGE_SIZE_STEP = 2;
 
 /**
  * Multiplier applied to a page's element geometry by "scale content".
@@ -187,8 +183,8 @@ export type ExcalidrawPage = {
    * Linear scale of the page's content, relative to the page's minimum size
    * (1 = the content is at its original size). Defaults to 1.
    *
-   * "Grow page" does not change it — it changes the room around the content,
-   * not the content.
+   * Scaling the content is the only way to get more room on a page — the page
+   * rect itself is not a user-facing axis.
    */
   contentScale?: number;
 };

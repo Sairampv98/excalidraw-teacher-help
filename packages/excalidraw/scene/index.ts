@@ -36,8 +36,6 @@ export {
   stampCurrentPage,
   normalizePage,
   getPageSize,
-  growPage,
-  shrinkPage,
   scalePageContent,
   deletePage,
   deletePageElements,

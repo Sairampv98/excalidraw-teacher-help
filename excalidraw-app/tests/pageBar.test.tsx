@@ -12,15 +12,16 @@
  *    independently, so a failed element write cannot lose the page list
  *  - AC-8 storage: IndexedDB when it is available, the localStorage backend
  *    when it is not, and the active backend reported
- *  - AC-9 per-page size controls: grow the page, scale the content, both
- *    reversible, both confined to the current page, and both surviving a
- *    reload
+ *  - AC-9 the single scaling axis: the page bar scales the page's *content*,
+ *    reversibly, confined to the current page, surviving a reload — and it
+ *    offers no grow-page / shrink-page control at all
  *  - AC-11 the app's own sidebar insert path: an image inserted while a later
  *    page is active lands on that page
  *
  * Assertions go through the library's own conversions (`getPageRect`,
- * `growPage`, `scalePageContent`) rather than re-deriving their formulas
- * here — a copied formula is how a wrong sign once shipped a real bug.
+ * `getCameraForPage`, `sceneCoordsToViewportCoords`) rather than re-deriving
+ * their formulas here — a copied formula is how a wrong sign once shipped a
+ * real bug.
  */
 
 import {
@@ -469,7 +470,7 @@ describe("page bar", () => {
     ).toBe("localStorage");
   });
 
-  it("AC-9 grows the page and scales the content independently", async () => {
+  it("AC-9 scales the page content on its own", async () => {
     const { getByLabelText } = await renderPageBar(TWO_PAGES, "page-1");
 
     const onPage1 = elementOn("page-1", 400, 300);
@@ -479,30 +480,29 @@ describe("page bar", () => {
       h.elements = [onPage1, onPage2];
     });
 
-    // grow: the page rect doubles, the content's geometry is left alone
-    fireEvent.click(getByLabelText("Grow this page"));
-
-    expect(getPageRect(h.state.pages, "page-1").width).toBe(PAGE_WIDTH * 2);
-    expect(getPageRect(h.state.pages, "page-1").height).toBe(PAGE_HEIGHT * 2);
-    expect(h.elements[0].x).toBe(400);
-    expect(h.elements[0].width).toBe(200);
-
-    // the other page is untouched
-    expect(getPageRect(h.state.pages, "page-2").width).toBe(PAGE_WIDTH);
-
-    // scale content: the page rect is left alone, the content is halved
+    // scale the content down: that page's content geometry is halved ...
     fireEvent.click(getByLabelText("Scale this page's content down"));
 
-    expect(getPageRect(h.state.pages, "page-1").width).toBe(PAGE_WIDTH * 2);
     expect(h.elements[0].x).toBe(200);
     expect(h.elements[0].y).toBe(150);
     expect(h.elements[0].width).toBe(100);
     expect(h.elements[0].height).toBe(50);
     expect(h.state.pages[0].contentScale).toBe(0.5);
 
-    // the other page's content is untouched
+    // ... and the page rect is left alone — scaling the content is the only
+    // way to get more room on a page
+    expect(getPageRect(h.state.pages, "page-1").width).toBe(PAGE_WIDTH);
+    expect(getPageRect(h.state.pages, "page-1").height).toBe(PAGE_HEIGHT);
+
+    // the other page is untouched — its rect and its content
+    expect(getPageRect(h.state.pages, "page-2").width).toBe(PAGE_WIDTH);
     expect(h.elements[1].x).toBe(100);
     expect(h.elements[1].width).toBe(200);
+    expect(h.state.pages[1].contentScale).toBeUndefined();
+
+    // the scaled content is still inside its own page — checked through the
+    // library's own camera, the way the user sees it
+    expectInsideItsPage(h.elements[0], getPageRect(h.state.pages, "page-1"));
 
     // and it is reversible
     fireEvent.click(getByLabelText("Scale this page's content up"));
@@ -512,19 +512,24 @@ describe("page bar", () => {
     expect(h.elements[0].width).toBe(200);
     expect(h.elements[0].height).toBe(100);
     expect(h.state.pages[0].contentScale).toBe(1);
-
-    // shrinking the page is the inverse of growing it
-    fireEvent.click(getByLabelText("Grow this page"));
-
-    expect(getPageRect(h.state.pages, "page-1").width).toBe(PAGE_WIDTH * 4);
-
-    fireEvent.click(getByLabelText("Shrink this page"));
-
-    expect(getPageRect(h.state.pages, "page-1").width).toBe(PAGE_WIDTH * 2);
-    expect(getPageRect(h.state.pages, "page-1").height).toBe(PAGE_HEIGHT * 2);
   });
 
-  it("AC-9 keeps the page size and content scale across a reload", async () => {
+  it("AC-9 has no grow or shrink page control", async () => {
+    const { getByLabelText, queryByLabelText } = await renderPageBar(
+      TWO_PAGES,
+      "page-1",
+    );
+
+    // there is one way to get more room on a page: scale the content
+    expect(queryByLabelText("Grow this page")).toBeNull();
+    expect(queryByLabelText("Shrink this page")).toBeNull();
+
+    // and the content controls are still there
+    expect(getByLabelText("Scale this page's content down")).toBeTruthy();
+    expect(getByLabelText("Scale this page's content up")).toBeTruthy();
+  });
+
+  it("AC-9 keeps the content scale across a reload", async () => {
     vi.stubGlobal("indexedDB", undefined);
     resetDocumentStore();
 
@@ -534,7 +539,6 @@ describe("page bar", () => {
       h.elements = [elementOn("page-1", 400, 300)];
     });
 
-    fireEvent.click(getByLabelText("Grow this page"));
     fireEvent.click(getByLabelText("Scale this page's content down"));
 
     await LocalData.saveDocument(h.elements, {
@@ -544,9 +548,15 @@ describe("page bar", () => {
 
     const reloaded = await LocalData.loadDocument();
 
-    expect(reloaded?.pages[0].width).toBe(PAGE_WIDTH * 2);
-    expect(reloaded?.pages[0].height).toBe(PAGE_HEIGHT * 2);
-    expect(reloaded?.pages[0].contentScale).toBe(0.5);
+    expect(reloaded).toBeTruthy();
+
+    const reloadedPages = reloaded!.pages;
+
+    expect(reloadedPages[0].contentScale).toBe(0.5);
+
+    // the page rect was never touched by the scaling
+    expect(getPageRect(reloadedPages, "page-1").width).toBe(PAGE_WIDTH);
+    expect(getPageRect(reloadedPages, "page-1").height).toBe(PAGE_HEIGHT);
   });
 
   it("AC-11 inserts an image onto the page being edited", async () => {

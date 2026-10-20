@@ -40,7 +40,6 @@ import {
   deletePageElements,
   getPageClampRect,
   getPageRect,
-  growPage,
   scalePageContent,
   translateContentForPageLayout,
 } from "../scene/pages";
@@ -430,7 +429,7 @@ describe("pages — document model", () => {
     expectReachableByClampedCamera(elements, pageRect);
   });
 
-  it("AC-3 scales the page and its content independently", () => {
+  it("AC-3 scales the page content and leaves the page rect alone", () => {
     const pages = [
       { id: "page-1", name: "Page 1" },
       { id: "page-2", name: "Page 2" },
@@ -472,14 +471,6 @@ describe("pages — document model", () => {
     );
 
     const elements = [anchored, floating, onPage2];
-
-    // grow page: the page rect doubles, the content is left alone
-    const grown = growPage(pages[0]);
-
-    expect(grown.width).toBe(PAGE_WIDTH * 2);
-    expect(grown.height).toBe(PAGE_HEIGHT * 2);
-    expect(anchored.x).toBe(400);
-    expect(anchored.width).toBe(200);
 
     // scale content: the page rect is left alone, the anchored elements of
     // that page are scaled, the floating element is not
