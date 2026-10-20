@@ -122,6 +122,40 @@ describe("Test <MermaidToExcalidraw/>", () => {
     expect(normalizeDialogSnapshot(dialog)).toMatchSnapshot();
   });
 
+  it("AC-12 waits for a real editor and not the loading placeholder", async () => {
+    // The dialog renders a loading spinner, a textarea fallback and a
+    // CodeMirror container with the same class. The helper must not hand back
+    // the spinner: its textContent is empty, which is how the mermaid test
+    // came to fail intermittently under parallel load.
+    //
+    // This is asserted directly, with a controlled DOM, so that it fails
+    // deterministically - a test that only fails when the race happens is the
+    // flake itself, not a test of it.
+    const loading = document.createElement("div");
+    loading.className = "ac12-loading-probe ttd-dialog-input--loading";
+    document.body.appendChild(loading);
+
+    const real = document.createElement("textarea");
+    real.className = "ac12-real-probe";
+    document.body.appendChild(real);
+
+    try {
+      // The loading placeholder is not an editor, so the helper must not
+      // resolve to it.
+      await expect(
+        getTextEditor({ selector: ".ac12-loading-probe", waitForEditor: true }),
+      ).rejects.toThrow();
+
+      // A real editor does resolve.
+      await expect(
+        getTextEditor({ selector: ".ac12-real-probe", waitForEditor: true }),
+      ).resolves.toBe(real);
+    } finally {
+      loading.remove();
+      real.remove();
+    }
+  });
+
   it("should show error in preview when mermaid library throws error", async () => {
     const dialog = document.querySelector(".ttd-dialog")!;
 
