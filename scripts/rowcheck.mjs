@@ -101,8 +101,10 @@ const rel = files.map((f) => f.slice(root.length + 1).replace(/\\/g, "/"));
 process.stdout.write(`rowcheck: running ${rel.length} file(s)\n  ${rel.join("\n  ")}\n`);
 
 const env = { ...process.env, FORCE_COLOR: "0" };
-env.PATH = `${binDir}${process.platform === "win32" ? ";" : ":"}${env.PATH || ""}`;
-env.Path = env.PATH;
+// Extend the existing PATH key rather than writing a new `PATH` one: on Windows
+// the real variable is `Path`, and clobbering it would hide `node` from the child.
+const pathKey = Object.keys(env).find((k) => k.toLowerCase() === "path") || "PATH";
+env[pathKey] = `${binDir}${process.platform === "win32" ? ";" : ":"}${env[pathKey] || ""}`;
 for (const k of Object.keys(env)) if (k.startsWith("NODE_TEST_")) delete env[k];
 
 const r = spawnSync("vitest", ["run", ...rel], {

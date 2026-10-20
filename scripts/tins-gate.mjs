@@ -79,8 +79,13 @@ const env = { ...process.env, FORCE_COLOR: "0" };
 // Put the resolved node_modules/.bin on PATH, the way yarn does. Without this the
 // spawned `tsc` / `eslint` / `vitest` would not be found when the gate runs in a
 // worktree that has no node_modules of its own.
-env.PATH = `${binDir}${isWin ? ";" : ":"}${env.PATH || ""}`;
-env.Path = env.PATH;
+//
+// On Windows the real environment variable is `Path`, not `PATH`. Reading
+// `env.PATH` would return undefined, and writing it back would clobber the real
+// `Path` with "<bindir>;undefined" - and then `node` itself would not be found.
+// So find the existing key case-insensitively and extend that one.
+const pathKey = Object.keys(env).find((k) => k.toLowerCase() === "path") || "PATH";
+env[pathKey] = `${binDir}${isWin ? ";" : ":"}${env[pathKey] || ""}`;
 // A gate launched from inside a node:test process must not report to a parent and
 // exit 0 - that is a silent pass (the kit strips these too).
 for (const k of Object.keys(env)) if (k.startsWith("NODE_TEST_")) delete env[k];
