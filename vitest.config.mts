@@ -87,6 +87,15 @@ export default defineConfig({
     sequence: {
       hooks: "parallel",
     },
+    // Vitest's default worker count is one per CPU (12 on this machine), and
+    // each jsdom worker holds 100-500 MB. That is ~2.5 GB of workers on top of
+    // the browser, the editor, WSL and the antivirus on a 15 GB machine, and the
+    // OS kills a worker mid-suite. A killed worker looks like a flaky test but
+    // is not one: the run exits non-zero with NO summary and NO failing test,
+    // which is the signature to look for. Four workers stays well inside memory
+    // and is still parallel enough.
+    maxWorkers: 4,
+    minWorkers: 1,
     setupFiles: ["./setupTests.ts"],
     globals: true,
     environment: "jsdom",
