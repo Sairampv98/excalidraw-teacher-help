@@ -43,6 +43,7 @@ Every row names the test file that checks it. The file must exist and must menti
 | AC-6 | page bar | `excalidraw-app/tests/pageBar.test.tsx` | The page list renders as a virtualised window — a document with 10,000 pages does not create 10,000 DOM nodes — and a single-page delete control is present and guarded by the two-step confirmation. |
 | AC-7 | unbounded pages | `excalidraw-app/tests/pageBar.test.tsx` | 10,000 pages can be created, switched between, and survive a reload through the document store. The page index and the element buckets are written independently, so a failed element write cannot lose the page list. |
 | AC-8 | storage fallback | `excalidraw-app/tests/pageBar.test.tsx` | The IndexedDB backend is used when it is available. When IndexedDB cannot be opened, the localStorage backend takes over and the document still persists. The active backend is reported. |
+| AC-9 | per page size controls | `excalidraw-app/tests/pageBar.test.tsx` | The current page offers a grow-page control and a scale-content control. Grow doubles the page rect and leaves the content geometry untouched; scale halves the content geometry and leaves the page rect untouched. Each is reversible, each affects only the current page, and the page size and content scale survive a reload. |
 
 ---
 
