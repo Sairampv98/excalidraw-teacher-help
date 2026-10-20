@@ -33,6 +33,7 @@ export {
   getPageViewportWidth,
   MIN_PAGE_VIEWPORT_WIDTH,
   getDefaultPage,
+  stampCurrentPage,
   normalizePage,
   getPageSize,
   growPage,

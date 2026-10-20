@@ -1,7 +1,7 @@
 /**
- * The app side of the page document model — AC-6..AC-9.
+ * The app side of the page document model — AC-6..AC-9 and AC-11.
  *
- * The library side (AC-1..AC-5) lives in
+ * The library side (AC-1..AC-5 and AC-10) lives in
  * `packages/excalidraw/tests/pages.test.tsx`. This file covers what only the
  * *app* can show:
  *
@@ -15,6 +15,8 @@
  *  - AC-9 per-page size controls: grow the page, scale the content, both
  *    reversible, both confined to the current page, and both surviving a
  *    reload
+ *  - AC-11 the app's own sidebar insert path: an image inserted while a later
+ *    page is active lands on that page
  *
  * Assertions go through the library's own conversions (`getPageRect`,
  * `growPage`, `scalePageContent`) rather than re-deriving their formulas
@@ -44,6 +46,7 @@ import {
 } from "../data/LocalData";
 import { createDocumentStore } from "../data/documentStore";
 import { getDocumentStats, resetDocumentStats } from "../data/documentStats";
+import { insertImageIntoScene } from "../sidebar/insertIntoScene";
 
 const { h } = window;
 
@@ -417,5 +420,36 @@ describe("page bar", () => {
     expect(reloaded?.pages[0].width).toBe(PAGE_WIDTH * 2);
     expect(reloaded?.pages[0].height).toBe(PAGE_HEIGHT * 2);
     expect(reloaded?.pages[0].contentScale).toBe(0.5);
+  });
+
+  it("AC-11 inserts an image onto the page being edited", async () => {
+    // jsdom cannot decode an image, so the size probe is stubbed: the insert
+    // path only needs the natural size to scale the element
+    class StubImage {
+      naturalWidth = 120;
+      naturalHeight = 60;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(_value: string) {
+        this.onload?.();
+      }
+    }
+    vi.stubGlobal("Image", StubImage);
+
+    await renderPageBar(TWO_PAGES, "page-2");
+
+    const file = new File(["not-really-a-png"], "shot.png", {
+      type: "image/png",
+    });
+
+    await act(async () => {
+      await insertImageIntoScene(h.app.api, file);
+    });
+
+    expect(h.elements.length).toBe(1);
+
+    // the inserted image belongs to the page the user is on — it used to land
+    // on the first page, which made it invisible on every later page
+    expect(h.elements[0].pageId).toBe("page-2");
   });
 });

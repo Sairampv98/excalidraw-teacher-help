@@ -353,6 +353,42 @@ export const getDefaultPage = (): ExcalidrawPage => ({
 });
 
 /**
+ * Stamps the page the user is acting on onto elements that are being inserted
+ * into the live scene.
+ *
+ * THE RULE: an element the user inserts belongs to the page they are acting
+ * on. Neither factory can know it on its own — `newElement()` cannot ask the
+ * app (that would be a dependency cycle) and `restoreElements()` resolves from
+ * the **file**, not from the running app — so both stamp a default. Content
+ * inserted while a later page was active therefore used to land on page 1 and
+ * vanish from the view, while still being present in the document (the
+ * exporter draws the whole scene, the canvas draws only the current page).
+ *
+ * This is the single stamping point: every path that introduces elements into
+ * the live scene goes through it — draw, paste, library, sidebar insert.
+ * Restoring a file is the one exception, and it does not come through here.
+ *
+ * The stamp is applied **in place**, on purpose: callers keep a reference to
+ * the element they created and go on to mutate it (drag handles, binding,
+ * text editing), so handing the scene a copy would silently orphan those
+ * mutations.
+ */
+export const stampCurrentPage = <
+  T extends ExcalidrawElement = ExcalidrawElement,
+>(
+  elements: readonly T[],
+  currentPageId: string,
+): readonly T[] => {
+  for (const element of elements) {
+    // see the note above: `pageId` is readonly on some element variants, but
+    // the element model is mutable and callers hold on to the reference
+    (element as { pageId: string }).pageId = currentPageId;
+  }
+
+  return elements;
+};
+
+/**
  * Doubles a page's rect. The page's *content* is left untouched — growing the
  * page and scaling the page's content are two independent operations.
  */

@@ -376,6 +376,7 @@ import {
   getSelectedElements,
   hasBackground,
   isSomeElementSelected,
+  stampCurrentPage,
 } from "../scene";
 import { getStateForZoom } from "../scene/zoom";
 import { DEFAULT_SIDEBAR_WIDTH } from "../types";
@@ -4148,6 +4149,15 @@ class App extends React.Component<AppProps, AppState> {
       preserveFrameChildrenOrder: opts.preserveFrameChildrenOrder,
     });
 
+    // Pages: a paste inserts into the *live* scene, so the pasted content
+    // belongs to the page the user is acting on. `restoreElements()` resolved
+    // the page from the clipboard/file instead (falling back to the first
+    // page), which put pasted content out of sight on any later page — it was
+    // in the document, just on the wrong page.
+    if (this.pagesEnabled) {
+      stampCurrentPage(duplicatedElements, this.state.currentPageId);
+    }
+
     const prevElements = this.scene.getElementsIncludingDeleted();
     let nextElements = [...prevElements, ...duplicatedElements];
 
@@ -6636,10 +6646,8 @@ class App extends React.Component<AppProps, AppState> {
         // should take precedence when it comes to z-index)
         // same in-place page stamp as `insertNewElements` — the wysiwyg keeps
         // mutating `element` after this call, so a copy would orphan it.
-        // The cast mirrors `Scene.mutateElement`: `pageId` is readonly on some
-        // element variants even though the model itself is mutable.
-        if (this.pagesEnabled && element.pageId !== this.state.currentPageId) {
-          (element as { pageId: string }).pageId = this.state.currentPageId;
+        if (this.pagesEnabled) {
+          stampCurrentPage([element], this.state.currentPageId);
         }
         this.scene.insertElementsAtIndex([element], containerIndex + 1);
       } else {
@@ -7151,20 +7159,17 @@ class App extends React.Component<AppProps, AppState> {
     // goes through, so freehand/linear/text/frames all land on the page being
     // edited rather than silently vanishing off-page.
     //
+    // `stampCurrentPage` is the one authoritative stamping point (see
+    // `scene/pages.ts`); the paste path and the app's sidebar insert path go
+    // through it too, so that every insertion path agrees on the rule.
+    //
     // The stamp is applied *in place* on purpose: callers keep a reference to
     // the element they created and go on to mutate it (drag handles, binding,
     // text editing). Handing the scene a copy would silently orphan those
     // mutations.
-    const currentPageId = this.state.currentPageId;
-    const stampedElements = elements.map((element) => {
-      if (!this.pagesEnabled || element.pageId === currentPageId) {
-        return element;
-      }
-      // see the note above: `pageId` is readonly on some variants, but the
-      // element model is mutable and callers hold on to this reference
-      (element as { pageId: string }).pageId = currentPageId;
-      return element;
-    });
+    const stampedElements = this.pagesEnabled
+      ? stampCurrentPage(elements, this.state.currentPageId)
+      : elements;
 
     const chunkedElements: ExcalidrawElement[][] = [];
 

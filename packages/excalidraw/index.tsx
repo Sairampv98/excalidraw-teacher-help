@@ -443,6 +443,7 @@ export {
   getElementsForPage,
   getOrderedElementsForPage,
   getDefaultPage,
+  stampCurrentPage,
   getPageViewportWidth,
   MIN_PAGE_VIEWPORT_WIDTH,
   normalizePage,
