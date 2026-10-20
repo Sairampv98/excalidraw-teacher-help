@@ -19,7 +19,6 @@ import {
   DEFAULT_PAGE_ID,
   PAGE_GAP,
   PAGE_HEIGHT,
-  PAGE_SIZE_STEP,
   PAGE_SPACING,
   PAGE_WIDTH,
 } from "../types";
@@ -389,34 +388,6 @@ export const stampCurrentPage = <
 };
 
 /**
- * Doubles a page's rect. The page's *content* is left untouched — growing the
- * page and scaling the page's content are two independent operations.
- */
-export const growPage = (page: ExcalidrawPage): ExcalidrawPage => {
-  const { width, height } = getPageSize(page);
-
-  return {
-    ...page,
-    width: width * PAGE_SIZE_STEP,
-    height: height * PAGE_SIZE_STEP,
-  };
-};
-
-/**
- * Halves a page's rect, never below the minimum page size. The inverse of
- * {@link growPage}.
- */
-export const shrinkPage = (page: ExcalidrawPage): ExcalidrawPage => {
-  const { width, height } = getPageSize(page);
-
-  return {
-    ...page,
-    width: Math.max(width / PAGE_SIZE_STEP, PAGE_WIDTH),
-    height: Math.max(height / PAGE_SIZE_STEP, PAGE_HEIGHT),
-  };
-};
-
-/**
  * Scales the geometry of an element around a pivot.
  *
  * Scaled: `x`, `y`, `width`, `height`, free-draw / linear `points`,
@@ -473,9 +444,9 @@ const scaleElementGeometry = <T extends ExcalidrawElement>(
 /**
  * Scales the content of a page around the page's origin.
  *
- * The page rect is left untouched — that is {@link growPage}'s job — and
- * floating elements are left untouched too: a floating element does not belong
- * to the page's coordinate space.
+ * The page rect is left untouched — scaling the content is the only way to get
+ * more room on a page (D-2) — and floating elements are left untouched too: a
+ * floating element does not belong to the page's coordinate space.
  *
  * The scale is written into the *stored* element geometry, it is not a
  * render-time multiplier. The scale step is 0.5 and its inverse 2, both exact in

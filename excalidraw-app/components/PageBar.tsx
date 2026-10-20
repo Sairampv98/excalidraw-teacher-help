@@ -3,10 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   deletePage,
   deletePageElements,
-  growPage,
   insertPageAfter,
   scalePageContent,
-  shrinkPage,
   translateContentForPageLayout,
   useExcalidrawAPI,
   useExcalidrawStateValue,
@@ -176,44 +174,6 @@ const ChevronUpIcon = ({ size = 16 }: IconProps) => (
     aria-hidden="true"
   >
     <path d="M18 15l-6-6-6 6" />
-  </svg>
-);
-
-const GrowIcon = ({ size = 16 }: IconProps) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.8"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M4 9V4h5" />
-    <path d="M20 15v5h-5" />
-    <path d="M4 4l6 6" />
-    <path d="M20 20l-6-6" />
-  </svg>
-);
-
-const ShrinkIcon = ({ size = 16 }: IconProps) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.8"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M10 4v5H5" />
-    <path d="M14 20v-5h5" />
-    <path d="M10 9L4 4" />
-    <path d="M14 15l6 5" />
   </svg>
 );
 
@@ -529,40 +489,11 @@ const PageBar = () => {
     [armed, arm],
   );
 
-  /** replaces the current page's record — the other pages are left alone */
-  const updateCurrentPage = useCallback(
-    (update: (page: ExcalidrawPage) => ExcalidrawPage) => {
-      if (!excalidrawAPI || excalidrawAPI.isDestroyed || !currentPageId) {
-        return;
-      }
-
-      excalidrawAPI.updateScene({
-        appState: {
-          pages: pages.map((page) =>
-            page.id === currentPageId ? update(page) : page,
-          ),
-        },
-      });
-    },
-    [excalidrawAPI, pages, currentPageId],
-  );
-
-  /** doubles the page's rect — the content's geometry is left untouched */
-  const growCurrentPage = useCallback(
-    () => updateCurrentPage(growPage),
-    [updateCurrentPage],
-  );
-
-  /** halves the page's rect — the inverse of growing it */
-  const shrinkCurrentPage = useCallback(
-    () => updateCurrentPage(shrinkPage),
-    [updateCurrentPage],
-  );
-
   /**
    * Scales the current page's content around the page's origin.
    *
-   * The page rect is left untouched — growing the page is a separate action.
+   * The page rect is left untouched — scaling the content down is the only way
+   * to get more room on a page.
    */
   const scaleCurrentPageContent = useCallback(
     (factor: number) => {
@@ -756,26 +687,6 @@ const PageBar = () => {
       </button>
 
       <span className="excalidraw-page-bar__divider" aria-hidden="true" />
-
-      <button
-        type="button"
-        className="excalidraw-page-bar__icon"
-        onClick={growCurrentPage}
-        title="Grow this page"
-        aria-label="Grow this page"
-      >
-        <GrowIcon />
-      </button>
-
-      <button
-        type="button"
-        className="excalidraw-page-bar__icon"
-        onClick={shrinkCurrentPage}
-        title="Shrink this page"
-        aria-label="Shrink this page"
-      >
-        <ShrinkIcon />
-      </button>
 
       <button
         type="button"
