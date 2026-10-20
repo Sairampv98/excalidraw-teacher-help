@@ -83,9 +83,6 @@ The load path is **byte-identical to upstream** except for 26 added lines, so th
 export type ExcalidrawPage = {
   id: string;
   name: string;
-  /** Page rect in scene units. Starts at 1920x1080 and can only grow. */
-  width: number;
-  height: number;
   /**
    * Multiplier applied to this page's element geometry.
    * 1 = as drawn. 0.5 = content half size relative to the page.
@@ -95,31 +92,31 @@ export type ExcalidrawPage = {
 };
 ```
 
-Page **origin** is not stored on the page; it is derived by cumulative layout (§5.2) so that inserting or removing a page cannot leave stale offsets behind.
+> **Revised 2026-10-20.** `width` and `height` are **gone** from the page record. Every page is a fixed 1920x1080 sheet; the only size knob is `contentScale` on the content. A per-page size was tried and rejected: growing a page pushed the neighbouring pages sideways, because the layout is cumulative.
 
-### 5.1 Two independent knobs
+Page **origin** is not stored on the page; it is derived by layout (§5.2) so that inserting or removing a page cannot leave stale offsets behind.
+
+### 5.1 The scaling axis
+
+> **Revised 2026-10-20, after live testing.** This section originally specified **two** independent axes (_grow page_ and _scale content_). The user tested both on a 38-page document and found that _grow page_ **encroaches on the neighbouring pages**: because pages are laid out by cumulative offsets, enlarging page 2 pushes page 3 sideways. Their own proposed solution was "select all the content on the page and scale it down" — which is exactly _scale content_, and which **never moves another page**. Decision: **drop the grow/shrink-page axis entirely. One knob, not two.**
 
 | Operation | Effect on page rect | Effect on elements | Result on screen |
 | --- | --- | --- | --- |
-| **Grow page** | width/height x2 (min 1920x1080) | unchanged | camera fits a bigger rect -> content appears half-size, twice the room |
-| **Shrink page** | width/height /2 (floor 1920x1080) | unchanged | inverse |
 | **Scale content up** | unchanged | geometry x2 | content physically larger relative to the page |
-| **Scale content down** | unchanged | geometry /2 | content physically smaller relative to the page, more relative room |
+| **Scale content down** | unchanged | geometry /2 | content physically smaller relative to the page, more relative room, **no other page moves** |
 
-Both axes are independent and per page. A page in one document may be grown while its neighbour is scaled.
+The page rect stays 1920x1080 for every page. There is no per-page size, and pages no longer need cumulative offsets — each page keeps the same fixed pitch, so `getPageRectByIndex` is sufficient and the layout refactor described in §5.2 is dropped, because all pages are the same size again.
 
-The two operations are **designed as a pair**: _grow page_ x2 (linear) combined with _scale content_ x0.5 leaves the content at exactly its previous apparent size while doubling the room around it — which is the "make it seem like 1920x1080 became larger even though it did not" behaviour. Used separately they are also meaningful.
+**What this removes.** `ExcalidrawPage` does not need `width`/`height`; the _grow page_ / _shrink page_ controls are deleted; and the page-layout change from index-based to offset-based is no longer needed.
 
-Step sizes are named constants, so they are one-line changes:
+**What this keeps.** Everything below about _how_ scaling is applied still holds: the transform table, the pivot, the `floating` exclusion, and the rule that scaling persists rescaled geometry rather than being a render-time multiplier.
+
+**One consequence to be explicit about.** Because the page no longer grows, a scene whose content exceeds the 1920x1080 page still needs somewhere to go. That is what the `floating` flag is for (§5.3), and it is now load-bearing rather than a convenience: content that must sit outside the page is marked floating, and the camera clamp widens to include it.
 
 ```ts
-/** linear multiplier applied to the page rect by "grow page" / "shrink page" */
-export const PAGE_SIZE_STEP = 2;
 /** multiplier applied to element geometry by "scale content" */
 export const CONTENT_SCALE_STEP = 0.5;
 ```
-
-`PAGE_SIZE_STEP = 2` pairs with `CONTENT_SCALE_STEP = 0.5` as described above. If a "50% larger" reading is preferred instead, `PAGE_SIZE_STEP = 1.5` gives a 1.5x linear / 2.25x area step — the content-scale constant is unaffected, but the two then no longer cancel exactly.
 
 `contentScale` is stored **as a number on the page**, and scaling is applied by **persisting rescaled geometry**, not as a render-time multiplier. Rationale: the fork has already been burned once by coordinate convention drift — `HANDOVER.md` §2 records that `pages.ts` computed scroll bounds with the wrong sign while `packages/common/src/utils.ts` was correct. A render-time multiplier would spread that class of bug across the renderer, exporter, hit-testing, bounds and presenter. Persisting the transform keeps exactly one authoritative conversion.
 
@@ -134,7 +131,9 @@ export const getPageRect = (
 ): PageRect;
 ```
 
-Pages are laid out left-to-right with **cumulative offsets** (each page's `x` = sum of previous pages' `width` + gap). `getPageRectByIndex` is replaced; the index-based formula cannot express pages of differing sizes. `PAGE_GAP` (the 200px gap between page rects) is retained as-is.
+Pages are laid out left-to-right at a **fixed pitch**: page _n_ starts at `n * PAGE_PITCH`. Since every page is the same size, the existing index-based `getPageRectByIndex` is sufficient and stays as it is.
+
+> **Revised 2026-10-20.** The **cumulative-offset layout is dropped**. It only existed so that pages could differ in size, and per-page size was rejected. `PAGE_GAP` (the 200px gap between page rects) is retained as-is, so the page pitch is unchanged and existing scenes keep their geometry.
 
 ### 5.3 Anchored vs floating elements
 
@@ -224,9 +223,13 @@ In `restoreAppState` / `restoreElements`:
 
 ### F2 — imported content is always reachable (item 1B)
 
-After restore, compute each page's element bounding box. If it exceeds the page rect, **grow the page** to contain it (recomputing layout offsets). Content is never left silently outside the reachable region.
+After restore, compute each page's element bounding box. If it exceeds the page rect, the content must still be reachable — and since the page can no longer grow (§5.1), the mechanism is the **floating** flag, not a larger page.
 
-This is the automatic half of the agreed behaviour. The manual half: to keep specific content **outside** the page, the user marks it **floating** (§5.3) and drags it beyond the page rect. The camera clamp then covers it, because the clamp domain is the union of the page rect and the floating elements' bounding box. Growing the page is reversible — _shrink page_ returns to 1920x1080, and un-anchoring a floating element returns it to the page's coordinate space.
+**Rule:** on import, any element that falls outside its page's rect is marked `floating`. A floating element is excluded from _scale content_, and the camera clamp for that page widens to the union of the page rect and the floating elements' bounding box — so the content is visible and pannable to, exactly as it was before the fix, while the page itself stays a 1920x1080 sheet.
+
+This makes the import path the **one** place where `floating` is set automatically. Everywhere else the flag is opt-in by the user (§5.3): a user may mark content floating to keep it outside a page, and may un-mark it to bring it back under the page's scale.
+
+**The manual half the user asked for** is unchanged and still supported: to keep specific content outside the page, mark it floating and drag it beyond the page rect. The camera clamp covers it, because the clamp domain is the union of the page rect and the floating elements' bounding box.
 
 ### F3 — unbounded pages (item 4)
 

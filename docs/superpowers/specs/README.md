@@ -49,9 +49,9 @@ Every item was diagnosed against the code before any of it was designed. Three o
 | Storage | IndexedDB primary, localStorage fallback, document split per page | kills the ~15-page loss (a quota + write-ordering bug, not a page cap) |
 | Lazy hydration | **defer**; build the per-page store now, measure, switch only if a document needs it | the decision thresholds are in spec 1 §9 |
 | Editor source | **hybrid**: VS Code extension bridge when connected, in-browser compiler when not | agreed |
-| Page scaling | two separate buttons: _grow page_ and _scale content_ | agreed |
-| Imported content | grow the page to contain it, **and** allow explicitly un-anchored ("floating") content | agreed |
-| Per-page size | 1920x1080 is the **minimum**; pages may grow | agreed |
+| Page scaling | **one** control: _scale content_ (÷2 / ×2). _Grow page_ was tried and **dropped** — it pushed neighbouring pages sideways | live-tested on a 38-page document, 2026-10-20 |
+| Imported content | content outside the page is marked `floating` on import so it stays reachable; the page itself never grows | follows from dropping per-page size |
+| Per-page size | **none** — every page is a fixed 1920x1080 sheet | per-page size rejected; only the content scales |
 
 ## Verified baseline
 
