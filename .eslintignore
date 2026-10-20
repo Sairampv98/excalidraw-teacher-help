@@ -13,7 +13,9 @@ htr-sandbox
 
 # The TINS kit is a vendored third-party artifact: it is copied in verbatim
 # and its KIT-VERSION stamp is computed over the file list, so a formatter
-# must not touch it. Same for the kit's own task files and the agent briefs.
+# must not touch it. Same for the kit's own task files, the session records
+# the kit generates, and the agent briefs.
 .tins/kit
 tasks
+sessions
 docs/tins-tasks

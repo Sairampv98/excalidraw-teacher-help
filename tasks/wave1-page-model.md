@@ -1,6 +1,6 @@
 ---
 id: wave1-page-model
-paths: packages/excalidraw,excalidraw-app,packages/common,packages/element,packages/utils,SPEC.md
+paths: packages/excalidraw,excalidraw-app,packages/common,packages/element,packages/utils,SPEC.md,.eslintignore
 read: SPEC.md,docs/tins-tasks/wave1-page-model-brief.md,docs/superpowers/specs/2026-10-20-page-document-model-design.md,AGENTS.md,HANDOVER.md
 base: main
 status: open
