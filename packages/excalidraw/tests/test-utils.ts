@@ -78,24 +78,32 @@ const renderApp: TestRenderFn = async (ui, options) => {
     },
   });
 
-  await waitFor(() => {
-    const canvas = renderResult.container.querySelector("canvas.static");
-    if (!canvas) {
-      throw new Error("not initialized yet");
-    }
+  await waitFor(
+    () => {
+      const canvas = renderResult.container.querySelector("canvas.static");
+      if (!canvas) {
+        throw new Error("not initialized yet");
+      }
 
-    const interactiveCanvas =
-      renderResult.container.querySelector("canvas.interactive");
-    if (!interactiveCanvas) {
-      throw new Error("not initialized yet");
-    }
+      const interactiveCanvas =
+        renderResult.container.querySelector("canvas.interactive");
+      if (!interactiveCanvas) {
+        throw new Error("not initialized yet");
+      }
 
-    // hack-awaiting app.initialScene() which solves some test race conditions
-    // (later we may switch this with proper event listener)
-    if (window.h.state.isLoading) {
-      throw new Error("still loading");
-    }
-  });
+      // hack-awaiting app.initialScene() which solves some test race conditions
+      // (later we may switch this with proper event listener)
+      if (window.h.state.isLoading) {
+        throw new Error("still loading");
+      }
+    },
+    // The assertion above is unchanged - the app still has to finish loading.
+    // The default one second wait is simply too tight on a loaded machine: the
+    // gate sizes vitest from the free memory, and under four workers the app
+    // can take longer than that to settle, which failed a whole merge on
+    // 2026-10-21 with `still loading`. Five seconds still fails a real hang.
+    { timeout: 5000 },
+  );
 
   return renderResult;
 };

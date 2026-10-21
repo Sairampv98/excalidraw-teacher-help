@@ -115,6 +115,15 @@ cd excalidraw-app && VITE_APP_PORT=47311 yarn vite --no-open --strictPort
 > 2. **The lock must live in the OS temp directory, not beside the script.** `kit merge` runs the gate in a throwaway worktree _inside_ `.tins/`, and that is a different root from the repository — so a per-root lock would not exclude the two from each other. The temp directory is the one place they share.
 > 3. **The scan must exclude the gate's own ancestor chain, not just its own pid.** A shell that starts the gate carries the script's path in **its own** command line (`cmd.exe /d /s /c "node scripts/tins-gate.mjs"`), so the gate finds its own parent, waits for it, and then waits for itself until the 30-minute timeout kills it. The fix is to ask wmic for `ParentProcessId` as well, walk the chain up from `process.pid`, and exclude every pid on it. Ancestors only — a **sibling** gate or a developer's `yarn test:app` is still detected, which is the whole point of the guard.
 
+### The gate can refuse a merge for two reasons that are not the code
+
+> On 2026-10-21 the 5b-part-2 merge was refused twice, for two unrelated reasons. Both will come back.
+>
+> 1. **prettier runs as `--list-different`, not `--write`.** A file that is not already formatted **fails** the gate — including a markdown file you just added. It refused a merge over a design document that prettier wanted to reflow; one long table row is enough to realign the whole table and fail the check. Before you claim the gate is green: run `node_modules\.bin\prettier --write` on the files you touched, then `node_modules\.bin\prettier --list-different` on them and check that it prints nothing.
+> 2. **The vitest worker count is derived from the free memory, and a loaded machine can time out a test.** The library's render helper waits for the app to finish loading with a one second `waitFor`; under four workers that wait can expire and the test fails with `still loading`. It is **not** a code failure and it does not reproduce in isolation. Re-run the gate with `GATE_JOBS=1` or `GATE_JOBS=2` — the gate reads that variable and gives vitest exactly that many workers. The same load sensitivity showed up in `excalidraw-app/tests/markdownSelection.test.tsx` (the AC-25 rows): it fails under load and passes in isolation and in the whole-directory run.
+>
+> When a merge is refused, read the **whole** gate output before touching the code. The kit prints the gate's tail, and the failing step is named in the TAP block: `not ok 3 - prettier` is a formatting problem, `not ok 4 - vitest` with `still loading` is the load flake above.
+
 Run all four before considering any change done. This is the project's rule (`CLAUDE.md`) and it is the only signal the incoming agent will have.
 
 ```bash
