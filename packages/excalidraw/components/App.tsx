@@ -2540,7 +2540,6 @@ class App extends React.Component<AppProps, AppState> {
                               width: this.state.width,
                               height: this.state.height,
                             }}
-                            theme={this.state.theme}
                             onVideoEvent={this.onVideoPanelEvent}
                           />
                           <PanelChrome

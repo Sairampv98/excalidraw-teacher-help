@@ -3,7 +3,7 @@ id: wave5e-vscode-look
 paths: packages/excalidraw,excalidraw-app,SPEC.md
 read: docs/superpowers/specs,docs/tins-tasks
 base: main
-status: open
+status: merged
 ---
 
 Build wave 5e: make the code panel READ like a VS Code editor, and answer the owner's question about what the panel is.
@@ -63,4 +63,3 @@ REPORT BACK
 5. Anything you could not do and why, including anything in the brief you found to be wrong.
 6. The final git status of the worktree, with the changes unstaged.
 Do not summarise the design back. Report evidence: command output, test names, file paths.
-

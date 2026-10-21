@@ -260,6 +260,11 @@ body.excalidraw-cursor-resize * {
 
   // the code panel's three regions: the mirrored editor, the program's output
   // and the bridge's own messages (D-51)
+  //
+  // The colours are NOT here: the panel wears the VS Code dark theme whatever
+  // the app's theme is (D-80), and the palette lives in
+  // `components/vscodeTheme.ts`. The flex contract of the three regions is
+  // inline for the same reason - it is a rule, not a look.
   &__panel-code-panel {
     display: flex;
     flex-direction: column;
@@ -268,7 +273,37 @@ body.excalidraw-cursor-resize * {
     overflow: hidden;
   }
 
+  // the editor region: the tab strip on top, the code under it
   &__panel-code-editor {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  // the tab strip: WHICH file this is, the way a VS Code tab says it
+  &__panel-code-header {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex: 0 0 auto;
+    padding: 2px 6px;
+    overflow: hidden;
+    font-family: monospace;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  &__panel-code-file {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__panel-code-language {
+    font-size: 11px;
+  }
+
+  // the code itself
+  &__panel-code-source {
     flex: 1 1 auto;
     min-height: 0;
     overflow: hidden;
@@ -281,19 +316,16 @@ body.excalidraw-cursor-resize * {
 
   &__panel-code-output,
   &__panel-code-console {
-    flex: 0 0 auto;
     max-height: 30%;
     padding: 2px 4px;
     overflow: auto;
     box-sizing: border-box;
-    border-top: 1px solid var(--color-border);
     font-family: monospace;
     font-size: 11px;
     white-space: pre-wrap;
   }
 
   &__panel-code-console {
-    color: var(--color-text);
     opacity: 0.8;
   }
 
@@ -311,7 +343,6 @@ body.excalidraw-cursor-resize * {
     box-sizing: border-box;
     text-align: center;
     font-size: 12px;
-    color: var(--color-text);
   }
 
   // the bridge field of a code panel: the token, the paste button and the
