@@ -34,7 +34,7 @@ import { codeCardColumns, highlightCode, layoutCode } from "./codeCard";
  * assigns the fractional ordering indices, so freshly built elements (which
  * start with `index: null`) have to go through it.
  */
-const appendElements = (
+export const appendElements = (
   api: ExcalidrawImperativeAPI,
   added: readonly ExcalidrawElement[],
   appState?: { selectedElementIds: AppState["selectedElementIds"] },
@@ -664,7 +664,15 @@ export const insertCodeIntoScene = async (
     fileName: _fileName,
     language,
     at,
-  }: { fileName?: string; language?: string; at?: ScenePoint } = {},
+    topLeft,
+  }: {
+    fileName?: string;
+    language?: string;
+    /** where the *centre* of the card goes */
+    at?: ScenePoint;
+    /** where the *top-left* of the card goes (wins over `at`) */
+    topLeft?: ScenePoint;
+  } = {},
 ) => {
   const lines = await highlightCode(rawCode, language);
 
@@ -688,7 +696,7 @@ export const insertCodeIntoScene = async (
       groupIds: [groupId],
     });
 
-    placeCodeCard(api, [body], body.width, body.height, at, groupId);
+    placeCodeCard(api, [body], body.width, body.height, at, groupId, topLeft);
 
     return false;
   }
@@ -729,7 +737,7 @@ export const insertCodeIntoScene = async (
   const contentWidth = codeCardColumns(rows) * charWidth;
   const contentHeight = rows.length * lineHeight;
 
-  placeCodeCard(api, runs, contentWidth, contentHeight, at, groupId);
+  placeCodeCard(api, runs, contentWidth, contentHeight, at, groupId, topLeft);
 
   return true;
 };
@@ -745,6 +753,7 @@ const placeCodeCard = (
   contentHeight: number,
   at: ScenePoint | undefined,
   groupId: string,
+  topLeft: ScenePoint | undefined,
 ) => {
   const card = newElement({
     type: "rectangle",
@@ -765,7 +774,9 @@ const placeCodeCard = (
 
   // top-left of the card: an explicit point is the user's, anything else
   // centres on what they can see (and clear of the sidebar)
-  const origin = at
+  const origin = topLeft
+    ? topLeft
+    : at
     ? { x: at.x - card.width / 2, y: at.y - card.height / 2 }
     : viewportCenter(api, card.width, card.height);
 

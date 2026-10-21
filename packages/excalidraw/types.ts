@@ -728,6 +728,20 @@ export interface ExcalidrawProps {
     event: ClipboardEvent | null,
   ) => Promise<boolean> | boolean;
   /**
+   * Called when the user picks "Reformat as…" from the canvas context menu
+   * (the entry only shows up when the selection holds at least one text
+   * element).
+   *
+   * The library does not reformat anything itself — a syntax-highlighted code
+   * card needs the host app's own highlighter — it only hands the selection
+   * over. The host app owns the chooser and the reformat.
+   */
+  onReformatSelection?: (params: {
+    /** the selected, non-deleted elements, in scene order */
+    selectedElements: readonly NonDeletedExcalidrawElement[];
+    appState: Readonly<AppState>;
+  }) => void;
+  /**
    * Called when element(s) are duplicated so you can listen or modify as
    * needed.
    *

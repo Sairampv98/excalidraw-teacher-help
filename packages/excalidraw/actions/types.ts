@@ -86,6 +86,7 @@ export type ActionName =
   | "loadScene"
   | "insertDocument"
   | "duplicateSelection"
+  | "reformatSelection"
   | "deleteSelectedElements"
   | "changeViewBackgroundColor"
   | "clearCanvas"

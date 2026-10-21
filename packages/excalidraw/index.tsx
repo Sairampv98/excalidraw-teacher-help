@@ -85,6 +85,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
     name,
     renderCustomStats,
     onPaste,
+    onReformatSelection,
     detectScroll = true,
     handleKeyboardGlobally = false,
     pagesEnabled = false,
@@ -206,6 +207,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
           renderCustomStats={renderCustomStats}
           UIOptions={UIOptions}
           onPaste={onPaste}
+          onReformatSelection={onReformatSelection}
           detectScroll={detectScroll}
           handleKeyboardGlobally={handleKeyboardGlobally}
           pagesEnabled={pagesEnabled}
