@@ -104,6 +104,8 @@ import Collab, {
 import { AppFooter } from "./components/AppFooter";
 import { AppMainMenu } from "./components/AppMainMenu";
 import { AppWelcomeScreen } from "./components/AppWelcomeScreen";
+import { insertCodePanel } from "./bridge/insertCodePanel";
+import { useBridgePanel } from "./bridge/useBridgePanel";
 import {
   ExportToExcalidrawPlus,
   exportToExcalidrawPlus,
@@ -403,6 +405,10 @@ const initializeScene = async (opts: {
 
 const ExcalidrawWrapper = () => {
   const excalidrawAPI = useExcalidrawAPI();
+
+  // the VS Code bridge: the app's side of the connection, and the code panel
+  // it feeds (D-51)
+  const { bridge } = useBridgePanel(excalidrawAPI);
 
   const [errorMessage, setErrorMessage] = useState("");
   const isCollabDisabled = isRunningInIframe();
@@ -1086,6 +1092,9 @@ const ExcalidrawWrapper = () => {
         // listener would only ever have seen the keyboard paste
         onPaste={handleCodePaste}
         onReformatSelection={handleReformatSelection}
+        // the bridge field of a code panel: the token, and the state of the
+        // connection (D-52)
+        panelBridge={bridge}
         theme={editorTheme}
         pagesEnabled={true}
         sidebarWidth={sidebarWidth}
@@ -1125,6 +1134,11 @@ const ExcalidrawWrapper = () => {
           theme={appTheme}
           setTheme={(theme) => setAppTheme(theme)}
           refresh={() => forceRefresh((prev) => !prev)}
+          onInsertCodePanel={() => {
+            if (excalidrawAPI) {
+              insertCodePanel(excalidrawAPI);
+            }
+          }}
         />
         <AppWelcomeScreen
           onCollabDialogOpen={onCollabDialogOpen}

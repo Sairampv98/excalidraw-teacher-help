@@ -189,6 +189,121 @@ body.excalidraw-cursor-resize * {
     white-space: pre-wrap;
   }
 
+  &__panel-code-text {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 4px;
+    overflow: auto;
+    box-sizing: border-box;
+    font-family: monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+  }
+
+  // the code panel's three regions: the mirrored editor, the program's output
+  // and the bridge's own messages (D-51)
+  &__panel-code-panel {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  &__panel-code-editor {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+
+    .cm-editor {
+      height: 100%;
+      font-size: 12px;
+    }
+  }
+
+  &__panel-code-output,
+  &__panel-code-console {
+    flex: 0 0 auto;
+    max-height: 30%;
+    padding: 2px 4px;
+    overflow: auto;
+    box-sizing: border-box;
+    border-top: 1px solid var(--color-border);
+    font-family: monospace;
+    font-size: 11px;
+    white-space: pre-wrap;
+  }
+
+  &__panel-code-console {
+    color: var(--color-text);
+    opacity: 0.8;
+  }
+
+  &__panel-code-line[data-stream="stderr"] {
+    color: var(--color-danger, #e03131);
+  }
+
+  &__panel-code-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    padding: 8px;
+    box-sizing: border-box;
+    text-align: center;
+    font-size: 12px;
+    color: var(--color-text);
+  }
+
+  // the bridge field of a code panel: the token, the paste button and the
+  // state of the connection (D-52)
+  &__panel-bridge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 4px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    font-size: 12px;
+  }
+
+  &__panel-bridge-label {
+    white-space: nowrap;
+  }
+
+  &__panel-bridge-token {
+    width: 140px;
+    padding: 2px 4px;
+    border-radius: 4px;
+    border: 1px solid var(--color-border);
+    background: var(--color-input-bg, var(--color-surface));
+    color: var(--color-text);
+    font-size: 12px;
+  }
+
+  &__panel-bridge-paste,
+  &__panel-bridge-connect {
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  &__panel-bridge-state[data-bridge-state="connected"] {
+    color: var(--color-success, #2f9e44);
+  }
+
+  &__panel-bridge-state[data-bridge-state="rejected"] {
+    color: var(--color-danger, #e03131);
+  }
+
   &__panel-chrome {
     z-index: var(--zIndex-panels);
   }

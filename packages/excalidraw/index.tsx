@@ -106,6 +106,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
     showDeprecatedFonts,
     renderScrollbars,
     imageOptions,
+    panelBridge,
   } = props;
 
   const canvasActions = props.UIOptions?.canvasActions;
@@ -227,6 +228,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
           showDeprecatedFonts={showDeprecatedFonts}
           renderScrollbars={renderScrollbars}
           imageOptions={normalizedImageOptions}
+          panelBridge={panelBridge}
         >
           {children}
         </App>
@@ -458,6 +460,23 @@ export {
   getPageClampRect,
   paginateContentIntoPages,
 } from "./scene";
+
+export {
+  codePanelContent,
+  emptyCodePanelState,
+  isBridgeCodePanel,
+  readCodePanelState,
+  withCodePanelState,
+} from "./scene/panelContent";
+export type {
+  CodePanelContent,
+  CodePanelConsoleLine,
+  CodePanelOutputLine,
+  CodePanelRunState,
+  CodePanelState,
+  PanelBridgeStatus,
+} from "./scene/panelContent";
+export type { PanelBridgeControls } from "./types";
 
 export { CommandPalette } from "./components/CommandPalette/CommandPalette";
 

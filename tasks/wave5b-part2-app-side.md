@@ -3,7 +3,7 @@ id: wave5b-part2-app-side
 paths: packages/excalidraw,excalidraw-app,packages/vscode-bridge,SPEC.md,.env.development
 read: docs/tins-tasks,docs/superpowers/specs
 base: main
-status: open
+status: merged
 ---
 
 Build wave 5b-part-2: the app side of the VS Code bridge - the live code panel on the Excalidraw canvas, and the app client that talks to the bridge.
@@ -55,4 +55,3 @@ REPORT BACK:
 4. Anything you could not do and why, including anything in the brief you found to be wrong.
 5. The final git status of the worktree, with the changes unstaged.
 Do not summarise the design back. Report evidence: command output, test names, file paths.
-

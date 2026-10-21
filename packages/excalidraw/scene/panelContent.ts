@@ -39,6 +39,7 @@ import type {
   ElementsMap,
   ExcalidrawElement,
   ExcalidrawPanelElement,
+  PanelContent,
 } from "@excalidraw/element/types";
 
 import type { NormalizedZoomValue } from "../types";
@@ -214,3 +215,146 @@ export const panelTransform = (
     `translate(${-shiftX}px, ${-shiftY}px)`,
   ].join(" ");
 };
+
+/**
+ * Where a bridge-backed panel's connection stands, as the panel shows it.
+ *
+ * - `not-connected` — there is no token yet, or the bridge has not answered;
+ * - `connected` — the bridge accepted the token;
+ * - `rejected` — the connection was refused: the token was wrong, or the
+ *   extension is not running.
+ *
+ * Three states, because three is what the teacher can act on: paste a token,
+ * carry on, or fix the token.
+ */
+export type PanelBridgeStatus = "not-connected" | "connected" | "rejected";
+
+/** The state of the program's run, as the panel shows it. */
+export type CodePanelRunState = "idle" | "running" | "exited";
+
+/** One line of the program's output. */
+export type CodePanelOutputLine = {
+  stream: "stdout" | "stderr";
+  text: string;
+};
+
+/** One line of the bridge's own messages. */
+export type CodePanelConsoleLine = {
+  level: "info" | "error";
+  text: string;
+};
+
+/**
+ * The live state of a **code panel** — the mirrored editor, the program's
+ * output and the bridge's own messages.
+ *
+ * Plain data and nothing else: it rides inside the element's payload, so it
+ * has to survive `JSON.stringify` and a structured clone (D-46). There is no
+ * class, no function and no live socket in here.
+ *
+ * The **token is not in here**: the token is a secret and the panel's payload
+ * is saved with the document (D-50).
+ */
+export interface CodePanelState {
+  /** where the bridge connection stands */
+  connection: PanelBridgeStatus;
+  /** a sentence for the connection state. Never empty. */
+  statusMessage: string;
+  /** the mirrored editor */
+  editor: {
+    uri: string;
+    language: string;
+    text: string;
+    selection: { start: number; end: number } | null;
+    version: number;
+  };
+  /** the program's output, in the order it arrived */
+  output: CodePanelOutputLine[];
+  /** the bridge's own messages */
+  console: CodePanelConsoleLine[];
+  /** the run */
+  run: {
+    runId: string | null;
+    command: string;
+    state: CodePanelRunState;
+    exitCode: number | null;
+  };
+}
+
+/**
+ * The payload of a code panel.
+ *
+ * `PanelContent` (in `@excalidraw/element`) declares the payload's `source`
+ * and `options`. The code panel's own live state is a **third** thing, and the
+ * element type lives outside this wave's scope, so the widening happens here,
+ * in one place: every writer goes through `withCodePanelState()` and every
+ * reader through `readCodePanelState()`.
+ */
+export type CodePanelContent = PanelContent & {
+  /** the code panel's live state, or null when the panel has none yet */
+  code: CodePanelState | null;
+};
+
+/** The state of a code panel that has not heard from the bridge yet. */
+export const emptyCodePanelState = (): CodePanelState => ({
+  connection: "not-connected",
+  statusMessage: "Not connected to the Excalidraw Bridge.",
+  editor: { uri: "", language: "", text: "", selection: null, version: 0 },
+  output: [],
+  console: [],
+  run: { runId: null, command: "", state: "idle", exitCode: null },
+});
+
+/**
+ * The payload of a code panel that is backed by a bridge session.
+ *
+ * The session id names the session; the state is the content.
+ */
+export const codePanelContent = (
+  state: CodePanelState,
+  sessionId: string,
+): PanelContent => {
+  const content: CodePanelContent = {
+    source: { type: "bridge", sessionId },
+    options: { naturalWidth: null, naturalHeight: null, captions: null },
+    code: state,
+  };
+
+  return content;
+};
+
+/**
+ * The live state of a panel's payload, or null when the payload carries none.
+ *
+ * The only way to read the code panel's state — the widening stays in here.
+ */
+export const readCodePanelState = (
+  content: PanelContent,
+): CodePanelState | null => {
+  const widened: Partial<CodePanelContent> = content;
+
+  return widened.code ?? null;
+};
+
+/**
+ * The same payload with a new live state in it.
+ *
+ * The only way to write the code panel's state — the widening stays in here.
+ */
+export const withCodePanelState = (
+  content: PanelContent,
+  state: CodePanelState | null,
+): PanelContent => {
+  const widened: CodePanelContent = { ...content, code: state };
+
+  return widened;
+};
+
+/**
+ * Whether a panel is a code panel backed by a bridge session.
+ *
+ * A code panel with any other source is not a live mirror: it has no bridge to
+ * mirror, so it shows nothing but its own state.
+ */
+export const isBridgeCodePanel = (panel: ExcalidrawPanelElement): boolean =>
+  panel.panelKind === "code" && panel.panel.source.type === "bridge";

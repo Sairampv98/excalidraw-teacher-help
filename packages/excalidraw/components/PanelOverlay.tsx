@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 import {
   getContainingFrame,
@@ -9,6 +9,7 @@ import {
 import type {
   ElementsMap,
   ExcalidrawPanelElement,
+  Theme,
 } from "@excalidraw/element/types";
 
 import {
@@ -16,8 +17,13 @@ import {
   OUTSIDE_FRAME,
 } from "../scene/animatedImageOverlay";
 import { panelTransform } from "../scene/panelContent";
+import { isBridgeCodePanel, readCodePanelState } from "../scene/panelContent";
+
+import { t } from "../i18n";
 
 import type { BinaryFiles } from "../types";
+
+import type { CodeMirrorEditorProps } from "./TTDDialog/CodeMirrorEditor";
 
 import type { PanelCamera } from "../scene/panelContent";
 
@@ -47,6 +53,7 @@ type PanelOverlayProps = {
   elementsMap: ElementsMap;
   camera: PanelCamera;
   viewport: { width: number; height: number };
+  theme: Theme;
 };
 
 /**
@@ -85,6 +92,131 @@ const captionTrackDataUrl = (
 };
 
 /**
+ * The **mirrored editor** of a code panel.
+ *
+ * CodeMirror is loaded **lazily**, the same way the TTD dialog loads it: the
+ * editor is a heavy module, and a canvas that has no code panel on it must
+ * not pay for it. Until it is there, the plain text stands in — the teacher
+ * sees the code either way.
+ */
+const CodePanelEditor = ({ value, theme }: { value: string; theme: Theme }) => {
+  const [Editor, setEditor] =
+    useState<React.ComponentType<CodeMirrorEditorProps> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    import("./TTDDialog/CodeMirrorEditor")
+      .then((mod) => {
+        if (!cancelled) {
+          setEditor(() => mod.default);
+        }
+      })
+      .catch(() => {
+        // the plain text stands in
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!Editor) {
+    return (
+      <pre
+        className="excalidraw__panel-code-text"
+        data-testid="code-panel-text"
+      >
+        {value}
+      </pre>
+    );
+  }
+
+  return (
+    <Editor
+      value={value}
+      onChange={() => {}}
+      readOnly={true}
+      theme={theme}
+      placeholder={t("labels.panel.code.noFile")}
+    />
+  );
+};
+
+/**
+ * The surface of a **code panel**: the teacher's editor, the program's output
+ * and the bridge's own messages (D-51).
+ *
+ * Three regions, in the order the teacher reads them. The editor is a
+ * **read-only mirror** — it shows the teacher's text, and the teacher types in
+ * VS Code, not here.
+ *
+ * When there is no bridge, the panel says so. It never shows a blank editor:
+ * a blank editor looks like a broken panel, and the teacher cannot tell it
+ * apart from a program that produced nothing (D-52).
+ */
+const CodePanelSurface = ({
+  panel,
+  theme,
+}: {
+  panel: ExcalidrawPanelElement;
+  theme: Theme;
+}) => {
+  const state = readCodePanelState(panel.panel);
+
+  if (!state || state.connection !== "connected") {
+    return (
+      <div
+        className="excalidraw__panel-code-status"
+        data-testid="code-panel-status"
+        data-bridge-state={state?.connection ?? "not-connected"}
+      >
+        {state?.statusMessage || "Not connected to the Excalidraw Bridge."}
+      </div>
+    );
+  }
+
+  return (
+    <div className="excalidraw__panel-code-panel" data-testid="code-panel">
+      <div
+        className="excalidraw__panel-code-editor"
+        data-testid="code-panel-editor"
+      >
+        <CodePanelEditor value={state.editor.text} theme={theme} />
+      </div>
+      <div
+        className="excalidraw__panel-code-output"
+        data-testid="code-panel-output"
+      >
+        {state.output.map((line, index) => (
+          <div
+            key={`${index}-${line.text}`}
+            className="excalidraw__panel-code-line"
+            data-stream={line.stream}
+          >
+            {line.text}
+          </div>
+        ))}
+      </div>
+      <div
+        className="excalidraw__panel-code-console"
+        data-testid="code-panel-console"
+      >
+        {state.console.map((line, index) => (
+          <div
+            key={`${index}-${line.text}`}
+            className="excalidraw__panel-code-line"
+            data-level={line.level}
+          >
+            {line.text}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+/**
  * The live surface of a panel.
  *
  * The foundation wave ships a **minimal but real** surface for every kind, so
@@ -96,11 +228,17 @@ const captionTrackDataUrl = (
 const PanelSurface = ({
   panel,
   files,
+  theme,
 }: {
   panel: ExcalidrawPanelElement;
   files: BinaryFiles;
+  theme: Theme;
 }) => {
   const { source, options } = panel.panel;
+
+  if (panel.panelKind === "code" && isBridgeCodePanel(panel)) {
+    return <CodePanelSurface panel={panel} theme={theme} />;
+  }
 
   if (source.type === "file") {
     const file = files[source.fileId];
@@ -168,12 +306,14 @@ const Panel = ({
   elementsMap,
   camera,
   viewport,
+  theme,
 }: {
   panel: ExcalidrawPanelElement;
   files: BinaryFiles;
   elementsMap: ElementsMap;
   camera: PanelCamera;
   viewport: { width: number; height: number };
+  theme: Theme;
 }) => {
   const { zoom, scrollX, scrollY } = camera;
 
@@ -233,7 +373,7 @@ const Panel = ({
           ),
         }}
       >
-        <PanelSurface panel={panel} files={files} />
+        <PanelSurface panel={panel} files={files} theme={theme} />
       </div>
     </div>
   );
@@ -256,6 +396,7 @@ const PanelOverlayImpl = ({
   elementsMap,
   camera,
   viewport,
+  theme,
 }: PanelOverlayProps) => {
   if (panels.length === 0) {
     return null;
@@ -277,6 +418,7 @@ const PanelOverlayImpl = ({
           elementsMap={elementsMap}
           camera={camera}
           viewport={viewport}
+          theme={theme}
         />
       ))}
     </div>
@@ -299,7 +441,8 @@ const areEqual = (prev: PanelOverlayProps, next: PanelOverlayProps) =>
   prev.camera.offsetLeft === next.camera.offsetLeft &&
   prev.camera.offsetTop === next.camera.offsetTop &&
   prev.viewport.width === next.viewport.width &&
-  prev.viewport.height === next.viewport.height;
+  prev.viewport.height === next.viewport.height &&
+  prev.theme === next.theme;
 
 export const PanelOverlay = React.memo(PanelOverlayImpl, areEqual);
 

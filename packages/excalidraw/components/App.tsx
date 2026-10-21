@@ -2524,6 +2524,7 @@ class App extends React.Component<AppProps, AppState> {
                               width: this.state.width,
                               height: this.state.height,
                             }}
+                            theme={this.state.theme}
                           />
                           <PanelChrome
                             panels={this.getSelectedPanelElements(
@@ -2538,6 +2539,7 @@ class App extends React.Component<AppProps, AppState> {
                               offsetTop: this.state.offsetTop,
                             }}
                             onToggleLock={this.togglePanelLock}
+                            bridge={this.props.panelBridge}
                           />
                           <FlowAnimationOverlay
                             elementsMap={allElementsMap}
