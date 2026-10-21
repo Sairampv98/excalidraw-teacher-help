@@ -55,3 +55,4 @@ __pycache__/
 # TINS runtime: the kit itself (.tins/kit) IS tracked. These are outputs.
 .tins/merge-tmp-*/
 .tins/state-*.tap
+.tins/state-gate-summary.txt
