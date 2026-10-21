@@ -76,7 +76,24 @@ export type BridgeMessage =
   /** panel -> extension. The FIRST frame of every connection. */
   | { v: 1; type: "bridge:auth"; token: string }
   /** extension -> panel. Sent once, right after a successful auth. */
-  | { v: 1; type: "bridge:hello"; version: string; workspace: string }
+  | {
+      v: 1;
+      type: "bridge:hello";
+      version: string;
+      workspace: string;
+      /**
+       * Which editor this is: "Visual Studio Code", "VSCodium", ...
+       *
+       * The port is **fixed** (D-67), so with two editors running only one of
+       * them holds it - and the app reaches that one, not necessarily the one
+       * the teacher has their file open in. The name is what makes the
+       * mismatch visible (D-76).
+       *
+       * Optional, so an extension that predates the field still connects; it
+       * simply does not say which editor it is.
+       */
+      appName?: string;
+    }
   /** extension -> panel. The active editor's text. */
   | {
       v: 1;
@@ -161,7 +178,9 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
       return typeof value.token === "string";
     case "bridge:hello":
       return (
-        typeof value.version === "string" && typeof value.workspace === "string"
+        typeof value.version === "string" &&
+        typeof value.workspace === "string" &&
+        (value.appName === undefined || typeof value.appName === "string")
       );
     case "editor:content":
       return (

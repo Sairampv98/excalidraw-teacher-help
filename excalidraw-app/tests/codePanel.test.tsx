@@ -390,6 +390,94 @@ describe("the app's side of the bridge", () => {
     expect(bridgeConnection("reconnecting")).toBe("rejected");
   });
 
+  it("AC-87 the bridge identifies the editor it runs in, and the app shows it", async () => {
+    mockClipboard(TEST_TOKEN);
+
+    const { api, state, panel } = scene();
+
+    await render(<Harness api={api} panel={panel} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    fireEvent.click(
+      document.querySelector('[data-testid="panel-bridge-paste"]')!,
+    );
+
+    await waitFor(() => expect(FakeSocket.instances.length).toBe(1));
+
+    const socket = lastSocket();
+    socket.open();
+
+    await waitFor(() => expect(socket.sent.length).toBe(1));
+
+    // The extension says WHICH editor it is. The port is fixed, so with two
+    // editors running the app may reach the one that does NOT have the
+    // teacher's file open - and the teacher has to be able to see that (D-76).
+    act(() => {
+      socket.receive({
+        v: 1,
+        type: "bridge:hello",
+        version: "0.1.0",
+        workspace: "demo",
+        appName: "VSCodium",
+      });
+    });
+
+    // the chrome says it ...
+    await waitFor(() => {
+      const chrome = document.querySelector(
+        '[data-testid="panel-bridge-state"]',
+      );
+
+      expect(chrome?.textContent).toContain("VSCodium");
+    });
+
+    // ... and so does the panel's console
+    await waitFor(() => {
+      const current = panelState(state);
+
+      expect(current?.console.map((line) => line.text).join("\n")).toContain(
+        "VSCodium",
+      );
+    });
+  });
+
+  it("AC-89 a hello without the editor's name still connects", async () => {
+    mockClipboard(TEST_TOKEN);
+
+    const { api, state } = scene();
+
+    await render(<Harness api={api} panel={state.elements[0]} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    fireEvent.click(
+      document.querySelector('[data-testid="panel-bridge-paste"]')!,
+    );
+
+    await waitFor(() => expect(FakeSocket.instances.length).toBe(1));
+
+    const socket = lastSocket();
+    socket.open();
+
+    await waitFor(() => expect(socket.sent.length).toBe(1));
+
+    // an extension that predates the field says nothing about itself, and it
+    // still connects
+    act(() => {
+      socket.receive({
+        v: 1,
+        type: "bridge:hello",
+        version: "1.0.0",
+        workspace: "demo",
+      });
+    });
+
+    await waitFor(() => {
+      expect(panelState(state)?.connection).toBe("connected");
+    });
+  });
+
   it("AC-85 a reconnect replaces the connection line instead of adding another one", () => {
     const hello = {
       v: 1,

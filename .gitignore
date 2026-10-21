@@ -37,6 +37,11 @@ htr-sandbox/
 .mavis-*.txt
 .mavis-snapbak/
 
+# OCR language data (the OCR engine lives in the bridge, and it fetches its
+# own language data - a traineddata file in the repository is a 5 MB artefact
+# of a benchmark run, not a source file)
+*.traineddata
+
 # isolated feature worktrees (see HANDOVER.md / superpowers:using-git-worktrees)
 .worktrees/
 

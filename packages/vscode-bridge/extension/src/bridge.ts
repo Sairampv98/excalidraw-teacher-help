@@ -70,6 +70,14 @@ export interface BridgeServerOptions {
   workspace?: string;
   /** The extension's version. Sent in `bridge:hello`. */
   version?: string;
+  /**
+   * Which editor this is: "Visual Studio Code", "VSCodium", ...
+   *
+   * Sent in `bridge:hello`, so the app can say which editor it is talking
+   * to. The port is fixed, so with two editors running the app may reach the
+   * one that does NOT have the teacher's file open (D-76).
+   */
+  appName?: string;
   /** Extra origins that are allowed, on top of localhost. */
   allowedOrigins?: string[];
   /**
@@ -161,6 +169,7 @@ export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
   const token = options.token;
   const workspace = options.workspace ?? "";
   const version = options.version ?? "0.0.0";
+  const appName = options.appName ?? "";
   const allowedOrigins = options.allowedOrigins ?? [];
   const authTimeoutMs = options.authTimeoutMs ?? 5000;
   const logger = options.logger ?? (() => undefined);
@@ -312,7 +321,7 @@ export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
         authenticated = true;
         clearTimeoutNode(authTimer);
         connections.add(connection);
-        send({ v: 1, type: "bridge:hello", version, workspace });
+        send({ v: 1, type: "bridge:hello", version, workspace, appName });
         options.onConnect?.(connection);
         return;
       }

@@ -77,9 +77,17 @@ export const reduceCodePanelState = (
           {
             level: "info",
             kind: "connection",
-            text: `Connected to ${message.workspace || "the editor"} (bridge ${
-              message.version
-            }).`,
+            // The bridge says which editor it runs in (D-76). The port is
+            // fixed, so with two editors running the app may reach the one
+            // that does NOT have the teacher's file open - and this line is
+            // where the teacher sees which one that is.
+            text: message.appName
+              ? `Connected to ${message.appName} (${
+                  message.workspace || "the workspace"
+                }, bridge ${message.version}).`
+              : `Connected to ${message.workspace || "the editor"} (bridge ${
+                  message.version
+                }).`,
           },
         ]),
       };

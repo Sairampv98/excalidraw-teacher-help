@@ -240,5 +240,12 @@ declare module "vscode" {
       writeText(value: string): Thenable<void>;
       readText(): Thenable<string>;
     };
+    /**
+     * The name of the editor: "Visual Studio Code", "VSCodium", ...
+     *
+     * The bridge sends it in `bridge:hello`, so the app can say which editor
+     * it is talking to (D-76).
+     */
+    export const appName: string;
   }
 }

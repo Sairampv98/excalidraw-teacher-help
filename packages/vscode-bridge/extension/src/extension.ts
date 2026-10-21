@@ -11,6 +11,7 @@ import {
 import { createBridgeServer, type BridgeConnection } from "./bridge";
 import { resolvePort, resolveToken } from "./config";
 import { editorContentMessage } from "./editorState";
+import { portConflictMessage } from "./portConflict";
 import { createRunPseudoterminal } from "./pseudoterminal";
 import { createRunner, type Runner } from "./runner";
 
@@ -49,6 +50,16 @@ export function activate(context: vscode.ExtensionContext): void {
   const workspace = workspaceRoot ? basename(workspaceRoot) : "";
 
   let runner: Runner | null = null;
+
+  /**
+   * Which editor this is: "Visual Studio Code", "VSCodium", ...
+   *
+   * The bridge's port is FIXED (D-67), so with two editors running only one
+   * of them holds it - and the app reaches that one, not necessarily the one
+   * the teacher has their file open in. The name is what makes the mismatch
+   * visible (D-76).
+   */
+  const appName = vscode.env.appName || "the editor";
 
   const publishEditorContent = () => {
     bridgeServer?.broadcast(editorContent());
@@ -114,6 +125,7 @@ export function activate(context: vscode.ExtensionContext): void {
     token,
     workspace,
     version: extensionVersion,
+    appName,
     onMessage: handleBridgeMessage,
     onConnect: sendEditorContentTo,
     logger: (message) => console.info("[excalidraw-bridge]", message),
@@ -127,10 +139,11 @@ export function activate(context: vscode.ExtensionContext): void {
   });
 
   void bridgeServer.listen().catch((error: unknown) => {
-    const text = error instanceof Error ? error.message : String(error);
-    vscode.window.showErrorMessage(
-      `Excalidraw Bridge: could not listen on port ${port} - ${text}`,
-    );
+    // The port is FIXED (D-67), so with two editors running only one of them
+    // holds it - and the app reaches that one, not necessarily the one the
+    // teacher has their file open in. Losing that race silently is what made
+    // this take an hour to see, so the message says what to do (D-77).
+    vscode.window.showErrorMessage(portConflictMessage(port, error));
   });
 
   context.subscriptions.push(

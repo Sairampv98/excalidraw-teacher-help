@@ -86,6 +86,17 @@ export const useBridgePanel = (api: ExcalidrawImperativeAPI | null) => {
         });
       },
       onMessage: (message) => {
+        if (message.type === "bridge:hello" && message.appName) {
+          // The bridge names the editor it runs in (D-76). The port is fixed,
+          // so with two editors running the app may reach the one that does
+          // NOT have the teacher's file open - and the chrome is where the
+          // teacher is looking, so it says which editor this is.
+          setState((previous) => ({
+            ...previous,
+            message: `Connected to ${message.appName}.`,
+          }));
+        }
+
         publish(reduceCodePanelState(panelStateRef.current, message));
       },
     });
