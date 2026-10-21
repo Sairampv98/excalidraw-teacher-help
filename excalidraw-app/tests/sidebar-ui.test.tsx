@@ -971,7 +971,7 @@ describe("FilesTab copy -> paste as a code card", () => {
     const canvas = stubCanvas();
 
     const { api, calls, files } = fakeApi();
-    const { container } = render(
+    const { container, unmount } = render(
       <ExcalidrawAPIContext.Provider value={api}>
         <FilesTab />
       </ExcalidrawAPIContext.Provider>,
@@ -1016,6 +1016,7 @@ describe("FilesTab copy -> paste as a code card", () => {
 
     return {
       container,
+      unmount,
       calls,
       files,
       canvas,
@@ -1203,6 +1204,29 @@ describe("FilesTab copy -> paste as a code card", () => {
     const handled = await handleCodePaste({ text: "hello" }, null);
 
     expect(handled).toBe(true);
+  });
+
+  it("AC-77 the armed paste survives the sidebar closing", async () => {
+    const { container, calls, canvas, copyAndWait, pasteAndWait, unmount } =
+      await openCodeDoc();
+
+    await copyAndWait();
+
+    // the click on the canvas closes the sidebar, and that unmounts the
+    // document viewer with the armed paste still in it
+    unmount();
+
+    expect(pendingCodePaste()).toBeTruthy();
+
+    await pasteAndWait();
+
+    const elements = calls[0].elements as Array<{ type: string }>;
+
+    // the code card, not a row of plain text boxes
+    expect(elements.some((el) => el.type === "rectangle")).toBe(true);
+
+    container.remove();
+    canvas.remove();
   });
 
   it("drops the armed paste when the reader leaves the document", async () => {

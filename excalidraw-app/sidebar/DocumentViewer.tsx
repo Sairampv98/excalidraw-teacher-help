@@ -108,14 +108,17 @@ export const DocumentViewer = ({
     [pdfUrl],
   );
 
-  // an armed code paste must not outlive the document, or a later paste
+  // An armed code paste must not outlive the document, or a later paste
   // anywhere in the app would insert a code card nobody asked for. It is also
   // dropped when the reader moves to another document, since it belongs to the
   // old one.
+  //
+  // The cancel is deliberately NOT run on unmount. Clicking the canvas closes
+  // the sidebar, which unmounts this viewer — and the owner's own sequence is
+  // "Copy code", click the canvas, paste. A stale arm is harmless anyway: the
+  // clipboard guard refuses one whose text is no longer the stashed code.
   useEffect(() => {
     cancelCodePaste();
-
-    return () => cancelCodePaste();
   }, [entry]);
 
   /**
@@ -374,7 +377,14 @@ export const DocumentViewer = ({
         <button
           type="button"
           className="app-doc-back"
-          onClick={onBack}
+          onClick={() => {
+            // leaving the document for the list is a change of mind: the
+            // armed paste for it is dropped. The unmount does not do it —
+            // closing the sidebar unmounts this viewer too, and the paste
+            // has to survive that.
+            cancelCodePaste();
+            onBack();
+          }}
           title="Back to the file list"
         >
           <span className="app-doc-back__arrow" aria-hidden="true">
