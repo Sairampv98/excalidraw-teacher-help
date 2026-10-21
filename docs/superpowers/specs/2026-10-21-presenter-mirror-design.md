@@ -76,6 +76,39 @@ Its lower end is unbounded in principle: a page that is narrow and very tall, se
 
 **The presenter's own clamp then does the rest.** Given the corrected anchor, the presenter's `clampCameraToPage` centres its page exactly the way the editor's does — and when the two windows are the same size, the presenter's camera becomes **identical** to the editor's, not merely equivalent.
 
+## The second half of the same bug: the zoom floor
+
+Fixing the anchor alone is **not** enough, and the measurement says so.
+
+`resolvePresenterCamera` (`excalidraw-app/presenter/presenterChannel.ts`) clamps the mirrored zoom from below:
+
+```ts
+// clamp to what this window can actually frame: never tighter than the whole
+// page (the page clamp in `App` would reject it anyway)
+const minZoom = getFitPageZoom(width, height);
+const zoom = clamp(width / visibleWidth, minZoom, MAX_ZOOM);
+```
+
+`getFitPageZoom` takes the page's size as **optional** arguments, defaulting to the standard page size. This call passes neither, so the floor is the **default** page's fit zoom — 1 for a 1920×1080 page in a 1920×1080 window.
+
+But the page being mirrored is a **legacy file's grown page**: 10243 × 14285. Its real fit zoom is 0.076, not 1. With the default's floor, the clamp forces
+
+```
+zoom = clamp(1920 / 19200, 1, MAX_ZOOM) = 1
+```
+
+— the presenter shows **1,920** scene units where the editor shows **19,200**. A tenth of the board, at ten times the size.
+
+So the floor has to be the fit zoom of **the page being mirrored**:
+
+```ts
+const minZoom = getFitPageZoom(width, height, pageRect.width, pageRect.height);
+```
+
+`pageRect` is already computed thirteen lines above. The fix is one argument.
+
+**With both halves in place** — the signed anchor and the page's own zoom floor — the presenter's camera is the editor's camera: `scrollX` 4478.5 on both sides, zoom 0.1 on both sides, and the visible extent 19,200 on both sides.
+
 ## The second defect: the test re-derives the layout
 
 `excalidraw-app/tests/presenterCamera.test.ts` does not use the library's page layout. It builds its own:
@@ -102,6 +135,7 @@ The project rule is that **the library's own functions are the oracle**. The hel
 | D-27 | The page-relative camera offset is a **signed** ratio, not a 0..1 fraction: it is how far the page's near edge is behind the viewport's near edge, measured in page widths. It is **negative** when the viewport is wider than the page and the camera has centred the page, and that negative value is what makes the mirrored window show the same slice. |
 | D-28 | The offset is bounded **above** at 1 and is **not** bounded below. The camera clamp guarantees the upper bound; the lower end is unbounded (a narrow, tall page in a wide window), so a lower clamp would throw away real geometry. |
 | D-29 | The presenter camera test uses the **library's** `getCurrentPageRect`, not a re-derived page rect. The fork's page layout is cumulative and each page is as big as its own content, so a fixed-pitch re-derivation silently stops being the truth. |
+| D-30 | The presenter's zoom floor is the fit zoom of **the page being mirrored**, not of the default page size. A legacy file's page is grown to hold the whole board, so its fit zoom is far smaller; the default's floor would force the mirrored window to zoom **in** past the editor's own. |
 
 ## The files
 
@@ -119,6 +153,7 @@ The project rule is that **the library's own functions are the oracle**. The hel
 | AC-32 | A page **bigger than the window** is centred by the camera clamp, and the page-relative offset that reaches the presenter is **negative** — not clamped to zero. | `packages/excalidraw/tests/pages.test.tsx` |
 | AC-33 | The presenter's camera, rebuilt from the offset, is **the editor's camera** — not a different slice of the page. | `excalidraw-app/tests/presenterCamera.test.ts` |
 | AC-34 | The presenter camera test anchors on the **library's** page rect. | `excalidraw-app/tests/presenterCamera.test.ts` |
+| AC-35 | The presenter's zoom floor is the **page's own** fit zoom, so the scene extent the presenter shows is the editor's own. | `excalidraw-app/tests/presenterCamera.test.ts` |
 
 ## Rejected alternatives
 
