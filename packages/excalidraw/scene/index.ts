@@ -44,5 +44,9 @@ export {
   growPagesToFitContent,
   getPageClampRect,
   paginateContentIntoPages,
+  isElementInsidePageRect,
+  countElementsInsidePageRect,
+  moveElementsIntoPageRect,
+  moveElementsOntoPage,
 } from "./pages";
 export type { PageRect } from "../types";
