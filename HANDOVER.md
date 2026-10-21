@@ -99,6 +99,12 @@ cd excalidraw-app && yarn vite --no-open --port 3000
 
 `yarn start` runs `yarn && vite` — it re-installs and then **opens a browser**. Under WSL that open usually fails noisily or silently does nothing; use `--no-open` and browse to `http://localhost:3000` from Windows.
 
+**Always pass `--strictPort`.** Vite's default is to walk up to the next free port and print `Port 47311 is in use, trying another one...` for every port it tries — so a server that was supposed to be on one port silently ends up on a random one (it landed on 48716 once here, after walking past a thousand). `--strictPort` makes it fail loudly instead, which is what you want when the port is part of the plan. The dev server for this fork runs on **47311** (below the Windows excluded-port ranges at 49680+, and clear of every standard dev port).
+
+```bash
+cd excalidraw-app && VITE_APP_PORT=47311 yarn vite --no-open --strictPort
+```
+
 ### The verification gate
 
 Run all four before considering any change done. This is the project's rule (`CLAUDE.md`) and it is the only signal the incoming agent will have.
