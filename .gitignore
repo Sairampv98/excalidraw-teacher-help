@@ -56,3 +56,4 @@ __pycache__/
 .tins/merge-tmp-*/
 .tins/state-*.tap
 .tins/state-gate-summary.txt
+.tins/state-gate.lock
