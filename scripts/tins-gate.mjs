@@ -236,7 +236,7 @@ const otherGateProcesses = () => {
 
   const probe = spawnSync(
     "wmic",
-    ["process", "get", "ProcessId,CommandLine", "/format:list"],
+    ["process", "get", "ProcessId,ParentProcessId,CommandLine", "/format:list"],
     { encoding: "utf8", windowsHide: true },
   );
 
@@ -272,6 +272,27 @@ const otherGateProcesses = () => {
     records.push(record);
   }
 
+  // The gate's own ANCESTORS are not another run in flight.
+  //
+  // A shell that starts this script carries the script's path in its own
+  // command line - `cmd.exe /d /s /c "node scripts/tins-gate.mjs"` - so the
+  // scan finds the gate's own parent, waits for it, and then waits for
+  // itself until the 30 minute timeout kills it. The ancestors are walked
+  // up from this process (through ParentProcessId) and excluded.
+  const parents = new Map();
+
+  for (const r of records) {
+    parents.set(Number(r.ProcessId), Number(r.ParentProcessId));
+  }
+
+  const ancestors = new Set();
+  let cursor = process.pid;
+
+  while (cursor && !ancestors.has(cursor)) {
+    ancestors.add(cursor);
+    cursor = parents.get(cursor);
+  }
+
   const out = [];
 
   for (const record of records) {
@@ -281,8 +302,8 @@ const otherGateProcesses = () => {
       continue;
     }
 
-    // our own command line mentions the script's path
-    if (Number(record.ProcessId) === process.pid) {
+    // our own command line, and the shells above us, mention the script's path
+    if (ancestors.has(Number(record.ProcessId))) {
       continue;
     }
 

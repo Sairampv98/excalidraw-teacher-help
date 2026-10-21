@@ -109,10 +109,11 @@ cd excalidraw-app && VITE_APP_PORT=47311 yarn vite --no-open --strictPort
 
 > The gate runs its **read-only** steps (`tsc`, `eslint`, `prettier`) **in parallel** and sizes vitest from the free memory. Measured on 2026-10-21: 374 s before, ~185 s after. Locked as **D-69** in `SPEC.md`; the summary line lands in `.tins/state-gate-summary.txt` because the kit only shows PASS or FAIL.
 >
-> **Two gotchas that made the "never two gates at once" guard a no-op**, both fixed, both worth remembering if the guard is ever touched again:
+> **Three gotchas that made the "never two gates at once" guard a no-op**, all fixed, all worth remembering if the guard is ever touched again:
 >
 > 1. **`wmic ... /format:list` puts one `key=value` pair per line**, with a blank line between records. Reading the pairs a line at a time finds **nothing** — the pid and the command line are never on the same line. The records have to be assembled first, and only then matched.
 > 2. **The lock must live in the OS temp directory, not beside the script.** `kit merge` runs the gate in a throwaway worktree _inside_ `.tins/`, and that is a different root from the repository — so a per-root lock would not exclude the two from each other. The temp directory is the one place they share.
+> 3. **The scan must exclude the gate's own ancestor chain, not just its own pid.** A shell that starts the gate carries the script's path in **its own** command line (`cmd.exe /d /s /c "node scripts/tins-gate.mjs"`), so the gate finds its own parent, waits for it, and then waits for itself until the 30-minute timeout kills it. The fix is to ask wmic for `ParentProcessId` as well, walk the chain up from `process.pid`, and exclude every pid on it. Ancestors only — a **sibling** gate or a developer's `yarn test:app` is still detected, which is the whole point of the guard.
 
 Run all four before considering any change done. This is the project's rule (`CLAUDE.md`) and it is the only signal the incoming agent will have.
 
