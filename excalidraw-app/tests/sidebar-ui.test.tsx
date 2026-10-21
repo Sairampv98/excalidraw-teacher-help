@@ -11,6 +11,7 @@ import { FolderTab } from "../sidebar/FolderTab";
 import {
   cancelCodePaste,
   cancelImageDrag,
+  handleCodePaste,
   pendingCodePaste,
 } from "../sidebar/insertIntoScene";
 
@@ -800,11 +801,16 @@ describe("DocumentsTab copy -> paste as a code card", () => {
       await waitFor(() => expect(pendingCodePaste()).toBeTruthy());
     };
 
-    /** the armed paste, run and settled */
-    const pasteAndWait = async () => {
-      window.dispatchEvent(
-        new Event("paste", { bubbles: true, cancelable: true }),
-      );
+    /**
+     * The armed paste, run and settled.
+     *
+     * The library calls the app's `onPaste` hook from its own paste path —
+     * the one funnel the keyboard paste and the context menu's paste both go
+     * through — so that is what a paste drives now. The DOM event the browser
+     * used to fire is not what the library listens to.
+     */
+    const pasteAndWait = async (text = CODE) => {
+      await handleCodePaste({ text }, null);
       await waitFor(() => expect(calls).toHaveLength(1));
     };
 
@@ -897,9 +903,11 @@ describe("DocumentsTab copy -> paste as a code card", () => {
     fireEvent.click(block.querySelector(".app-doc-copy-code")!);
     await waitFor(() => expect(pendingCodePaste()).toBeTruthy());
 
-    window.dispatchEvent(
-      new Event("paste", { bubbles: true, cancelable: true }),
-    );
+    // the clipboard holds the fence's own text, which is what the library
+    // parses out and hands to the app's `onPaste` hook
+    const fenced = block.querySelector("pre")!.textContent!;
+
+    await handleCodePaste({ text: fenced }, null);
     await waitFor(() => expect(calls).toHaveLength(1));
 
     const elements = calls[0].elements as Array<{
@@ -947,9 +955,9 @@ describe("DocumentsTab copy -> paste as a code card", () => {
     fireEvent.click(container.querySelector(".app-doc-copy-code")!);
     await waitFor(() => expect(pendingCodePaste()).toBeTruthy());
 
-    window.dispatchEvent(
-      new Event("paste", { bubbles: true, cancelable: true }),
-    );
+    const fenced = container.querySelector("pre")!.textContent!;
+
+    await handleCodePaste({ text: fenced }, null);
     await waitFor(() => expect(calls).toHaveLength(1));
 
     // highlighted, so the card is not one flat colour
@@ -982,21 +990,19 @@ describe("DocumentsTab copy -> paste as a code card", () => {
     await pasteAndWait();
 
     // a second, unrelated paste must not insert the code again
-    window.dispatchEvent(
-      new Event("paste", { bubbles: true, cancelable: true }),
-    );
+    const handled = await handleCodePaste({ text: "something else" }, null);
+
+    expect(handled).toBe(true);
     expect(calls).toHaveLength(1);
 
     container.remove();
     canvas.remove();
   });
 
-  it("does not intercept a paste that was never armed", () => {
-    const event = new Event("paste", { bubbles: true, cancelable: true });
+  it("does not intercept a paste that was never armed", async () => {
+    const handled = await handleCodePaste({ text: "hello" }, null);
 
-    window.dispatchEvent(event);
-
-    expect(event.defaultPrevented).toBe(false);
+    expect(handled).toBe(true);
   });
 
   it("drops the armed paste when the reader leaves the document", async () => {

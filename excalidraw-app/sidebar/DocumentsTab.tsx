@@ -45,6 +45,8 @@ export const DocumentsTab = () => {
   const api = useExcalidrawAPI();
   const filesInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  /** the rendered document body — a selection has to lie inside it */
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   const [docs, setDocs] = useState<ScannedFile[]>([]);
   const [index, setIndex] = useState(0);
@@ -96,6 +98,70 @@ export const DocumentsTab = () => {
 
     return () => cancelCodePaste();
   }, [viewed]);
+
+  /**
+   * Selecting text in the document copies it.
+   *
+   * The copy happens on the mouse-up / key-up that *ends* the selection, not
+   * on `selectionchange`: a clipboard write needs a transient user activation
+   * and `selectionchange` carries none, so the browser would reject it with
+   * NotAllowedError. A mouse-up or a key-up is an activation.
+   *
+   * Only a selection that lies wholly inside the body is ours — one that
+   * reaches out of the viewer is left to the browser. A link's text is
+   * ordinary text inside the body, so it is covered by the same code.
+   */
+  useEffect(() => {
+    const body = bodyRef.current;
+
+    if (!body) {
+      return;
+    }
+
+    const copySelection = async () => {
+      const selection = window.getSelection();
+
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+        return;
+      }
+
+      const range = selection.getRangeAt(0);
+
+      if (
+        !body.contains(range.startContainer) ||
+        !body.contains(range.endContainer)
+      ) {
+        return;
+      }
+
+      const text = selection.toString();
+
+      if (!text) {
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch (error) {
+        console.error(error);
+        api?.setToast({ message: "Clipboard was blocked", closable: true });
+      }
+    };
+
+    const onSelectionEnd = () => {
+      void copySelection();
+    };
+
+    // on the document, not on the body: a selection extended with the
+    // keyboard ends on whatever holds the focus, which is not the body
+    document.addEventListener("mouseup", onSelectionEnd);
+    document.addEventListener("keyup", onSelectionEnd);
+
+    return () => {
+      document.removeEventListener("mouseup", onSelectionEnd);
+      document.removeEventListener("keyup", onSelectionEnd);
+    };
+  }, [api, html]);
 
   const onPick = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const fileList = event.target.files;
@@ -460,6 +526,7 @@ export const DocumentsTab = () => {
 
               {html ? (
                 <div
+                  ref={bodyRef}
                   className={isMarkdown ? "app-doc-markdown" : "app-doc-code"}
                   // the markdown viewer is scaled, not reflowed, so long lines
                   // stay one line and the panel keeps its own scrollbars

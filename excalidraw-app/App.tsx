@@ -155,6 +155,7 @@ import "./index.scss";
 
 import { AppSidebar } from "./components/AppSidebar";
 import { usePageAutoFit, useSidebarWidth } from "./sidebar/useSidebarLayout";
+import { handleCodePaste } from "./sidebar/insertIntoScene";
 
 import type { CollabAPI } from "./collab/Collab";
 
@@ -1006,6 +1007,10 @@ const ExcalidrawWrapper = () => {
         detectScroll={false}
         handleKeyboardGlobally={true}
         autoFocus={true}
+        // the armed code paste is decided here, in the library's own paste
+        // path — the context menu's Paste never fires a DOM paste event, so a
+        // listener would only ever have seen the keyboard paste
+        onPaste={handleCodePaste}
         theme={editorTheme}
         pagesEnabled={true}
         sidebarWidth={sidebarWidth}
