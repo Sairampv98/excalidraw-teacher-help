@@ -106,12 +106,19 @@ The extension contributes a task type, `excalidraw-bridge.run`, whose `CustomExe
 
 ## Discovery and security — these are not optional
 
-- the bridge listens on **127.0.0.1 only**, on a **random free port**;
-- it writes the port and a **per-session token** to a well-known file under the OS temp dir (`%TEMP%/excalidraw-bridge.json` on Windows), which the app polls on startup;
-- the WebSocket handshake must present the token; the server **rejects** anything else;
+- the bridge listens on **127.0.0.1 only**, on a **fixed port** taken from a `VITE_APP_*` variable (`VITE_APP_BRIDGE_URL`, or a port variable) — **not** a random one;
+- the **per-session token is negotiated in band**, in the **first WebSocket frame**;
+- the server **rejects** any connection that does not present the token;
 - only `http://localhost` and `https://localhost` origins are accepted.
 
 This is what stops another local process — or a web page via a CSRF-style connection attempt — from driving the teacher's machine. The enforcement needs a test each.
+
+**Why a fixed port and an in-band token** — locked as **D-67**, and checked against the code on 2026-10-21:
+
+- **Nothing in the repository discovers a local helper process by scanning ports.** The full inventory of out-of-band channels: `VITE_APP_WS_SERVER_URL` (the collaboration server — a **fixed, build-time-injected** port with **no token**), `localStorage` + the `storage` event (browser-only), `BroadcastChannel` (same-origin **browser tabs only — it cannot reach a Node process**), and the idb-keyval stores (browser-side). A port scan is not the repo's idiom and would make the bridge's port unpredictable for the teacher.
+- The **collaboration server is the precedent**: `VITE_APP_WS_SERVER_URL=http://localhost:3002` (`.env.development:12`), typed at `excalidraw-app/vite-env.d.ts:12`, consumed at `excalidraw-app/collab/Collab.tsx:524` — a fixed port, and the shared secret is the **room key**, which travels as a URL parameter. The bridge follows that shape and improves the one weak point: the token is **not** in a URL, it is negotiated in the first frame.
+
+**A note on the design doc:** it proposed a _random_ free port and a token file under the OS temp dir that the app polls. That is a workable design, but it is **not** what this wave builds — the fixed port plus the in-band token is, and the reason is above. Update the design doc if you disagree, in your close note.
 
 ## The panel
 
@@ -143,7 +150,7 @@ The extension's own `package.json` needs the contributes section:
 
 | Row | The decision in one line |
 | --- | --- |
-| D-50 | The bridge listens on **127.0.0.1 only**, on a **random free port**, and the WebSocket handshake must present a **per-session token** and a **localhost origin**. Anything else is rejected. |
+| D-50 | The bridge listens on **127.0.0.1 only**, on a **fixed port** from a VITE*APP*\* variable, and the WebSocket handshake must present a **per-session token** and a **localhost origin**. Anything else is rejected. |
 | D-51 | The extension **runs** the program itself, through a contributed task type and a `Pseudoterminal`, because the VS Code stable API cannot read an arbitrary terminal. The teacher's own terminal still shows the output normally. |
 | D-52 | The code panel is **read-only** and the bridge is the **source of truth**; the panel is a mirror, and a blocked clipboard or a missing bridge shows an explicit state, never a blank editor. |
 

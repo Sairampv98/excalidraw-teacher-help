@@ -309,3 +309,23 @@ The gate's value is a test that keeps the decisions honest. Two things it must d
 2. **`restoreElements` round-trips a panel.** Save → load → the panel is still there, with its `panelKind`, `panel` payload, `posterMode` and `posterFileId` intact. **This is the test that would have caught §2's silent drop.**
 
 And the standing rule for the whole wave: **assert through the library's own functions.** The `floating` sites go through `getCommonBounds`; the geometry goes through `sceneCoordsToViewportCoords`; the page sites go through `getPageRect`. A self-consistent-but-wrong implementation must not be able to pass.
+
+---
+
+## 11. Corrections from the app-side and presenter-side survey (2026-10-21)
+
+A second, independent survey of the presenter transport and the image pipeline was run against the same tree. It corrected three citations in the designs and added one fact that changes this wave's scope.
+
+| The design said | The truth |
+| --- | --- |
+| `packages/element/src/types.ts:159, 890` — the mime restriction (presenter-panels design) | **`packages/excalidraw/types.ts:207-231`** — `BinaryFileData`; that file is 462 lines and line 159 is `ExcalidrawImageElement` |
+| `packages/excalidraw/scene/pages.ts:214-229` and `:232-243` | `pages.ts:318` (`getPageRelativeCamera`) and `pages.ts:340` (`getCameraFromPageRelative`) |
+| `packages/excalidraw/components/App.tsx:2390-2410` — the GIF overlay mount | `App.tsx:2453-2473` |
+
+**The scope-changing fact: the presenter needs no new code for a mirrorable panel.** The presenter is a **second Excalidraw instance** (`excalidraw-app/presenter/PresenterView.tsx:539-558`), so anything the library mounts is mounted there too. The GIF proved it — the animated-image overlay is mounted in the **library**, and the presenter renders the animation with **zero** presenter-specific code; the only thing the app had to add was moving the bytes.
+
+So a panel whose content is **in the document's own file store** is mirrorable for free, and the presenter work reduces to the **bridge-backed** case. Locked as **D-64** in `SPEC.md`.
+
+**Also:** `presenter:files` has **no size guard** (`excalidraw-app/presenter/usePresenterBroadcaster.ts:168-194`) — the editor replies with the complete `BinaryFileData`, `dataURL` and all. Only a panel's **poster** may cross that channel (**D-65**). And the element list is the **only** channel: it ships the whole list, including deleted elements, 25 times a second, and the presenter does a wholesale `replaceAllElements` each time — so a panel's live state rides **inside the element payload**, and that payload must be **plain, structured-cloneable data**, or `postMessage` throws and the frame is **silently dropped**.
+
+**A tooling note:** the repo root has a **`.ignore` file** (`scripts/woff2/`, `.harness/`, `.venv/`, `.vscode/`), and plain `rg` **silently skips** those paths. Use `--no-ignore` when a search must see everything.

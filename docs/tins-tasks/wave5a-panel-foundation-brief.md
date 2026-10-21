@@ -98,6 +98,44 @@ The split rule: **anything that decides geometry is pure and lives in `packages/
 | `cropModal` | `excalidraw-app/components/` | the dark-backdrop crop UI |
 | `ocrClient` | `excalidraw-app/` | speaks the `OcrRequest`/`OcrResult` contract |
 
+## What the transport says (verified 2026-10-21)
+
+The presenter's channel was read line by line. Four facts change this wave's shape.
+
+### 1. A mirrorable panel needs **no** presenter code
+
+The presenter is a **second Excalidraw instance** (`excalidraw-app/presenter/PresenterView.tsx:539-558`), so **anything the library mounts is mounted there too**. The GIF proved it: the animated-image overlay is mounted in the **library** (`packages/excalidraw/components/App.tsx:2453-2473`), and the presenter renders the animation with **zero** presenter-specific code — the only thing the app had to add was moving the bytes.
+
+**So: mount `PanelOverlay` in the library, and a panel whose content is in the document's own file store (a video, a flow document) is mirrorable for free.** Only a **bridge-backed** panel — whose content lives in the VS Code process — needs presenter-side work, and that is limited to a **read-only** mirror (the owner's decision, question 8). Locked as **D-64**.
+
+### 2. Only the poster crosses the window boundary
+
+`presenter:files` has **no size guard** (`excalidraw-app/presenter/usePresenterBroadcaster.ts:168-194`): the editor replies with the complete `BinaryFileData`, `dataURL` and all, so a 40 MB video posted there would block or be dropped with a console error.
+
+**A panel's bytes never travel the files channel — only its poster does**, and a poster is an ordinary PNG in the existing store. The panel's _source_ is referenced by id, exactly as an image's is. Locked as **D-65**.
+
+### 3. The mime restriction is a **type**, not a guard
+
+The restriction is in `packages/excalidraw/types.ts:207-211` — **not** where the presenter design cited (`packages/element/src/types.ts:159,890` — that file is 462 lines and line 159 is `ExcalidrawImageElement`). It already admits `application/octet-stream` through the `| typeof MIME_TYPES.binary` escape hatch, and **nothing validates the mime at runtime**: `excalidraw-app/sidebar/insertIntoScene.ts:288` does an unchecked cast `(file.type || "image/png") as BinaryFileData["mimeType"]`.
+
+So admitting a video is a **type-level widening**, not the removal of a guard: a `VIDEO_MIME_TYPES` map beside `IMAGE_MIME_TYPES` in `packages/common/src/constants.ts:237`, spread into `MIME_TYPES`, and the union widened. Locked as **D-66**.
+
+### 4. The crop is app-level new UI
+
+The library's existing crop is an **in-place crop mode on an image element** (`croppingElementId` in `AppState`, the handlers at `packages/excalidraw/components/App.tsx:10512` and `:13013`, and the `crop` field on `ExcalidrawImageElement`). It is **not** a modal and it does **not** produce a new element.
+
+"Crop a poster into a **new** image element, leaving the panel untouched" therefore has **no existing implementation** — it is new UI, in `excalidraw-app/components/`, and it cannot use the library's `Modal`, which is bound to the app's `openDialog` state and cannot carry a promise (D-15). Locked as **D-68**.
+
+### 5. The element list is the only channel
+
+The transport ships the **whole element list, including deleted elements**, 25 times a second (`usePresenterBroadcaster.ts:28, 96-102`), and the presenter does a **wholesale `replaceAllElements`** each time (`packages/excalidraw/components/App.tsx:5018-5020`). There is **no per-element side channel**.
+
+So a panel's **live state rides inside the element payload**, and it must be **plain, structured-cloneable data** — a `<video>` element, a React instance or a function in the payload would make `postMessage` throw, and the `catch` at `usePresenterBroadcaster.ts:104-108` would **silently drop the frame** — a mirror that mysteriously freezes.
+
+### 6. A tooling note
+
+The repo root has a **`.ignore` file** (`scripts/woff2/`, `.harness/`, `.venv/`, `.vscode/`), and plain `rg` **silently skips** those paths. Use `--no-ignore` when a search must see everything. (And the `"`-stripping caveat from the checklist applies here too: write `\x22`.)
+
 ## The locked decisions to implement
 
 | Row | The decision in one line |
