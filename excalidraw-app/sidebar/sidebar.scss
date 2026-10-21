@@ -189,15 +189,88 @@
   color: var(--text-secondary-color);
 }
 
-// --- documents -------------------------------------------------------------
+// --- the one list ------------------------------------------------------------
 
-.app-doc-list {
+// the path of the folder being browsed, with the way back out of it
+.app-file-browse {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.app-file-browse__path {
+  font-size: 0.6875rem;
+  color: var(--text-secondary-color);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// one group of the list: a type, its icon, and the files of that type
+.app-file-group {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
+  margin-top: 0.35rem;
+}
+
+.app-file-group__head {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+  padding: 0 0.2rem;
+  color: var(--text-secondary-color);
+}
+
+.app-file-group__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+}
+
+.app-file-group__label {
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.app-file-group__count {
+  font-size: 0.625rem;
+  color: var(--text-secondary-color);
+}
+
+// a folder you can walk into
+.app-file-list__folder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.25rem;
+  color: var(--text-secondary-color);
+  background-color: var(--color-surface-low);
+}
+
+.app-file-list__row--folder {
+  cursor: pointer;
+
+  &:active {
+    cursor: pointer;
+  }
+}
+
+// a file that cannot be used: named, with the reason why
+.app-file-list__row--unsupported {
+  cursor: default;
+  opacity: 0.75;
 }
 
 .app-doc-nav {
@@ -294,36 +367,6 @@
   white-space: nowrap;
 }
 
-.app-doc-list__item {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.3rem 0.4rem;
-  border: 1px solid transparent;
-  border-radius: 0.35rem;
-  background: none;
-  color: var(--text-primary-color);
-  font-family: inherit;
-  font-size: 0.75rem;
-  text-align: left;
-  cursor: pointer;
-
-  &:hover {
-    background-color: var(--color-surface-low);
-  }
-}
-
-.app-doc-list__item--active {
-  background-color: var(--color-surface-low);
-  border-color: var(--color-primary);
-}
-
-.app-doc-list__name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .app-doc-badge {
   flex: 0 0 auto;
   min-width: 2rem;
@@ -336,8 +379,33 @@
   background-color: #6b7280;
 }
 
+// one colour per kind, so the badge says what the file is
 .app-doc-badge--pdf {
   background-color: #dc2626;
+}
+
+.app-doc-badge--image {
+  background-color: #0284c7;
+}
+
+.app-doc-badge--gif {
+  background-color: #db2777;
+}
+
+.app-doc-badge--code {
+  background-color: #16a34a;
+}
+
+.app-doc-badge--text {
+  background-color: #64748b;
+}
+
+.app-doc-badge--video {
+  background-color: #ca8a04;
+}
+
+.app-doc-badge--unsupported {
+  background-color: #78716c;
 }
 
 /**

@@ -3,11 +3,13 @@ import { vi } from "vitest";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
 import {
+  FILE_ACCEPT,
   classify,
+  groupsAt,
+  kindLabel,
   languageFor,
   renderMarkdown,
-  scanDocuments,
-  scanFolder,
+  scanFiles,
 } from "../sidebar/sidebarFiles";
 import {
   armImagePasteOnCanvas,
@@ -61,15 +63,33 @@ const createFakeApi = () => {
 
 const makeFile = (name: string, type = "") => new File(["x"], name, { type });
 
+/**
+ * A file as the browser hands it over when a *folder* was picked: a flat list
+ * whose files carry the path they had inside that folder.
+ */
+const makeFolderFile = (relativePath: string, type = "") => {
+  const name = relativePath.split("/").pop()!;
+  const file = new File(["x"], name, { type });
+
+  Object.defineProperty(file, "webkitRelativePath", {
+    configurable: true,
+    value: relativePath,
+  });
+
+  return file;
+};
+
 describe("sidebar file classification", () => {
   it("treats stills and GIFs as images, videos separately", () => {
     expect(classify("a.png")).toBe("image");
     expect(classify("a.JPEG")).toBe("image");
-    expect(classify("a.gif")).toBe("image");
+    // a GIF is an image, but it is a kind of its own: it animates
+    expect(classify("a.gif")).toBe("gif");
     expect(classify("a.mp4", "video/mp4")).toBe("video");
     expect(classify("a.pdf")).toBe("pdf");
     expect(classify("a.md")).toBe("markdown");
     expect(classify("a.ts")).toBe("code");
+    expect(classify("a.txt")).toBe("text");
     expect(classify("a.unknown")).toBeNull();
   });
 
@@ -80,30 +100,190 @@ describe("sidebar file classification", () => {
     expect(languageFor("notes.txt")).toBe("text");
   });
 
-  it("keeps images from a folder scan and counts videos separately", () => {
-    const result = scanFolder([
-      makeFile("one.png", "image/png"),
-      makeFile("two.gif", "image/gif"),
-      makeFile("clip.mp4", "video/mp4"),
-      makeFile("notes.docx"),
-    ]);
-
-    expect(result.images.map((entry) => entry.name)).toEqual([
-      "one.png",
-      "two.gif",
-    ]);
-    expect(result.videos.map((entry) => entry.name)).toEqual(["clip.mp4"]);
-    expect(result.skipped).toBe(1);
+  it("gives every kind its own badge, so a .ts is not a TXT", () => {
+    expect(kindLabel("image")).toBe("IMG");
+    expect(kindLabel("gif")).toBe("GIF");
+    expect(kindLabel("pdf")).toBe("PDF");
+    expect(kindLabel("markdown")).toBe("MD");
+    expect(kindLabel("code")).toBe("CODE");
+    expect(kindLabel("text")).toBe("TXT");
+    expect(kindLabel("video")).toBe("VID");
   });
 
-  it("only keeps renderable documents", () => {
-    const docs = scanDocuments([
-      makeFile("a.png", "image/png"),
-      makeFile("b.pdf", "application/pdf"),
-      makeFile("c.ts", ""),
+  it("AC-44 one scan classifies every supported type", () => {
+    const scan = scanFiles([
+      makeFile("one.png", "image/png"),
+      makeFile("two.gif", "image/gif"),
+      makeFile("doc.pdf", "application/pdf"),
+      makeFile("notes.md", ""),
+      makeFile("script.ts", ""),
+      makeFile("plain.txt", ""),
     ]);
 
-    expect(docs.map((entry) => entry.name)).toEqual(["b.pdf", "c.ts"]);
+    expect(scan.files.map((entry) => [entry.name, entry.kind])).toEqual([
+      ["doc.pdf", "pdf"],
+      ["notes.md", "markdown"],
+      ["one.png", "image"],
+      ["plain.txt", "text"],
+      ["script.ts", "code"],
+      ["two.gif", "gif"],
+    ]);
+  });
+
+  it("AC-44 one scan returns the unsupported files with a reason", () => {
+    const scan = scanFiles([
+      makeFile("one.png", "image/png"),
+      makeFile("clip.mp4", "video/mp4"),
+      makeFile("unknown.docx", ""),
+    ]);
+
+    // nothing is dropped on the way to the list: every file we cannot use
+    // comes back with the reason why
+    expect(scan.unsupported.map((entry) => [entry.name, entry.reason])).toEqual(
+      [
+        ["clip.mp4", "video-not-embeddable"],
+        ["unknown.docx", "unknown-type"],
+      ],
+    );
+
+    // and the ones we can use are untouched by it
+    expect(scan.files.map((entry) => entry.name)).toEqual(["one.png"]);
+  });
+
+  it("AC-44 the scan keeps the picked root whole, subfolders included", () => {
+    const scan = scanFiles([
+      makeFolderFile("root/notes.md", ""),
+      makeFolderFile("root/sub/deep.png", "image/png"),
+      makeFolderFile("root/sub/deeper/other.ts", ""),
+    ]);
+
+    expect(scan.rootName).toBe("root");
+    expect(scan.files.map((entry) => entry.path)).toEqual([
+      "notes.md",
+      "sub/deep.png",
+      "sub/deeper/other.ts",
+    ]);
+    expect(scan.files.map((entry) => entry.dir)).toEqual([
+      [],
+      ["sub"],
+      ["sub", "deeper"],
+    ]);
+    // every directory of the root, so a folder can be walked into
+    expect(scan.directories).toEqual([["sub"], ["sub", "deeper"]]);
+  });
+
+  it("AC-44 the accept list admits images, GIFs and video", () => {
+    for (const accepted of [
+      ".png",
+      ".jpg",
+      ".gif",
+      ".mp4",
+      ".webm",
+      ".pdf",
+      ".md",
+      ".txt",
+      ".ts",
+      "image/*",
+      "video/*",
+      "application/pdf",
+    ]) {
+      expect(FILE_ACCEPT).toContain(accepted);
+    }
+  });
+
+  it("AC-44 the accept list and the classifier cannot drift apart", () => {
+    // every extension the classifier knows has to be in the accept list —
+    // the two were hand-written before, and they drifted
+    for (const name of [
+      "a.png",
+      "a.gif",
+      "a.mp4",
+      "a.pdf",
+      "a.md",
+      "a.txt",
+      "a.ts",
+      "a.rb",
+      "a.kt",
+      "a.rs",
+      "a.dart",
+      "a.ex",
+      "a.hs",
+      "a.zig",
+      "a.ps1",
+      "a.ini",
+      "a.env",
+      "a.gitignore",
+    ]) {
+      expect(classify(name)).not.toBeNull();
+      expect(FILE_ACCEPT).toContain(`.${name.split(".").pop()}`);
+    }
+  });
+
+  it("AC-45 the groups come out in the fixed order", () => {
+    const scan = scanFiles([
+      makeFile("two.gif", "image/gif"),
+      makeFile("one.png", "image/png"),
+      makeFile("doc.pdf", "application/pdf"),
+      makeFile("notes.md", ""),
+      makeFile("script.ts", ""),
+      makeFile("plain.txt", ""),
+      makeFile("clip.mp4", "video/mp4"),
+      makeFile("unknown.docx", ""),
+    ]);
+
+    const groups = groupsAt(scan, []);
+
+    expect(groups.map((group) => group.label)).toEqual([
+      "Images",
+      "Documents",
+      "Markdown",
+      "Code",
+      "Video",
+      "Unsupported",
+    ]);
+
+    // one icon per group
+    for (const group of groups) {
+      expect(group.icon).toBeTruthy();
+    }
+
+    // the files land in the group of their kind
+    expect(
+      groups
+        .find((group) => group.label === "Images")!
+        .entries.map((entry) => entry.file.name),
+    ).toEqual(["one.png", "two.gif"]);
+    expect(
+      groups.find((group) => group.label === "Markdown")!.entries.length,
+    ).toBe(2);
+    expect(
+      groups
+        .find((group) => group.label === "Video")!
+        .entries.map((entry) =>
+          entry.type === "unsupported" ? entry.file.reason : "",
+        ),
+    ).toEqual(["video-not-embeddable"]);
+    expect(
+      groups
+        .find((group) => group.label === "Unsupported")!
+        .entries.map((entry) =>
+          entry.type === "unsupported" ? entry.file.reason : "",
+        ),
+    ).toEqual(["unknown-type"]);
+  });
+
+  it("AC-45 the groups of a subfolder are the groups of that folder", () => {
+    const scan = scanFiles([
+      makeFolderFile("root/notes.md", ""),
+      makeFolderFile("root/sub/deep.png", "image/png"),
+    ]);
+
+    expect(groupsAt(scan, []).map((group) => group.label)).toEqual([
+      "Markdown",
+    ]);
+    expect(groupsAt(scan, ["sub"]).map((group) => group.label)).toEqual([
+      "Images",
+    ]);
   });
 });
 

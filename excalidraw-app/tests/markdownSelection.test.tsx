@@ -5,7 +5,8 @@ import { ExcalidrawAPIContext } from "@excalidraw/excalidraw/components/App";
 
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
-import { DocumentsTab } from "../sidebar/DocumentsTab";
+import { resetBrowserState } from "../sidebar/browserState";
+import { FilesTab } from "../sidebar/FilesTab";
 
 const PROSE = "Prose that the reader selects with the mouse.";
 const LINK_TEXT = "link to the docs";
@@ -90,17 +91,24 @@ const openMarkdown = async () => {
   const clipboard = mockClipboard();
   const { api, setToast } = fakeApi();
 
+  // the picked root and the browsing path live between panels
+  resetBrowserState();
+
   const { container } = render(
     <ExcalidrawAPIContext.Provider value={api}>
-      <DocumentsTab />
+      <FilesTab />
     </ExcalidrawAPIContext.Provider>,
   );
 
-  const input = container.querySelector<HTMLInputElement>("input[type=file]")!;
+  // the picker has two inputs — one for files, one for a folder — and they are
+  // told apart by their attribute, not by their order in the DOM
+  const input = container.querySelector<HTMLInputElement>(
+    'input[type="file"][accept]',
+  )!;
 
   pickFiles(input, [makeFile("notes.md", SOURCE)]);
 
-  fireEvent.click(container.querySelector(".app-doc-list__item")!);
+  fireEvent.click(container.querySelector(".app-file-list__row")!);
 
   await waitFor(() =>
     expect(container.querySelector(".app-doc-markdown")).toBeTruthy(),
