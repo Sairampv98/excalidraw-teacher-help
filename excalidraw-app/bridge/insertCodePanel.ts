@@ -1,6 +1,7 @@
 import { newPanelElement, syncInvalidIndices } from "@excalidraw/element";
 import {
   codePanelContent,
+  codePanelSize,
   emptyCodePanelState,
   stampCurrentPage,
 } from "@excalidraw/excalidraw";
@@ -22,23 +23,28 @@ import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 /** The name of the bridge session the panel belongs to. */
 export const CODE_PANEL_SESSION_ID = "vscode-bridge";
 
-/** The panel's size on the canvas, in scene units. */
-export const CODE_PANEL_WIDTH = 520;
-export const CODE_PANEL_HEIGHT = 380;
-
 /**
  * Inserts the code panel at the middle of what the teacher can see.
+ *
+ * Its size is a **share of the visible canvas**, not a constant (D-80): the
+ * owner asked for the editor's view to cover half the canvas, and a fixed
+ * 520x380 was a fifth of it.
  */
 export const insertCodePanel = (api: ExcalidrawImperativeAPI): void => {
   const appState = api.getAppState();
   const zoom = appState.zoom.value;
 
+  const size = codePanelSize(
+    { width: appState.width, height: appState.height },
+    zoom,
+  );
+
   const panel = newPanelElement({
     type: "panel",
-    x: (appState.width / 2 - appState.scrollX) / zoom - CODE_PANEL_WIDTH / 2,
-    y: (appState.height / 2 - appState.scrollY) / zoom - CODE_PANEL_HEIGHT / 2,
-    width: CODE_PANEL_WIDTH,
-    height: CODE_PANEL_HEIGHT,
+    x: (appState.width / 2 - appState.scrollX) / zoom - size.width / 2,
+    y: (appState.height / 2 - appState.scrollY) / zoom - size.height / 2,
+    width: size.width,
+    height: size.height,
     panelKind: "code",
     panel: codePanelContent(emptyCodePanelState(), CODE_PANEL_SESSION_ID),
     posterMode: false,

@@ -27,6 +27,7 @@
  */
 
 import { sceneCoordsToViewportCoords } from "@excalidraw/common";
+import { clamp } from "@excalidraw/math";
 
 import {
   getElementAbsoluteCoords,
@@ -370,6 +371,105 @@ export const withCodePanelState = (
  */
 export const isBridgeCodePanel = (panel: ExcalidrawPanelElement): boolean =>
   panel.panelKind === "code" && panel.panel.source.type === "bridge";
+
+/**
+ * The name of the file a code panel is mirroring.
+ *
+ * The bridge sends the mirrored editor's **uri** (D-51), and a uri is not a
+ * name: it is `file:///home/sai/main.py`, or `file:///C:/work/main.py`, or
+ * `untitled:Untitled-1`. What a VS Code tab says is the **last segment** of
+ * it - and the panel has to say it too, or the code reads as a text box
+ * (D-80).
+ *
+ * An empty uri means there is no file open, and the name is empty then.
+ */
+export const codePanelFileName = (uri: string): string => {
+  const trimmed = uri.trim();
+
+  if (!trimmed) {
+    return "";
+  }
+
+  // a VS Code uri may carry a position ("main.py?line=12") - the position is
+  // not part of the name
+  const withoutPosition = trimmed.split(/[?#]/)[0];
+
+  // the last segment of the path, on either separator
+  const segments = withoutPosition.split(/[\\/]/).filter(Boolean);
+  const last = segments[segments.length - 1] ?? "";
+
+  // an unsaved file is "untitled:Untitled-1" - the scheme is not the name
+  const withoutScheme = last.replace(/^[a-z][a-z0-9+.-]*:/i, "");
+
+  try {
+    return decodeURIComponent(withoutScheme);
+  } catch {
+    // a malformed escape is still a name
+    return withoutScheme;
+  }
+};
+
+/**
+ * The bounds of a new code panel's size, in scene units.
+ *
+ * A code panel is a **share of the visible canvas**, not a constant (D-80):
+ * the owner asked for the editor's view to cover half the canvas, and half of
+ * what the teacher can see is 990x1024 on a 1980x2048 screen. The bounds keep
+ * the panel usable on a small screen and stop it from running off a big one.
+ */
+export const CODE_PANEL_MIN_WIDTH = 280;
+export const CODE_PANEL_MAX_WIDTH = 1200;
+export const CODE_PANEL_MIN_HEIGHT = 200;
+export const CODE_PANEL_MAX_HEIGHT = 1200;
+
+/**
+ * The size of a **new** code panel, in scene units.
+ *
+ * The viewport is in pixels and the panel's size is in scene units, so the
+ * zoom is divided out: the panel then covers half of the **screen** at any
+ * zoom, which is what the owner asked for.
+ */
+export const codePanelSize = (
+  viewport: { width: number; height: number },
+  zoom: number,
+): { width: number; height: number } => ({
+  width: clamp(
+    Math.round(viewport.width / (2 * zoom)),
+    CODE_PANEL_MIN_WIDTH,
+    CODE_PANEL_MAX_WIDTH,
+  ),
+  height: clamp(
+    Math.round(viewport.height / (2 * zoom)),
+    CODE_PANEL_MIN_HEIGHT,
+    CODE_PANEL_MAX_HEIGHT,
+  ),
+});
+
+/**
+ * The code region's **minimum** height, in CSS pixels.
+ *
+ * The code is what the teacher reads. The chrome, the output region and the
+ * console region share the panel with it, and they must never squeeze it out
+ * (D-80).
+ */
+export const CODE_PANEL_EDITOR_MIN_HEIGHT = 120;
+
+/**
+ * The flex contract of a code panel's three regions.
+ *
+ * The editor **grows** into the space the panel has and does **not shrink**
+ * below its minimum height; the output and the console shrink (and scroll)
+ * instead of taking the code's space (D-80).
+ *
+ * The contract is inline rather than in the stylesheet because it is a
+ * **rule**, not a look: it is the thing a test can hold on to, and the two
+ * cannot drift apart.
+ */
+export const CODE_PANEL_REGION_STYLE = {
+  editor: { flex: "1 1 auto", minHeight: `${CODE_PANEL_EDITOR_MIN_HEIGHT}px` },
+  output: { flex: "0 1 auto" },
+  console: { flex: "0 1 auto" },
+} as const;
 
 /**
  * Where a **video** panel's content comes from.

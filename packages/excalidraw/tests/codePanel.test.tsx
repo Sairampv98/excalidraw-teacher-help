@@ -23,7 +23,7 @@ import {
 } from "../scene/panelContent";
 
 import { API } from "./helpers/api";
-import { render } from "./test-utils";
+import { render, waitFor } from "./test-utils";
 
 import type { CodePanelState } from "../scene/panelContent";
 
@@ -229,5 +229,120 @@ describe("the code panel", () => {
     const cloned = structuredClone(panel.panel);
 
     expect(readCodePanelState(cloned)).toEqual(state);
+  });
+
+  it("AC-92 the panel's editor region names the file it is mirroring, and says so when there is none", async () => {
+    await render(<Excalidraw />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(codePanel(connectedState()))]);
+
+    const overlay = document.querySelector('[data-testid="panel-overlay"]');
+
+    // the tab strip is IN the editor region ...
+    const editor = overlay!.querySelector('[data-testid="code-panel-editor"]')!;
+    const header = editor.querySelector('[data-testid="code-panel-header"]');
+
+    expect(header).not.toBeNull();
+
+    // ... and it says WHICH file this is, the way a VS Code tab says it: the
+    // file's name and its language. Code with no name reads as a text box
+    // (D-80).
+    expect(
+      header!.querySelector('[data-testid="code-panel-file"]')!.textContent,
+    ).toBe("main.py");
+    expect(
+      header!.querySelector('[data-testid="code-panel-language"]')!.textContent,
+    ).toBe("python");
+
+    // with no file open, the header SAYS so - with the wording the panel
+    // already uses for that case
+    API.setElements([
+      asElement(
+        codePanel({
+          ...emptyCodePanelState(),
+          connection: "connected",
+          statusMessage: "Connected to the Excalidraw Bridge.",
+        }),
+      ),
+    ]);
+
+    const emptyHeader = document.querySelector(
+      '[data-testid="code-panel-header"]',
+    )!;
+
+    expect(emptyHeader.textContent).toContain("No file is open");
+  });
+
+  it("AC-93 the mirrored code is rendered in the VS Code dark theme, with its line numbers", async () => {
+    // the app is in its LIGHT theme: the panel wears the VS Code dark theme
+    // whatever the app's theme is (D-80) - the teacher is looking at VS Code
+    // while they teach
+    await render(<Excalidraw theme="light" />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(codePanel(connectedState()))]);
+
+    // the editor is loaded lazily, the way the TTD dialog loads it
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
+      ).not.toBeNull(),
+    );
+
+    // CodeMirror mounts its theme into the document
+    const css = Array.from(document.querySelectorAll("style"))
+      .map((tag) => tag.textContent)
+      .join("\n");
+
+    // the VS Code dark theme: the background, the text and the gutter
+    expect(css).toContain("background-color: #1e1e1e");
+    expect(css).toContain("color: #d4d4d4");
+
+    // the VS Code token colours
+    expect(css).toContain("#569cd6"); // keywords
+    expect(css).toContain("#c586c0"); // control flow
+    expect(css).toContain("#dcdcaa"); // functions
+    expect(css).toContain("#ce9178"); // strings
+    expect(css).toContain("#6a9955"); // comments
+    expect(css).toContain("#9cdcfe"); // variables
+
+    // and NOT the app's light theme
+    expect(css).not.toContain("#0000ff"); // the light theme's keyword colour
+
+    // the line numbers are there
+    expect(
+      document.querySelector(
+        '[data-testid="code-panel-source"] .cm-lineNumbers',
+      ),
+    ).not.toBeNull();
+  });
+
+  it("AC-94 the code region keeps its height: the chrome, the output and the console do not squeeze the code out of the panel", async () => {
+    await render(<Excalidraw />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(codePanel(connectedState()))]);
+
+    const overlay = document.querySelector('[data-testid="panel-overlay"]')!;
+
+    const editor = overlay.querySelector(
+      '[data-testid="code-panel-editor"]',
+    ) as HTMLElement;
+    const output = overlay.querySelector(
+      '[data-testid="code-panel-output"]',
+    ) as HTMLElement;
+    const consoleRegion = overlay.querySelector(
+      '[data-testid="code-panel-console"]',
+    ) as HTMLElement;
+
+    // the code region has a FLOOR: the chrome, the output and the console
+    // cannot squeeze it out of the panel
+    expect(editor.style.minHeight).toBe("120px");
+    expect(editor.style.flex).toBe("1 1 auto");
+
+    // and the output and the console shrink instead of the code - they scroll
+    expect(output.style.flex).toBe("0 1 auto");
+    expect(consoleRegion.style.flex).toBe("0 1 auto");
   });
 });

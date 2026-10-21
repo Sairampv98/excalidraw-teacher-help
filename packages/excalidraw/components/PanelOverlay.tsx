@@ -16,7 +16,6 @@ import type {
   ElementsMap,
   ExcalidrawPanelElement,
   PanelCaptionTrack,
-  Theme,
 } from "@excalidraw/element/types";
 
 import {
@@ -24,10 +23,17 @@ import {
   OUTSIDE_FRAME,
 } from "../scene/animatedImageOverlay";
 import { panelTransform } from "../scene/panelContent";
-import { isBridgeCodePanel, readCodePanelState } from "../scene/panelContent";
+import {
+  codePanelFileName,
+  CODE_PANEL_REGION_STYLE,
+  isBridgeCodePanel,
+  readCodePanelState,
+} from "../scene/panelContent";
 import { readVideoPanelState } from "../scene/panelContent";
 
 import { t } from "../i18n";
+
+import { VS_CODE_DARK } from "./vscodeTheme";
 
 import { captionCueAt, DEFAULT_CAPTION_LANGUAGE } from "./panelCaptions";
 import {
@@ -83,7 +89,6 @@ type PanelOverlayProps = {
   elementsMap: ElementsMap;
   camera: PanelCamera;
   viewport: { width: number; height: number };
-  theme: Theme;
   /**
    * The host is told what the video panel has to say.
    *
@@ -136,8 +141,12 @@ const captionTrackDataUrl = (
  * editor is a heavy module, and a canvas that has no code panel on it must
  * not pay for it. Until it is there, the plain text stands in — the teacher
  * sees the code either way.
+ *
+ * The editor wears the **VS Code dark theme** whatever the app's theme is
+ * (D-80): the teacher is looking at VS Code while they teach, and the panel
+ * has to look like the editor they are looking at.
  */
-const CodePanelEditor = ({ value, theme }: { value: string; theme: Theme }) => {
+const CodePanelEditor = ({ value }: { value: string }) => {
   const [Editor, setEditor] =
     useState<React.ComponentType<CodeMirrorEditorProps> | null>(null);
 
@@ -164,6 +173,10 @@ const CodePanelEditor = ({ value, theme }: { value: string; theme: Theme }) => {
       <pre
         className="excalidraw__panel-code-text"
         data-testid="code-panel-text"
+        style={{
+          background: VS_CODE_DARK.background,
+          color: VS_CODE_DARK.foreground,
+        }}
       >
         {value}
       </pre>
@@ -175,10 +188,19 @@ const CodePanelEditor = ({ value, theme }: { value: string; theme: Theme }) => {
       value={value}
       onChange={() => {}}
       readOnly={true}
-      theme={theme}
+      theme="vscode"
       placeholder={t("labels.panel.code.noFile")}
     />
   );
+};
+
+/**
+ * The hairline between a code panel's regions - VS Code's own.
+ */
+const VS_CODE_HAIRLINE: React.CSSProperties = {
+  borderTopWidth: 1,
+  borderTopStyle: "solid",
+  borderTopColor: VS_CODE_DARK.border,
 };
 
 /**
@@ -189,17 +211,15 @@ const CodePanelEditor = ({ value, theme }: { value: string; theme: Theme }) => {
  * **read-only mirror** — it shows the teacher's text, and the teacher types in
  * VS Code, not here.
  *
+ * The panel wears the **VS Code dark theme** whatever the app's theme is
+ * (D-80), and it says **which file** it is mirroring: code with no name reads
+ * as a text box, and the teacher cannot tell the panel from a diagram.
+ *
  * When there is no bridge, the panel says so. It never shows a blank editor:
  * a blank editor looks like a broken panel, and the teacher cannot tell it
  * apart from a program that produced nothing (D-52).
  */
-const CodePanelSurface = ({
-  panel,
-  theme,
-}: {
-  panel: ExcalidrawPanelElement;
-  theme: Theme;
-}) => {
+const CodePanelSurface = ({ panel }: { panel: ExcalidrawPanelElement }) => {
   const state = readCodePanelState(panel.panel);
 
   if (!state || state.connection !== "connected") {
@@ -208,38 +228,104 @@ const CodePanelSurface = ({
         className="excalidraw__panel-code-status"
         data-testid="code-panel-status"
         data-bridge-state={state?.connection ?? "not-connected"}
+        style={{
+          background: VS_CODE_DARK.background,
+          color: VS_CODE_DARK.foreground,
+        }}
       >
         {state?.statusMessage || "Not connected to the Excalidraw Bridge."}
       </div>
     );
   }
 
+  const hasFile = Boolean(state.editor.uri);
+  const fileName = codePanelFileName(state.editor.uri);
+
   return (
-    <div className="excalidraw__panel-code-panel" data-testid="code-panel">
+    <div
+      className="excalidraw__panel-code-panel"
+      data-testid="code-panel"
+      style={{
+        background: VS_CODE_DARK.background,
+        color: VS_CODE_DARK.foreground,
+      }}
+    >
       <div
         className="excalidraw__panel-code-editor"
         data-testid="code-panel-editor"
+        style={CODE_PANEL_REGION_STYLE.editor}
       >
-        {state.editor.uri ? (
-          <CodePanelEditor value={state.editor.text} theme={theme} />
-        ) : (
-          // The bridge is connected, but it has not sent an editor yet. That
-          // is either because no file is open in the editor, or because the
-          // extension has not told us yet. A blank region would look like a
-          // broken panel, and the teacher could not tell it apart from a
-          // program that produced nothing (D-52) - so the panel says what it
-          // knows (D-75).
-          <div
-            className="excalidraw__panel-code-status"
-            data-testid="code-panel-no-editor"
-          >
-            {t("labels.panel.code.noFile")}
-          </div>
-        )}
+        {/* the tab strip: WHICH file this is, the way a VS Code tab says it */}
+        <div
+          className="excalidraw__panel-code-header"
+          data-testid="code-panel-header"
+          style={{
+            borderBottomWidth: 1,
+            borderBottomStyle: "solid",
+            borderBottomColor: VS_CODE_DARK.accent,
+          }}
+        >
+          {hasFile ? (
+            <>
+              <span
+                className="excalidraw__panel-code-file"
+                data-testid="code-panel-file"
+              >
+                {fileName || state.editor.uri}
+              </span>
+              {state.editor.language ? (
+                <span
+                  className="excalidraw__panel-code-language"
+                  data-testid="code-panel-language"
+                  style={{ color: VS_CODE_DARK.muted }}
+                >
+                  {state.editor.language}
+                </span>
+              ) : null}
+            </>
+          ) : (
+            // no file is open: the panel says so, with the same wording it
+            // uses everywhere else for that case (D-80)
+            <span
+              className="excalidraw__panel-code-file"
+              data-testid="code-panel-no-file"
+            >
+              {t("labels.panel.code.noFile")}
+            </span>
+          )}
+        </div>
+
+        <div
+          className="excalidraw__panel-code-source"
+          data-testid="code-panel-source"
+        >
+          {hasFile ? (
+            <CodePanelEditor value={state.editor.text} />
+          ) : (
+            // The bridge is connected, but it has not sent an editor yet. That
+            // is either because no file is open in the editor, or because the
+            // extension has not told us yet. A blank region would look like a
+            // broken panel, and the teacher could not tell it apart from a
+            // program that produced nothing (D-52) - so the panel says what it
+            // knows (D-75).
+            <div
+              className="excalidraw__panel-code-status"
+              data-testid="code-panel-no-editor"
+              style={{ color: VS_CODE_DARK.foreground }}
+            >
+              {t("labels.panel.code.noFile")}
+            </div>
+          )}
+        </div>
       </div>
       <div
         className="excalidraw__panel-code-output"
         data-testid="code-panel-output"
+        style={{
+          ...CODE_PANEL_REGION_STYLE.output,
+          ...VS_CODE_HAIRLINE,
+          color: VS_CODE_DARK.foreground,
+        }}
       >
         {state.output.map((line, index) => (
           <div
@@ -254,6 +340,11 @@ const CodePanelSurface = ({
       <div
         className="excalidraw__panel-code-console"
         data-testid="code-panel-console"
+        style={{
+          ...CODE_PANEL_REGION_STYLE.console,
+          ...VS_CODE_HAIRLINE,
+          color: VS_CODE_DARK.foreground,
+        }}
       >
         {state.console.map((line, index) => (
           <div
@@ -542,18 +633,16 @@ const VideoPanelSurface = ({
 const PanelSurface = ({
   panel,
   files,
-  theme,
   onVideoEvent,
 }: {
   panel: ExcalidrawPanelElement;
   files: BinaryFiles;
-  theme: Theme;
   onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
 }) => {
   const { source } = panel.panel;
 
   if (panel.panelKind === "code" && isBridgeCodePanel(panel)) {
-    return <CodePanelSurface panel={panel} theme={theme} />;
+    return <CodePanelSurface panel={panel} />;
   }
 
   if (source.type === "file") {
@@ -611,7 +700,6 @@ const Panel = ({
   elementsMap,
   camera,
   viewport,
-  theme,
   onVideoEvent,
 }: {
   panel: ExcalidrawPanelElement;
@@ -619,7 +707,6 @@ const Panel = ({
   elementsMap: ElementsMap;
   camera: PanelCamera;
   viewport: { width: number; height: number };
-  theme: Theme;
   onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
 }) => {
   const { zoom, scrollX, scrollY } = camera;
@@ -680,12 +767,7 @@ const Panel = ({
           ),
         }}
       >
-        <PanelSurface
-          panel={panel}
-          files={files}
-          theme={theme}
-          onVideoEvent={onVideoEvent}
-        />
+        <PanelSurface panel={panel} files={files} onVideoEvent={onVideoEvent} />
       </div>
     </div>
   );
@@ -708,7 +790,6 @@ const PanelOverlayImpl = ({
   elementsMap,
   camera,
   viewport,
-  theme,
   onVideoEvent,
 }: PanelOverlayProps) => {
   if (panels.length === 0) {
@@ -731,7 +812,6 @@ const PanelOverlayImpl = ({
           elementsMap={elementsMap}
           camera={camera}
           viewport={viewport}
-          theme={theme}
           onVideoEvent={onVideoEvent}
         />
       ))}
@@ -756,7 +836,6 @@ const areEqual = (prev: PanelOverlayProps, next: PanelOverlayProps) =>
   prev.camera.offsetTop === next.camera.offsetTop &&
   prev.viewport.width === next.viewport.width &&
   prev.viewport.height === next.viewport.height &&
-  prev.theme === next.theme &&
   prev.onVideoEvent === next.onVideoEvent;
 
 export const PanelOverlay = React.memo(PanelOverlayImpl, areEqual);

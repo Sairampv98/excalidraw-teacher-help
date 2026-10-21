@@ -19,14 +19,25 @@ import { tags } from "@lezer/highlight";
 
 import type { Theme } from "@excalidraw/element/types";
 
+import { VS_CODE_DARK, VS_CODE_DARK_TOKEN_COLORS } from "../vscodeTheme";
+
 import { mermaidLite } from "./mermaid-lang-lite";
+
+/**
+ * The theme an editor wears.
+ *
+ * `"vscode"` is the **VS Code dark theme** whatever the app's theme is: the
+ * code panel is a mirror of the teacher's VS Code editor, so it has to look
+ * like the editor they are looking at (D-80).
+ */
+export type CodeMirrorTheme = Theme | "vscode";
 
 export interface CodeMirrorEditorProps {
   value: string;
   onChange: (value: string) => void;
   onKeyboardSubmit?: () => void;
   placeholder?: string;
-  theme: Theme;
+  theme: CodeMirrorTheme;
   errorLine?: number | null;
   /**
    * A **mirror** shows somebody else's text: it must not be edited, and it
@@ -69,6 +80,56 @@ const darkHighlight = HighlightStyle.define([
   { tag: tags.variableName, color: "#9cdcfe" },
   { tag: tags.bracket, color: "#ffd700" },
 ]);
+
+// ---- The VS Code dark theme ----
+//
+// The code panel is a mirror of the teacher's VS Code editor, so it has to
+// look like the editor they are looking at - whatever the app's theme is
+// (D-80). The colours are the VS Code palette's, and they live in one place
+// (`../vscodeTheme`), which is plain data and pulls nothing in: the editor is
+// a heavy module and the panel loads it lazily.
+//
+// The token colours are in the order of the palette: CodeMirror emits the
+// rules in the order of the spec and a later rule wins, so the function
+// colour comes after the variable colour - a function's name is a variable
+// name too.
+
+const vsCodeDarkTheme = EditorView.theme(
+  {
+    "&": {
+      backgroundColor: VS_CODE_DARK.background,
+      color: VS_CODE_DARK.foreground,
+    },
+    ".cm-content": { caretColor: "#ffffff" },
+    ".cm-cursor": { borderLeftColor: "#ffffff" },
+    ".cm-gutters": {
+      backgroundColor: VS_CODE_DARK.background,
+      color: VS_CODE_DARK.gutterForeground,
+      border: "none",
+    },
+    ".cm-activeLineGutter": { backgroundColor: VS_CODE_DARK.activeLine },
+    ".cm-activeLine": { backgroundColor: VS_CODE_DARK.activeLine },
+  },
+  { dark: true },
+);
+
+const vsCodeDarkHighlight = HighlightStyle.define([
+  { tag: tags.keyword, color: VS_CODE_DARK_TOKEN_COLORS.keyword },
+  { tag: tags.controlKeyword, color: VS_CODE_DARK_TOKEN_COLORS.controlFlow },
+  { tag: tags.comment, color: VS_CODE_DARK_TOKEN_COLORS.comment },
+  { tag: tags.string, color: VS_CODE_DARK_TOKEN_COLORS.string },
+  { tag: tags.number, color: VS_CODE_DARK_TOKEN_COLORS.number },
+  { tag: tags.variableName, color: VS_CODE_DARK_TOKEN_COLORS.variable },
+  {
+    tag: [tags.function(tags.variableName), tags.function(tags.propertyName)],
+    color: VS_CODE_DARK_TOKEN_COLORS.function,
+  },
+]);
+
+const vsCodeDarkExtensions = [
+  vsCodeDarkTheme,
+  syntaxHighlighting(vsCodeDarkHighlight),
+];
 
 // ---- Light theme ----
 
@@ -119,7 +180,10 @@ const getErrorLineExtension = (
 
 // ---- Helpers ----
 
-const getThemeExtensions = (theme: Theme) => {
+const getThemeExtensions = (theme: CodeMirrorTheme) => {
+  if (theme === "vscode") {
+    return vsCodeDarkExtensions;
+  }
   if (theme === "dark") {
     return [darkTheme, syntaxHighlighting(darkHighlight)];
   }

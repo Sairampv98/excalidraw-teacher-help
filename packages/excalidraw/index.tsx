@@ -463,6 +463,8 @@ export {
 
 export {
   codePanelContent,
+  codePanelFileName,
+  codePanelSize,
   emptyCodePanelState,
   isBridgeCodePanel,
   readCodePanelState,

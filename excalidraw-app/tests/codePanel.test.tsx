@@ -559,4 +559,48 @@ describe("the app's side of the bridge", () => {
       }),
     ).not.toThrow();
   });
+
+  it("AC-95 a new code panel is about half the visible canvas, not a constant", () => {
+    const state: { elements: ExcalidrawElement[] } = { elements: [] };
+
+    const api = (width: number, height: number) =>
+      ({
+        getSceneElements: () => state.elements,
+        getAppState: () => ({
+          width,
+          height,
+          scrollX: 0,
+          scrollY: 0,
+          zoom: { value: 1 },
+          currentPageId: "page-1",
+        }),
+        updateScene: (data: { elements?: readonly ExcalidrawElement[] }) => {
+          if (data.elements) {
+            state.elements = [...data.elements];
+          }
+        },
+      } as unknown as ExcalidrawImperativeAPI);
+
+    // the owner's canvas: the editor's view covers HALF of what the teacher
+    // can see - 990x1024 on a 1980x2048 screen (D-80)
+    insertCodePanel(api(1980, 2048));
+
+    expect(state.elements[0].width).toBe(990);
+    expect(state.elements[0].height).toBe(1024);
+
+    // it is a SHARE of the viewport, not a constant: a smaller screen gets a
+    // smaller panel ...
+    state.elements = [];
+    insertCodePanel(api(1000, 800));
+
+    expect(state.elements[0].width).toBe(500);
+    expect(state.elements[0].height).toBe(400);
+
+    // ... and a tiny one still gets a panel the teacher can read
+    state.elements = [];
+    insertCodePanel(api(400, 300));
+
+    expect(state.elements[0].width).toBe(280);
+    expect(state.elements[0].height).toBe(200);
+  });
 });
