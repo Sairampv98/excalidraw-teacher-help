@@ -1,0 +1,5 @@
+# The build directory and the packaged .vsix are artefacts, not source.
+# (`build` is already ignored by the repository's own .gitignore and
+# .eslintignore, so the formatter never sees the staged files.)
+build/
+*.vsix

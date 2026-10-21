@@ -1,0 +1,78 @@
+{
+  "name": "excalidraw-bridge",
+  "displayName": "Excalidraw Bridge",
+  "description": "Mirrors the active editor into an Excalidraw canvas panel, and runs the program so that its output can be shown there too.",
+  "version": "0.1.0",
+  "publisher": "excalidraw-teacher-help",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "excalidraw",
+    "teaching",
+    "classroom",
+    "bridge"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "contributes": {
+    "taskDefinitions": [
+      {
+        "type": "excalidraw-bridge.run",
+        "required": [
+          "command"
+        ],
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "The program to run, e.g. python or node."
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The arguments, e.g. [\"main.py\"]."
+          },
+          "cwd": {
+            "type": "string",
+            "description": "Where to run it. Defaults to the workspace root."
+          }
+        }
+      }
+    ],
+    "commands": [
+      {
+        "command": "excalidraw-bridge.showStatus",
+        "title": "Excalidraw Bridge: Show the connection details"
+      },
+      {
+        "command": "excalidraw-bridge.copyToken",
+        "title": "Excalidraw Bridge: Copy the session token"
+      }
+    ],
+    "configuration": {
+      "title": "Excalidraw Bridge",
+      "properties": {
+        "excalidraw-bridge.port": {
+          "type": "number",
+          "description": "The fixed loopback port the bridge listens on. Leave it unset: the port then comes from VITE_APP_BRIDGE_URL in the workspace's .env file - the same variable the Excalidraw page is built with - and falls back to the shared default (47511)."
+        },
+        "excalidraw-bridge.token": {
+          "type": "string",
+          "default": "",
+          "description": "The token the Excalidraw page must present. Leave it empty and one is generated for the session."
+        }
+      }
+    }
+  }
+}
