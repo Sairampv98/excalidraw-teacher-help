@@ -242,6 +242,17 @@ export type CodePanelOutputLine = {
 export type CodePanelConsoleLine = {
   level: "info" | "error";
   text: string;
+  /**
+   * What the line is about.
+   *
+   * A **connection** line is a status, not a log entry: the console is saved
+   * with the document, so a line that is added on every reconnect would grow
+   * the document for ever. The latest connection line replaces the previous
+   * one (D-75).
+   *
+   * Optional, so a document written before it still loads.
+   */
+  kind?: "connection" | "message";
 };
 
 /**

@@ -10,6 +10,7 @@ import {
 
 import { createBridgeServer, type BridgeConnection } from "./bridge";
 import { resolvePort, resolveToken } from "./config";
+import { editorContentMessage } from "./editorState";
 import { createRunPseudoterminal } from "./pseudoterminal";
 import { createRunner, type Runner } from "./runner";
 
@@ -34,27 +35,8 @@ let extensionVersion = "0.0.0";
 let bridgeServer: ReturnType<typeof createBridgeServer> | null = null;
 
 /** The active editor's text, as the panel wants it. */
-function editorContent(): Extract<
-  BridgeMessage,
-  { type: "editor:content" }
-> | null {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor) {
-    return null;
-  }
-  const document = editor.document;
-  return {
-    v: 1,
-    type: "editor:content",
-    uri: document.uri.toString(),
-    language: document.languageId,
-    text: document.getText(),
-    selection: {
-      start: document.offsetAt(editor.selection.start),
-      end: document.offsetAt(editor.selection.end),
-    },
-    version: document.version,
-  };
+function editorContent(): Extract<BridgeMessage, { type: "editor:content" }> {
+  return editorContentMessage(vscode.window.activeTextEditor);
 }
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -69,17 +51,11 @@ export function activate(context: vscode.ExtensionContext): void {
   let runner: Runner | null = null;
 
   const publishEditorContent = () => {
-    const message = editorContent();
-    if (message) {
-      bridgeServer?.broadcast(message);
-    }
+    bridgeServer?.broadcast(editorContent());
   };
 
   const sendEditorContentTo = (connection: BridgeConnection) => {
-    const message = editorContent();
-    if (message) {
-      connection.send(message);
-    }
+    connection.send(editorContent());
   };
 
   const runCommand = async (request: {
@@ -159,7 +135,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(publishEditorContent),
-    vscode.window.onDidChangeTextEditorSelection(publishEditorContent),
+    // NOT on every selection change: a cursor move fires it, and the panel
+    // would then write the whole scene again for every move of the mouse.
+    // The panel mirrors the TEXT, not the caret, so a text change and a
+    // change of the active file are the only two things it needs (D-75).
     vscode.workspace.onDidChangeTextDocument(publishEditorContent),
   );
 

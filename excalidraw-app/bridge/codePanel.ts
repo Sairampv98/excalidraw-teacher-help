@@ -68,9 +68,15 @@ export const reduceCodePanelState = (
       return {
         ...state,
         console: keepTail([
-          ...state.console,
+          // The connection line is a STATUS, not a log entry. The console
+          // rides in the element's payload, and the payload is saved with the
+          // document - so a line that is ADDED on every reconnect would grow
+          // the document for ever. The latest connection line replaces the
+          // previous one instead (D-75).
+          ...state.console.filter((line) => line.kind !== "connection"),
           {
             level: "info",
+            kind: "connection",
             text: `Connected to ${message.workspace || "the editor"} (bridge ${
               message.version
             }).`,

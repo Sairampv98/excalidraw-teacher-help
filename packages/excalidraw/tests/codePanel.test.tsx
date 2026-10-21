@@ -107,6 +107,43 @@ describe("the code panel", () => {
     ).toBeNull();
   });
 
+  it("AC-84 a connected panel with no editor shows what it knows, not a blank region", async () => {
+    await render(<Excalidraw />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    // connected, but the extension has not sent an editor: no file is open
+    API.setElements([
+      asElement(
+        codePanel({
+          ...emptyCodePanelState(),
+          connection: "connected",
+          statusMessage: "Connected to the Excalidraw Bridge.",
+        }),
+      ),
+    ]);
+
+    const overlay = document.querySelector('[data-testid="panel-overlay"]');
+
+    expect(overlay).not.toBeNull();
+
+    // the region is there ...
+    expect(
+      overlay!.querySelector('[data-testid="code-panel-editor"]'),
+    ).not.toBeNull();
+
+    // ... and it SAYS that no file is open, instead of being blank. A blank
+    // region looks like a broken panel, and the teacher cannot tell it apart
+    // from a program that produced nothing (D-52).
+    const noEditor = overlay!.querySelector(
+      '[data-testid="code-panel-no-editor"]',
+    );
+
+    expect(noEditor).not.toBeNull();
+    expect(noEditor!.textContent).not.toBe("");
+    expect(noEditor!.textContent).toContain("No file is open");
+  });
+
   it("AC-82 the panel chrome shows the three connection states", async () => {
     const onPasteToken = vi.fn();
 

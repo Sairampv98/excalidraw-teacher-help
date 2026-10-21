@@ -182,7 +182,22 @@ const CodePanelSurface = ({
         className="excalidraw__panel-code-editor"
         data-testid="code-panel-editor"
       >
-        <CodePanelEditor value={state.editor.text} theme={theme} />
+        {state.editor.uri ? (
+          <CodePanelEditor value={state.editor.text} theme={theme} />
+        ) : (
+          // The bridge is connected, but it has not sent an editor yet. That
+          // is either because no file is open in the editor, or because the
+          // extension has not told us yet. A blank region would look like a
+          // broken panel, and the teacher could not tell it apart from a
+          // program that produced nothing (D-52) - so the panel says what it
+          // knows (D-75).
+          <div
+            className="excalidraw__panel-code-status"
+            data-testid="code-panel-no-editor"
+          >
+            {t("labels.panel.code.noFile")}
+          </div>
+        )}
       </div>
       <div
         className="excalidraw__panel-code-output"

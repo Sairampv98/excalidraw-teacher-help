@@ -27,6 +27,10 @@ import type { ExcalidrawElement } from "@excalidraw/element/types";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
 import { bridgeConnection } from "../bridge/bridgeSession";
+import {
+  initialCodePanelState,
+  reduceCodePanelState,
+} from "../bridge/codePanel";
 import { insertCodePanel } from "../bridge/insertCodePanel";
 import { useBridgePanel } from "../bridge/useBridgePanel";
 
@@ -384,6 +388,47 @@ describe("the app's side of the bridge", () => {
     // a refused connection: the token was wrong, or the extension is not
     // running
     expect(bridgeConnection("reconnecting")).toBe("rejected");
+  });
+
+  it("AC-85 a reconnect replaces the connection line instead of adding another one", () => {
+    const hello = {
+      v: 1,
+      type: "bridge:hello",
+      version: "0.1.0",
+      workspace: "session2",
+    } as const;
+
+    const first = reduceCodePanelState(initialCodePanelState(), hello);
+    const second = reduceCodePanelState(first, hello);
+    const third = reduceCodePanelState(second, hello);
+
+    // ONE line, not three: the console rides in the element's payload, and
+    // the payload is saved with the document - so a line that is added on
+    // every reconnect would grow the document for ever (D-75).
+    expect(third.console).toHaveLength(1);
+    expect(third.console[0].text).toContain("Connected to session2");
+    expect(third.console[0].kind).toBe("connection");
+
+    // a line that is NOT a connection line is kept
+    const withRun = reduceCodePanelState(third, {
+      v: 1,
+      type: "run:started",
+      runId: "run-1",
+      command: "python main.py",
+      cwd: "C:/work",
+    } as const);
+
+    const afterAnotherHello = reduceCodePanelState(withRun, hello);
+
+    expect(afterAnotherHello.console).toHaveLength(2);
+    expect(
+      afterAnotherHello.console.filter((line) => line.kind === "connection"),
+    ).toHaveLength(1);
+    expect(
+      afterAnotherHello.console.some((line) =>
+        line.text.includes("Run started"),
+      ),
+    ).toBe(true);
   });
 
   it("AC-83 an inserted code panel gets a fractional index, so the scene accepts it", () => {
