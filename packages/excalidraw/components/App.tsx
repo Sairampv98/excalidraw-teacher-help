@@ -331,6 +331,7 @@ import {
 import { actionWrapTextInContainer } from "../actions/actionBoundText";
 import { actionToggleHandTool, zoomToFit } from "../actions/actionCanvas";
 import { actionPaste } from "../actions/actionClipboard";
+import { actionReformatSelection } from "../actions/actionReformatSelection";
 import { actionCopyElementLink } from "../actions/actionElementLink";
 import { actionUnlockAllElements } from "../actions/actionElementLock";
 import {
@@ -13324,6 +13325,7 @@ class App extends React.Component<AppProps, AppState> {
       actionCopyElementLink,
       CONTEXT_MENU_SEPARATOR,
       actionDuplicateSelection,
+      actionReformatSelection,
       actionToggleElementLock,
       CONTEXT_MENU_SEPARATOR,
       actionDeleteSelected,

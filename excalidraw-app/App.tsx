@@ -156,6 +156,7 @@ import "./index.scss";
 import { AppSidebar } from "./components/AppSidebar";
 import { usePageAutoFit, useSidebarWidth } from "./sidebar/useSidebarLayout";
 import { handleCodePaste } from "./sidebar/insertIntoScene";
+import { ReformatChooser } from "./sidebar/ReformatChooser";
 
 import type { CollabAPI } from "./collab/Collab";
 
@@ -776,6 +777,23 @@ const ExcalidrawWrapper = () => {
     null,
   );
 
+  // the selection the user asked to reformat ("Reformat as..." in the canvas
+  // context menu) — the app owns the chooser and the reformats behind it
+  const [reformatElements, setReformatElements] = useState<
+    readonly NonDeletedExcalidrawElement[] | null
+  >(null);
+
+  const handleReformatSelection = useCallback(
+    ({
+      selectedElements,
+    }: {
+      selectedElements: readonly NonDeletedExcalidrawElement[];
+    }) => {
+      setReformatElements(selectedElements);
+    },
+    [],
+  );
+
   const onExportToBackend = async (
     exportedElements: readonly NonDeletedExcalidrawElement[],
     appState: Partial<AppState>,
@@ -1014,6 +1032,7 @@ const ExcalidrawWrapper = () => {
         // path — the context menu's Paste never fires a DOM paste event, so a
         // listener would only ever have seen the keyboard paste
         onPaste={handleCodePaste}
+        onReformatSelection={handleReformatSelection}
         theme={editorTheme}
         pagesEnabled={true}
         sidebarWidth={sidebarWidth}
@@ -1097,6 +1116,12 @@ const ExcalidrawWrapper = () => {
             link={latestShareableLink}
             onCloseRequest={() => setLatestShareableLink(null)}
             setErrorMessage={setErrorMessage}
+          />
+        )}
+        {reformatElements && (
+          <ReformatChooser
+            elements={reformatElements}
+            onClose={() => setReformatElements(null)}
           />
         )}
         {excalidrawAPI && !isCollabDisabled && (
