@@ -72,6 +72,38 @@ still an ordinary paste.
 **The fix must not be** "compare only the first line" and **must not be** "compare the first
 N characters". Both would paste the wrong code when the clipboard holds something else.
 
+## Root cause 1b — the arm is dropped when the sidebar closes
+
+`excalidraw-app/sidebar/DocumentViewer.tsx`:
+
+```ts
+useEffect(() => {
+  cancelCodePaste();
+  return () => cancelCodePaste();
+}, [entry]);
+```
+
+The cleanup runs on **unmount**. And clicking the canvas **closes the sidebar** by default —
+Excalidraw closes it unless *Keep sidebar open* is on. So the owner's own sequence is:
+
+1. Click **Copy code** → the code is copied and the paste is armed.
+2. Click the canvas → the sidebar closes → the viewer unmounts → `cancelCodePaste()`.
+3. Paste → **nothing is armed** → the code arrives as plain text.
+
+Measured in the live app: after the canvas click the document viewer is gone
+(`document.querySelector(".app-doc-viewer")` → null) in the default configuration. This is
+why the bug survives the CRLF fix on its own: fixing the comparison is not enough, because
+by the time the paste happens the stash is already gone.
+
+The unmount cancel was meant to stop "a later paste inserting code nobody asked for". But
+the guard for that already exists and is better: **`clipboardHoldsCode`**. If the user
+copied something else in the meantime, the clipboard no longer holds the code and the paste
+is an ordinary one. The unmount cancel is redundant protection that breaks the feature.
+
+**The fix:** the arm survives the sidebar closing. Keep the cancel for the cases that
+really are a change of mind: the user copies something else, the user opens a **different**
+document (the `[entry]` change), the paste is consumed, or the user explicitly cancels.
+
 ## Root cause 2 — the paste is dropped when the pointer is still over the sidebar
 
 `packages/excalidraw/components/App.tsx`, in `pasteFromClipboard`:
@@ -166,9 +198,10 @@ no sidebar control holds the focus after a canvas click.
 | id | the row |
 | --- | --- |
 | AC-76 | a paste of code armed from the sidebar's **Copy code** produces a code card, when the clipboard stores the text with CRLF line endings |
-| AC-77 | a keyboard paste is not dropped when the pointer is still over the sidebar; the pointer-position veto applies only to the synthetic context-menu paste |
-| AC-78 | after a click on the canvas the sidebar holds neither the keyboard focus nor the wheel: a wheel gesture over the canvas reaches the canvas, and no sidebar control is focused |
+| AC-77 | the armed paste survives the sidebar closing: clicking the canvas after **Copy code** and then pasting still produces a code card |
+| AC-78 | a keyboard paste is not dropped when the pointer is still over the sidebar; the pointer-position veto applies only to the synthetic context-menu paste |
+| AC-79 | after a click on the canvas the sidebar holds neither the keyboard focus nor the wheel: a wheel gesture over the canvas reaches the canvas, and no sidebar control is focused |
 
-AC-76 to AC-78 are numbered out of sequence on purpose: AC-65 to AC-69 belong to the video
+AC-76 to AC-79 are numbered out of sequence on purpose: AC-65 to AC-69 belong to the video
 panel wave and AC-70 to AC-75 to the OCR and presenter wave, and those ids are already
 reserved in their briefs.
