@@ -34,7 +34,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { cpus, freemem } from "node:os";
+import { cpus, freemem, tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -139,8 +139,14 @@ for (const k of Object.keys(env)) if (k.startsWith("NODE_TEST_")) delete env[k];
  * A process scan alone would deadlock: two gates would each see the other and
  * each wait for the other. The lock serialises them instead - the second waits
  * for the first to release it.
+ *
+ * The lock lives in the OS TEMP directory, NOT beside the script: a gate run
+ * in a worktree (the throwaway one `kit merge` builds) and a gate run in the
+ * repository root are two different roots, so a per-root lock would not
+ * exclude them from each other. The temp directory is the one place they
+ * share.
  */
-const LOCK_FILE = join(root, ".tins", "state-gate.lock");
+const LOCK_FILE = join(tmpdir(), "excalidraw-tins-gate.lock");
 
 const isAlive = (pid) => {
   try {
@@ -238,28 +244,52 @@ const otherGateProcesses = () => {
     return [];
   }
 
-  const out = [];
+  // wmic's /format:list puts ONE key=value pair per line, and a blank line
+  // between records. Reading the pairs a line at a time finds nothing, so the
+  // records are assembled first and only then matched.
+  const records = [];
+  let record = {};
 
   for (const line of probe.stdout.split(/\r?\n/)) {
-    const pid = /ProcessId=(\d+)/.exec(line);
-    const command = /CommandLine=(.*)$/.exec(line);
+    const trimmed = line.trim();
 
-    if (!pid || !command) {
+    if (!trimmed) {
+      if (record.ProcessId) {
+        records.push(record);
+      }
+      record = {};
       continue;
     }
 
-    const text = command[1];
+    const eq = trimmed.indexOf("=");
+
+    if (eq > 0) {
+      record[trimmed.slice(0, eq)] = trimmed.slice(eq + 1);
+    }
+  }
+
+  if (record.ProcessId) {
+    records.push(record);
+  }
+
+  const out = [];
+
+  for (const record of records) {
+    const text = record.CommandLine || "";
 
     if (!/\b(tins-gate|vitest)\b/.test(text)) {
       continue;
     }
 
     // our own command line mentions the script's path
-    if (Number(pid[1]) === process.pid) {
+    if (Number(record.ProcessId) === process.pid) {
       continue;
     }
 
-    out.push({ pid: Number(pid[1]), command: text.trim().slice(0, 120) });
+    out.push({
+      pid: Number(record.ProcessId),
+      command: text.trim().slice(0, 120),
+    });
   }
 
   return out;
