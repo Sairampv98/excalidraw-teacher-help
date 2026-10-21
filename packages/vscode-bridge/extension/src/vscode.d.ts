@@ -187,6 +187,25 @@ declare module "vscode" {
 
   export namespace window {
     export const activeTextEditor: TextEditor | undefined;
+    /**
+     * The tab groups of this window.
+     *
+     * The **active tab** is known even when the window does not have the
+     * focus - which is exactly when the teacher needs the mirror: they are
+     * teaching from the editor and have switched to the browser to show the
+     * canvas (D-79).
+     */
+    export const tabGroups: {
+      readonly activeTabGroup:
+        | {
+            readonly activeTab:
+              | {
+                  readonly input: { readonly document?: TextDocument };
+                }
+              | undefined;
+          }
+        | undefined;
+    };
     export function onDidChangeActiveTextEditor(
       listener: (e: TextEditor | undefined) => any,
     ): Disposable;

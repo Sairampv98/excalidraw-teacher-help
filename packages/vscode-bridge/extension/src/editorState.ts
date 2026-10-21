@@ -15,14 +15,17 @@ import type { BridgeMessage } from "../../bridge/src/protocol";
  * plain object.
  */
 export interface EditorLike {
-  document: {
-    uri: { toString(): string };
-    languageId: string;
-    getText(): string;
-    version: number;
-    offsetAt(position: unknown): number;
-  };
+  document: EditorDocumentLike;
   selection: { start: unknown; end: unknown };
+}
+
+/** The part of a VS Code text document the rule needs. */
+export interface EditorDocumentLike {
+  uri: { toString(): string };
+  languageId: string;
+  getText(): string;
+  version: number;
+  offsetAt(position: unknown): number;
 }
 
 /**
@@ -80,6 +83,13 @@ export const editorContentMessage = (
  * mirrored for as long as its document is open. Only a document that is
  * actually **closed** clears it.
  *
+ * `tabDocument` is the **active tab's** document. It is the one that saves
+ * the teacher in the commonest case of all: the teacher is teaching from the
+ * editor, then switches to the BROWSER to show the canvas - and the window
+ * loses the focus, so there is no active editor any more, but the tab is
+ * still the file they are teaching. The editor's own selection is not
+ * available then, so the message carries the text without one.
+ *
  * `isStillOpen` is asked about the remembered editor, so the rule can be
  * tested without an editor.
  */
@@ -87,9 +97,19 @@ export const editorToMirror = (
   last: EditorLike | undefined | null,
   active: EditorLike | undefined | null,
   isStillOpen: (editor: EditorLike) => boolean,
+  tabDocument?: EditorDocumentLike | null,
 ): EditorLike | undefined => {
   if (active) {
     return active;
+  }
+
+  if (tabDocument) {
+    // the active tab IS a text editor: the teacher is teaching from it, even
+    // though the editor does not have the focus right now
+    return {
+      document: tabDocument,
+      selection: { start: 0, end: 0 },
+    };
   }
 
   if (last && isStillOpen(last)) {

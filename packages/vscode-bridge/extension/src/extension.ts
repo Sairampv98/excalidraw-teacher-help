@@ -13,6 +13,7 @@ import { resolvePort, resolveToken } from "./config";
 import {
   editorContentMessage,
   editorToMirror,
+  type EditorDocumentLike,
   type EditorLike,
 } from "./editorState";
 import { portConflictMessage } from "./portConflict";
@@ -70,6 +71,22 @@ export function activate(context: vscode.ExtensionContext): void {
    */
   let mirroredEditor: EditorLike | undefined;
 
+  /**
+   * The **active tab's** document, when there is no active editor.
+   *
+   * The teacher teaches from the editor and then switches to the BROWSER to
+   * show the canvas - and the window loses the focus, so there is no active
+   * editor any more. The tab is still the file they are teaching, and the
+   * tab is always known. Without this, the panel goes blank exactly when the
+   * teacher needs it (D-79).
+   */
+  const activeTabDocument = (): EditorDocumentLike | undefined => {
+    const tab = vscode.window.tabGroups.activeTabGroup?.activeTab;
+    const input = tab?.input as { document?: EditorDocumentLike } | undefined;
+
+    return input?.document;
+  };
+
   const currentEditor = (): EditorLike | undefined => {
     mirroredEditor = editorToMirror(
       mirroredEditor,
@@ -78,6 +95,7 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.workspace.textDocuments.some(
           (document) => document === editor.document,
         ),
+      activeTabDocument(),
     );
 
     return mirroredEditor;

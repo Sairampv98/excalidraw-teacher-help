@@ -95,4 +95,35 @@ describe("which editor the panel mirrors", () => {
   it("AC-91 with no editor at all there is nothing to mirror", () => {
     expect(editorToMirror(undefined, undefined, () => true)).toBeUndefined();
   });
+
+  it("AC-96 the active tab is mirrored even when the editor has no focus", () => {
+    const last = editor("Old.java");
+    const tabDocument = editor("Program2.java").document;
+
+    // The teacher is in the BROWSER, showing the canvas: the window lost the
+    // focus, so there is no active editor - but the tab is still the file
+    // they are teaching from, and that is what the panel must show.
+    const mirrored = editorToMirror(last, undefined, () => true, tabDocument);
+
+    expect(mirrored).toBeDefined();
+    expect(mirrored!.document).toBe(tabDocument);
+    expect(mirrored!.document.getText()).toContain("Program2.java");
+  });
+
+  it("AC-96 the active tab wins over the remembered editor", () => {
+    const last = editor("Old.java");
+    const tabDocument = editor("Program2.java").document;
+
+    const mirrored = editorToMirror(last, undefined, () => true, tabDocument);
+
+    expect(mirrored!.document).toBe(tabDocument);
+  });
+
+  it("AC-96 with no editor and no tab the last editor is still mirrored", () => {
+    const last = editor("Program2.java");
+
+    const mirrored = editorToMirror(last, undefined, () => true, undefined);
+
+    expect(mirrored).toBe(last);
+  });
 });
