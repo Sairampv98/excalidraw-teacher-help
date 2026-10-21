@@ -1,0 +1,77 @@
+// The focus treatment the flow animation draws over the canvas.
+//
+// The keyframes live here because the library has no shared keyframes: every
+// animation carries its own, next to the component that uses it.
+
+.excalidraw__flow-animation {
+  .excalidraw__flow-animation-shape {
+    position: absolute;
+    top: 0;
+    left: 0;
+    // the shapes are decoration; only the close button is clickable
+    pointer-events: none;
+  }
+
+  .excalidraw__flow-animation-focus {
+    width: 100%;
+    height: 100%;
+    border-radius: 0.5rem;
+    border: 2px solid var(--color-primary);
+  }
+
+  .excalidraw__flow-animation-pulse {
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    background-color: var(--color-primary);
+    opacity: 0.18;
+    animation: excalidraw__flow-animation-in 400ms ease-out both;
+  }
+
+  .excalidraw__flow-animation-close {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0.25rem;
+    border: none;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    color: var(--text-primary-color);
+    background-color: var(--color-gray-10);
+    box-shadow: 0 1px 4px rgb(0 0 0 / 10%);
+
+    &:hover {
+      background-color: var(--color-gray-20);
+    }
+  }
+}
+
+@keyframes excalidraw__flow-animation-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 0.18;
+    transform: translateY(0);
+  }
+}
+
+// The properties-panel section's own controls.
+.excalidraw__flow-animation-setting {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+
+  input[type="number"] {
+    width: 4.5rem;
+  }
+}

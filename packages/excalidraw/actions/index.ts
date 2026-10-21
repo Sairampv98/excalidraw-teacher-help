@@ -70,6 +70,8 @@ export {
 
 export { actionFlipHorizontal, actionFlipVertical } from "./actionFlip";
 
+export { actionFlowLayout } from "./actionFlowLayout";
+
 export {
   actionCopy,
   actionCut,
