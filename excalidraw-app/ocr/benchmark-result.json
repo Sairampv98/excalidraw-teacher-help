@@ -1,0 +1,57 @@
+{
+  "recordedAt": "2026-10-21T18:46:18.787Z",
+  "engine": {
+    "name": "tesseract.js",
+    "version": "7.0.0",
+    "language": "eng",
+    "workerCreatedOnce": true,
+    "languageDataUncached": false,
+    "corePathPinnedToSingleFile": false
+  },
+  "machine": {
+    "platform": "win32",
+    "arch": "x64",
+    "node": "v22.23.2",
+    "cpu": "AMD Ryzen 5 5600H with Radeon Graphics         ",
+    "cpus": 12,
+    "totalMemoryMb": 15724
+  },
+  "budget": {
+    "fullFrameMs": 1500,
+    "subtitleCropMs": 250
+  },
+  "inputs": {
+    "note": "a 1080p screencast frame and the crop of its subtitle band; make-frames.py (next to this file) makes them"
+  },
+  "cases": {
+    "fullFrame": {
+      "image": "frame-1080p.png",
+      "region": null,
+      "runs": 10,
+      "medianMs": 261,
+      "p95Ms": 272,
+      "minMs": 258,
+      "maxMs": 272,
+      "samplesMs": [272, 269, 267, 261, 264, 261, 261, 258, 265, 261]
+    },
+    "subtitleCrop": {
+      "image": "subtitle-band.png",
+      "region": {
+        "x": 0,
+        "y": 900,
+        "width": 1920,
+        "height": 180
+      },
+      "runs": 10,
+      "medianMs": 97,
+      "p95Ms": 102,
+      "minMs": 96,
+      "maxMs": 102,
+      "samplesMs": [97, 96, 97, 97, 96, 96, 97, 97, 102, 97]
+    }
+  },
+  "verdict": {
+    "fullFrameMet": true,
+    "subtitleCropMet": true
+  }
+}

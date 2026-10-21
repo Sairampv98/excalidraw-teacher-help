@@ -3,7 +3,7 @@ id: wave5c-video-panel
 paths: packages/excalidraw,excalidraw-app,SPEC.md
 read: docs/superpowers/specs,docs/tins-tasks
 base: main
-status: open
+status: merged
 ---
 
 Build wave 5c: the video panel on the canvas, with sidecar captions, a poster at the intrinsic resolution, crop and OCR. This is the fork owner item 7.
@@ -60,4 +60,3 @@ REPORT BACK:
 5. Anything you could not do and why, including anything in the brief you found to be wrong.
 6. The final git status of the worktree, with the changes unstaged.
 Do not summarise the design back. Report evidence: command output, test names, file paths.
-

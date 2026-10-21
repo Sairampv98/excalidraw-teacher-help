@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import {
   getContainingFrame,
@@ -9,6 +15,7 @@ import {
 import type {
   ElementsMap,
   ExcalidrawPanelElement,
+  PanelCaptionTrack,
   Theme,
 } from "@excalidraw/element/types";
 
@@ -18,10 +25,17 @@ import {
 } from "../scene/animatedImageOverlay";
 import { panelTransform } from "../scene/panelContent";
 import { isBridgeCodePanel, readCodePanelState } from "../scene/panelContent";
+import { readVideoPanelState } from "../scene/panelContent";
 
 import { t } from "../i18n";
 
-import type { BinaryFiles } from "../types";
+import { captionCueAt, DEFAULT_CAPTION_LANGUAGE } from "./panelCaptions";
+import {
+  registerVideoSurface,
+  unregisterVideoSurface,
+} from "./videoPanelSurface";
+
+import type { BinaryFileData, BinaryFiles } from "../types";
 
 import type { CodeMirrorEditorProps } from "./TTDDialog/CodeMirrorEditor";
 
@@ -47,6 +61,22 @@ const HOST_STYLE: React.CSSProperties = {
   pointerEvents: "none",
 };
 
+/**
+ * What a video panel tells its host about itself.
+ *
+ * One event type for the whole surface, so the overlay has a single way into
+ * the scene: the host is a second Excalidraw instance (the presenter) or the
+ * library itself, and neither of them should have to know about the video's
+ * internals.
+ */
+export type VideoPanelEvent =
+  /** the caption that is on screen right now — the text the panel shows */
+  | { type: "caption"; text: string }
+  /** the teacher switched the caption track */
+  | { type: "track"; language: string }
+  /** the video told the browser its own size */
+  | { type: "metadata"; width: number; height: number };
+
 type PanelOverlayProps = {
   panels: readonly ExcalidrawPanelElement[];
   files: BinaryFiles;
@@ -54,6 +84,14 @@ type PanelOverlayProps = {
   camera: PanelCamera;
   viewport: { width: number; height: number };
   theme: Theme;
+  /**
+   * The host is told what the video panel has to say.
+   *
+   * The caption is the important one: it is written into the **text element**
+   * the panel is bound to, which is an ordinary element of the document — not
+   * a second renderer and not a burn-in.
+   */
+  onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
 };
 
 /**
@@ -232,6 +270,267 @@ const CodePanelSurface = ({
 };
 
 /**
+ * The live surface of a **video panel**.
+ *
+ * The video is a real `<video>` element — a panel is interactive, so it cannot
+ * be painted onto the canvas — with its own controls: play, pause, seek,
+ * volume and mute.
+ *
+ * ## The captions are NOT drawn inside the player
+ *
+ * The owner asked for the captions to live **outside** the player, in an
+ * ordinary text element beside the panel (2026-10-21). So the `<track>`
+ * elements carry the cues — the browser reads them, and the teacher can turn
+ * the browser's own captions on if they want them — but **none of them is
+ * `default`**: the player does not draw the caption, and the caption the
+ * teacher reads is the one in the text element next to the panel.
+ *
+ * The cue the panel reports is computed from the panel's **own** copy of the
+ * cues (the payload's `options.captions`), not from the browser's text track:
+ * the panel's copy is the same data the document was saved with, so the
+ * caption the text element shows is the caption the document knows about.
+ */
+const VideoPanelSurface = ({
+  panel,
+  file,
+  onVideoEvent,
+}: {
+  panel: ExcalidrawPanelElement;
+  file: BinaryFileData;
+  onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
+}) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [timeMs, setTimeMs] = useState(0);
+  const [durationMs, setDurationMs] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [muted, setMuted] = useState(false);
+
+  const state = readVideoPanelState(panel.panel);
+  const tracks: PanelCaptionTrack[] = state?.tracks ?? [];
+  const language = state?.language ?? DEFAULT_CAPTION_LANGUAGE;
+
+  // the **active** track is the payload's own home for it; the state's list is
+  // the fallback for a panel whose payload was written before the track was
+  // chosen
+  const activeTrack: PanelCaptionTrack | null =
+    panel.panel.options.captions ??
+    tracks.find((track) => track.language === language) ??
+    null;
+
+  /**
+   * The panel is registered so the lock transition can freeze the frame the
+   * teacher is looking at — at the video's own size, not the panel's.
+   */
+  useEffect(() => {
+    const video = videoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    registerVideoSurface(panel.id, video);
+
+    return () => {
+      unregisterVideoSurface(panel.id);
+    };
+  }, [panel.id]);
+
+  /**
+   * Reports the position of the video, and with it the caption that is on
+   * screen. The host writes the caption into the bound text element.
+   */
+  const reportPosition = useCallback(() => {
+    const video = videoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    const now = Math.round((video.currentTime || 0) * 1000);
+
+    setTimeMs(now);
+
+    const cue = captionCueAt(activeTrack, now);
+
+    onVideoEvent?.(panel.id, { type: "caption", text: cue?.text ?? "" });
+  }, [activeTrack, onVideoEvent, panel.id]);
+
+  const togglePlay = () => {
+    const video = videoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    if (video.paused) {
+      try {
+        const played = video.play() as Promise<void> | undefined;
+
+        played?.catch(() => {
+          // the browser refused to play — the panel stays as it is
+        });
+      } catch {
+        // the browser refused to play — the panel stays as it is
+      }
+    } else {
+      video.pause();
+    }
+  };
+
+  const seekTo = (value: number) => {
+    const video = videoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    video.currentTime = value / 1000;
+    setTimeMs(value);
+    reportPosition();
+  };
+
+  const setVolumeTo = (value: number) => {
+    const video = videoRef.current;
+
+    setVolume(value);
+
+    if (video) {
+      video.volume = value;
+    }
+  };
+
+  const toggleMute = () => {
+    const video = videoRef.current;
+
+    if (!video) {
+      setMuted((current) => !current);
+      return;
+    }
+
+    // the element's own value is the truth; the state only mirrors it
+    video.muted = !video.muted;
+    setMuted(video.muted);
+  };
+
+  return (
+    <div className="excalidraw__panel-video-box" data-testid="panel-video-box">
+      <video
+        ref={videoRef}
+        className="excalidraw__panel-video"
+        data-testid="panel-video"
+        src={file.dataURL}
+        playsInline={true}
+        // the metadata is what tells the browser the video's own size, and the
+        // size is what a poster is captured at
+        preload="metadata"
+        muted={muted}
+        onTimeUpdate={reportPosition}
+        onSeeked={reportPosition}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onLoadedMetadata={(event) => {
+          const video = event.currentTarget;
+
+          setDurationMs(
+            Number.isFinite(video.duration)
+              ? Math.round(video.duration * 1000)
+              : 0,
+          );
+
+          onVideoEvent?.(panel.id, {
+            type: "metadata",
+            width: video.videoWidth,
+            height: video.videoHeight,
+          });
+        }}
+      >
+        {tracks.map((track) => (
+          <track
+            key={track.language}
+            kind="captions"
+            src={captionTrackDataUrl(track)}
+            srcLang={track.language}
+            label={track.label}
+            // deliberately NOT `default`: the captions live in the text element
+            // beside the panel, not inside the player
+          />
+        ))}
+      </video>
+
+      <div className="excalidraw__panel-video-controls">
+        <button
+          type="button"
+          className="excalidraw__panel-video-button"
+          data-testid="panel-video-play"
+          onClick={togglePlay}
+          title={playing ? "Pause" : "Play"}
+          aria-label={playing ? "Pause" : "Play"}
+        >
+          {playing ? "❚❚" : "▶"}
+        </button>
+
+        <input
+          type="range"
+          className="excalidraw__panel-video-seek"
+          data-testid="panel-video-seek"
+          min={0}
+          max={Math.max(durationMs, 1)}
+          step={100}
+          value={Math.min(timeMs, Math.max(durationMs, 1))}
+          onChange={(event) => seekTo(Number(event.currentTarget.value))}
+          aria-label="Seek"
+        />
+
+        <button
+          type="button"
+          className="excalidraw__panel-video-button"
+          data-testid="panel-video-mute"
+          onClick={toggleMute}
+          title={muted ? "Unmute" : "Mute"}
+          aria-label={muted ? "Unmute" : "Mute"}
+        >
+          {muted ? "🔇" : "🔊"}
+        </button>
+
+        <input
+          type="range"
+          className="excalidraw__panel-video-volume"
+          data-testid="panel-video-volume"
+          min={0}
+          max={1}
+          step={0.05}
+          value={volume}
+          onChange={(event) => setVolumeTo(Number(event.currentTarget.value))}
+          aria-label="Volume"
+        />
+
+        {tracks.length > 1 && (
+          <select
+            className="excalidraw__panel-video-track"
+            data-testid="panel-video-track"
+            value={language}
+            onChange={(event) =>
+              onVideoEvent?.(panel.id, {
+                type: "track",
+                language: event.currentTarget.value,
+              })
+            }
+            aria-label="Caption language"
+          >
+            {tracks.map((track) => (
+              <option key={track.language} value={track.language}>
+                {track.label}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/**
  * The live surface of a panel.
  *
  * The foundation wave ships a **minimal but real** surface for every kind, so
@@ -244,12 +543,14 @@ const PanelSurface = ({
   panel,
   files,
   theme,
+  onVideoEvent,
 }: {
   panel: ExcalidrawPanelElement;
   files: BinaryFiles;
   theme: Theme;
+  onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
 }) => {
-  const { source, options } = panel.panel;
+  const { source } = panel.panel;
 
   if (panel.panelKind === "code" && isBridgeCodePanel(panel)) {
     return <CodePanelSurface panel={panel} theme={theme} />;
@@ -271,22 +572,11 @@ const PanelSurface = ({
 
     if (file && source.mimeType.startsWith("video/")) {
       return (
-        <video
-          className="excalidraw__panel-video"
-          src={file.dataURL}
-          controls={true}
-          muted={true}
-        >
-          {options.captions && (
-            <track
-              kind="captions"
-              src={captionTrackDataUrl(options.captions)}
-              srcLang={options.captions.language}
-              label={options.captions.label}
-              default={true}
-            />
-          )}
-        </video>
+        <VideoPanelSurface
+          panel={panel}
+          file={file}
+          onVideoEvent={onVideoEvent}
+        />
       );
     }
   }
@@ -322,6 +612,7 @@ const Panel = ({
   camera,
   viewport,
   theme,
+  onVideoEvent,
 }: {
   panel: ExcalidrawPanelElement;
   files: BinaryFiles;
@@ -329,6 +620,7 @@ const Panel = ({
   camera: PanelCamera;
   viewport: { width: number; height: number };
   theme: Theme;
+  onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
 }) => {
   const { zoom, scrollX, scrollY } = camera;
 
@@ -388,7 +680,12 @@ const Panel = ({
           ),
         }}
       >
-        <PanelSurface panel={panel} files={files} theme={theme} />
+        <PanelSurface
+          panel={panel}
+          files={files}
+          theme={theme}
+          onVideoEvent={onVideoEvent}
+        />
       </div>
     </div>
   );
@@ -412,6 +709,7 @@ const PanelOverlayImpl = ({
   camera,
   viewport,
   theme,
+  onVideoEvent,
 }: PanelOverlayProps) => {
   if (panels.length === 0) {
     return null;
@@ -434,6 +732,7 @@ const PanelOverlayImpl = ({
           camera={camera}
           viewport={viewport}
           theme={theme}
+          onVideoEvent={onVideoEvent}
         />
       ))}
     </div>
@@ -457,7 +756,8 @@ const areEqual = (prev: PanelOverlayProps, next: PanelOverlayProps) =>
   prev.camera.offsetTop === next.camera.offsetTop &&
   prev.viewport.width === next.viewport.width &&
   prev.viewport.height === next.viewport.height &&
-  prev.theme === next.theme;
+  prev.theme === next.theme &&
+  prev.onVideoEvent === next.onVideoEvent;
 
 export const PanelOverlay = React.memo(PanelOverlayImpl, areEqual);
 

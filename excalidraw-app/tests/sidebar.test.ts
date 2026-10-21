@@ -108,6 +108,7 @@ describe("sidebar file classification", () => {
     expect(kindLabel("code")).toBe("CODE");
     expect(kindLabel("text")).toBe("TXT");
     expect(kindLabel("video")).toBe("VID");
+    expect(kindLabel("captions")).toBe("CAP");
   });
 
   it("AC-44 one scan classifies every supported type", () => {
@@ -130,20 +131,33 @@ describe("sidebar file classification", () => {
     ]);
   });
 
-  it("AC-44 one scan returns the unsupported files with a reason", () => {
+  it("AC-44 a video and its caption sidecar are files the app can use", () => {
+    // a video is a **video panel** now (D-53), and a caption sidecar is read
+    // by the video next to it — neither is a file the app cannot use
     const scan = scanFiles([
       makeFile("one.png", "image/png"),
       makeFile("clip.mp4", "video/mp4"),
+      makeFile("clip.srt", ""),
+      makeFile("unknown.docx", ""),
+    ]);
+
+    expect(scan.files.map((entry) => [entry.name, entry.kind])).toEqual([
+      ["clip.mp4", "video"],
+      ["clip.srt", "captions"],
+      ["one.png", "image"],
+    ]);
+  });
+
+  it("AC-44 one scan returns the unsupported files with a reason", () => {
+    const scan = scanFiles([
+      makeFile("one.png", "image/png"),
       makeFile("unknown.docx", ""),
     ]);
 
     // nothing is dropped on the way to the list: every file we cannot use
     // comes back with the reason why
     expect(scan.unsupported.map((entry) => [entry.name, entry.reason])).toEqual(
-      [
-        ["clip.mp4", "video-not-embeddable"],
-        ["unknown.docx", "unknown-type"],
-      ],
+      [["unknown.docx", "unknown-type"]],
     );
 
     // and the ones we can use are untouched by it
@@ -259,10 +273,8 @@ describe("sidebar file classification", () => {
     expect(
       groups
         .find((group) => group.label === "Video")!
-        .entries.map((entry) =>
-          entry.type === "unsupported" ? entry.file.reason : "",
-        ),
-    ).toEqual(["video-not-embeddable"]);
+        .entries.map((entry) => entry.file.name),
+    ).toEqual(["clip.mp4"]);
     expect(
       groups
         .find((group) => group.label === "Unsupported")!
