@@ -111,6 +111,7 @@ import {
   setDesktopUIMode,
   isSelectionLikeTool,
   oneOf,
+  randomId,
 } from "@excalidraw/common";
 
 import {
@@ -368,6 +369,7 @@ import { defaultLang, getLanguage, languages, setLanguage, t } from "../i18n";
 import {
   calculateScrollCenter,
   clampCameraToPage,
+  countElementsInsidePageRect,
   getCameraForPage,
   getCurrentPageRect,
   getElementsWithinSelection,
@@ -376,9 +378,14 @@ import {
   getPageRect,
   getPageViewportWidth,
   getSelectedElements,
+  growPagesToFitContent,
   hasBackground,
+  insertPageAfter,
   isSomeElementSelected,
+  moveElementsIntoPageRect,
+  moveElementsOntoPage,
   stampCurrentPage,
+  translateContentForPageLayout,
 } from "../scene";
 import { getStateForZoom } from "../scene/zoom";
 import { DEFAULT_SIDEBAR_WIDTH } from "../types";
@@ -470,6 +477,7 @@ import NewElementCanvas from "./canvases/NewElementCanvas";
 import { isPointHittingLink } from "./hyperlink/helpers";
 import { MagicIcon, copyIcon, fullscreenIcon } from "./icons";
 import { openPageSplitModal } from "./PageSplitDialog/PageSplitState";
+import { openPasteOverflowModal } from "./PasteOverflowDialog/PasteOverflowState";
 import { AppStateObserver, type OnStateChange } from "./AppStateObserver";
 
 import { findShapeByKey } from "./shapes";
@@ -4152,7 +4160,7 @@ class App extends React.Component<AppProps, AppState> {
     }
 
     // ------------------- Text -------------------
-    this.addTextFromPaste(data.text, isPlainPaste);
+    await this.addTextFromPaste(data.text, isPlainPaste);
   }
 
   public pasteFromClipboard = withBatchedUpdates(
@@ -4414,7 +4422,7 @@ class App extends React.Component<AppProps, AppState> {
     } else {
       const textNodes = mixedContent.filter((node) => node.type === "text");
       if (textNodes.length) {
-        this.addTextFromPaste(
+        await this.addTextFromPaste(
           textNodes.map((node) => node.value).join("\n\n"),
           isPlainPaste,
         );
@@ -4422,7 +4430,7 @@ class App extends React.Component<AppProps, AppState> {
     }
   }
 
-  private addTextFromPaste(text: string, isPlainPaste = false) {
+  private async addTextFromPaste(text: string, isPlainPaste = false) {
     const { x, y } = viewportCoordsToSceneCoords(
       {
         clientX: this.lastViewportPosition.x,
@@ -4461,6 +4469,11 @@ class App extends React.Component<AppProps, AppState> {
     let currentY = y;
 
     const lines = isPlainPaste ? [text] : text.split("\n");
+    /**
+     * The source line each text element came from — the text that did not fit
+     * is written back to the clipboard from it (D-26).
+     */
+    const sourceLineIndexes: number[] = [];
     const textElements = lines.reduce(
       (acc: ExcalidrawTextElement[], line, idx) => {
         const originalText = normalizeText(line).trim();
@@ -4495,6 +4508,7 @@ class App extends React.Component<AppProps, AppState> {
             frameId: topLayerFrame ? topLayerFrame.id : null,
           });
           acc.push(element);
+          sourceLineIndexes.push(idx);
           currentY += element.height + LINE_GAP;
         } else {
           const prevLine = lines[idx - 1]?.trim();
@@ -4516,6 +4530,73 @@ class App extends React.Component<AppProps, AppState> {
       return;
     }
 
+    const pageRect = this.getCurrentPageRect();
+
+    if (!pageRect) {
+      // The pages system is off: the camera is not clamped to a page, so
+      // nothing can become unreachable — the paste is inserted as it is today.
+      this.insertPastedTextElements(textElements, isPlainPaste);
+      return;
+    }
+
+    // The text is placed inside the page: a page grows to the right and
+    // downwards only (D-5), so text that hangs over the page's left or top
+    // edge could never be reached by the camera.
+    const placedElements = moveElementsIntoPageRect(textElements, pageRect);
+
+    // D-25: the fit is decided per line — a line that lies entirely inside
+    // the page fits, a line that straddles the edge does not.
+    const fittingCount = countElementsInsidePageRect(placedElements, pageRect);
+
+    if (fittingCount === placedElements.length) {
+      // the paste fits on the page: it is inserted as it is today, and no
+      // offer is made (D-24)
+      this.insertPastedTextElements(placedElements, isPlainPaste);
+      return;
+    }
+
+    // D-24: the paste does not fit, so the user is *offered* the choice. It
+    // is never resolved automatically.
+    const choice = await openPasteOverflowModal({
+      fittingLineCount: fittingCount,
+      totalLineCount: placedElements.length,
+    });
+
+    if (choice === "all-on-page") {
+      this.insertPastedTextOnCurrentPage(placedElements, isPlainPaste);
+      return;
+    }
+
+    if (choice === "multi-page") {
+      this.insertPastedTextAcrossPages(placedElements, pageRect, isPlainPaste);
+      return;
+    }
+
+    // "discard" — and the offer dismissed without a choice, which is the same
+    // answer without the clipboard write (D-26)
+    this.insertPastedTextElements(
+      placedElements.slice(0, fittingCount),
+      isPlainPaste,
+    );
+
+    if (choice === "discard") {
+      const leftover = lines.slice(sourceLineIndexes[fittingCount]).join("\n");
+
+      await this.writePasteOverflowToClipboard(leftover);
+    }
+  }
+
+  /**
+   * Inserts the pasted text and selects it.
+   */
+  private insertPastedTextElements = (
+    textElements: readonly ExcalidrawTextElement[],
+    isPlainPaste: boolean,
+  ) => {
+    if (!textElements.length) {
+      return;
+    }
+
     this.insertNewElements(textElements);
     this.store.scheduleCapture();
     this.setState({
@@ -4525,9 +4606,16 @@ class App extends React.Component<AppProps, AppState> {
       ),
     });
 
+    this.showPasteAsSingleElementToast(textElements.length, isPlainPaste);
+  };
+
+  private showPasteAsSingleElementToast = (
+    lineCount: number,
+    isPlainPaste: boolean,
+  ) => {
     if (
       !isPlainPaste &&
-      textElements.length > 1 &&
+      lineCount > 1 &&
       PLAIN_PASTE_TOAST_SHOWN === false &&
       this.editorInterface.formFactor !== "phone"
     ) {
@@ -4539,7 +4627,142 @@ class App extends React.Component<AppProps, AppState> {
       });
       PLAIN_PASTE_TOAST_SHOWN = true;
     }
-  }
+  };
+
+  /**
+   * "Place all the text on this page": everything is placed, and the page
+   * **grows** to contain it — the same primitives the import path uses
+   * (`growPagesToFitContent` + `translateContentForPageLayout`).
+   */
+  private insertPastedTextOnCurrentPage = (
+    textElements: readonly ExcalidrawTextElement[],
+    isPlainPaste: boolean,
+  ) => {
+    const { pages, currentPageId } = this.state;
+
+    const stampedElements = stampCurrentPage(textElements, currentPageId);
+
+    const allElements = [
+      ...this.scene.getElementsIncludingDeleted(),
+      ...stampedElements,
+    ];
+
+    const nextPages = growPagesToFitContent(pages, allElements);
+    const nextElements = translateContentForPageLayout({
+      elements: allElements,
+      previousPages: pages,
+      nextPages,
+    });
+
+    this.scene.replaceAllElements([...nextElements]);
+    this.setState({
+      pages: nextPages,
+      selectedElementIds: makeNextSelectedElementIds(
+        Object.fromEntries(stampedElements.map((el) => [el.id, true])),
+        this.state,
+      ),
+    });
+    this.store.scheduleCapture();
+
+    this.showPasteAsSingleElementToast(stampedElements.length, isPlainPaste);
+  };
+
+  /**
+   * "Place the text on multiple pages": the text is split into chunks that
+   * each fit a page. The first chunk lands on the page the text was pasted on;
+   * every further chunk lands on a **new** page, appended to the document.
+   */
+  private insertPastedTextAcrossPages = (
+    textElements: readonly ExcalidrawTextElement[],
+    pageRect: PageRect,
+    isPlainPaste: boolean,
+  ) => {
+    const { pages } = this.state;
+
+    // the first chunk: the longest run of lines that lies inside the page the
+    // text was pasted on (D-25)
+    const fittingCount = countElementsInsidePageRect(textElements, pageRect);
+    const firstChunk = textElements.slice(0, fittingCount);
+    let rest = textElements.slice(fittingCount);
+
+    let nextPages = pages;
+    const newPageElements: ExcalidrawTextElement[] = [];
+
+    while (rest.length) {
+      const pageId = `page-${randomId()}`;
+
+      nextPages = insertPageAfter({
+        pages: nextPages,
+        afterPageId: nextPages[nextPages.length - 1].id,
+        pageId,
+      });
+
+      const newPageRect = getPageRect(nextPages, pageId);
+
+      // the run keeps its horizontal place within the page
+      const [minX, , maxX] = getCommonBounds(rest);
+      const runWidth = maxX - minX;
+      const offsetX = Math.min(
+        Math.max(minX - pageRect.x, 0),
+        Math.max(newPageRect.width - runWidth, 0),
+      );
+
+      const positioned = moveElementsOntoPage(rest, newPageRect, offsetX);
+      const chunkSize = Math.max(
+        countElementsInsidePageRect(positioned, newPageRect),
+        1,
+      );
+
+      newPageElements.push(
+        ...positioned.slice(0, chunkSize).map((element) => ({
+          ...element,
+          pageId,
+          // a frame belongs to the page it is on: the text on another page
+          // cannot be its child
+          frameId: null,
+        })),
+      );
+
+      rest = positioned.slice(chunkSize);
+    }
+
+    // the first chunk stays on the page the text was pasted on
+    this.insertNewElements(firstChunk);
+    this.scene.insertElementsAtIndex(newPageElements, null);
+
+    this.setState({
+      pages: nextPages,
+      selectedElementIds: makeNextSelectedElementIds(
+        Object.fromEntries(
+          [...firstChunk, ...newPageElements].map((el) => [el.id, true]),
+        ),
+        this.state,
+      ),
+    });
+    this.store.scheduleCapture();
+
+    this.showPasteAsSingleElementToast(
+      firstChunk.length + newPageElements.length,
+      isPlainPaste,
+    );
+  };
+
+  /**
+   * Writes the text that did not fit back to the clipboard (D-26).
+   *
+   * The clipboard is the user's: nothing is thrown away silently, so the part
+   * that did not fit is put back where it came from.
+   */
+  private writePasteOverflowToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (error) {
+      console.error(error);
+      this.setToast({
+        message: t("errors.pasteOverflowClipboardFailed"),
+      });
+    }
+  };
 
   setAppState: React.Component<any, AppState>["setState"] = (
     state,

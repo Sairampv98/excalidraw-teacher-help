@@ -1014,3 +1014,118 @@ export const getPageClampRect = (
     height: Math.max(pageRect.y + pageRect.height, maxY) - y,
   };
 };
+
+/**
+ * Whether an element lies **entirely** inside a page's rect.
+ *
+ * The measurement is the library's own: the element's bounding box, taken
+ * with `getCommonBounds` (so an element is measured the way it is drawn),
+ * against the page's rect.
+ *
+ * A line that straddles the page's edge is **not** inside it: half a line
+ * hanging over the edge is not readable, and the camera — which is clamped to
+ * the page rect — cannot reach it (D-25).
+ */
+export const isElementInsidePageRect = (
+  element: ExcalidrawElement,
+  pageRect: PageRect,
+): boolean => {
+  const [minX, minY, maxX, maxY] = getCommonBounds([element]);
+
+  return (
+    minX >= pageRect.x &&
+    minY >= pageRect.y &&
+    maxX <= pageRect.x + pageRect.width &&
+    maxY <= pageRect.y + pageRect.height
+  );
+};
+
+/**
+ * How many of the elements lie entirely inside a page's rect.
+ *
+ * The count stops at the first element that does not: the text is a run of
+ * lines, and the lines that follow the first one that does not fit are the
+ * ones that overflow (D-25).
+ */
+export const countElementsInsidePageRect = (
+  elements: readonly ExcalidrawElement[],
+  pageRect: PageRect,
+): number => {
+  let count = 0;
+
+  for (const element of elements) {
+    if (!isElementInsidePageRect(element, pageRect)) {
+      break;
+    }
+
+    count++;
+  }
+
+  return count;
+};
+
+/**
+ * Moves a block of elements so that it lies inside a page's rect.
+ *
+ * A page's origin is derived from the layout and cannot be stored, so a page
+ * grows to the right and downwards only (D-5): content that lies left of /
+ * above the page's origin can never be contained by growing the page, and the
+ * camera — which is clamped to the page rect — cannot reach it. Nudging the
+ * block into the page is what makes it reachable at all.
+ *
+ * The block keeps its shape: it is moved as a whole.
+ */
+export const moveElementsIntoPageRect = <T extends ExcalidrawElement>(
+  elements: readonly T[],
+  pageRect: PageRect,
+): T[] => {
+  if (!elements.length) {
+    return [];
+  }
+
+  const [minX, minY] = getCommonBounds(elements);
+
+  const dx = minX < pageRect.x ? pageRect.x - minX : 0;
+  const dy = minY < pageRect.y ? pageRect.y - minY : 0;
+
+  if (!dx && !dy) {
+    return [...elements];
+  }
+
+  return elements.map(
+    (element) =>
+      ({
+        ...element,
+        x: element.x + dx,
+        y: element.y + dy,
+      } as T),
+  );
+};
+
+/**
+ * Places a run of elements on a page.
+ *
+ * The run keeps its shape — the lines stay where they were relative to each
+ * other — and is stacked from the top of the page. `offsetX` is the distance
+ * between the page's left edge and the run's left edge.
+ */
+export const moveElementsOntoPage = <T extends ExcalidrawElement>(
+  elements: readonly T[],
+  pageRect: PageRect,
+  offsetX: number,
+): T[] => {
+  if (!elements.length) {
+    return [];
+  }
+
+  const first = elements[0];
+
+  return elements.map(
+    (element) =>
+      ({
+        ...element,
+        x: element.x - first.x + pageRect.x + offsetX,
+        y: element.y - first.y + pageRect.y,
+      } as T),
+  );
+};

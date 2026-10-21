@@ -289,6 +289,7 @@
     "fileTooBig": "File is too big. Maximum allowed size is {{maxSize}}.",
     "svgImageInsertError": "Couldn't insert SVG image. The SVG markup looks invalid.",
     "failedToFetchImage": "Failed to fetch image.",
+    "pasteOverflowClipboardFailed": "Couldn't put the text that didn't fit back on the clipboard, and it was not placed on the canvas either.",
     "cannotResolveCollabServer": "Couldn't connect to the collab server. Please reload the page and try again.",
     "importLibraryError": "Couldn't load library",
     "saveLibraryError": "Couldn't save library to storage. Please save your library to a file locally to make sure you don't lose changes.",
@@ -640,6 +641,13 @@
     "splitRecommended": "Split across pages (recommended)",
     "keep": "Keep on one big page",
     "cancel": "Cancel"
+  },
+  "pasteOverflow": {
+    "title": "This text is bigger than the page",
+    "description": "Only {{fitting}} of the {{total}} lines fit on this page. What should happen to the rest?",
+    "discard": "Discard remaining text",
+    "allOnPage": "Place all text on this page",
+    "multiPage": "Place text on multiple pages"
   },
   "mermaid": {
     "title": "Mermaid to Excalidraw",
