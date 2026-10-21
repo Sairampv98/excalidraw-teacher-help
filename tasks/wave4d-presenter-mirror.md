@@ -1,6 +1,6 @@
 ---
 id: wave4d-presenter-mirror
-paths: packages/excalidraw,excalidraw-app,SPEC.md
+paths: packages/excalidraw,excalidraw-app,SPEC.md,docs/superpowers/specs
 read: SPEC.md,packages/excalidraw/scene/pages.ts,excalidraw-app/tests/presenterCamera.test.ts,excalidraw-app/presenter/presenterChannel.ts,docs/superpowers/specs/2026-10-21-presenter-mirror-design.md,docs/tins-tasks/wave4d-presenter-mirror-brief.md,AGENTS.md,HANDOVER.md
 base: main
 status: open
