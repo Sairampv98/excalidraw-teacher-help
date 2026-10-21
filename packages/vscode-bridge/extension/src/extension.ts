@@ -10,7 +10,11 @@ import {
 
 import { createBridgeServer, type BridgeConnection } from "./bridge";
 import { resolvePort, resolveToken } from "./config";
-import { editorContentMessage } from "./editorState";
+import {
+  editorContentMessage,
+  editorToMirror,
+  type EditorLike,
+} from "./editorState";
 import { portConflictMessage } from "./portConflict";
 import { createRunPseudoterminal } from "./pseudoterminal";
 import { createRunner, type Runner } from "./runner";
@@ -35,11 +39,6 @@ let extensionVersion = "0.0.0";
 
 let bridgeServer: ReturnType<typeof createBridgeServer> | null = null;
 
-/** The active editor's text, as the panel wants it. */
-function editorContent(): Extract<BridgeMessage, { type: "editor:content" }> {
-  return editorContentMessage(vscode.window.activeTextEditor);
-}
-
 export function activate(context: vscode.ExtensionContext): void {
   extensionVersion = context.extension?.packageJSON?.version ?? "0.0.0";
 
@@ -61,12 +60,35 @@ export function activate(context: vscode.ExtensionContext): void {
    */
   const appName = vscode.env.appName || "the editor";
 
+  /**
+   * The editor the panel is mirroring.
+   *
+   * It is **remembered**: the focus moves to the terminal or the explorer
+   * all the time, and the file the teacher is teaching from is still open
+   * then. Publishing the empty state in that moment erases the mirror - the
+   * code vanishes for a reason nobody can see (D-78).
+   */
+  let mirroredEditor: EditorLike | undefined;
+
+  const currentEditor = (): EditorLike | undefined => {
+    mirroredEditor = editorToMirror(
+      mirroredEditor,
+      vscode.window.activeTextEditor as EditorLike | undefined,
+      (editor) =>
+        vscode.workspace.textDocuments.some(
+          (document) => document === editor.document,
+        ),
+    );
+
+    return mirroredEditor;
+  };
+
   const publishEditorContent = () => {
-    bridgeServer?.broadcast(editorContent());
+    bridgeServer?.broadcast(editorContentMessage(currentEditor()));
   };
 
   const sendEditorContentTo = (connection: BridgeConnection) => {
-    connection.send(editorContent());
+    connection.send(editorContentMessage(currentEditor()));
   };
 
   const runCommand = async (request: {

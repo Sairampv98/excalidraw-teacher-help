@@ -65,3 +65,36 @@ export const editorContentMessage = (
     version: document.version,
   };
 };
+
+/**
+ * Which editor the panel should mirror.
+ *
+ * `active` is the editor the teacher is looking at. It is `undefined` far
+ * more often than it looks: the focus moves to the terminal, to the
+ * explorer, to the extensions view - and the file the teacher is teaching
+ * from is still open, still on a tab, and still what the panel should show.
+ *
+ * Publishing the empty state in that moment **erases the mirror** - the code
+ * the panel was showing vanishes, for a reason the teacher cannot see and
+ * cannot undo. So the last editor is **remembered**, and it keeps being
+ * mirrored for as long as its document is open. Only a document that is
+ * actually **closed** clears it.
+ *
+ * `isStillOpen` is asked about the remembered editor, so the rule can be
+ * tested without an editor.
+ */
+export const editorToMirror = (
+  last: EditorLike | undefined | null,
+  active: EditorLike | undefined | null,
+  isStillOpen: (editor: EditorLike) => boolean,
+): EditorLike | undefined => {
+  if (active) {
+    return active;
+  }
+
+  if (last && isStillOpen(last)) {
+    return last;
+  }
+
+  return undefined;
+};

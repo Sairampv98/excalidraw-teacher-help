@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { editorContentMessage } from "../extension/src/editorState";
+import {
+  editorContentMessage,
+  editorToMirror,
+  type EditorLike,
+} from "../extension/src/editorState";
 
 /**
  * The extension's rule for what it tells the panel about the editor.
@@ -40,5 +44,55 @@ describe("the extension's editor state", () => {
     expect(message.text).toBe("print('hi')\n");
     expect(message.version).toBe(7);
     expect(message.selection).toEqual({ start: 0, end: 11 });
+  });
+});
+
+/**
+ * Which editor the panel mirrors.
+ *
+ * The teacher is teaching from a file. The focus moves to the terminal, to
+ * the explorer, to the extensions view - and the file is still open, still
+ * what the panel should show. Publishing the empty state in that moment
+ * **erases the mirror**, and the code the panel was showing vanishes for a
+ * reason nobody can see (D-78).
+ */
+describe("which editor the panel mirrors", () => {
+  const editor = (name: string): EditorLike => ({
+    document: {
+      uri: { toString: () => `file:///c:/work/${name}` },
+      languageId: "java",
+      getText: () => `// ${name}`,
+      version: 1,
+      offsetAt: () => 0,
+    },
+    selection: { start: 0, end: 0 },
+  });
+
+  it("AC-90 the mirror keeps the last editor when the focus moves away from it", () => {
+    const last = editor("Program2.java");
+
+    // the focus moved to a terminal: there is no active text editor, but the
+    // document is still open
+    const mirrored = editorToMirror(last, undefined, () => true);
+
+    expect(mirrored).toBe(last);
+  });
+
+  it("AC-90 the mirror follows the active editor when there is one", () => {
+    const last = editor("Program2.java");
+    const active = editor("Other.java");
+
+    expect(editorToMirror(last, active, () => true)).toBe(active);
+  });
+
+  it("AC-91 the mirror is cleared when the file is closed", () => {
+    const last = editor("Program2.java");
+
+    // no active editor AND the document is gone: the file was closed
+    expect(editorToMirror(last, undefined, () => false)).toBeUndefined();
+  });
+
+  it("AC-91 with no editor at all there is nothing to mirror", () => {
+    expect(editorToMirror(undefined, undefined, () => true)).toBeUndefined();
   });
 });

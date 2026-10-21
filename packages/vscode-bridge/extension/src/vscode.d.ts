@@ -209,6 +209,14 @@ declare module "vscode" {
 
   export namespace workspace {
     export const workspaceFolders: readonly WorkspaceFolder[] | undefined;
+    /**
+     * Every text document that is currently OPEN - including the ones that
+     * are open in a tab but not the active editor.
+     *
+     * The bridge needs it to tell "the focus moved to a terminal" (the
+     * document is still open) from "the file was closed" (it is not).
+     */
+    export const textDocuments: readonly TextDocument[];
     export function onDidChangeTextDocument(
       listener: (e: TextDocumentChangeEvent) => any,
     ): Disposable;
