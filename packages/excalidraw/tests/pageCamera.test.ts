@@ -180,16 +180,24 @@ describe("page camera", () => {
       pageRect: PAGE_2,
     });
 
-    // checked against the renderer, not against the formula: a page whose near
-    // edge is still on screen has nothing scrolled off it, and the fraction
-    // must say so even when the page is centred with slack on both sides
+    // checked against the renderer, not against the formula: the anchor is the
+    // *signed* distance from the viewport's near edge to the page's near edge,
+    // measured in page widths. So the slack the renderer shows in front of the
+    // page is exactly what the anchor reports — zero when the page's near edge
+    // is flush with the viewport's near edge, and negative when the page is
+    // centred with slack in front of it (D-27)
     const leftEdge = toViewport(camera, PAGE_2.x, PAGE_2.y);
 
+    expect(offsetX).toBeCloseTo(-leftEdge.x / camera.zoom / PAGE_2.width, 6);
+    expect(offsetY).toBeCloseTo(-leftEdge.y / camera.zoom / PAGE_2.height, 6);
+
+    // a page whose near edge is still on screen has nothing scrolled off it,
+    // so its anchor cannot be positive
     if (leftEdge.x >= -EPS) {
-      expect(offsetX).toBe(0);
+      expect(offsetX).toBeLessThanOrEqual(0);
     }
     if (leftEdge.y >= -EPS) {
-      expect(offsetY).toBe(0);
+      expect(offsetY).toBeLessThanOrEqual(0);
     }
   });
 

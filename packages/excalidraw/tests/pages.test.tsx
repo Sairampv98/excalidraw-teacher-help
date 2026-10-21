@@ -41,9 +41,12 @@ import {
   clampCameraToPage,
   deletePage,
   deletePageElements,
+  getCameraForPage,
+  getCurrentPageRect,
   getElementsForPage,
   getPageClampRect,
   getPageRect,
+  getPageRelativeCamera,
   paginateContentIntoPages,
   scalePageContent,
   translateContentForPageLayout,
@@ -1206,5 +1209,112 @@ describe("free-draw sampling", () => {
       (h.elements[h.elements.length - 1] as ExcalidrawFreeDrawElement).points
         .length,
     ).toBe(samples.length + 2);
+  });
+});
+
+/**
+ * The page-relative anchor — the number the presenter mirrors.
+ *
+ * A legacy file's page is grown to hold the whole board, so at the zoom that
+ * frames it the viewport is *wider* than the page and the camera clamp
+ * **centres** the page. The page's near edge then sits in front of the
+ * viewport's near edge, which makes the page-relative offset **negative**.
+ *
+ * The offset is a signed ratio (D-27), so the negative value survives: it is
+ * what makes the mirrored window show the same slice of the page. Its lower
+ * end is not bounded (D-28) — a page much narrower than the viewport produces
+ * a ratio below -1.
+ */
+describe("the page-relative camera anchor", () => {
+  /** a page grown to hold a legacy board, the way the importer grows it */
+  const LEGACY_PAGE = {
+    id: "page-1",
+    name: "Page 1",
+    width: 10243,
+    height: 14285,
+  };
+
+  const VIEWPORT = { width: 1920, height: 1080 };
+
+  /** the editor's camera for a page: framed, then clamped to the page */
+  const editorCamera = (
+    pages: { id: string; name: string; width: number; height: number }[],
+    pageId: string,
+    viewport: { width: number; height: number },
+  ) => {
+    const pageRect = getCurrentPageRect(pages, pageId);
+
+    const framed = getCameraForPage({
+      viewportWidth: viewport.width,
+      viewportHeight: viewport.height,
+      pageRect,
+      maxZoom: MAX_ZOOM,
+    });
+
+    return clampCameraToPage({
+      scrollX: framed.scrollX,
+      scrollY: framed.scrollY,
+      zoom: framed.zoom,
+      viewportWidth: viewport.width,
+      viewportHeight: viewport.height,
+      pageRect,
+      maxZoom: MAX_ZOOM,
+    });
+  };
+
+  it("AC-32 the page-relative offset is negative when the page is bigger than the window", () => {
+    const pages = [LEGACY_PAGE];
+    const pageRect = getCurrentPageRect(pages, LEGACY_PAGE.id);
+
+    const camera = editorCamera(pages, LEGACY_PAGE.id, VIEWPORT);
+
+    // the page is bigger than the window, so the clamp centres it
+    const visibleWidth = VIEWPORT.width / camera.zoom;
+    expect(visibleWidth).toBeGreaterThan(pageRect.width);
+
+    const { offsetX, offsetY } = getPageRelativeCamera({
+      scrollX: camera.scrollX,
+      scrollY: camera.scrollY,
+      pageRect,
+    });
+
+    // the page's near edge is *in front of* the viewport's near edge, so the
+    // anchor is negative — and it is the signed ratio, not a clamped fraction
+    expect(offsetX).toBeLessThan(0);
+    expect(offsetX).toBeCloseTo(
+      -(pageRect.x + camera.scrollX) / pageRect.width,
+      6,
+    );
+
+    // this page is *taller* than the window, so that axis is not centred and
+    // its anchor stays in the ordinary range
+    expect(offsetY).toBeGreaterThanOrEqual(0);
+    expect(offsetY).toBeLessThanOrEqual(1);
+  });
+
+  it("AC-32 the offset is not bounded below", () => {
+    // a page far narrower than the window: the ratio is several page widths
+    // negative, and any lower clamp would throw that geometry away
+    const pages = [
+      { id: "page-1", name: "Page 1", width: PAGE_WIDTH, height: PAGE_HEIGHT },
+    ];
+    const pageRect = getCurrentPageRect(pages, "page-1");
+
+    const viewport = { width: 19200, height: 1080 };
+    const camera = editorCamera(pages, "page-1", viewport);
+
+    expect(viewport.width / camera.zoom).toBeGreaterThan(pageRect.width);
+
+    const { offsetX } = getPageRelativeCamera({
+      scrollX: camera.scrollX,
+      scrollY: camera.scrollY,
+      pageRect,
+    });
+
+    expect(offsetX).toBeLessThan(-1);
+    expect(offsetX).toBeCloseTo(
+      -(pageRect.x + camera.scrollX) / pageRect.width,
+      6,
+    );
   });
 });

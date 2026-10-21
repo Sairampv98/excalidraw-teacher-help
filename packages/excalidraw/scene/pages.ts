@@ -297,7 +297,20 @@ export const getCameraForPage = ({
 };
 
 /**
- * Position of a page point as a fraction (0..1) of the page dimensions.
+ * Where the view sits on the current page, as a **signed** ratio of the page's
+ * size.
+ *
+ * The offset is how far the page's near edge sits behind the viewport's near
+ * edge, measured in page widths (and heights). It is positive when the page
+ * has been scrolled past, and **negative** when the page overhangs the
+ * viewport's near edge — which is exactly what centring a page that is wider
+ * than the viewport looks like.
+ *
+ * The offset is bounded **above** at 1 (the camera clamp guarantees the view
+ * never travels past the page's far edge) and is **not** bounded below: a page
+ * that is much narrower than the viewport produces a ratio of -80 or worse, and
+ * clamping that away would throw away real geometry.
+ *
  * This is the resolution-independent camera the presenter mirrors, so a point
  * 40% across the page is 40% across on every display regardless of viewport
  * size or zoom.
@@ -312,11 +325,15 @@ export const getPageRelativeCamera = ({
   pageRect: PageRect;
 }) => ({
   // `scrollX` is a negated offset, so the scrolled-off amount is how far past
-  // `-pageRect.x` the camera has travelled
-  /** fraction of the page width scrolled off to the left, 0..1 */
-  offsetX: clamp(-(pageRect.x + scrollX) / pageRect.width, 0, 1),
-  /** fraction of the page height scrolled off to the top, 0..1 */
-  offsetY: clamp(-(pageRect.y + scrollY) / pageRect.height, 0, 1),
+  // `-pageRect.x` the camera has travelled.
+  //
+  // The `+ 0` normalises the negative zero that negating a zero produces, so
+  // a page whose near edge sits exactly on the viewport's near edge still
+  // reports a plain `0`.
+  /** signed ratio: how far the page's near edge is behind the viewport's near edge, in page widths */
+  offsetX: Math.min(-(pageRect.x + scrollX) / pageRect.width, 1) + 0,
+  /** signed ratio: how far the page's near edge is behind the viewport's near edge, in page heights */
+  offsetY: Math.min(-(pageRect.y + scrollY) / pageRect.height, 1) + 0,
 });
 
 /** inverse of {@link getPageRelativeCamera} — used by the presenter window */

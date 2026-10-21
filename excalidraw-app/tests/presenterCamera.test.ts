@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 
+import { MAX_ZOOM } from "@excalidraw/common";
+
 import {
+  clampCameraToPage,
+  getCameraForPage,
+  getCameraFromPageRelative,
+  getCurrentPageRect,
   getPageRelativeCamera,
-  PAGE_GAP,
   PAGE_HEIGHT,
   PAGE_WIDTH,
 } from "@excalidraw/excalidraw";
@@ -48,6 +53,17 @@ const visibleExtent = (
   width: viewport.width / camera.zoom.value,
   height: viewport.height / camera.zoom.value,
 });
+
+/**
+ * The page rect the camera is anchored to — the **library's** own layout.
+ *
+ * The fork lays its pages out cumulatively (the pitch is the previous page's
+ * *own* width plus the spacing) and a page is as big as its own content, so a
+ * hand-written copy of that layout silently stops being the truth — which is
+ * exactly what let the presenter's drift pass this suite (D-29).
+ */
+const getPageRect = (camera: PresenterCamera) =>
+  getCurrentPageRect(camera.pages, camera.currentPageId);
 
 /**
  * The core contract: whatever size the projector window happens to be, it
@@ -230,18 +246,181 @@ describe("resolvePresenterCamera", () => {
     expect(resolved.scrollY).toBe(appState.scrollY);
     expect(resolved.zoom.value).toBe(appState.zoom.value);
   });
-});
 
-/** the page rect the camera is anchored to (index-based, as the app does it) */
-const getPageRect = (camera: PresenterCamera) => {
-  const index = Math.max(
-    0,
-    camera.pages.findIndex((page) => page.id === camera.currentPageId),
-  );
-  return {
-    x: index * PAGE_GAP,
-    y: 0,
-    width: PAGE_WIDTH,
-    height: PAGE_HEIGHT,
-  };
-};
+  it("AC-33 the presenter's camera, rebuilt from the offset, is the editor's camera", () => {
+    // a legacy file: the page has been grown to hold the whole board, so it is
+    // *bigger* than the window and the editor's camera clamp centres it
+    const pages: AppState["pages"] = [
+      { id: "page-1", name: "Page 1", width: 10243, height: 14285 },
+    ];
+    const editor = { width: 1920, height: 1080 };
+
+    const camera = getPresenterCamera(
+      makeAppState({
+        pages,
+        currentPageId: "page-1",
+        width: editor.width,
+        height: editor.height,
+      }),
+      true,
+    );
+
+    // the page rect the camera is anchored to (the library's own layout)
+    const pageRect = getPageRect(camera);
+
+    // the editor frames the page ...
+    const editorCamera = getCameraForPage({
+      viewportWidth: editor.width,
+      viewportHeight: editor.height,
+      pageRect,
+      maxZoom: MAX_ZOOM,
+    });
+
+    // ... and the viewport is wider than the page, so the clamp centres it and
+    // the page's near edge overhangs the viewport's near edge
+    expect(editor.width / editorCamera.zoom).toBeGreaterThan(pageRect.width);
+
+    // the editor publishes that camera ...
+    const published = getPresenterCamera(
+      makeAppState({
+        pages,
+        currentPageId: "page-1",
+        width: editor.width,
+        height: editor.height,
+        scrollX: editorCamera.scrollX,
+        scrollY: editorCamera.scrollY,
+        zoom: { value: editorCamera.zoom } as AppState["zoom"],
+      }),
+      true,
+    );
+
+    const editorAnchor = getPageRelativeCamera({
+      scrollX: editorCamera.scrollX,
+      scrollY: editorCamera.scrollY,
+      pageRect,
+    });
+
+    // ... and the anchor it publishes is the editor's own *signed* anchor
+    expect(editorAnchor.offsetX).toBeLessThan(0);
+    expect(published.pageOffsetX).toBeCloseTo(editorAnchor.offsetX, 6);
+    expect(published.pageOffsetY).toBeCloseTo(editorAnchor.offsetY, 6);
+
+    // the presenter rebuilds its camera from that offset — and it is the
+    // editor's camera, not a different slice of the page
+    const rebuilt = getCameraFromPageRelative({
+      offsetX: published.pageOffsetX,
+      offsetY: published.pageOffsetY,
+      pageRect,
+    });
+
+    expect(rebuilt.scrollX).toBeCloseTo(editorCamera.scrollX, 6);
+    expect(rebuilt.scrollY).toBeCloseTo(editorCamera.scrollY, 6);
+
+    // the presenter's own resolution of the mirrored camera keeps that position
+    const resolved = resolvePresenterCamera(published, {
+      width: editor.width,
+      height: editor.height,
+    });
+
+    expect(resolved.scrollX).toBeCloseTo(editorCamera.scrollX, 6);
+    expect(resolved.scrollY).toBeCloseTo(editorCamera.scrollY, 6);
+
+    // ... and its own camera clamp leaves it exactly where the editor is
+    const presenterCamera = clampCameraToPage({
+      scrollX: rebuilt.scrollX,
+      scrollY: rebuilt.scrollY,
+      zoom: editorCamera.zoom,
+      viewportWidth: editor.width,
+      viewportHeight: editor.height,
+      pageRect,
+      maxZoom: MAX_ZOOM,
+    });
+
+    expect(presenterCamera.scrollX).toBeCloseTo(editorCamera.scrollX, 6);
+    expect(presenterCamera.scrollY).toBeCloseTo(editorCamera.scrollY, 6);
+    expect(presenterCamera.zoom).toBeCloseTo(editorCamera.zoom, 6);
+  });
+
+  it("AC-34 the presenter camera anchors on the library's page rect", () => {
+    // the fork's layout is cumulative: the second page starts after the first
+    // page's *own* width, so a fixed-pitch re-derivation is a different rect
+    const pages: AppState["pages"] = [
+      { id: "page-1", name: "Page 1", width: 3000, height: 1080 },
+      { id: "page-2", name: "Page 2" },
+    ];
+    const pageRect = getCurrentPageRect(pages, "page-2");
+
+    const camera = getPresenterCamera(
+      makeAppState({
+        pages,
+        currentPageId: "page-2",
+        // 500 units into the second page
+        scrollX: -pageRect.x - 500,
+        scrollY: 0,
+        zoom: { value: 1 } as AppState["zoom"],
+      }),
+      true,
+    );
+
+    // the rect this test anchors on is the library's own
+    expect(getPageRect(camera)).toEqual(
+      getCurrentPageRect(camera.pages, camera.currentPageId),
+    );
+
+    // ... so the offset the editor published round-trips through it
+    const anchor = getPageRelativeCamera({
+      scrollX: camera.scrollX,
+      scrollY: camera.scrollY,
+      pageRect: getPageRect(camera),
+    });
+
+    expect(anchor.offsetX).toBeCloseTo(camera.pageOffsetX, 6);
+    expect(anchor.offsetY).toBeCloseTo(camera.pageOffsetY, 6);
+  });
+
+  it("AC-35 the presenter's zoom floor is the page's own fit zoom, not the default page's", () => {
+    // a legacy file: the page is grown to hold the whole board, so it is much
+    // bigger than the default page — and its fit zoom is much smaller
+    const pages: AppState["pages"] = [
+      { id: "page-1", name: "Page 1", width: 10243, height: 14285 },
+    ];
+    const editor = { width: 1920, height: 1080 };
+
+    const editorCamera = getCameraForPage({
+      viewportWidth: editor.width,
+      viewportHeight: editor.height,
+      pageRect: getCurrentPageRect(pages, "page-1"),
+      maxZoom: MAX_ZOOM,
+    });
+
+    const published = getPresenterCamera(
+      makeAppState({
+        pages,
+        currentPageId: "page-1",
+        width: editor.width,
+        height: editor.height,
+        scrollX: editorCamera.scrollX,
+        scrollY: editorCamera.scrollY,
+        zoom: { value: editorCamera.zoom } as AppState["zoom"],
+      }),
+      true,
+    );
+
+    // the presenter resolves the mirrored camera on its own window
+    const resolved = resolvePresenterCamera(published, {
+      width: editor.width,
+      height: editor.height,
+    });
+
+    // the scene extent it shows is the editor's own
+    expect(editor.width / resolved.zoom.value).toBeCloseTo(
+      editor.width / editorCamera.zoom,
+      6,
+    );
+
+    // and the zoom is not the default page's fit zoom, which would have forced
+    // it to zoom *in* past the editor
+    expect(resolved.zoom.value).toBeLessThan(1);
+    expect(resolved.zoom.value).toBeCloseTo(editorCamera.zoom, 6);
+  });
+});

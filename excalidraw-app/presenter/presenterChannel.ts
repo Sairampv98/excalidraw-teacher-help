@@ -270,7 +270,17 @@ export const resolvePresenterCamera = (
 
   // clamp to what this window can actually frame: never tighter than the whole
   // page (the page clamp in `App` would reject it anyway)
-  const minZoom = getFitPageZoom(width, height);
+  //
+  // the floor is the fit zoom of **this** page, not of the default page size:
+  // a page that is bigger than the default (a legacy file's page, grown to
+  // hold the whole board) has a much smaller fit zoom, and the default's floor
+  // would force the mirrored window to zoom *in* past the editor's own (D-30)
+  const minZoom = getFitPageZoom(
+    width,
+    height,
+    pageRect.width,
+    pageRect.height,
+  );
   const zoom = clamp(width / visibleWidth, minZoom, MAX_ZOOM);
 
   return {
