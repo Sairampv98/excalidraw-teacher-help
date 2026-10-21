@@ -21,6 +21,7 @@ import {
 } from "@excalidraw/common";
 import { getCommonBounds, newElementWith } from "@excalidraw/element";
 import { pointFrom } from "@excalidraw/math";
+import { vi } from "vitest";
 
 import type {
   ExcalidrawElement,
@@ -47,6 +48,7 @@ import {
   scalePageContent,
   translateContentForPageLayout,
 } from "../scene/pages";
+import * as pagesModule from "../scene/pages";
 import {
   DEFAULT_PAGE_ID,
   PAGE_HEIGHT,
@@ -946,6 +948,197 @@ describe("pages — document model", () => {
       expect(current.x - previous.x).toBe(previous.width + PAGE_SPACING);
       expect(current.x).toBeGreaterThanOrEqual(previous.x + previous.width);
     }
+  });
+
+  /**
+   * The offer made when a legacy file does not fit on one page.
+   *
+   * The offer is never applied automatically: the user picks. The assertions
+   * go through the library's own page layout (`getPageRect`) and its own
+   * bounding box, not through a re-derivation of the tiling arithmetic, so a
+   * self-consistent-but-wrong implementation cannot pass.
+   */
+  describe("the page split offer", () => {
+    /** a legacy file: no `pages` in its appState, and content that sprawls */
+    const sprawlingFile = (appState: Record<string, unknown> = {}) =>
+      makeFile({
+        appState,
+        elements: [
+          fileElement({ id: "el-a", x: 100, y: 100 }),
+          fileElement({ id: "el-b", x: 3000, y: 3000 }),
+        ],
+      });
+
+    /**
+     * Opens a file and waits for the offer to be on screen.
+     *
+     * The load is NOT awaited: it waits for the answer, and the answer comes
+     * from the button the test clicks next.
+     */
+    const openAndWaitForTheOffer = async (file: Blob) => {
+      const renderResult = await render(<Excalidraw pagesEnabled={true} />);
+
+      let loaded!: Promise<void>;
+
+      act(() => {
+        loaded = h.app.loadFileToCanvas(
+          new File([file], "legacy.excalidraw", { type: "application/json" }),
+          null,
+        );
+      });
+
+      await waitFor(() => {
+        expect(
+          renderResult.baseElement.querySelector(".PageSplitDialog"),
+        ).not.toBeNull();
+      });
+
+      return { renderResult, loaded };
+    };
+
+    /** clicks one of the offer's answers and waits for the import to land */
+    const answer = async (
+      renderResult: Awaited<ReturnType<typeof render>>,
+      loaded: Promise<void>,
+      label: string,
+    ) => {
+      const button = renderResult.baseElement.querySelector<HTMLButtonElement>(
+        `.PageSplitDialog button[aria-label="${label}"]`,
+      );
+
+      expect(button).not.toBeNull();
+
+      await act(async () => {
+        fireEvent.click(button!);
+        await loaded;
+      });
+    };
+
+    /** the page count the offer shows */
+    const shownPageCount = (renderResult: Awaited<ReturnType<typeof render>>) =>
+      Number(
+        renderResult.baseElement
+          .querySelector(".PageSplitDialog__description")!
+          .textContent!.match(/(\d+)/)![1],
+      );
+
+    it("AC-21 offers to split a legacy file that does not fit on one page, and splitting tiles it across pages", async () => {
+      const { renderResult, loaded } = await openAndWaitForTheOffer(
+        sprawlingFile(),
+      );
+
+      // the offer says how many pages the split would produce
+      expect(shownPageCount(renderResult)).toBeGreaterThan(1);
+
+      await answer(renderResult, loaded, "Split across pages (recommended)");
+
+      // the content is tiled: the document has more than one page, and every
+      // element lies fully inside the rect of the page it is on — the
+      // library's own page layout, and its own bounding box
+      const pages = h.state.pages;
+
+      expect(pages.length).toBeGreaterThan(1);
+
+      for (const element of h.elements.filter((el) => !el.isDeleted)) {
+        const rect = getPageRect(pages, element.pageId);
+        const [minX, minY, maxX, maxY] = getCommonBounds([element]);
+
+        expect(minX).toBeGreaterThanOrEqual(rect.x - EPS);
+        expect(minY).toBeGreaterThanOrEqual(rect.y - EPS);
+        expect(maxX).toBeLessThanOrEqual(rect.x + rect.width + EPS);
+        expect(maxY).toBeLessThanOrEqual(rect.y + rect.height + EPS);
+      }
+    });
+
+    it("AC-21 keeps the content on one big page when the user says so", async () => {
+      const { renderResult, loaded } = await openAndWaitForTheOffer(
+        sprawlingFile(),
+      );
+
+      await answer(renderResult, loaded, "Keep on one big page");
+
+      // one page, and it contains the content — the page grew to hold it
+      expect(h.state.pages).toHaveLength(1);
+
+      const rect = getPageRect(h.state.pages, h.state.currentPageId);
+      const [minX, minY, maxX, maxY] = getCommonBounds(
+        h.elements.filter((el) => !el.isDeleted),
+      );
+
+      expect(minX).toBeGreaterThanOrEqual(rect.x - EPS);
+      expect(minY).toBeGreaterThanOrEqual(rect.y - EPS);
+      expect(maxX).toBeLessThanOrEqual(rect.x + rect.width + EPS);
+      expect(maxY).toBeLessThanOrEqual(rect.y + rect.height + EPS);
+    });
+
+    it("AC-21 imports nothing at all when the user cancels", async () => {
+      const { renderResult, loaded } = await openAndWaitForTheOffer(
+        sprawlingFile(),
+      );
+
+      await answer(renderResult, loaded, "Cancel");
+
+      // the canvas is exactly as it was: nothing was imported
+      expect(h.elements.filter((el) => !el.isDeleted)).toHaveLength(0);
+      expect(h.state.pages).toHaveLength(1);
+    });
+
+    it("AC-21 opens a file that defines its own pages as it is, with no offer", async () => {
+      const renderResult = await render(<Excalidraw pagesEnabled={true} />);
+
+      // the content sprawles over more than one page, but the file defines its
+      // own pages — so it has a structure its author chose, and it is opened
+      // as it is
+      await act(async () => {
+        await h.app.loadFileToCanvas(
+          new File(
+            [
+              sprawlingFile({
+                pages: [
+                  { id: "p-a", name: "A" },
+                  { id: "p-b", name: "B" },
+                ],
+              }),
+            ],
+            "with-pages.excalidraw",
+            { type: "application/json" },
+          ),
+          null,
+        );
+      });
+
+      // no offer was made
+      expect(
+        renderResult.baseElement.querySelector(".PageSplitDialog"),
+      ).toBeNull();
+
+      // and the file's own pages are the document's pages
+      expect(h.state.pages.map((page) => page.id)).toEqual(["p-a", "p-b"]);
+    });
+
+    it("AC-22 computes the tiling once, and the page count in the offer is the number of pages", async () => {
+      const spy = vi.spyOn(pagesModule, "paginateContentIntoPages");
+
+      try {
+        const { renderResult, loaded } = await openAndWaitForTheOffer(
+          sprawlingFile(),
+        );
+
+        // the count the offer shows
+        const shown = shownPageCount(renderResult);
+
+        await answer(renderResult, loaded, "Split across pages (recommended)");
+
+        // it is the number of pages the imported document actually has
+        expect(shown).toBe(h.state.pages.length);
+
+        // and the tiling was computed once — the candidate the offer showed is
+        // the very one that was imported
+        expect(spy).toHaveBeenCalledTimes(1);
+      } finally {
+        spy.mockRestore();
+      }
+    });
   });
 });
 

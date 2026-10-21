@@ -468,6 +468,7 @@ import { StaticCanvas, InteractiveCanvas } from "./canvases";
 import NewElementCanvas from "./canvases/NewElementCanvas";
 import { isPointHittingLink } from "./hyperlink/helpers";
 import { MagicIcon, copyIcon, fullscreenIcon } from "./icons";
+import { openPageSplitModal } from "./PageSplitDialog/PageSplitState";
 import { AppStateObserver, type OnStateChange } from "./AppStateObserver";
 
 import { findShapeByKey } from "./shapes";
@@ -12745,8 +12746,38 @@ class App extends React.Component<AppProps, AppState> {
       }
 
       if (ret.type === MIME_TYPES.excalidraw) {
+        let nextElements = ret.data.elements;
+        let nextAppState = ret.data.appState;
+
+        // A file that defines no pages of its own and whose content does not
+        // fit on one page is OFFERED a split (D-14). The offer is never
+        // applied automatically: the user decides (D-15).
+        if (ret.pageSplit) {
+          const choice = await openPageSplitModal({
+            pageCount: ret.pageSplit.pageCount,
+          });
+
+          if (choice === "cancel") {
+            // nothing is imported: the canvas is exactly as it was
+            this.setState({ isLoading: false });
+            return;
+          }
+
+          if (choice === "split") {
+            // the very candidate the offer showed (D-16)
+            nextElements = ret.pageSplit.elements;
+            nextAppState = {
+              ...nextAppState,
+              pages: ret.pageSplit.pages,
+              currentPageId: ret.pageSplit.pages[0].id,
+            };
+          }
+          // "keep" is what the import does today: the pages grow to contain
+          // the content (growPagesToFitContent, done while parsing the blob)
+        }
+
         // restore the fractional indices by mutating elements
-        syncInvalidIndices(elements.concat(ret.data.elements));
+        syncInvalidIndices(elements.concat(nextElements));
 
         // don't capture and only update the store snapshot for old elements,
         // otherwise we would end up with duplicated fractional indices on undo
@@ -12759,8 +12790,9 @@ class App extends React.Component<AppProps, AppState> {
         this.setState({ isLoading: true });
         this.syncActionResult({
           ...ret.data,
+          elements: nextElements,
           appState: {
-            ...(ret.data.appState || this.state),
+            ...(nextAppState || this.state),
             isLoading: false,
           },
           replaceFiles: true,

@@ -25,6 +25,7 @@ import { DEFAULT_PAGE_ID } from "../types";
 import { base64ToString, stringToBase64, toByteString } from "./encode";
 import { nativeFileSystemSupported } from "./filesystem";
 import { isValidExcalidrawData, isValidLibrary } from "./json";
+import { getPageSplitCandidate } from "./pageSplit";
 import {
   getFilePages,
   restoreAppState,
@@ -191,6 +192,15 @@ export const loadSceneOrLibraryFromBlob = async (
       // the file's own pages are the layout its content was authored against
       const restoredPages = appState.pages;
 
+      // The split candidate (D-14, D-16): a file that defines no pages of its
+      // own and whose content does not fit on one page may be tiled across
+      // pages. The tiling is computed ONCE, from the RESTORED elements (the
+      // ones the tiling acts on), so the page count the offer shows is the
+      // number of pages the import actually produces.
+      const pageSplit = filePages.length
+        ? null
+        : getPageSplitCandidate(elements);
+
       // imported content must be reachable: a page grows to contain it, and
       // the pages that follow it move — so their content moves with them
       const grownPages = growPagesToFitContent(restoredPages, elements);
@@ -209,11 +219,13 @@ export const loadSceneOrLibraryFromBlob = async (
           },
           files: data.files || {},
         },
+        pageSplit,
       };
     } else if (isValidLibrary(data)) {
       return {
         type: MIME_TYPES.excalidrawlib,
         data,
+        pageSplit: null,
       };
     }
     throw new Error("Error: invalid file");
