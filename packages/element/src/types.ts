@@ -173,6 +173,109 @@ export type InitializedExcalidrawImageElement = MarkNonNullable<
   "fileId"
 >;
 
+/**
+ * The kind of live content a panel hosts.
+ *
+ * The panel machinery is the same for every kind; the kind only says *what*
+ * the panel contains. The per-kind specifications live in their own waves.
+ */
+export type PanelKind = "code" | "video" | "flow" | "image";
+
+/**
+ * A plain, structured-cloneable value.
+ *
+ * A panel's live state rides **inside the element payload**, and that payload
+ * is transported with `postMessage`. A `<video>` element, a function or a
+ * class instance in the payload makes the postMessage throw — and the frame
+ * is then **silently dropped**. So the payload is plain data, and this type is
+ * the statement of that rule.
+ */
+export type PanelInlineValue =
+  | string
+  | number
+  | boolean
+  | null
+  | PanelInlineValue[]
+  | { [key: string]: PanelInlineValue };
+
+/**
+ * Where a panel's live content comes from, and whether it can be re-created
+ * after a reload.
+ *
+ * - `bridge` — a live session owned by a helper process. Not re-creatable
+ *   after a reload, because the bridge is a separate process.
+ * - `file` — a file in the document's own file store. Re-creatable.
+ * - `inline` — a document-local, serialisable payload. Re-creatable.
+ */
+export type PanelSource =
+  | { type: "bridge"; sessionId: string }
+  | { type: "file"; fileId: FileId; mimeType: string }
+  | { type: "inline"; payload: PanelInlineValue };
+
+/** A caption cue, in the caption track's own time base. */
+export type PanelCaptionCue = {
+  startMs: number;
+  endMs: number;
+  text: string;
+};
+
+/** A caption track for a video panel. */
+export type PanelCaptionTrack = {
+  language: string;
+  label: string;
+  cues: PanelCaptionCue[];
+};
+
+/**
+ * The live payload of a panel.
+ *
+ * The `source` says where the content comes from; the `options` carry the
+ * kind-specific facts that the panel machinery itself needs — above all the
+ * content's **native** size, which is what a poster is captured at (the
+ * on-canvas display size is irrelevant to it).
+ */
+export type PanelContent = {
+  source: PanelSource;
+  options: {
+    /** the content's natural size in px, when it is known */
+    naturalWidth: number | null;
+    naturalHeight: number | null;
+    /** the caption track of a video panel */
+    captions: PanelCaptionTrack | null;
+  };
+};
+
+export type ExcalidrawPanelElement = _ExcalidrawElementBase &
+  Readonly<{
+    type: "panel";
+    /** Which content kind this panel hosts. */
+    panelKind: PanelKind;
+    /** The panel's live payload — plain, structured-cloneable data. */
+    panel: PanelContent;
+    /**
+     * The live/poster discriminator (D-33).
+     *
+     * `false` — the panel is **live**: the canvas paints nothing for it and
+     *   the DOM overlay mounts the content.
+     * `true` — the panel is a **poster**: the canvas paints `posterFileId`
+     *   at the panel's bounds, and the overlay skips it.
+     *
+     * This is deliberately **not** the base element's `locked` flag. `locked`
+     * already means "immutable / not freely selectable" and is read as such in
+     * several places, so reusing the name would make a poster panel
+     * un-selectable — and its own lock button unclickable. The base `locked`
+     * stays `false` for a panel in **both** modes.
+     */
+    posterMode: boolean;
+    /**
+     * The file id of the poster image in the document's file store.
+     *
+     * `null` while the panel is live. Kept on the element in poster mode so
+     * that locking is reversible: the live payload is never discarded.
+     */
+    posterFileId: FileId | null;
+  }>;
+
 export type ExcalidrawFrameElement = _ExcalidrawElementBase & {
   type: "frame";
   name: string | null;
@@ -209,7 +312,8 @@ export type ExcalidrawRectanguloidElement =
   | ExcalidrawIframeLikeElement
   | ExcalidrawFrameLikeElement
   | ExcalidrawEmbeddableElement
-  | ExcalidrawSelectionElement;
+  | ExcalidrawSelectionElement
+  | ExcalidrawPanelElement;
 
 /**
  * ExcalidrawElement should be JSON serializable and (eventually) contain
@@ -226,7 +330,8 @@ export type ExcalidrawElement =
   | ExcalidrawFrameElement
   | ExcalidrawMagicFrameElement
   | ExcalidrawIframeElement
-  | ExcalidrawEmbeddableElement;
+  | ExcalidrawEmbeddableElement
+  | ExcalidrawPanelElement;
 
 export type ExcalidrawNonSelectionElement = Exclude<
   ExcalidrawElement,

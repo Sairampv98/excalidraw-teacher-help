@@ -49,6 +49,7 @@ import {
   isElbowArrow,
   isLinearElement,
   isLineElement,
+  isPanelElement,
   isTextElement,
   isUsingAdaptiveRadius,
 } from "@excalidraw/element";
@@ -1795,6 +1796,55 @@ export const actionChangeArrowProperties = register({
         {renderAction("changeArrowhead")}
         {renderAction("changeArrowType")}
       </div>
+    );
+  },
+});
+
+/**
+ * The panel's home in the properties panel.
+ *
+ * A panel is not a shape, so none of the per-type sections above apply to it:
+ * the five per-type form values in this file are all `isTextElement`-gated,
+ * and a panel is not a text element, so every one of them falls to its
+ * default. Without a section of its own, a selected panel would show a
+ * properties panel with nothing in it.
+ *
+ * The action is a container: it performs no change of its own. The lock
+ * toggle is a DOM button on the panel itself (see `components/PanelChrome.tsx`),
+ * because the canvas cannot draw an interactive control and the properties
+ * popover closes as soon as it is dismissed.
+ */
+export const actionChangePanel = register({
+  name: "changePanel",
+  label: "labels.panel.title",
+  trackEvent: false,
+  perform: (elements, appState, value, app) => {
+    // This action doesn't perform any changes directly
+    // It's just a container for the panel's own properties
+    return false;
+  },
+  PanelComponent: ({ elements, appState }) => {
+    const selectedElements = getSelectedElements(elements, appState);
+    const panel = selectedElements.find(isPanelElement);
+
+    if (!panel) {
+      return null;
+    }
+
+    return (
+      <fieldset>
+        <legend>{t("labels.panel.title")}</legend>
+        <div className="selected-shape-actions">
+          <div>{t("labels.panel.kind")}</div>
+          <div>{panel.panelKind}</div>
+          <div>{t("labels.panel.state")}</div>
+          <div>
+            {panel.posterMode
+              ? t("labels.panel.poster")
+              : t("labels.panel.live")}
+          </div>
+        </div>
+      </fieldset>
     );
   },
 });

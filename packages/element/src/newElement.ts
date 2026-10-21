@@ -48,6 +48,7 @@ import type {
   ExcalidrawArrowElement,
   ExcalidrawElbowArrowElement,
   ExcalidrawLineElement,
+  ExcalidrawPanelElement,
 } from "./types";
 
 export type ElementConstructorOpts = MarkOptional<
@@ -549,5 +550,38 @@ export const newImageElement = (
     fileId: opts.fileId ?? null,
     scale: opts.scale ?? [1, 1],
     crop: opts.crop ?? null,
+  };
+};
+
+/**
+ * A panel is created **floating** (`floating: true`).
+ *
+ * The flag is opt-in and is never set automatically, and its nine read sites
+ * already mean exactly what a panel needs: "not owned by its page, may sit
+ * outside the page rect, and widens the camera clamp". So a panel needs **no**
+ * new page-model mechanism — it just has to be born with the flag set.
+ */
+export const newPanelElement = (
+  opts: {
+    type: ExcalidrawPanelElement["type"];
+    panelKind: ExcalidrawPanelElement["panelKind"];
+    panel: ExcalidrawPanelElement["panel"];
+    posterMode?: ExcalidrawPanelElement["posterMode"];
+    posterFileId?: ExcalidrawPanelElement["posterFileId"];
+  } & ElementConstructorOpts,
+): NonDeleted<ExcalidrawPanelElement> => {
+  return {
+    ..._newElementBase<ExcalidrawPanelElement>("panel", opts),
+    strokeColor: "transparent",
+    backgroundColor: "transparent",
+    panelKind: opts.panelKind,
+    panel: opts.panel,
+    posterMode: opts.posterMode ?? false,
+    posterFileId: opts.posterFileId ?? null,
+    floating: true,
+    // A panel is a live surface; the base `locked` flag means "immutable" and
+    // an immutable element is un-selectable — which would make the panel's own
+    // chrome unclickable. The live/poster discriminator is `posterMode`.
+    locked: false,
   };
 };

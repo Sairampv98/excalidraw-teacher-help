@@ -45,6 +45,7 @@ import {
   isIframeLikeElement,
   isImageElement,
   isLinearElement,
+  isPanelElement,
   isTextElement,
 } from "./typeChecks";
 import {
@@ -96,6 +97,13 @@ export const shouldTestInside = (element: ExcalidrawElement) => {
 
   if (element.type === "freedraw") {
     return isDraggableFromInside && isPathALoop(element.points);
+  }
+
+  // A panel is grabbed by its interior, exactly like an image: it has no
+  // fill of its own (a live panel paints nothing; a poster panel paints an
+  // image), so `isDraggableFromInside` would be false for it.
+  if (isPanelElement(element)) {
+    return true;
   }
 
   return isDraggableFromInside || isImageElement(element);
@@ -456,6 +464,7 @@ export const intersectElementWithLineSegment = (
     case "frame":
     case "selection":
     case "magicframe":
+    case "panel":
       return intersectRectanguloidWithLineSegment(
         element,
         elementsMap,

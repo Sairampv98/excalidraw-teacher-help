@@ -29,7 +29,45 @@ import type {
   ExcalidrawLineElement,
   ExcalidrawFlowchartNodeElement,
   ExcalidrawLinearElementSubType,
+  ExcalidrawPanelElement,
+  ExcalidrawRectanguloidElement,
 } from "./types";
+
+export const isPanelElement = (
+  element: ExcalidrawElement | null | undefined,
+): element is ExcalidrawPanelElement => {
+  return !!element && element.type === "panel";
+};
+
+/**
+ * A **live** panel: its content is a real DOM surface mounted by the panel
+ * overlay, and the canvas paints nothing for it.
+ *
+ * The live/poster discriminator is `posterMode` (D-33) — deliberately not the
+ * base element's `locked` flag, which means "immutable" and would make a
+ * poster panel un-selectable.
+ *
+ * Not a type predicate: `posterMode` is a plain boolean, so there is no
+ * narrower panel type to narrow to — narrowing to "the panel type" would make
+ * the *negative* branch `never`.
+ */
+export const isLivePanelElement = (
+  element: ExcalidrawElement | null | undefined,
+): boolean => {
+  return isPanelElement(element) && !element.posterMode;
+};
+
+/**
+ * A **poster** panel: the canvas paints its poster image at the panel's
+ * bounds, and the panel overlay skips it.
+ *
+ * Not a type predicate — see `isLivePanelElement`.
+ */
+export const isPosterPanelElement = (
+  element: ExcalidrawElement | null | undefined,
+): boolean => {
+  return isPanelElement(element) && element.posterMode;
+};
 
 export const isInitializedImageElement = (
   element: ExcalidrawElement | null,
@@ -181,6 +219,8 @@ export const isBindableElement = (
   return (
     element != null &&
     (!element.locked || includeLocked === true) &&
+    // NOTE: a panel is deliberately NOT bindable — an arrow must never bind
+    // to a panel. Recorded as a deliberate reject, not an oversight.
     (element.type === "rectangle" ||
       element.type === "diamond" ||
       element.type === "ellipse" ||
@@ -193,9 +233,18 @@ export const isBindableElement = (
   );
 };
 
+/**
+ * A panel is a **rectangular** on-canvas footprint, so it belongs to the
+ * rectanguloid/rectangular groups: the distance and segment maths, the
+ * hit-test and the bounds all treat it as a plain rotated rectangle.
+ *
+ * The declared return type is `ExcalidrawRectanguloidElement` (not
+ * `ExcalidrawBindableElement`) because a panel is deliberately **not**
+ * bindable — an arrow must never bind to a panel.
+ */
 export const isRectanguloidElement = (
   element?: ExcalidrawElement | null,
-): element is ExcalidrawBindableElement => {
+): element is ExcalidrawRectanguloidElement => {
   return (
     element != null &&
     (element.type === "rectangle" ||
@@ -205,15 +254,25 @@ export const isRectanguloidElement = (
       element.type === "embeddable" ||
       element.type === "frame" ||
       element.type === "magicframe" ||
+      element.type === "panel" ||
       (element.type === "text" && !element.containerId))
   );
 };
 
 // TODO: Remove this when proper distance calculation is introduced
 // @see binding.ts:distanceToBindableElement()
+/**
+ * A panel is a **rectangular** on-canvas footprint, so it belongs to the
+ * rectanguloid/rectangular groups: the distance and segment maths, the
+ * hit-test and the bounds all treat it as a plain rotated rectangle.
+ *
+ * The declared return type is `ExcalidrawRectanguloidElement` (not
+ * `ExcalidrawBindableElement`) because a panel is deliberately **not**
+ * bindable — an arrow must never bind to a panel.
+ */
 export const isRectangularElement = (
   element?: ExcalidrawElement | null,
-): element is ExcalidrawBindableElement => {
+): element is ExcalidrawRectanguloidElement => {
   return (
     element != null &&
     (element.type === "rectangle" ||
@@ -223,7 +282,8 @@ export const isRectangularElement = (
       element.type === "embeddable" ||
       element.type === "frame" ||
       element.type === "magicframe" ||
-      element.type === "freedraw")
+      element.type === "freedraw" ||
+      element.type === "panel")
   );
 };
 
@@ -261,6 +321,7 @@ export const isExcalidrawElement = (
     case "frame":
     case "magicframe":
     case "image":
+    case "panel":
     case "selection": {
       return true;
     }
@@ -408,6 +469,11 @@ export const isEligibleFrameChildType = (type: ElementOrToolType) => {
       return true;
     }
     default: {
+      // NOTE: a panel is deliberately NOT an eligible frame child. A panel is
+      // `floating: true` — it is not owned by its page and may sit outside
+      // the page rect — so it must never become a frame child. This arm is
+      // not TS-protected (`ElementOrToolType` is not the element union), so
+      // the reject is recorded here rather than left to chance.
       return false;
     }
   }

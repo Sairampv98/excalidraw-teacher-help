@@ -1,4 +1,4 @@
-import { isImageElement } from "@excalidraw/element";
+import { isImageElement, isPosterPanelElement } from "@excalidraw/element";
 
 import { CaptureUpdateAction } from "@excalidraw/element";
 
@@ -37,7 +37,17 @@ export const actionToggleCropEditor = register({
     if (
       !appState.croppingElementId &&
       selectedElements.length === 1 &&
-      isImageElement(selectedElements[0])
+      (isImageElement(selectedElements[0]) ||
+        // A **poster** panel is croppable too, but not by the library's
+        // in-place crop mode: that mode rewrites the element's own `crop`
+        // field, and a poster panel has none — and a panel must be left
+        // untouched by the crop (D-68).
+        //
+        // So the entry point accepts the panel and puts it into crop mode;
+        // every in-place crop handler is `isImageElement`-guarded and
+        // therefore does nothing to it, and the **app** watches
+        // `croppingElementId` and opens its own crop modal for the poster.
+        isPosterPanelElement(selectedElements[0]))
     ) {
       return true;
     }

@@ -8,12 +8,15 @@ import {
 import { resizeSingleElement } from "@excalidraw/element";
 import { isImageElement } from "@excalidraw/element";
 import { isFrameLikeElement } from "@excalidraw/element";
+
 import { getElementsInResizingFrame } from "@excalidraw/element";
 import { replaceAllElementsInFrame } from "@excalidraw/element";
 
 import type { ExcalidrawElement } from "@excalidraw/element/types";
 
 import type { Scene } from "@excalidraw/element";
+
+import { panelKeepsAspectRatio } from "../../scene/panelContent";
 
 import DragInput from "./DragInput";
 import { getStepSizedValue, isPropertyEditable } from "./utils";
@@ -33,7 +36,10 @@ interface DimensionDragInputProps {
 
 const STEP_SIZE = 10;
 const _shouldKeepAspectRatio = (element: ExcalidrawElement) => {
-  return element.type === "image";
+  // A poster panel's poster is a raster stretched to the panel's bounds, so
+  // it keeps its aspect ratio exactly like an image does — that is the poster
+  // rule. A **live** panel reflows, so it resizes freely.
+  return element.type === "image" || panelKeepsAspectRatio(element);
 };
 
 const handleDimensionChange: DragInputCallbackType<
