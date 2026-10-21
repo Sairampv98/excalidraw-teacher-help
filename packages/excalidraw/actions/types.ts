@@ -114,6 +114,7 @@ export type ActionName =
   | "alignHorizontallyCentered"
   | "distributeHorizontally"
   | "distributeVertically"
+  | "flowLayout"
   | "flipHorizontal"
   | "flipVertical"
   | "deselect"

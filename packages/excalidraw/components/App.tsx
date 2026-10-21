@@ -463,6 +463,8 @@ import ConvertElementTypePopup, {
 
 import { activeConfirmDialogAtom } from "./ActiveConfirmDialog";
 import { AnimatedImageOverlay } from "./AnimatedImageOverlay";
+import { FlowAnimationOverlay } from "./FlowAnimationOverlay";
+import { isFlowAnimationActive, stopFlowAnimation } from "./FlowAnimationState";
 import BraveMeasureTextError from "./BraveMeasureTextError";
 import { ContextMenu, CONTEXT_MENU_SEPARATOR } from "./ContextMenu";
 import { activeEyeDropperAtom } from "./EyeDropper";
@@ -2478,6 +2480,16 @@ class App extends React.Component<AppProps, AppState> {
                               this.flowChartCreator.pendingNodes
                             }
                             croppingElementId={this.state.croppingElementId}
+                          />
+                          <FlowAnimationOverlay
+                            elementsMap={allElementsMap}
+                            camera={{
+                              zoom: this.state.zoom,
+                              scrollX: this.state.scrollX,
+                              scrollY: this.state.scrollY,
+                              offsetLeft: this.state.offsetLeft,
+                              offsetTop: this.state.offsetTop,
+                            }}
                           />
                           {newElementCanvasElement && (
                             <NewElementCanvas
@@ -5402,6 +5414,13 @@ class App extends React.Component<AppProps, AppState> {
       }
 
       if (!isInputLike(event.target)) {
+        // the flow animation takes the canvas over while it plays; Escape ends
+        // it and gives the canvas back
+        if (event.key === KEYS.ESCAPE && isFlowAnimationActive()) {
+          stopFlowAnimation();
+          return;
+        }
+
         if (
           (event.key === KEYS.ESCAPE || event.key === KEYS.ENTER) &&
           this.state.croppingElementId
