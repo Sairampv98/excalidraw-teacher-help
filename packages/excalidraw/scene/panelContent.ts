@@ -39,6 +39,7 @@ import type {
   ElementsMap,
   ExcalidrawElement,
   ExcalidrawPanelElement,
+  PanelCaptionTrack,
   PanelContent,
 } from "@excalidraw/element/types";
 
@@ -369,3 +370,202 @@ export const withCodePanelState = (
  */
 export const isBridgeCodePanel = (panel: ExcalidrawPanelElement): boolean =>
   panel.panelKind === "code" && panel.panel.source.type === "bridge";
+
+/**
+ * Where a **video** panel's content comes from.
+ *
+ * The payload's own `source` says it: a **file** in the document's store. A
+ * local video is such a file, and a YouTube video becomes one too — the
+ * bridge fetches it and the app stores it, so the panel is the same panel
+ * either way, and the only thing that differs is where the **captions** come
+ * from: a sidecar next to the file, or the bridge.
+ */
+export type VideoPanelSource = PanelContent["source"];
+
+/**
+ * The live state of a **video panel**.
+ *
+ * Plain data and nothing else: it rides inside the element's payload, so it
+ * has to survive `JSON.stringify` and a structured clone (D-46).
+ */
+export type VideoPanelState = {
+  /**
+   * Every caption track the video carries.
+   *
+   * A sidecar gives one; YouTube gives several. The **active** one — the one
+   * the player shows and the one the caption text follows — is the payload's
+   * `options.captions`, which is the home the foundation already defines for a
+   * panel's caption track.
+   */
+  tracks: PanelCaptionTrack[];
+  /** the language of the active track */
+  language: string;
+  /** the playback position, in milliseconds */
+  timeMs: number;
+  /** whether the video is playing */
+  playing: boolean;
+};
+
+/**
+ * The payload of a video panel.
+ *
+ * `PanelContent` (in `@excalidraw/element`) declares the payload's `source`
+ * and `options`; the video panel's own live state is a third thing, and the
+ * element type lives outside this wave's scope, so the widening happens here,
+ * in one place — the same rule the code panel follows.
+ */
+export type VideoPanelContent = PanelContent & {
+  /** the video panel's live state, or null when the panel has none yet */
+  video: VideoPanelState | null;
+};
+
+/**
+ * The payload of a video panel.
+ *
+ * The caption **track** rides in `options.captions` — the foundation's own
+ * home for a panel's caption track — and the **active** track is the one whose
+ * language the state names.
+ */
+export const videoPanelContent = ({
+  source,
+  tracks = [],
+  language = "en",
+  timeMs = 0,
+  playing = false,
+  naturalWidth = null,
+  naturalHeight = null,
+}: {
+  source: VideoPanelSource;
+  tracks?: PanelCaptionTrack[];
+  language?: string;
+  timeMs?: number;
+  playing?: boolean;
+  naturalWidth?: number | null;
+  naturalHeight?: number | null;
+}): VideoPanelContent => {
+  const active =
+    tracks.find((track) => track.language === language) ?? tracks[0] ?? null;
+
+  return {
+    source,
+    options: {
+      naturalWidth,
+      naturalHeight,
+      captions: active,
+    },
+    video: {
+      tracks,
+      language: active?.language ?? language,
+      timeMs,
+      playing,
+    },
+  };
+};
+
+/**
+ * The live state of a video panel's payload, or null when the payload carries
+ * none.
+ *
+ * The only way to read it — the widening stays in here.
+ */
+export const readVideoPanelState = (
+  content: PanelContent,
+): VideoPanelState | null => {
+  const widened: Partial<VideoPanelContent> = content;
+
+  return widened.video ?? null;
+};
+
+/**
+ * The same payload with a new live state in it.
+ *
+ * The only way to write it — the widening stays in here.
+ */
+export const withVideoPanelState = (
+  content: PanelContent,
+  state: VideoPanelState | null,
+): PanelContent => {
+  const widened: VideoPanelContent = { ...content, video: state };
+
+  return widened;
+};
+
+/**
+ * The binding between a video panel and the **text element** its captions are
+ * written into.
+ *
+ * It names both elements and the language of the track it follows, so the
+ * binding is enough on its own to keep the two in step — after a page switch,
+ * after a reload, and in the presenter, which is a second Excalidraw instance
+ * that gets the document and nothing else.
+ */
+export type CaptionBinding = {
+  /** the id of the text element the captions are written into */
+  elementId: string;
+  /** the id of the video panel the captions belong to */
+  panelId: string;
+  /** the language of the track the binding follows */
+  language: string;
+};
+
+/**
+ * A panel element that carries a caption binding.
+ *
+ * ## WHY THE BINDING IS HERE AND NOT IN THE PANEL'S PAYLOAD
+ *
+ * The payload (`panel.panel`) is the panel's **own content**: its source, its
+ * native size and its caption track. It is plain data and it travels — through
+ * `postMessage` to the presenter, and through the document's own file. The
+ * binding is not content: it is a **relationship between two elements** of the
+ * document, the panel and the text element beside it, and it points at an
+ * element that is not the panel.
+ *
+ * So it lives on the panel **element**, beside the payload — next to
+ * `posterMode` and `posterFileId`, which are the foundation's own
+ * element-level facts — and not inside the payload. The element type lives in
+ * `@excalidraw/element`, outside this wave's scope, so the widening happens
+ * here, in one place, and every reader goes through `readCaptionBinding()`.
+ *
+ * The element is **not** part of the payload, and it still survives a reload:
+ * the document's own element list is the scene, and an element's own fields
+ * travel with it (`restoreElement` keeps the properties it does not know, for
+ * forward compatibility).
+ */
+export type CaptionBoundPanel = ExcalidrawPanelElement & {
+  captionBinding?: CaptionBinding | null;
+};
+
+/**
+ * The caption binding of a panel, or null when the panel has none.
+ *
+ * The only way to read it — the widening stays in here.
+ */
+export const readCaptionBinding = (
+  panel: ExcalidrawPanelElement,
+): CaptionBinding | null => {
+  const widened: CaptionBoundPanel = panel;
+
+  return widened.captionBinding ?? null;
+};
+
+/**
+ * The element update that gives a panel a caption binding (or takes it away).
+ *
+ * The only way to write it — the widening stays in here.
+ */
+export const captionBindingUpdate = (
+  binding: CaptionBinding | null,
+): { captionBinding: CaptionBinding | null } => ({
+  captionBinding: binding,
+});
+
+/**
+ * A **video panel** element: the payload carries the video's own state, and the
+ * element carries the caption binding.
+ *
+ * Both widenings live here, in one place, because the element type itself
+ * lives in `@excalidraw/element` — outside this wave's scope.
+ */
+export type VideoPanelElement = CaptionBoundPanel & {
+  panel: VideoPanelContent;
+};

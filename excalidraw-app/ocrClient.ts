@@ -19,7 +19,28 @@
  * The request carries an ordinary **PNG** — a poster, never a panel's own
  * bytes (D-65). A panel's bytes never travel a channel that has no size
  * guard.
+ *
+ * ## The region rule
+ *
+ * The request may carry a **region**: the part of the image the machine should
+ * read, in the image's **own** pixels. It is the one lever that costs
+ * nothing — the service crops before it reads — and it is the biggest one: a
+ * subtitle band out of a 1080p frame is a small fraction of the pixels, and
+ * the read is faster by about as much.
  */
+
+/**
+ * The part of the image the machine should read, in the image's own pixels.
+ *
+ * Not in the canvas's units and not in percentages: the service receives an
+ * image, so the region is a rectangle **in that image**.
+ */
+export type OcrRegion = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
 
 export type OcrRequest = {
   /** the image to read, as a data URL */
@@ -28,6 +49,12 @@ export type OcrRequest = {
   mimeType: string;
   /** the language hint, when the caller knows it */
   language?: string;
+  /**
+   * The region to read, in the image's own pixels.
+   *
+   * Without it the whole image is read.
+   */
+  region?: OcrRegion;
 };
 
 /** One block of recognised text, with its box in the image's own pixels. */
@@ -122,6 +149,9 @@ export const createOcrClient = ({
             image: request.dataURL,
             mimeType: request.mimeType,
             language: request.language ?? null,
+            // the region travels in the image's own pixels, so the service can
+            // crop before it reads
+            region: request.region ?? null,
           }),
         });
       } catch (error) {

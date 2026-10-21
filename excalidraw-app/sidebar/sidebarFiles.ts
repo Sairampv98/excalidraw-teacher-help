@@ -1,10 +1,11 @@
 /**
  * File-type rules for the sidebar's one picker.
  *
- * Note on video: Excalidraw's `image` element model only knows how to render a
- * still frame or an animated GIF. There is no video element, so a video is
- * classified like any other file and then reported as unsupported — it is
- * *named* with the reason, never silently dropped.
+ * Note on video: a video is now a **video panel** — a live surface on the
+ * canvas (D-53) — so it is a file the app can use, not one it reports as
+ * unusable. Its captions, when it has any, come from a **sidecar** next to it
+ * (a `.srt` or a `.vtt`), which is a kind of its own: it is read *by* the
+ * video, never inserted on its own.
  */
 
 import { Marked } from "marked";
@@ -17,16 +18,14 @@ export type ScannedKind =
   | "image"
   | "gif"
   | "video"
+  | "captions"
   | "pdf"
   | "markdown"
   | "code"
   | "text";
 
 /** why a file cannot be used */
-export type UnsupportedReason =
-  | "video-not-embeddable"
-  | "unknown-type"
-  | "read-failed";
+export type UnsupportedReason = "unknown-type" | "read-failed";
 
 export type ScannedFile = {
   file: File;
@@ -89,6 +88,14 @@ const VIDEO_EXTENSIONS = new Set([
   "ogv",
   "wmv",
 ]);
+
+/**
+ * The caption sidecars: a `.srt` or a `.vtt` file that sits next to a video.
+ *
+ * They are a kind of their own because they are not documents: a sidecar is
+ * read **by** the video next to it, and it is never inserted on its own.
+ */
+const CAPTION_EXTENSIONS = new Set(["srt", "vtt"]);
 
 const MARKDOWN_EXTENSIONS = new Set(["md", "markdown", "mdx"]);
 
@@ -168,6 +175,9 @@ export const classify = (
   }
   if (VIDEO_EXTENSIONS.has(ext) || mimeType?.startsWith("video/")) {
     return "video";
+  }
+  if (CAPTION_EXTENSIONS.has(ext)) {
+    return "captions";
   }
   if (ext === "pdf" || mimeType === "application/pdf") {
     return "pdf";
@@ -253,14 +263,14 @@ export const scanFiles = (files: FileList | File[]): ScanResult => {
     const path = dir.length ? `${dir.join("/")}/${file.name}` : file.name;
     const kind = classify(file.name, file.type);
 
-    if (!kind || kind === "video") {
+    if (!kind) {
       unsupported.push({
         file,
         name: file.name,
         path,
         dir,
-        kind: kind ?? undefined,
-        reason: kind === "video" ? "video-not-embeddable" : "unknown-type",
+        kind: undefined,
+        reason: "unknown-type",
       });
       continue;
     }
@@ -299,6 +309,7 @@ export const FILE_ACCEPT = [
     ...IMAGE_EXTENSIONS,
     ...GIF_EXTENSIONS,
     ...VIDEO_EXTENSIONS,
+    ...CAPTION_EXTENSIONS,
     ...MARKDOWN_EXTENSIONS,
     ...PLAIN_TEXT_EXTENSIONS,
     ...Object.keys(CODE_LANGUAGE_BY_EXTENSION),
@@ -323,15 +334,13 @@ export const kindLabel = (kind: ScannedKind) =>
     ? "CODE"
     : kind === "text"
     ? "TXT"
+    : kind === "captions"
+    ? "CAP"
     : "VID";
 
 /** the sentence the list shows next to a file it cannot use */
 export const reasonText = (reason: UnsupportedReason) =>
-  reason === "video-not-embeddable"
-    ? "preview only — a video cannot be embedded on the canvas"
-    : reason === "read-failed"
-    ? "could not be read"
-    : "unknown file type";
+  reason === "read-failed" ? "could not be read" : "unknown file type";
 
 /** the icon each group header carries */
 export type GroupIconId =
@@ -378,8 +387,14 @@ const GROUPS: readonly {
     kinds: ["markdown", "text"],
   },
   { id: "code", label: "Code", icon: "code", kinds: ["code"] },
-  // the video group is filled from the files that *cannot* be used
-  { id: "video", label: "Video", icon: "video", kinds: [] },
+  // the video group holds the videos and their caption sidecars: a sidecar is
+  // read by the video next to it, so it belongs with the video
+  {
+    id: "video",
+    label: "Video",
+    icon: "video",
+    kinds: ["video", "captions"],
+  },
   { id: "unsupported", label: "Unsupported", icon: "unsupported", kinds: [] },
 ];
 
@@ -428,17 +443,9 @@ export const groupsAt = (
   return GROUPS.map((group) => {
     const entries: GroupEntry[] = [];
 
-    if (group.id === "video") {
+    if (group.id === "unsupported") {
       entries.push(
-        ...unsupported
-          .filter((file) => file.reason === "video-not-embeddable")
-          .map((file) => ({ type: "unsupported" as const, file })),
-      );
-    } else if (group.id === "unsupported") {
-      entries.push(
-        ...unsupported
-          .filter((file) => file.reason !== "video-not-embeddable")
-          .map((file) => ({ type: "unsupported" as const, file })),
+        ...unsupported.map((file) => ({ type: "unsupported" as const, file })),
         ...readFailures,
       );
     } else {

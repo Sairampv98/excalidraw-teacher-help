@@ -476,6 +476,34 @@ export type {
   CodePanelState,
   PanelBridgeStatus,
 } from "./scene/panelContent";
+
+// the video panel: the payload's video kind, the caption binding, and the
+// caption logic (the cues, the cue that is on screen, the caption element)
+export {
+  captionBindingUpdate,
+  readCaptionBinding,
+  readVideoPanelState,
+  videoPanelContent,
+  withVideoPanelState,
+} from "./scene/panelContent";
+export type {
+  CaptionBinding,
+  CaptionBoundPanel,
+  VideoPanelContent,
+  VideoPanelElement,
+  VideoPanelSource,
+  VideoPanelState,
+} from "./scene/panelContent";
+export {
+  captionCueAt,
+  captionTextElement,
+  DEFAULT_CAPTION_LANGUAGE,
+  parseCaptionTrack,
+  parseSrtCues,
+  parseVttCues,
+  selectCaptionTrack,
+} from "./components/panelCaptions";
+export type { VideoPanelEvent } from "./components/PanelOverlay";
 export type { PanelBridgeControls } from "./types";
 
 export { CommandPalette } from "./components/CommandPalette/CommandPalette";

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useExcalidrawAPI } from "@excalidraw/excalidraw";
 
+import { findCaptionSidecar } from "../components/videoCaptions";
+
 import { browserState, setBrowserCwd, setBrowserRoot } from "./browserState";
 import { DocumentViewer } from "./DocumentViewer";
 import {
@@ -14,6 +16,7 @@ import {
   insertImageIntoScene,
   pendingImageDrag,
 } from "./insertIntoScene";
+import { insertVideoPanel } from "./videoPanel";
 import {
   FILE_ACCEPT,
   directoriesAt,
@@ -226,7 +229,23 @@ export const FilesTab = () => {
     () =>
       groups.flatMap((group) =>
         group.entries.flatMap((entry) =>
-          entry.type === "file" && !isImageKind(entry.file.kind)
+          entry.type === "file" &&
+          !isImageKind(entry.file.kind) &&
+          entry.file.kind !== "video" &&
+          entry.file.kind !== "captions"
+            ? [entry.file]
+            : [],
+        ),
+      ),
+    [groups],
+  );
+
+  /** the videos of this listing — they become video panels */
+  const videos = useMemo(
+    () =>
+      groups.flatMap((group) =>
+        group.entries.flatMap((entry) =>
+          entry.type === "file" && entry.file.kind === "video"
             ? [entry.file]
             : [],
         ),
@@ -344,6 +363,16 @@ export const FilesTab = () => {
   );
 
   /**
+   * Picking a video does not arm a canvas click: a video is a **panel**, and a
+   * panel is placed by the insert, not dropped on a click.
+   */
+  const onPickVideo = useCallback((entry: ScannedFile) => {
+    setSelected(entry.path);
+    // a fresh gesture supersedes whatever the last one complained about
+    setNotice(null);
+  }, []);
+
+  /**
    * Drag is the same flow with the pointer doing the placement: the row is
    * draggable and the release point becomes the drop point. Nothing is put on
    * the dataTransfer but a private marker — the file travels through our own
@@ -405,6 +434,46 @@ export const FilesTab = () => {
     [api, busy],
   );
 
+  /**
+   * A video becomes a **video panel** — a live surface on the canvas — and its
+   * captions, when it has any, come from the **sidecar** next to it.
+   *
+   * The sidecar is found by name: the file of the same name and the same
+   * directory whose extension is `.srt` or `.vtt`. It is never inserted on its
+   * own; it is read by the video.
+   */
+  const insertVideo = useCallback(
+    async (entry: ScannedFile) => {
+      if (!api || busy) {
+        return;
+      }
+      setBusy(true);
+      try {
+        const sidecar = findCaptionSidecar(entry, scan.files);
+
+        await insertVideoPanel(api, {
+          videoFile: entry.file,
+          sidecarFile: sidecar?.file ?? null,
+        });
+
+        if (sidecar) {
+          api.setToast({
+            message: `Captions from ${sidecar.name}`,
+          });
+        }
+      } catch (error) {
+        api.setToast({
+          message: `Could not insert ${entry.name}`,
+          closable: true,
+        });
+        console.error(error);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [api, busy, scan.files],
+  );
+
   const step = useCallback(
     (delta: number) => {
       if (!reading || documents.length === 0) {
@@ -453,6 +522,16 @@ export const FilesTab = () => {
     [images, selected],
   );
 
+  /**
+   * The video under the cursor — but only when the user **picked** one: an
+   * image is the default of the "Insert into canvas" button, and a video is
+   * inserted only when it was asked for.
+   */
+  const selectedVideo = useMemo(
+    () => videos.find((file) => file.path === selected) ?? null,
+    [videos, selected],
+  );
+
   const pathLabel = [scan.rootName, ...cwd].filter(Boolean).join(" / ");
 
   const renderEntry = (entry: GroupEntry) => {
@@ -482,7 +561,30 @@ export const FilesTab = () => {
 
     const file = entry.file;
     const image = isImageKind(file.kind);
+    const video = file.kind === "video";
     const active = selectedImage?.path === file.path;
+
+    if (file.kind === "captions") {
+      // a caption sidecar is read **by** the video next to it: it is never
+      // inserted on its own, so it is not a button
+      return (
+        <div
+          key={file.path}
+          className="app-file-list__row app-file-list__row--caption"
+          title={file.path}
+        >
+          <span className="app-doc-badge app-doc-badge--captions">
+            {kindLabel(file.kind)}
+          </span>
+          <span className="app-file-list__meta">
+            <span className="app-file-list__name">{file.name}</span>
+            <span className="app-file-list__size">
+              the captions of the video next to it
+            </span>
+          </span>
+        </div>
+      );
+    }
 
     return (
       <button
@@ -495,8 +597,15 @@ export const FilesTab = () => {
             ? "app-file-list__row app-file-list__row--active"
             : "app-file-list__row"
         }
-        // an image is armed for the canvas; a document is opened
-        onClick={() => (image ? onPickImage(file) : setReading(file.path))}
+        // an image is armed for the canvas; a video is picked for the insert;
+        // a document is opened
+        onClick={() =>
+          image
+            ? onPickImage(file)
+            : video
+            ? onPickVideo(file)
+            : setReading(file.path)
+        }
         draggable={image}
         onDragStart={image ? (event) => startDrag(file, event) : undefined}
         onDragEnd={image ? endDrag : undefined}
@@ -603,8 +712,10 @@ export const FilesTab = () => {
           documents, markdown, code and video — and a folder can be opened and
           walked back out of. Click an image to copy it, then click the canvas
           to paste it where you clicked — or drag a row straight onto the canvas
-          to place it where you let go. Click a document to read it. A file that
-          cannot be used is listed with the reason why.
+          to place it where you let go. Click a document to read it. A video
+          becomes a video panel on the canvas, with the captions of the .srt or
+          .vtt file next to it. A file that cannot be used is listed with the
+          reason why.
         </p>
       ) : (
         <div className="app-file-list-panel">
@@ -688,7 +799,7 @@ export const FilesTab = () => {
           <button
             type="button"
             className="app-sidebar-primary"
-            disabled={busy || !selectedImage}
+            disabled={busy || (!selectedImage && !selectedVideo)}
             onClick={() => {
               // it is on the canvas now, so drop the pending paste
               cancelImagePaste();
@@ -696,12 +807,21 @@ export const FilesTab = () => {
               setArmed(null);
               setNotice(null);
 
+              if (selectedVideo) {
+                insertVideo(selectedVideo);
+                return;
+              }
+
               if (selectedImage) {
                 insert(selectedImage);
               }
             }}
           >
-            {busy ? "Inserting…" : "Insert into canvas"}
+            {busy
+              ? "Inserting…"
+              : selectedVideo
+              ? "Insert video panel"
+              : "Insert into canvas"}
           </button>
         </div>
       )}

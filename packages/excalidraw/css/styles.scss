@@ -177,6 +177,64 @@ body.excalidraw-cursor-resize * {
     }
   }
 
+  // the video panel's surface: the picture, and the controls under it
+  &__panel-video-box {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+
+    video {
+      flex: 1 1 auto;
+      min-height: 0;
+      // the rule above gives a video the whole panel; here the controls
+      // share it
+      height: auto;
+    }
+  }
+
+  &__panel-video-controls {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 4px;
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+  }
+
+  &__panel-video-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 20px;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-size: 10px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  &__panel-video-seek {
+    flex: 1 1 auto;
+    min-width: 40px;
+  }
+
+  &__panel-video-volume {
+    flex: 0 0 auto;
+    width: 48px;
+  }
+
+  &__panel-video-track {
+    flex: 0 0 auto;
+    max-width: 90px;
+    font-size: 11px;
+  }
+
   &__panel-code {
     width: 100%;
     height: 100%;
@@ -188,7 +246,6 @@ body.excalidraw-cursor-resize * {
     font-size: 12px;
     white-space: pre-wrap;
   }
-
   &__panel-code-text {
     width: 100%;
     height: 100%;

@@ -216,20 +216,49 @@ describe("FilesTab", () => {
 
     pickFiles(getFilesInput(container), [
       makeFile("one.png", "image/png"),
-      makeFile("clip.mp4", "video/mp4"),
       makeFile("notes.docx", ""),
     ]);
 
-    // nothing is dropped: both unusable files are listed, each with its reason
+    // nothing is dropped: the file we cannot use is listed with its reason
     const unusable = container.querySelectorAll(
       ".app-file-list__row--unsupported",
     );
 
-    expect(unusable).toHaveLength(2);
-    expect(unusable[0].textContent).toContain("clip.mp4");
-    expect(unusable[0].textContent).toContain("preview only");
-    expect(unusable[1].textContent).toContain("notes.docx");
-    expect(unusable[1].textContent).toContain("unknown file type");
+    expect(unusable).toHaveLength(1);
+    expect(unusable[0].textContent).toContain("notes.docx");
+    expect(unusable[0].textContent).toContain("unknown file type");
+  });
+
+  it("lists a video with its caption sidecar, and both are usable", () => {
+    mockObjectUrls();
+
+    const { container } = render(<FilesTab />);
+
+    pickFiles(getFilesInput(container), [
+      makeFile("clip.mp4", "video/mp4"),
+      makeFile("clip.srt", ""),
+    ]);
+
+    // neither is a file the app cannot use: the video is a video panel now
+    // (D-53), and the sidecar is read by the video next to it
+    expect(
+      container.querySelectorAll(".app-file-list__row--unsupported"),
+    ).toHaveLength(0);
+
+    // the sidecar says what it is
+    const sidecar = container.querySelector(".app-file-list__row--caption");
+
+    expect(sidecar?.textContent).toContain("clip.srt");
+    expect(sidecar?.textContent).toContain("the captions of the video");
+
+    // the video itself is an ordinary row
+    const rows = Array.from(
+      container.querySelectorAll(".app-file-list__row"),
+    ) as HTMLElement[];
+
+    expect(rows.some((row) => row.textContent?.includes("clip.mp4"))).toBe(
+      true,
+    );
   });
 
   it("names a file it could not read, with the reason why", async () => {
@@ -853,10 +882,12 @@ describe("FilesTab browsing", () => {
     expect(groups[1].querySelectorAll(".app-file-list__row")).toHaveLength(1);
     expect(groups[2].querySelectorAll(".app-file-list__row")).toHaveLength(1);
     expect(groups[3].querySelectorAll(".app-file-list__row")).toHaveLength(1);
-    // the video cannot be used, and says so where it is listed
+    // the video is a video panel now (D-53): it is an ordinary row, and it is
+    // not one of the files the app cannot use
+    expect(groups[4].querySelectorAll(".app-file-list__row")).toHaveLength(1);
     expect(
       groups[4].querySelectorAll(".app-file-list__row--unsupported"),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
   });
 
   it("AC-46 the back button returns to the parent listing", () => {

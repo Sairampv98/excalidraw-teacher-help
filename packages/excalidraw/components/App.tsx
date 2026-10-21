@@ -394,6 +394,7 @@ import {
 } from "../scene";
 import { getStateForZoom } from "../scene/zoom";
 import { DEFAULT_SIDEBAR_WIDTH } from "../types";
+
 import {
   dataURLToString,
   generateIdFromFile,
@@ -440,10 +441,17 @@ import {
 import { getAllPanelElements } from "../scene/panelContent";
 import { panelKeepsAspectRatio } from "../scene/panelContent";
 import {
+  captionBindingUpdate,
+  readCaptionBinding,
+  readVideoPanelState,
+} from "../scene/panelContent";
+
+import {
   panelLockUpdate,
   panelPosterSpec,
   panelUnlockUpdate,
 } from "../scene/lockPanel";
+
 import {
   setEraserCursor,
   setCursor,
@@ -467,6 +475,8 @@ import { getShortcutKey } from "../shortcut";
 
 import { tryParseSpreadsheet } from "../charts";
 
+import { captureVideoFrame, getVideoSurface } from "./videoPanelSurface";
+
 import ConvertElementTypePopup, {
   getConversionTypeFromElements,
   convertElementTypePopupAtom,
@@ -477,6 +487,7 @@ import { activeConfirmDialogAtom } from "./ActiveConfirmDialog";
 import { AnimatedImageOverlay } from "./AnimatedImageOverlay";
 import { PanelChrome } from "./PanelChrome";
 import { PanelOverlay } from "./PanelOverlay";
+
 import { FlowAnimationOverlay } from "./FlowAnimationOverlay";
 import { isFlowAnimationActive, stopFlowAnimation } from "./FlowAnimationState";
 import BraveMeasureTextError from "./BraveMeasureTextError";
@@ -499,6 +510,10 @@ import { AppStateObserver, type OnStateChange } from "./AppStateObserver";
 import { findShapeByKey } from "./shapes";
 
 import UnlockPopup from "./UnlockPopup";
+
+import type { VideoPanelEvent } from "./PanelOverlay";
+import type { VideoPanelElement } from "../scene/panelContent";
+import type { DataURL } from "../types";
 
 import type { ExcalidrawLibraryIds } from "../data/types";
 
@@ -2526,6 +2541,7 @@ class App extends React.Component<AppProps, AppState> {
                               height: this.state.height,
                             }}
                             theme={this.state.theme}
+                            onVideoEvent={this.onVideoPanelEvent}
                           />
                           <PanelChrome
                             panels={this.getSelectedPanelElements(
@@ -3514,6 +3530,142 @@ class App extends React.Component<AppProps, AppState> {
     );
 
   /**
+   * What a video panel has to say about itself.
+   *
+   * The caption is written into the **text element** the panel is bound to: an
+   * ordinary element of the document, so the write goes through the normal
+   * element machinery and therefore through **undo**. A cue changes a few times
+   * a minute, so this is not a hot path.
+   */
+  private onVideoPanelEvent = (panelId: string, event: VideoPanelEvent) => {
+    const panel = this.scene.getNonDeletedElement(panelId);
+
+    if (!panel || !isPanelElement(panel)) {
+      return;
+    }
+
+    switch (event.type) {
+      case "caption":
+        this.writeCaptionToBoundElement(panel, event.text);
+        return;
+      case "track":
+        this.switchCaptionTrack(panel, event.language);
+        return;
+      case "metadata":
+        this.setPanelNativeSize(panel, event.width, event.height);
+    }
+  };
+
+  /**
+   * Writes the caption that is on screen into the panel's bound text element.
+   *
+   * The text element is an ordinary element: it is on the panel's own page (a
+   * caption of a panel on another page would be a caption nobody can see), and
+   * the write goes through `mutateElement`, so it is undoable like every other
+   * change on the canvas.
+   */
+  private writeCaptionToBoundElement = (
+    panel: ExcalidrawPanelElement,
+    text: string,
+  ) => {
+    const binding = readCaptionBinding(panel);
+
+    if (!binding) {
+      return;
+    }
+
+    const target = this.scene.getNonDeletedElement(binding.elementId);
+
+    if (!target || !isTextElement(target)) {
+      return;
+    }
+
+    if (target.pageId !== panel.pageId) {
+      return;
+    }
+
+    if (target.text === text) {
+      return;
+    }
+
+    this.store.scheduleCapture();
+    this.scene.mutateElement(target, { text, originalText: text });
+  };
+
+  /**
+   * The teacher switched the caption track.
+   *
+   * The **active** track is the payload's own `options.captions` — the home the
+   * foundation defines — and the binding follows the track it is bound to.
+   */
+  private switchCaptionTrack = (
+    panel: ExcalidrawPanelElement,
+    language: string,
+  ) => {
+    const state = readVideoPanelState(panel.panel);
+
+    if (!state) {
+      return;
+    }
+
+    const track = state.tracks.find((entry) => entry.language === language);
+
+    if (!track) {
+      return;
+    }
+
+    const binding = readCaptionBinding(panel);
+
+    // the binding lives on the element, beside the payload — see
+    // `VideoPanelElement` in `scene/panelContent.ts` for why
+    const widened = panel as VideoPanelElement;
+
+    this.store.scheduleCapture();
+    this.scene.mutateElement(widened, {
+      panel: {
+        ...panel.panel,
+        options: { ...panel.panel.options, captions: track },
+        video: { ...state, language },
+      },
+      ...captionBindingUpdate(binding ? { ...binding, language } : null),
+    });
+  };
+
+  /**
+   * The video told the browser its own size.
+   *
+   * That size is the content's **native** size, and it is what a poster is
+   * captured at — the size the panel happens to be shown at is irrelevant to
+   * it.
+   */
+  private setPanelNativeSize = (
+    panel: ExcalidrawPanelElement,
+    width: number,
+    height: number,
+  ) => {
+    if (!width || !height) {
+      return;
+    }
+
+    const { naturalWidth, naturalHeight } = panel.panel.options;
+
+    if (naturalWidth === width && naturalHeight === height) {
+      return;
+    }
+
+    this.scene.mutateElement(panel, {
+      panel: {
+        ...panel.panel,
+        options: {
+          ...panel.panel.options,
+          naturalWidth: width,
+          naturalHeight: height,
+        },
+      },
+    });
+  };
+
+  /**
    * The lock transition of a panel: live → poster → live.
    *
    * Locking freezes the panel's content into a poster image at the content's
@@ -3546,7 +3698,53 @@ class App extends React.Component<AppProps, AppState> {
 
     const file = this.files[source.fileId];
 
-    if (!file || !source.mimeType.startsWith("image/")) {
+    if (!file) {
+      this.setToast({ message: t("labels.panel.cannotLock") });
+      return;
+    }
+
+    if (source.mimeType.startsWith("video/")) {
+      // A video's poster is the frame the teacher is looking at, and it is
+      // taken at the **video's own size** — the intrinsic size, not the size
+      // the panel is shown at on the canvas. A poster taken from the on-canvas
+      // size is a thumbnail, and a thumbnail is not a poster.
+      const video = getVideoSurface(element.id);
+      const frame = video ? captureVideoFrame(video) : null;
+
+      if (!frame) {
+        this.setToast({ message: t("labels.panel.cannotLock") });
+        return;
+      }
+
+      const fileId = randomId() as FileId;
+
+      this.addFiles([
+        {
+          id: fileId,
+          dataURL: frame.dataURL as DataURL,
+          mimeType: MIME_TYPES.png,
+          created: Date.now(),
+          lastRetrieved: Date.now(),
+        },
+      ]);
+
+      this.scene.mutateElement(element, {
+        ...panelLockUpdate(fileId),
+        panel: {
+          ...element.panel,
+          options: {
+            ...element.panel.options,
+            // the frame's own size is the video's size
+            naturalWidth: frame.width,
+            naturalHeight: frame.height,
+          },
+        },
+      });
+
+      return;
+    }
+
+    if (!source.mimeType.startsWith("image/")) {
       this.setToast({ message: t("labels.panel.cannotLock") });
       return;
     }
