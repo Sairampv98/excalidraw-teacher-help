@@ -11,6 +11,10 @@ interface ImportMetaEnv {
   // collaboration WebSocket server (https: string
   VITE_APP_WS_SERVER_URL: string;
 
+  // the VS Code bridge: the websocket URL of the bridge server in the
+  // extension. The session token is NOT part of it (D-50).
+  VITE_APP_BRIDGE_URL: string;
+
   // set this only if using the collaboration workflow we use on excalidraw.com
   VITE_APP_PORTAL_URL: string;
   VITE_APP_AI_BACKEND: string;

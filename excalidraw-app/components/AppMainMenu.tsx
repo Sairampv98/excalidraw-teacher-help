@@ -3,6 +3,7 @@ import {
   ExcalLogo,
   eyeIcon,
   presentationIcon,
+  codeIcon,
 } from "@excalidraw/excalidraw/components/icons";
 import { MainMenu } from "@excalidraw/excalidraw/index";
 import React from "react";
@@ -24,11 +25,15 @@ export const AppMainMenu: React.FC<{
   theme: Theme | "system";
   setTheme: (theme: Theme | "system") => void;
   refresh: () => void;
+  onInsertCodePanel: () => void;
 }> = React.memo((props) => {
   return (
     <MainMenu>
       <MainMenu.DefaultItems.LoadScene />
       <MainMenu.DefaultItems.InsertDocument />
+      <MainMenu.Item icon={codeIcon} onSelect={() => props.onInsertCodePanel()}>
+        Code panel (VS Code)
+      </MainMenu.Item>
       <MainMenu.DefaultItems.SaveToActiveFile />
       <MainMenu.DefaultItems.Export />
       <MainMenu.DefaultItems.SaveAsImage />

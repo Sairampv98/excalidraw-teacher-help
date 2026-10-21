@@ -28,6 +28,13 @@ export interface CodeMirrorEditorProps {
   placeholder?: string;
   theme: Theme;
   errorLine?: number | null;
+  /**
+   * A **mirror** shows somebody else's text: it must not be edited, and it
+   * must not take the keyboard away from the canvas — a live panel that
+   * swallows every keystroke would make the editor unusable while the panel
+   * is on the screen.
+   */
+  readOnly?: boolean;
 }
 
 // ---- Dark theme ----
@@ -126,6 +133,7 @@ const CodeMirrorEditor = ({
   placeholder,
   theme,
   errorLine,
+  readOnly = false,
 }: CodeMirrorEditorProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -168,6 +176,9 @@ const CodeMirrorEditor = ({
           keymap.of([...defaultKeymap, ...historyKeymap]),
           lineNumbers(),
           EditorView.lineWrapping,
+          // a mirror is read-only: the text belongs to the editor it mirrors
+          EditorState.readOnly.of(readOnly),
+          EditorView.editable.of(!readOnly),
           themeCompartment.of(getThemeExtensions(theme)),
           errorLineCompartmentRef.current.of([]),
           mermaidLite(),
@@ -179,7 +190,11 @@ const CodeMirrorEditor = ({
     });
 
     viewRef.current = view;
-    view.focus();
+
+    if (!readOnly) {
+      // a read-only mirror must not steal the keyboard from the canvas
+      view.focus();
+    }
 
     return () => {
       view.destroy();

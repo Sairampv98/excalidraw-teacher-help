@@ -60,6 +60,7 @@ import type { ImportedDataState } from "./data/types";
 
 import type { Language } from "./i18n";
 import type { isOverScrollBars } from "./scene/scrollbars";
+import type { PanelBridgeStatus } from "./scene/panelContent";
 import type React from "react";
 import type { JSX } from "react";
 
@@ -864,7 +865,41 @@ export interface ExcalidrawProps {
       signal: AbortSignal;
     },
   ) => MaybePromise<void> | AsyncGenerator<OnExportProgress, void>;
+  /**
+   * The host app's controls for a **bridge-backed panel** — a code panel that
+   * mirrors a VS Code editor (D-52).
+   *
+   * The library draws the field and shows the state; the **host** owns the
+   * token and the connection, because the token is a secret and the host is
+   * the side that talks to the bridge.
+   *
+   * Without this prop there is no field: a host that does not talk to a
+   * bridge gets a panel that says it is not connected, and nothing else.
+   */
+  panelBridge?: PanelBridgeControls;
 }
+
+/**
+ * What the host tells the library about a bridge-backed panel.
+ *
+ * The token is a secret: it is held in memory for the session only, it is
+ * never written to disk and it is never put in a URL (D-50). The library masks
+ * it in the field.
+ */
+export type PanelBridgeControls = {
+  /** where the connection stands */
+  status: PanelBridgeStatus;
+  /** a sentence for the state. Never empty. */
+  message: string;
+  /** the token currently in the field */
+  token: string;
+  /** the teacher typed a token */
+  onTokenChange?: (token: string) => void;
+  /** the teacher asked for the token to be pasted from the clipboard */
+  onPasteToken?: () => void;
+  /** the teacher asked to connect with the token in the field */
+  onConnect?: () => void;
+};
 
 export type SceneData = {
   elements?: ImportedDataState["elements"];

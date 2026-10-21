@@ -179,7 +179,16 @@
       "poster": "Poster",
       "nativeSize": "Content size",
       "liveNotExportable": "A live panel exports as nothing. Lock it to make a poster.",
-      "cannotLock": "This panel cannot be locked yet."
+      "cannotLock": "This panel cannot be locked yet.",
+      "bridge": {
+        "label": "Bridge",
+        "placeholder": "Session token",
+        "paste": "Paste from clipboard",
+        "connect": "Connect"
+      },
+      "code": {
+        "noFile": "No file is open in the editor"
+      }
     },
     "statusPublished": "Published",
     "sidebarLock": "Keep sidebar open",
