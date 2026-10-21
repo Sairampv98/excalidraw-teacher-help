@@ -4,16 +4,16 @@ import { DefaultSidebar, Sidebar } from "@excalidraw/excalidraw";
 import { useExcalidrawSetAppState } from "@excalidraw/excalidraw/components/App";
 import { useUIAppState } from "@excalidraw/excalidraw/context/ui-appState";
 
-import { DocumentsTab } from "../sidebar/DocumentsTab";
-import { FolderTab } from "../sidebar/FolderTab";
+import { FilesTab } from "../sidebar/FilesTab";
 import { useAutoFitPageOnResize } from "../sidebar/useSidebarLayout";
 
-const FOLDER_TAB = "folder";
-const DOCUMENTS_TAB = "documents";
+/** the one tab: it picks files *and* folders */
+const FILES_TAB = "files";
 /** the one sidebar in this build; matches `DEFAULT_SIDEBAR.name` */
 const SIDEBAR_NAME = "default";
 
-const FolderIcon = () => (
+/** a pile of sheets — files of every kind, in one place */
+const FilesIcon = () => (
   <svg
     width="20"
     height="20"
@@ -22,30 +22,13 @@ const FolderIcon = () => (
     aria-hidden="true"
   >
     <path
-      d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinejoin="round"
-    />
-  </svg>
-);
-
-const DocumentIcon = () => (
-  <svg
-    width="20"
-    height="20"
-    viewBox="0 0 24 24"
-    fill="none"
-    aria-hidden="true"
-  >
-    <path
-      d="M6 3h7l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"
+      d="m4 7.5 8-4.5 8 4.5-8 4.5-8-4.5Z"
       stroke="currentColor"
       strokeWidth="1.6"
       strokeLinejoin="round"
     />
     <path
-      d="M13 3v5h5M8.5 13h7M8.5 16.5h5"
+      d="m4 12 8 4.5 8-4.5M4 16.5l8 4.5 8-4.5"
       stroke="currentColor"
       strokeWidth="1.6"
       strokeLinecap="round"
@@ -128,23 +111,18 @@ export const AppSidebar = ({
     pinnedOnLoad.current = true;
 
     if (openSidebar?.name !== SIDEBAR_NAME) {
-      setAppState({ openSidebar: { name: SIDEBAR_NAME, tab: FOLDER_TAB } });
+      setAppState({ openSidebar: { name: SIDEBAR_NAME, tab: FILES_TAB } });
     }
   }, [openSidebar, setAppState]);
 
-  // the stock library / search / comments / presentation tabs are gone, so an
-  // unknown or missing tab name falls back to the folder tab
+  // the stock library / search / comments / presentation tabs are gone, and the
+  // folder + documents tabs are one tab now, so any other tab name falls back
+  // to it
   useEffect(() => {
-    if (
-      openSidebar?.name === SIDEBAR_NAME &&
-      openSidebar.tab !== FOLDER_TAB &&
-      openSidebar.tab !== DOCUMENTS_TAB
-    ) {
-      setAppState({ openSidebar: { name: SIDEBAR_NAME, tab: FOLDER_TAB } });
+    if (openSidebar?.name === SIDEBAR_NAME && openSidebar.tab !== FILES_TAB) {
+      setAppState({ openSidebar: { name: SIDEBAR_NAME, tab: FILES_TAB } });
     }
   }, [openSidebar, setAppState]);
-
-  const tab = openSidebar?.tab === DOCUMENTS_TAB ? DOCUMENTS_TAB : FOLDER_TAB;
 
   // the sidebar is an overlay, so it covers this much of the canvas
   const sidebarCoversCanvas = !!openSidebar;
@@ -159,19 +137,8 @@ export const AppSidebar = ({
     <>
       <DefaultSidebar builtInTabs={false}>
         <DefaultSidebar.TabTriggers>
-          <Sidebar.TabTrigger
-            tab={FOLDER_TAB}
-            style={{ opacity: tab === FOLDER_TAB ? 1 : 0.45 }}
-            title="Folder"
-          >
-            <FolderIcon />
-          </Sidebar.TabTrigger>
-          <Sidebar.TabTrigger
-            tab={DOCUMENTS_TAB}
-            style={{ opacity: tab === DOCUMENTS_TAB ? 1 : 0.45 }}
-            title="Documents"
-          >
-            <DocumentIcon />
+          <Sidebar.TabTrigger tab={FILES_TAB} title="Files">
+            <FilesIcon />
           </Sidebar.TabTrigger>
 
           {/* not a tab — a switch for how the canvas reacts to resizing */}
@@ -191,11 +158,8 @@ export const AppSidebar = ({
             <FitPageIcon active={autoFitEnabled} />
           </button>
         </DefaultSidebar.TabTriggers>
-        <Sidebar.Tab tab={FOLDER_TAB}>
-          <FolderTab />
-        </Sidebar.Tab>
-        <Sidebar.Tab tab={DOCUMENTS_TAB}>
-          <DocumentsTab />
+        <Sidebar.Tab tab={FILES_TAB}>
+          <FilesTab />
         </Sidebar.Tab>
       </DefaultSidebar>
 

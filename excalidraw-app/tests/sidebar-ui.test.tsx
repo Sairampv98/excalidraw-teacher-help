@@ -1,13 +1,13 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
-import { afterEach, vi } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
 
 import { FONT_FAMILY } from "@excalidraw/common";
 import { ExcalidrawAPIContext } from "@excalidraw/excalidraw/components/App";
 
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
-import { DocumentsTab } from "../sidebar/DocumentsTab";
-import { FolderTab } from "../sidebar/FolderTab";
+import { resetBrowserState } from "../sidebar/browserState";
+import { FilesTab } from "../sidebar/FilesTab";
 import {
   cancelCodePaste,
   cancelImageDrag,
@@ -22,6 +22,38 @@ const makeFile = (name: string, type = "", body = "const a = 1;") => {
     configurable: true,
     value: () => Promise.resolve(body),
   });
+  return file;
+};
+
+/**
+ * A file as the browser hands it over when a *folder* was picked: a flat list
+ * whose files carry the path they had inside that folder.
+ */
+const makeFolderFile = (
+  relativePath: string,
+  type = "",
+  body = "const a = 1;",
+) => {
+  const name = relativePath.split("/").pop()!;
+  const file = makeFile(name, type, body);
+
+  Object.defineProperty(file, "webkitRelativePath", {
+    configurable: true,
+    value: relativePath,
+  });
+
+  return file;
+};
+
+/** a file the browser cannot read — the read fails */
+const makeUnreadableFile = (name: string) => {
+  const file = new File(["x"], name, { type: "" });
+
+  Object.defineProperty(file, "text", {
+    configurable: true,
+    value: () => Promise.reject(new Error("denied")),
+  });
+
   return file;
 };
 
@@ -123,62 +155,111 @@ const pickFiles = (input: HTMLInputElement, files: File[]) => {
   fireEvent.change(input);
 };
 
-const getFileInput = (container: HTMLElement) =>
-  container.querySelector<HTMLInputElement>("input[type=file]")!;
+/**
+ * The picker has two inputs: one takes files, the other a whole folder.
+ *
+ * They are told apart by their attribute rather than by their order in the
+ * DOM: the two tabs became one tab, so "the first file input" would now pick
+ * whichever of the two happens to come first — and the two mean different
+ * things.
+ */
+const getFilesInput = (container: HTMLElement) =>
+  container.querySelector<HTMLInputElement>('input[type="file"][accept]')!;
 
-describe("FolderTab", () => {
-  it("renders a scrollable list of rows and tracks the selection", () => {
+const getFolderInput = (container: HTMLElement) =>
+  container.querySelector<HTMLInputElement>(
+    'input[type="file"][webkitdirectory]',
+  )!;
+
+/** the picked root and the browsing path live between panels, so they are reset */
+beforeEach(() => {
+  resetBrowserState();
+});
+
+describe("FilesTab", () => {
+  it("renders one list of rows, grouped by type, and tracks the selection", () => {
     mockObjectUrls();
 
-    const { container } = render(<FolderTab />);
+    const { container } = render(<FilesTab />);
 
-    pickFiles(getFileInput(container), [
+    pickFiles(getFilesInput(container), [
       makeFile("one.png", "image/png"),
       makeFile("two.gif", "image/gif"),
+      makeFile("notes.md", ""),
     ]);
 
     const rows = container.querySelectorAll(".app-file-list__row");
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     expect(rows[0].textContent).toContain("one.png");
+    expect(rows[2].textContent).toContain("notes.md");
 
-    // each row carries a thumbnail next to the name
+    // an image row carries a thumbnail next to the name
     expect(rows[0].querySelector(".app-file-list__thumb img")).toBeTruthy();
+
+    // a document row carries the badge of its own kind — a markdown file is
+    // "MD", not the "TXT" the old badge gave every code file
+    expect(rows[2].querySelector(".app-doc-badge")!.textContent).toBe("MD");
 
     // the carousel is gone
     expect(container.querySelector(".app-carousel")).toBeNull();
 
-    // the first row is selected on load
+    // clicking a row moves the selection
+    fireEvent.click(rows[0]);
     expect(rows[0].getAttribute("aria-selected")).toBe("true");
     expect(rows[0].className).toContain("app-file-list__row--active");
-
-    // clicking a row moves the selection
-    fireEvent.click(rows[1]);
-    expect(rows[1].getAttribute("aria-selected")).toBe("true");
-    expect(rows[0].getAttribute("aria-selected")).toBe("false");
   });
 
-  it("still reports videos and other skipped files", () => {
+  it("names the files it cannot use, with the reason why", () => {
     mockObjectUrls();
 
-    const { container } = render(<FolderTab />);
+    const { container } = render(<FilesTab />);
 
-    pickFiles(getFileInput(container), [
+    pickFiles(getFilesInput(container), [
       makeFile("one.png", "image/png"),
       makeFile("clip.mp4", "video/mp4"),
-      makeFile("notes.docx"),
+      makeFile("notes.docx", ""),
     ]);
 
-    const note = container.querySelector(".app-sidebar-note")!.textContent!;
-    expect(note).toContain("1 image");
-    expect(note).toContain("1 video skipped (not supported)");
-    expect(note).toContain("1 other skipped");
+    // nothing is dropped: both unusable files are listed, each with its reason
+    const unusable = container.querySelectorAll(
+      ".app-file-list__row--unsupported",
+    );
+
+    expect(unusable).toHaveLength(2);
+    expect(unusable[0].textContent).toContain("clip.mp4");
+    expect(unusable[0].textContent).toContain("preview only");
+    expect(unusable[1].textContent).toContain("notes.docx");
+    expect(unusable[1].textContent).toContain("unknown file type");
   });
 
-  it("revokes the thumbnails of the previous folder", () => {
+  it("names a file it could not read, with the reason why", async () => {
+    mockObjectUrls();
+
+    const { container } = render(<FilesTab />);
+
+    pickFiles(getFilesInput(container), [makeUnreadableFile("broken.md")]);
+
+    fireEvent.click(container.querySelector(".app-file-list__row")!);
+
+    // the file could not be read, so it is listed as one we cannot use — with
+    // the reason, not silently
+    await waitFor(() =>
+      expect(
+        container.querySelector(".app-file-list__row--unsupported"),
+      ).toBeTruthy(),
+    );
+
+    const row = container.querySelector(".app-file-list__row--unsupported")!;
+
+    expect(row.textContent).toContain("broken.md");
+    expect(row.textContent).toContain("could not be read");
+  });
+
+  it("revokes the thumbnails of the previous pick", () => {
     const { revoked } = mockObjectUrls();
 
-    const { container, unmount } = render(<FolderTab />);
-    const input = getFileInput(container);
+    const { container, unmount } = render(<FilesTab />);
+    const input = getFilesInput(container);
 
     pickFiles(input, [
       makeFile("one.png", "image/png"),
@@ -186,7 +267,7 @@ describe("FolderTab", () => {
     ]);
     expect(revoked).toHaveLength(0);
 
-    // re-picking a folder replaces the images, so the old URLs go away
+    // re-picking replaces the images, so the old URLs go away
     pickFiles(input, [makeFile("three.png", "image/png")]);
     expect(revoked).toHaveLength(2);
 
@@ -202,7 +283,7 @@ describe("FolderTab", () => {
 
     const { container } = render(
       <ExcalidrawAPIContext.Provider value={api}>
-        <FolderTab />
+        <FilesTab />
       </ExcalidrawAPIContext.Provider>,
     );
 
@@ -210,7 +291,7 @@ describe("FolderTab", () => {
     canvas.className = "excalidraw__canvas";
     document.body.appendChild(canvas);
 
-    pickFiles(getFileInput(container), [makeFile("one.png", "image/png")]);
+    pickFiles(getFilesInput(container), [makeFile("one.png", "image/png")]);
 
     // nothing is armed until a row is clicked
     expect(container.querySelector(".app-sidebar-note--armed")).toBeNull();
@@ -257,11 +338,11 @@ describe("FolderTab", () => {
 
     const { container } = render(
       <ExcalidrawAPIContext.Provider value={api}>
-        <FolderTab />
+        <FilesTab />
       </ExcalidrawAPIContext.Provider>,
     );
 
-    pickFiles(getFileInput(container), [makeFile("one.png", "image/png")]);
+    pickFiles(getFilesInput(container), [makeFile("one.png", "image/png")]);
     fireEvent.click(container.querySelector(".app-file-list__row")!);
 
     await waitFor(() =>
@@ -283,7 +364,7 @@ describe("FolderTab", () => {
  * dropped the hint in silence, which is how a perfectly good GIF came to look
  * broken.
  */
-describe("FolderTab rejected drags", () => {
+describe("FilesTab rejected drags", () => {
   const canvases: HTMLCanvasElement[] = [];
 
   afterEach(() => {
@@ -345,11 +426,11 @@ describe("FolderTab rejected drags", () => {
     const { api, calls } = fakeApi();
     const { container } = render(
       <ExcalidrawAPIContext.Provider value={api}>
-        <FolderTab />
+        <FilesTab />
       </ExcalidrawAPIContext.Provider>,
     );
 
-    pickFiles(getFileInput(container), [makeFile("clip.gif", "image/gif")]);
+    pickFiles(getFilesInput(container), [makeFile("clip.gif", "image/gif")]);
 
     return { container, calls };
   };
@@ -440,7 +521,7 @@ describe("FolderTab rejected drags", () => {
  * Driven through the real button so the wiring between `readCover` and
  * `viewportCenter` is covered, not just the pure helpers.
  */
-describe("FolderTab insert placement around the sidebar", () => {
+describe("FilesTab insert placement around the sidebar", () => {
   const CANVAS = { left: 0, top: 0, width: 800, height: 600 };
   const SIDEBAR_WIDTH = 302;
 
@@ -492,11 +573,11 @@ describe("FolderTab insert placement around the sidebar", () => {
     const { api, calls } = fakeApi();
     const { container } = render(
       <ExcalidrawAPIContext.Provider value={api}>
-        <FolderTab />
+        <FilesTab />
       </ExcalidrawAPIContext.Provider>,
     );
 
-    pickFiles(getFileInput(container), [makeFile("clip.gif", "image/gif")]);
+    pickFiles(getFilesInput(container), [makeFile("clip.gif", "image/gif")]);
 
     fireEvent.click(
       Array.from(container.querySelectorAll("button")).find(
@@ -542,11 +623,11 @@ describe("FolderTab insert placement around the sidebar", () => {
     const { api, calls } = fakeApi();
     const { container } = render(
       <ExcalidrawAPIContext.Provider value={api}>
-        <FolderTab />
+        <FilesTab />
       </ExcalidrawAPIContext.Provider>,
     );
 
-    pickFiles(getFileInput(container), [makeFile("clip.gif", "image/gif")]);
+    pickFiles(getFilesInput(container), [makeFile("clip.gif", "image/gif")]);
 
     fireEvent.click(
       Array.from(container.querySelectorAll("button")).find(
@@ -567,25 +648,25 @@ describe("FolderTab insert placement around the sidebar", () => {
   });
 });
 
-describe("DocumentsTab", () => {
+describe("FilesTab list and reader", () => {
   it("goes list -> viewer -> back to the list without rescanning", () => {
     mockObjectUrls();
 
-    const { container } = render(<DocumentsTab />);
+    const { container } = render(<FilesTab />);
 
-    pickFiles(getFileInput(container), [
+    pickFiles(getFilesInput(container), [
       makeFile("b.pdf", "application/pdf"),
       makeFile("c.ts", ""),
     ]);
 
     // 1. list state
-    expect(container.querySelector(".app-doc-list")).toBeTruthy();
+    expect(container.querySelector(".app-file-list")).toBeTruthy();
     expect(container.querySelector(".app-doc-viewer")).toBeNull();
     expect(container.querySelector(".app-doc-back")).toBeNull();
 
     // 2. clicking a row opens the viewer for that document
-    fireEvent.click(container.querySelectorAll(".app-doc-list__item")[0]);
-    expect(container.querySelector(".app-doc-list")).toBeNull();
+    fireEvent.click(container.querySelectorAll(".app-file-list__row")[0]);
+    expect(container.querySelector(".app-file-list")).toBeNull();
 
     const viewer = container.querySelector(".app-doc-viewer")!;
     expect(viewer.querySelector("object[type='application/pdf']")).toBeTruthy();
@@ -595,7 +676,7 @@ describe("DocumentsTab", () => {
     fireEvent.click(container.querySelector(".app-doc-back")!);
 
     expect(container.querySelector(".app-doc-viewer")).toBeNull();
-    const rows = container.querySelectorAll(".app-doc-list__item");
+    const rows = container.querySelectorAll(".app-file-list__row");
     expect(rows).toHaveLength(2);
     expect(rows[0].textContent).toContain("b.pdf");
   });
@@ -603,14 +684,14 @@ describe("DocumentsTab", () => {
   it("switches document from inside the viewer", () => {
     mockObjectUrls();
 
-    const { container } = render(<DocumentsTab />);
+    const { container } = render(<FilesTab />);
 
-    pickFiles(getFileInput(container), [
+    pickFiles(getFilesInput(container), [
       makeFile("b.pdf", "application/pdf"),
       makeFile("c.ts", ""),
     ]);
 
-    fireEvent.click(container.querySelectorAll(".app-doc-list__item")[0]);
+    fireEvent.click(container.querySelectorAll(".app-file-list__row")[0]);
     expect(
       container.querySelector("object[type='application/pdf']"),
     ).toBeTruthy();
@@ -631,11 +712,11 @@ describe("DocumentsTab", () => {
   it("keeps insert and copy actions for code documents", async () => {
     mockObjectUrls();
 
-    const { container } = render(<DocumentsTab />);
+    const { container } = render(<FilesTab />);
 
-    pickFiles(getFileInput(container), [makeFile("c.ts", "")]);
+    pickFiles(getFilesInput(container), [makeFile("c.ts", "")]);
 
-    fireEvent.click(container.querySelector(".app-doc-list__item")!);
+    fireEvent.click(container.querySelector(".app-file-list__row")!);
 
     // the read + shiki highlight is async, and the button reads "Inserting…"
     // until it settles — wait for the settled label
@@ -657,21 +738,21 @@ describe("DocumentsTab", () => {
   it("always offers both load actions", () => {
     mockObjectUrls();
 
-    const { container } = render(<DocumentsTab />);
+    const { container } = render(<FilesTab />);
 
     const actions = Array.from(
       container.querySelectorAll(".app-sidebar-actions > button"),
     ).map((button) => button.textContent);
 
-    expect(actions).toEqual(["Open documents", "Open folder"]);
+    expect(actions).toEqual(["Open files", "Open folder"]);
   });
 
   it("renders a markdown document as a document, with a zoom control", async () => {
     mockObjectUrls();
 
-    const { container } = render(<DocumentsTab />);
+    const { container } = render(<FilesTab />);
 
-    pickFiles(getFileInput(container), [
+    pickFiles(getFilesInput(container), [
       makeFile(
         "notes.md",
         "",
@@ -679,7 +760,7 @@ describe("DocumentsTab", () => {
       ),
     ]);
 
-    fireEvent.click(container.querySelector(".app-doc-list__item")!);
+    fireEvent.click(container.querySelector(".app-file-list__row")!);
 
     // markdown is rendered, not highlighted as source
     await waitFor(() =>
@@ -720,11 +801,11 @@ describe("DocumentsTab", () => {
   it("has no zoom control for a code document", async () => {
     mockObjectUrls();
 
-    const { container } = render(<DocumentsTab />);
+    const { container } = render(<FilesTab />);
 
-    pickFiles(getFileInput(container), [makeFile("c.ts", "")]);
+    pickFiles(getFilesInput(container), [makeFile("c.ts", "")]);
 
-    fireEvent.click(container.querySelector(".app-doc-list__item")!);
+    fireEvent.click(container.querySelector(".app-file-list__row")!);
 
     await waitFor(() =>
       expect(container.querySelector(".app-doc-code")).toBeTruthy(),
@@ -735,12 +816,131 @@ describe("DocumentsTab", () => {
 });
 
 /**
+ * The merged list: one picker, sorted by type, with folders you can walk into
+ * and out of, and a pin that keeps your place.
+ */
+describe("FilesTab browsing", () => {
+  it("AC-45 the list is grouped by type, with an icon per group", () => {
+    mockObjectUrls();
+
+    const { container } = render(<FilesTab />);
+
+    pickFiles(getFilesInput(container), [
+      makeFile("one.png", "image/png"),
+      makeFile("two.gif", "image/gif"),
+      makeFile("doc.pdf", "application/pdf"),
+      makeFile("notes.md", ""),
+      makeFile("script.ts", ""),
+      makeFile("clip.mp4", "video/mp4"),
+    ]);
+
+    const groups = container.querySelectorAll(".app-file-group");
+
+    // the groups come in the fixed order
+    expect(
+      Array.from(groups).map(
+        (group) => group.querySelector(".app-file-group__label")!.textContent,
+      ),
+    ).toEqual(["Images", "Documents", "Markdown", "Code", "Video"]);
+
+    // and every one of them carries an icon of its own
+    for (const group of groups) {
+      expect(group.querySelector(".app-file-group__icon svg")).toBeTruthy();
+    }
+
+    // the rows sit under the group of their kind
+    expect(groups[0].querySelectorAll(".app-file-list__row")).toHaveLength(2);
+    expect(groups[1].querySelectorAll(".app-file-list__row")).toHaveLength(1);
+    expect(groups[2].querySelectorAll(".app-file-list__row")).toHaveLength(1);
+    expect(groups[3].querySelectorAll(".app-file-list__row")).toHaveLength(1);
+    // the video cannot be used, and says so where it is listed
+    expect(
+      groups[4].querySelectorAll(".app-file-list__row--unsupported"),
+    ).toHaveLength(1);
+  });
+
+  it("AC-46 the back button returns to the parent listing", () => {
+    mockObjectUrls();
+
+    const { container } = render(<FilesTab />);
+
+    pickFiles(getFolderInput(container), [
+      makeFolderFile("root/top.md", ""),
+      makeFolderFile("root/sub/deep.png", "image/png"),
+    ]);
+
+    // the root listing shows the folder — not what is inside it
+    expect(container.querySelector(".app-file-list")!.textContent).toContain(
+      "sub",
+    );
+    expect(
+      container.querySelector(".app-file-list")!.textContent,
+    ).not.toContain("deep.png");
+
+    // walking into the folder
+    fireEvent.click(container.querySelector(".app-file-list__row--folder")!);
+
+    expect(container.querySelector(".app-file-list")!.textContent).toContain(
+      "deep.png",
+    );
+
+    // and the way back out of it
+    const back = container.querySelector(".app-doc-back");
+    expect(back).toBeTruthy();
+
+    fireEvent.click(back!);
+
+    expect(container.querySelector(".app-file-list")!.textContent).toContain(
+      "sub",
+    );
+    expect(
+      container.querySelector(".app-file-list")!.textContent,
+    ).not.toContain("deep.png");
+    // at the top of the root there is nowhere left to go back to
+    expect(container.querySelector(".app-doc-back")).toBeNull();
+  });
+
+  it("AC-47 the pin preserves the browsing path across a page switch", () => {
+    mockObjectUrls();
+
+    const { container, unmount } = render(<FilesTab />);
+
+    pickFiles(getFolderInput(container), [
+      makeFolderFile("root/sub/deep.png", "image/png"),
+    ]);
+
+    fireEvent.click(container.querySelector(".app-file-list__row--folder")!);
+
+    expect(container.querySelector(".app-file-list")!.textContent).toContain(
+      "deep.png",
+    );
+
+    // The page switch: the sidebar's panel is re-created for the other page.
+    //
+    // The path has to come back with it, because the place the user was in
+    // lives outside the panel — the panel only holds what it is showing.
+    unmount();
+
+    const { container: next } = render(<FilesTab />);
+
+    expect(next.querySelector(".app-doc-back")).toBeTruthy();
+    expect(next.querySelector(".app-file-list")!.textContent).toContain(
+      "deep.png",
+    );
+    // and the path it came back to is the folder that was open
+    expect(next.querySelector(".app-file-browse__path")!.textContent).toContain(
+      "sub",
+    );
+  });
+});
+
+/**
  * Copying code and pasting it used to land as a plain text element: the
  * clipboard only carried the source text, so the paste had nothing to know it
  * was code. Now the copy also arms one paste, which builds the same code card
  * the Insert button does.
  */
-describe("DocumentsTab copy -> paste as a code card", () => {
+describe("FilesTab copy -> paste as a code card", () => {
   const CODE = "def second_largest(nums):\n    return sorted(nums)[-2]";
 
   const stubCanvas = () => {
@@ -773,13 +973,13 @@ describe("DocumentsTab copy -> paste as a code card", () => {
     const { api, calls, files } = fakeApi();
     const { container } = render(
       <ExcalidrawAPIContext.Provider value={api}>
-        <DocumentsTab />
+        <FilesTab />
       </ExcalidrawAPIContext.Provider>,
     );
 
-    pickFiles(getFileInput(container), [makeFile(name, "", body)]);
+    pickFiles(getFilesInput(container), [makeFile(name, "", body)]);
 
-    fireEvent.click(container.querySelector(".app-doc-list__item")!);
+    fireEvent.click(container.querySelector(".app-file-list__row")!);
 
     await waitFor(() =>
       expect(container.querySelector(".app-doc-code")).toBeTruthy(),
@@ -880,15 +1080,15 @@ describe("DocumentsTab copy -> paste as a code card", () => {
     const { api, calls } = fakeApi();
     const { container } = render(
       <ExcalidrawAPIContext.Provider value={api}>
-        <DocumentsTab />
+        <FilesTab />
       </ExcalidrawAPIContext.Provider>,
     );
 
-    pickFiles(getFileInput(container), [
+    pickFiles(getFilesInput(container), [
       makeFile("notes.md", "", "```not-a-real-language\nhello\n```"),
     ]);
 
-    fireEvent.click(container.querySelector(".app-doc-list__item")!);
+    fireEvent.click(container.querySelector(".app-file-list__row")!);
 
     await waitFor(() =>
       expect(container.querySelector(".app-doc-codeblock")).toBeTruthy(),
@@ -938,15 +1138,15 @@ describe("DocumentsTab copy -> paste as a code card", () => {
     const { api, calls } = fakeApi();
     const { container } = render(
       <ExcalidrawAPIContext.Provider value={api}>
-        <DocumentsTab />
+        <FilesTab />
       </ExcalidrawAPIContext.Provider>,
     );
 
-    pickFiles(getFileInput(container), [
+    pickFiles(getFilesInput(container), [
       makeFile("notes.md", "", "```python\ndef f():\n    return 1\n```"),
     ]);
 
-    fireEvent.click(container.querySelector(".app-doc-list__item")!);
+    fireEvent.click(container.querySelector(".app-file-list__row")!);
 
     await waitFor(() =>
       expect(container.querySelector(".app-doc-codeblock")).toBeTruthy(),

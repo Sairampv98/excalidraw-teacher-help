@@ -252,6 +252,23 @@ const getImageSize = (src: string) =>
 /** a position in scene coordinates */
 export type ScenePoint = { x: number; y: number };
 
+/**
+ * The one placement step.
+ *
+ * Everything the sidebar puts on the canvas lands the same way: at the point
+ * the user asked for — whose *centre* is that point — or, when they did not
+ * ask, in the middle of what they can see.
+ */
+export const placementFor = (
+  api: ExcalidrawImperativeAPI,
+  size: { width: number; height: number },
+  /** where the thing should land, by its centre */
+  at?: ScenePoint,
+) =>
+  at
+    ? { x: at.x - size.width / 2, y: at.y - size.height / 2 }
+    : viewportCenter(api, size.width, size.height);
+
 export const insertImageIntoScene = async (
   api: ExcalidrawImperativeAPI,
   file: File,
@@ -268,9 +285,7 @@ export const insertImageIntoScene = async (
 
   const width = Math.max(1, natural.width * ratio);
   const height = Math.max(1, natural.height * ratio);
-  const { x, y } = at
-    ? { x: at.x - width / 2, y: at.y - height / 2 }
-    : viewportCenter(api, width, height);
+  const { x, y } = placementFor(api, { width, height }, at);
 
   const image = newImageElement({
     type: "image",
@@ -774,11 +789,9 @@ const placeCodeCard = (
 
   // top-left of the card: an explicit point is the user's, anything else
   // centres on what they can see (and clear of the sidebar)
-  const origin = topLeft
-    ? topLeft
-    : at
-    ? { x: at.x - card.width / 2, y: at.y - card.height / 2 }
-    : viewportCenter(api, card.width, card.height);
+  const origin =
+    topLeft ??
+    placementFor(api, { width: card.width, height: card.height }, at);
 
   const placed = [card, ...runs].map((element) => ({
     ...element,
@@ -952,4 +965,64 @@ export const handleCodePaste = async (
   });
 
   return false;
+};
+
+/**
+ * The one arm mechanism.
+ *
+ * The sidebar arms a file for the canvas, and the canvas consumes it. An image
+ * is armed by a click on the canvas (a paste of the stashed file), a source
+ * file by the next paste — the two have very different mechanics, but they are
+ * the same gesture from the user's side, so they share one entry point here.
+ *
+ * The drag arm is deliberately *not* part of this: it carries a file through
+ * the drop, and only an image can be dropped on the canvas today.
+ */
+export type ArmedInsert =
+  | { kind: "image"; file: File }
+  | { kind: "code"; code: string; fileName?: string; language?: string };
+
+/** forgets every armed insert — one gesture supersedes the last */
+export const cancelInsert = () => {
+  cancelImagePaste();
+  cancelCodePaste();
+  cancelImageDrag();
+};
+
+/** arms one insert, whichever kind it is */
+export const armInsert = (
+  api: ExcalidrawImperativeAPI,
+  armed: ArmedInsert,
+  onConsumed?: () => void,
+) => {
+  cancelInsert();
+
+  if (armed.kind === "image") {
+    armImagePasteOnCanvas(api, armed.file, onConsumed);
+    return;
+  }
+
+  armCodePasteOnCanvas(api, armed.code, {
+    fileName: armed.fileName,
+    language: armed.language,
+    onConsumed,
+  });
+};
+
+/** what is armed for the canvas right now, if anything */
+export const pendingInsert = (): ArmedInsert | null => {
+  if (pendingCode) {
+    return {
+      kind: "code",
+      code: pendingCode.code,
+      fileName: pendingCode.fileName,
+      language: pendingCode.language,
+    };
+  }
+
+  if (pendingPaste) {
+    return { kind: "image", file: pendingPaste };
+  }
+
+  return null;
 };

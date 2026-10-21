@@ -1,10 +1,10 @@
 /**
- * File-type rules for the sidebar's folder + documents tabs.
+ * File-type rules for the sidebar's one picker.
  *
  * Note on video: Excalidraw's `image` element model only knows how to render a
- * still frame or an animated GIF. There is no video element, so video files
- * are detected only so the UI can tell you they were skipped — instead of
- * pretending they will work.
+ * still frame or an animated GIF. There is no video element, so a video is
+ * classified like any other file and then reported as unsupported — it is
+ * *named* with the reason, never silently dropped.
  */
 
 import { Marked } from "marked";
@@ -12,16 +12,54 @@ import { codeToHtml } from "shiki";
 
 import type { RendererObject, Token, Tokens } from "marked";
 
-export type ScannedKind = "image" | "video" | "pdf" | "markdown" | "code";
+/** every kind of file the picker knows */
+export type ScannedKind =
+  | "image"
+  | "gif"
+  | "video"
+  | "pdf"
+  | "markdown"
+  | "code"
+  | "text";
+
+/** why a file cannot be used */
+export type UnsupportedReason =
+  | "video-not-embeddable"
+  | "unknown-type"
+  | "read-failed";
 
 export type ScannedFile = {
   file: File;
   name: string;
-  /** path relative to the picked folder, when the browser provides one */
+  /** the path relative to the picked root, e.g. "notes/plan.md" */
   path: string;
+  /** the directory the file sits in, relative to the picked root */
+  dir: string[];
   kind: ScannedKind;
-  /** shiki language id, for markdown + code files */
+  /** shiki language id, for the text-ish kinds */
   language?: string;
+};
+
+export type ScannedUnsupported = {
+  file: File;
+  name: string;
+  path: string;
+  dir: string[];
+  /** the kind it was classified as, when it has one */
+  kind?: ScannedKind;
+  /** why it cannot be used */
+  reason: UnsupportedReason;
+};
+
+export type ScanResult = {
+  /** every file the app can use, in every directory of the picked root */
+  files: ScannedFile[];
+  /** every file it cannot use, each with the reason why */
+  unsupported: ScannedUnsupported[];
+  /** every directory of the picked root, relative to it */
+  directories: string[][];
+  /** the picked root's own name, when the browser gives one */
+  rootName: string | null;
 };
 
 /** renderable by an Excalidraw image element (GIF animates, AVIF/WebP don't) */
@@ -29,7 +67,6 @@ const IMAGE_EXTENSIONS = new Set([
   "png",
   "jpg",
   "jpeg",
-  "gif",
   "webp",
   "svg",
   "bmp",
@@ -37,6 +74,9 @@ const IMAGE_EXTENSIONS = new Set([
   "avif",
   "ico",
 ]);
+
+/** a GIF is an image, but it is its own kind: it animates on the canvas */
+const GIF_EXTENSIONS = new Set(["gif"]);
 
 /** detected so we can report them as unsupported rather than silently drop */
 const VIDEO_EXTENSIONS = new Set([
@@ -119,6 +159,10 @@ export const classify = (
 ): ScannedKind | null => {
   const ext = getExtension(name);
 
+  // a GIF first: it is an image, but it is a kind of its own
+  if (GIF_EXTENSIONS.has(ext) || mimeType === "image/gif") {
+    return "gif";
+  }
   if (IMAGE_EXTENSIONS.has(ext) || mimeType?.startsWith("image/")) {
     return "image";
   }
@@ -131,7 +175,10 @@ export const classify = (
   if (MARKDOWN_EXTENSIONS.has(ext)) {
     return "markdown";
   }
-  if (CODE_LANGUAGE_BY_EXTENSION[ext] || PLAIN_TEXT_EXTENSIONS.has(ext)) {
+  if (PLAIN_TEXT_EXTENSIONS.has(ext)) {
+    return "text";
+  }
+  if (CODE_LANGUAGE_BY_EXTENSION[ext]) {
     return "code";
   }
   if (
@@ -166,90 +213,245 @@ export const languageFor = (name: string) => {
   return "text";
 };
 
-/** the folder scan keeps images (incl. GIFs) and reports videos separately */
-export const scanFolder = (files: FileList | File[]) =>
-  Array.from(files).reduce<{
-    images: ScannedFile[];
-    videos: ScannedFile[];
-    skipped: number;
-  }>(
-    (acc, file) => {
-      const path =
-        (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
-        file.name;
-      const kind = classify(file.name, file.type);
+/** the browser's own relative path, when it gives one */
+const relativePathOf = (file: File) =>
+  (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
+  file.name;
 
-      if (kind === "image") {
-        acc.images.push({ file, name: file.name, path, kind });
-      } else if (kind === "video") {
-        acc.videos.push({ file, name: file.name, path, kind });
-      } else {
-        acc.skipped += 1;
-      }
+/**
+ * The one scan entry point.
+ *
+ * Every picked file is classified, and every file that cannot be used is kept
+ * with the reason why — nothing is dropped on the way to the list.
+ *
+ * The picked root is kept whole, because a `webkitdirectory` pick hands over a
+ * *flat* list of files that carry their relative paths: without the whole list
+ * there is no way to browse into a subfolder without the File System Access
+ * API.
+ */
+export const scanFiles = (files: FileList | File[]): ScanResult => {
+  const scanned: ScannedFile[] = [];
+  const unsupported: ScannedUnsupported[] = [];
+  const directories = new Set<string>();
+  let rootName: string | null = null;
 
-      return acc;
-    },
-    { images: [], videos: [], skipped: 0 },
-  );
+  for (const file of Array.from(files)) {
+    const segments = relativePathOf(file).split("/").filter(Boolean);
 
-export const scanDocuments = (files: FileList | File[]) =>
-  Array.from(files)
-    .map<ScannedFile | null>((file) => {
-      const kind = classify(file.name, file.type);
-      if (kind !== "pdf" && kind !== "markdown" && kind !== "code") {
-        return null;
-      }
-      const path =
-        (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
-        file.name;
+    // a picked folder's own name is the first segment of every relative path
+    if (!rootName && segments.length > 1) {
+      rootName = segments[0];
+    }
 
-      return {
+    const dir = segments.slice(1, -1);
+
+    // every ancestor of the file's directory is a directory of the root
+    for (let i = 1; i <= dir.length; i++) {
+      directories.add(dir.slice(0, i).join("/"));
+    }
+
+    const path = dir.length ? `${dir.join("/")}/${file.name}` : file.name;
+    const kind = classify(file.name, file.type);
+
+    if (!kind || kind === "video") {
+      unsupported.push({
         file,
         name: file.name,
         path,
-        kind,
-        language: kind === "pdf" ? undefined : languageFor(file.name),
-      };
-    })
-    .filter((entry): entry is ScannedFile => entry !== null)
-    .sort((a, b) => a.name.localeCompare(b.name));
+        dir,
+        kind: kind ?? undefined,
+        reason: kind === "video" ? "video-not-embeddable" : "unknown-type",
+      });
+      continue;
+    }
 
-export const DOCUMENT_ACCEPT = [
-  ".pdf",
-  ".md",
-  ".markdown",
-  ".mdx",
-  ".txt",
-  ".log",
-  "text/*",
-  ".js",
-  ".jsx",
-  ".ts",
-  ".tsx",
-  ".py",
-  ".json",
-  ".jsonc",
-  ".yml",
-  ".yaml",
-  ".toml",
-  ".html",
-  ".css",
-  ".scss",
-  ".java",
-  ".go",
-  ".rs",
-  ".rb",
-  ".php",
-  ".c",
-  ".h",
-  ".cpp",
-  ".hpp",
-  ".cs",
-  ".sh",
-  ".sql",
-  ".vue",
-  ".svelte",
-].join(",");
+    scanned.push({
+      file,
+      name: file.name,
+      path,
+      dir,
+      kind,
+      language:
+        kind === "code" || kind === "markdown" || kind === "text"
+          ? languageFor(file.name)
+          : undefined,
+    });
+  }
+
+  const byPath = (a: { path: string }, b: { path: string }) =>
+    a.path.localeCompare(b.path);
+
+  return {
+    files: scanned.sort(byPath),
+    unsupported: unsupported.sort(byPath),
+    directories: [...directories].sort().map((dir) => dir.split("/")),
+    rootName,
+  };
+};
+
+/**
+ * The accept list of the file picker, **derived from the classifier** so the
+ * two cannot drift apart again: every extension `classify` knows, plus the
+ * mime types that carry a kind on their own.
+ */
+export const FILE_ACCEPT = [
+  ...new Set([
+    ...IMAGE_EXTENSIONS,
+    ...GIF_EXTENSIONS,
+    ...VIDEO_EXTENSIONS,
+    ...MARKDOWN_EXTENSIONS,
+    ...PLAIN_TEXT_EXTENSIONS,
+    ...Object.keys(CODE_LANGUAGE_BY_EXTENSION),
+    "pdf",
+  ]),
+]
+  .map((ext) => `.${ext}`)
+  .concat(["image/*", "video/*", "application/pdf", "text/*"])
+  .join(",");
+
+/** the label a kind's badge carries — one per kind, so a `.ts` is not a "TXT" */
+export const kindLabel = (kind: ScannedKind) =>
+  kind === "image"
+    ? "IMG"
+    : kind === "gif"
+    ? "GIF"
+    : kind === "pdf"
+    ? "PDF"
+    : kind === "markdown"
+    ? "MD"
+    : kind === "code"
+    ? "CODE"
+    : kind === "text"
+    ? "TXT"
+    : "VID";
+
+/** the sentence the list shows next to a file it cannot use */
+export const reasonText = (reason: UnsupportedReason) =>
+  reason === "video-not-embeddable"
+    ? "preview only — a video cannot be embedded on the canvas"
+    : reason === "read-failed"
+    ? "could not be read"
+    : "unknown file type";
+
+/** the icon each group header carries */
+export type GroupIconId =
+  | "image"
+  | "document"
+  | "markdown"
+  | "code"
+  | "video"
+  | "unsupported";
+
+export type FileGroupId =
+  | "images"
+  | "documents"
+  | "markdown"
+  | "code"
+  | "video"
+  | "unsupported";
+
+/** a row of the list: either a file the app can use, or one it cannot */
+export type GroupEntry =
+  | { type: "file"; file: ScannedFile }
+  | { type: "unsupported"; file: ScannedUnsupported };
+
+export type FileGroup = {
+  id: FileGroupId;
+  label: string;
+  icon: GroupIconId;
+  entries: GroupEntry[];
+};
+
+/** the fixed order of the groups (D-40) */
+const GROUPS: readonly {
+  id: FileGroupId;
+  label: string;
+  icon: GroupIconId;
+  kinds: ScannedKind[];
+}[] = [
+  { id: "images", label: "Images", icon: "image", kinds: ["image", "gif"] },
+  { id: "documents", label: "Documents", icon: "document", kinds: ["pdf"] },
+  {
+    id: "markdown",
+    label: "Markdown",
+    icon: "markdown",
+    kinds: ["markdown", "text"],
+  },
+  { id: "code", label: "Code", icon: "code", kinds: ["code"] },
+  // the video group is filled from the files that *cannot* be used
+  { id: "video", label: "Video", icon: "video", kinds: [] },
+  { id: "unsupported", label: "Unsupported", icon: "unsupported", kinds: [] },
+];
+
+const samePath = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((part, index) => part === b[index]);
+
+/** the directories that sit directly under `cwd` */
+export const directoriesAt = (scan: ScanResult, cwd: string[]) =>
+  scan.directories.filter(
+    (dir) =>
+      dir.length === cwd.length + 1 && samePath(dir.slice(0, cwd.length), cwd),
+  );
+
+/** the listing of one directory, grouped by type */
+export const groupsAt = (
+  scan: ScanResult,
+  cwd: string[],
+  /** the files that could not be read — they are not usable any more */
+  unreadable: string[] = [],
+): FileGroup[] => {
+  const failed = new Set(unreadable);
+
+  const files = scan.files.filter(
+    (file) => samePath(file.dir, cwd) && !failed.has(file.path),
+  );
+  const unsupported = scan.unsupported.filter((file) =>
+    samePath(file.dir, cwd),
+  );
+
+  // a file we could not read is named with the reason, like any other file we
+  // cannot use
+  const readFailures: GroupEntry[] = scan.files
+    .filter((file) => samePath(file.dir, cwd) && failed.has(file.path))
+    .map((file) => ({
+      type: "unsupported" as const,
+      file: {
+        file: file.file,
+        name: file.name,
+        path: file.path,
+        dir: file.dir,
+        kind: file.kind,
+        reason: "read-failed" as const,
+      },
+    }));
+
+  return GROUPS.map((group) => {
+    const entries: GroupEntry[] = [];
+
+    if (group.id === "video") {
+      entries.push(
+        ...unsupported
+          .filter((file) => file.reason === "video-not-embeddable")
+          .map((file) => ({ type: "unsupported" as const, file })),
+      );
+    } else if (group.id === "unsupported") {
+      entries.push(
+        ...unsupported
+          .filter((file) => file.reason !== "video-not-embeddable")
+          .map((file) => ({ type: "unsupported" as const, file })),
+        ...readFailures,
+      );
+    } else {
+      entries.push(
+        ...files
+          .filter((file) => group.kinds.includes(file.kind))
+          .map((file) => ({ type: "file" as const, file })),
+      );
+    }
+
+    return { id: group.id, label: group.label, icon: group.icon, entries };
+  }).filter((group) => group.entries.length > 0);
+};
 
 // --- markdown ---------------------------------------------------------------
 
