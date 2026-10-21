@@ -15,6 +15,7 @@ import {
   getDataURL,
 } from "@excalidraw/excalidraw/data/blob";
 
+import type { ClipboardData } from "@excalidraw/excalidraw/clipboard";
 import type { RemoteExcalidrawElement } from "@excalidraw/excalidraw/data/reconcile";
 import type {
   AppState,
@@ -788,28 +789,39 @@ export const CODE_CARD_PADDING = CODE_PADDING;
  * well, and the next paste becomes the *same code card* the Insert button
  * builds — monospace, on its dark background, soft-wrapped to a sane width.
  *
- * The listener sits on `window` in the capture phase, which is ahead of the
- * library's own paste handler (registered on `document`, bubble phase, in
- * `App.tsx`), so `stopPropagation` here leaves exactly one insert path. The
- * plain-text copy on the clipboard is left completely alone, so pasting into a
- * code editor, Word or a chat still gets ordinary text.
+ * The decision is made **inside the library's paste path** (`props.onPaste`),
+ * not in a DOM listener. The context menu's Paste (`actionPaste`) fires no DOM
+ * `paste` event at all — it calls `app.pasteFromClipboard(...)` directly — so
+ * a listener only ever saw the keyboard paste, and the right-click paste came
+ * out as plain text boxes. `pasteFromClipboard` is the one funnel both paths
+ * go through, so the hook covers both.
+ *
+ * The plain-text copy on the clipboard is left completely alone, so pasting
+ * into a code editor, Word or a chat still gets ordinary text.
  */
 
 type StashedCode = {
   code: string;
   fileName?: string;
   language?: string;
+  /** the editor the card is inserted into */
+  api: ExcalidrawImperativeAPI;
+  /** run once the stash has been consumed, so the caller can drop its hint */
+  onConsumed?: () => void;
 };
 
 let pendingCode: StashedCode | null = null;
 let detachCodePaste: (() => void) | null = null;
+/** where the pointer was, so the card lands under the cursor */
+let lastPointer: { clientX: number; clientY: number } | null = null;
 
 /** the code waiting for the next paste, if any */
 export const pendingCodePaste = () => pendingCode;
 
-/** forgets the stashed code and stops listening for the paste */
+/** forgets the stashed code and stops listening for the pointer */
 export const cancelCodePaste = () => {
   pendingCode = null;
+  lastPointer = null;
 
   if (detachCodePaste) {
     detachCodePaste();
@@ -841,53 +853,92 @@ export const armCodePasteOnCanvas = (
     return cancelCodePaste;
   }
 
-  pendingCode = { code, fileName, language };
+  pendingCode = { code, fileName, language, api, onConsumed };
 
-  // where the pointer was at paste time, so the card lands under the cursor
-  // the way a native paste does rather than in the middle of the view
-  let last: { clientX: number; clientY: number } | null = null;
+  // where the pointer is at paste time, so the card lands under the cursor
+  // the way a native paste does rather than in the middle of the view. The
+  // context menu's paste builds a synthetic event whose clientX/clientY are
+  // 0, so the pointer has to be tracked here rather than read off the event.
   const onPointerMove = (event: PointerEvent) => {
-    last = { clientX: event.clientX, clientY: event.clientY };
-  };
-
-  const onPaste = (event: Event) => {
-    const stashed = pendingCode;
-    const canvas = findCanvas();
-
-    if (!stashed) {
-      return;
-    }
-
-    // consume first: whatever happens next, this stash is spent
-    cancelCodePaste();
-
-    event.preventDefault();
-    event.stopPropagation();
-
-    onConsumed?.();
-
-    if (!canvas) {
-      return;
-    }
-
-    // highlighting is async, so the card appears a moment later — and falls
-    // back to the editable text card if this snippet cannot be highlighted
-    void insertCodeIntoScene(api, stashed.code, {
-      fileName: stashed.fileName,
-      language: stashed.language,
-      at: last
-        ? clientPointToScene(api, canvas, last.clientX, last.clientY)
-        : undefined,
-    });
+    lastPointer = { clientX: event.clientX, clientY: event.clientY };
   };
 
   window.addEventListener("pointermove", onPointerMove, true);
-  window.addEventListener("paste", onPaste, true);
 
   detachCodePaste = () => {
     window.removeEventListener("pointermove", onPointerMove, true);
-    window.removeEventListener("paste", onPaste, true);
   };
 
   return cancelCodePaste;
+};
+
+/**
+ * Whether the clipboard still holds the stashed code.
+ *
+ * The library trims the text it reads out of the clipboard, so both sides are
+ * compared trimmed. The user may have copied something else since the code was
+ * armed, and that paste is an ordinary one.
+ */
+const clipboardHoldsCode = (stashed: StashedCode, data: ClipboardData) =>
+  typeof data.text === "string" && data.text.trim() === stashed.code.trim();
+
+/**
+ * The app's `onPaste` hook.
+ *
+ * The library calls this from `pasteFromClipboard` — the one funnel the
+ * keyboard paste and the context menu's paste both go through — so the armed
+ * code arrives as a code card however it was pasted. Returning `false` means
+ * "handled it": the library then does not insert the plain text.
+ */
+export const handleCodePaste = async (
+  data: ClipboardData,
+  event: ClipboardEvent | null,
+): Promise<boolean> => {
+  const stashed = pendingCode;
+
+  if (!stashed) {
+    // nothing armed: an ordinary paste
+    return true;
+  }
+
+  if (!clipboardHoldsCode(stashed, data)) {
+    // the clipboard holds something else now: an ordinary paste
+    return true;
+  }
+
+  // the pointer is read before the stash is dropped
+  const pointer = lastPointer;
+
+  // consume first: whatever happens next, this stash is spent
+  cancelCodePaste();
+
+  // the library calls `event?.preventDefault()` only *after* this hook, and it
+  // returns early when the hook says false — so the browser's own paste has to
+  // be stopped here.
+  event?.preventDefault();
+
+  stashed.onConsumed?.();
+
+  const canvas = findCanvas();
+
+  if (!canvas) {
+    return false;
+  }
+
+  // highlighting is async, so the card appears a moment later — and falls
+  // back to the editable text card if this snippet cannot be highlighted
+  void insertCodeIntoScene(stashed.api, stashed.code, {
+    fileName: stashed.fileName,
+    language: stashed.language,
+    at: pointer
+      ? clientPointToScene(
+          stashed.api,
+          canvas,
+          pointer.clientX,
+          pointer.clientY,
+        )
+      : undefined,
+  });
+
+  return false;
 };
