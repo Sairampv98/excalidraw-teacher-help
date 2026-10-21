@@ -194,6 +194,27 @@ Everything below is inside the task scope `packages/vscode-bridge,packages/excal
 - it is deliberately **not** an npm dependency. An installed Pyodide is ~10 MB of the repository's own weight _and_ a 10 MB download; a lazily fetched runtime is paid for only by the teachers who use it. The panel's fallback is therefore reachable with **no installation at all**;
 - JavaScript needs no runtime at all — a native `<script>`/Worker.
 
+**How it is fetched.** The ESM build, loaded **on demand** and never at page load:
+
+```ts
+// only when the user asks for the in-browser path
+const { loadPyodide } = await import(
+  /* @vite-ignore */ "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pyodide.mjs"
+);
+
+const pyodide = await loadPyodide({
+  indexURL: "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/",
+});
+```
+
+- the `/* @vite-ignore */` is needed: the specifier is a remote URL, and the bundler must not try to resolve it at build time;
+- the **version is pinned** — an unpinned URL would let a new Pyodide change the behaviour under the teacher's feet;
+- the runtime is cached by the browser after the first fetch, so the second run is instant;
+- the panel shows a **progress state** while it loads, and it says what it is doing ("fetching the Python runtime, ~10 MB") — a silent ten-second pause reads as a hang;
+- **JavaScript** needs none of this: a native `<script>`/Worker runs it directly, with no download at all.
+
+**Do not add Pyodide to `package.json`.** It is fetched, not installed — that is the whole point of D-32.
+
 **What the panel does when the bridge is absent:** it offers the in-browser path, and it says plainly that the bridge is not connected. It never shows a blank editor.
 
 ## The owner has both editors running
