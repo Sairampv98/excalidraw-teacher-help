@@ -170,6 +170,8 @@ The cause was memory. Vitest defaults to one worker per CPU core; on this 15.4 G
 
 _Fix:_ `vitest.config.mts` now sets `maxWorkers: 4, minWorkers: 1`. The suite runs slower in wall-clock terms, but it finishes. **If you ever see a vitest run die with no summary line, this is the first thing to check** — raise `maxWorkers` on a machine with more memory, and do not read it as a code failure.
 
+**This fault can also make a _merge_ fail, and it looks like a code failure.** A TINS merge runs the gate a second time, in a throwaway worktree, on the merged tree — so the gate runs twice in quick succession, and the OS may reap a worker the second time. The message is `gate fails on HEAD` / `merge <task>: REFUSED at check`, and it is **transient**: re-running the same gate by hand in the same tree passes. What to do: **stop the dev server before a merge and start it again afterwards** (the dev server is the largest thing you can stop, at ~440 MB), and if the merge is refused, re-run it rather than changing the code. This happened for real on 2026-10-21 with the wave4b merge: the gate had passed in the task's own worktree, the merge's own gate failed, and the same gate passed in a hand-made throwaway worktree moments later.
+
 Three heuristics worth keeping: if a test fails with a path in its name that contains `.worktrees`, you are looking at a collection problem, not a code problem; if a test fails with an **empty** value where it expected content, suspect a helper that waited for the wrong thing; and if a test snapshots a whole live component, make it wait for the state it means to assert.
 
 There is still one **obsolete snapshot** left over from earlier work: `exportToSvg > with a CJK font 2`. It is debris, not a failure.
