@@ -86,6 +86,26 @@ const clipboardContainsElements = (
   return false;
 };
 
+/**
+ * The marker the library puts on the paste events it creates itself.
+ *
+ * The context menu's Paste has no pointer of its own — the pointer is where
+ * the user right-clicked — and the library vetoes a paste whose pointer is not
+ * over the canvas. A paste the browser sends (a key press) is a different
+ * thing: it must not be vetoed, because the pointer may well be resting over
+ * the sidebar, right after the user clicked "Copy code" there.
+ */
+export const SYNTHETIC_PASTE_EVENT = "excalidrawSyntheticPasteEvent";
+
+/**
+ * Whether the paste event is one the library created (the context menu's
+ * Paste), rather than one the browser sent.
+ */
+export const isSyntheticPasteEvent = (event: ClipboardEvent | null) =>
+  !!event &&
+  (event as ClipboardEvent & Record<string, unknown>)[SYNTHETIC_PASTE_EVENT] ===
+    true;
+
 export const createPasteEvent = ({
   types,
   files,
@@ -99,6 +119,12 @@ export const createPasteEvent = ({
 
   const event = new ClipboardEvent(EVENT.PASTE, {
     clipboardData: new DataTransfer(),
+  });
+
+  // this event is the library's own, not the browser's
+  Object.defineProperty(event, SYNTHETIC_PASTE_EVENT, {
+    value: true,
+    configurable: true,
   });
 
   if (types) {

@@ -897,14 +897,28 @@ export const armCodePasteOnCanvas = (
 };
 
 /**
+ * The line endings a text carries, made one kind.
+ *
+ * The clipboard on Windows hands the text back with CRLF, while the code that
+ * was stashed has LF — `navigator.clipboard.writeText` writes what it is given,
+ * and the clipboard normalises it on the way in. A lone CR (an old Mac file)
+ * is normalised too, so the two sides can be compared at all.
+ */
+const normaliseLineEndings = (text: string) =>
+  text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+/**
  * Whether the clipboard still holds the stashed code.
  *
  * The library trims the text it reads out of the clipboard, so both sides are
- * compared trimmed. The user may have copied something else since the code was
- * armed, and that paste is an ordinary one.
+ * compared trimmed, and the line endings are normalised on both sides — the
+ * comparison stays exact otherwise. The user may have copied something else
+ * since the code was armed, and that paste is an ordinary one.
  */
 const clipboardHoldsCode = (stashed: StashedCode, data: ClipboardData) =>
-  typeof data.text === "string" && data.text.trim() === stashed.code.trim();
+  typeof data.text === "string" &&
+  normaliseLineEndings(data.text).trim() ===
+    normaliseLineEndings(stashed.code).trim();
 
 /**
  * The app's `onPaste` hook.

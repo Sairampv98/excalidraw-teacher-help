@@ -3,7 +3,7 @@ id: wave7-paste-and-sidebar
 paths: packages/excalidraw,excalidraw-app,SPEC.md
 read: docs/superpowers/specs,docs/tins-tasks
 base: main
-status: open
+status: merged
 ---
 
 Fix three regressions the owner found on 2026-10-21: the sidebar markdown Copy code button no longer pastes a code card, the keyboard paste has the same fault, and the docked sidebar keeps the interaction while the user works on the canvas.
@@ -70,4 +70,3 @@ REPORT BACK
 5. Anything you could not do and why, including anything in the design you found to be wrong.
 6. The final git status of the worktree, with the changes unstaged.
 Do not summarise the design back. Report evidence: command output, test names, file paths.
-

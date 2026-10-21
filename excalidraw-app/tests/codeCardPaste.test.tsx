@@ -111,6 +111,20 @@ const expectCodeCard = () => {
   expect(new Set(runs.map((run) => run.groupIds[0])).size).toBe(1);
 };
 
+/**
+ * The paste event the browser sends for a key press.
+ *
+ * Not `createPasteEvent` — that one is the library's own (the context menu's
+ * Paste), and the library vetoes it when the pointer is not over the canvas.
+ * The browser's event carries no pointer at all.
+ */
+const browserPasteEvent = (text: string) => {
+  const clipboardData = new DataTransfer();
+  clipboardData.setData("text/plain", text);
+
+  return new ClipboardEvent("paste", { clipboardData });
+};
+
 afterEach(() => {
   cancelCodePaste();
 });
@@ -157,6 +171,57 @@ describe("the armed code paste", () => {
     await waitFor(() => expect(h.elements.length).toBeGreaterThan(0));
 
     expectCodeCard();
+  });
+
+  it("AC-76 a clipboard that hands the code back with CRLF is still the code", async () => {
+    const { api } = await renderEditor();
+
+    // the clipboard on Windows gives the text back with CRLF, while the code
+    // that was stashed has LF
+    const crlf = CODE.replace(/\n/g, "\r\n");
+
+    mockClipboard(crlf);
+
+    armCodePasteOnCanvas(api, CODE, {
+      fileName: "notes.py",
+      language: "python",
+    });
+
+    document.dispatchEvent(createPasteEvent({ types: { "text/plain": crlf } }));
+
+    await waitFor(() => expect(h.elements.length).toBeGreaterThan(0));
+
+    expectCodeCard();
+  });
+
+  it("AC-78 a keyboard paste is not dropped when the pointer is over the sidebar", async () => {
+    const { api, container } = await renderEditor();
+
+    // right after "Copy code" was clicked in the sidebar, the pointer is over
+    // the sidebar, and that is the position the library remembers
+    const sidebar = document.createElement("div");
+    sidebar.className = "sidebar";
+    container.appendChild(sidebar);
+
+    const elementFromPoint = document.elementFromPoint;
+    Object.assign(document, { elementFromPoint: () => sidebar });
+
+    try {
+      mockClipboard(CODE);
+
+      armCodePasteOnCanvas(api, CODE, {
+        fileName: "notes.py",
+        language: "python",
+      });
+
+      document.dispatchEvent(browserPasteEvent(CODE));
+
+      await waitFor(() => expect(h.elements.length).toBeGreaterThan(0));
+
+      expectCodeCard();
+    } finally {
+      Object.assign(document, { elementFromPoint });
+    }
   });
 
   it("AC-24 a paste whose clipboard no longer holds the armed code is an ordinary paste", async () => {

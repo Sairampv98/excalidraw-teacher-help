@@ -358,6 +358,7 @@ import {
 } from "../appState";
 import {
   copyTextToSystemClipboard,
+  isSyntheticPasteEvent,
   parseClipboard,
   parseDataTransferEvent,
   type ParsedDataTransferFile,
@@ -4371,16 +4372,36 @@ class App extends React.Component<AppProps, AppState> {
         return;
       }
 
-      const elementUnderCursor = document.elementFromPoint(
-        this.lastViewportPosition.x,
-        this.lastViewportPosition.y,
-      );
-      if (
-        event &&
-        (!(elementUnderCursor instanceof HTMLCanvasElement) ||
-          isWritableElement(target))
-      ) {
+      // A paste into a text field must never land on the canvas. This half of
+      // the guard holds for every path.
+      if (event && isWritableElement(target)) {
         return;
+      }
+
+      // The pointer-position veto belongs to the SYNTHETIC paste the context
+      // menu produces: there the pointer is where the user right-clicked. A
+      // keyboard paste has no pointer at all — the position the library
+      // remembers is wherever the pointer last was, and right after clicking
+      // "Copy code" in the sidebar that is inside the sidebar — so vetoing on
+      // it drops the paste entirely.
+      //
+      // `ClipboardEvent.isTrusted` is the browser's own answer to "did the user
+      // agent produce this event?": a key press gives a trusted event, the
+      // context menu's `createPasteEvent` an untrusted one. The marker the
+      // library puts on the events it creates says the same, and it is what
+      // jsdom, which cannot produce a trusted event at all, can be asked.
+      const isBrowserPaste =
+        !!event?.isTrusted || !isSyntheticPasteEvent(event);
+
+      if (event && !isBrowserPaste) {
+        const elementUnderCursor = document.elementFromPoint(
+          this.lastViewportPosition.x,
+          this.lastViewportPosition.y,
+        );
+
+        if (!(elementUnderCursor instanceof HTMLCanvasElement)) {
+          return;
+        }
       }
 
       // must be called in the same frame (thus before any awaits) as the paste

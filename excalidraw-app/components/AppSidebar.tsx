@@ -5,6 +5,7 @@ import { useExcalidrawSetAppState } from "@excalidraw/excalidraw/components/App"
 import { useUIAppState } from "@excalidraw/excalidraw/context/ui-appState";
 
 import { FilesTab } from "../sidebar/FilesTab";
+import { installSidebarRelease } from "../sidebar/sidebarRelease";
 import { useAutoFitPageOnResize } from "../sidebar/useSidebarLayout";
 
 /** the one tab: it picks files *and* folders */
@@ -126,6 +127,11 @@ export const AppSidebar = ({
 
   // the sidebar is an overlay, so it covers this much of the canvas
   const sidebarCoversCanvas = !!openSidebar;
+
+  // a click on the canvas takes the interaction away from the sidebar: the
+  // sidebar would otherwise take the wheel and the keyboard while the user
+  // works on the drawing
+  useEffect(() => installSidebarRelease(), []);
 
   useAutoFitPageOnResize({
     enabled: autoFitEnabled,
