@@ -16,6 +16,8 @@ import {
   isElbowArrow,
   isImageElement,
   isLinearElement,
+  isPanelElement,
+  isPosterPanelElement,
   isTextElement,
   isArrowElement,
   hasStrokeColor,
@@ -182,7 +184,15 @@ export const SelectedShapeActions = ({
   const showCropEditorAction =
     !appState.croppingElementId &&
     targetElements.length === 1 &&
-    isImageElement(targetElements[0]);
+    // A **poster** panel is croppable too — but not by the library's in-place
+    // crop mode, which rewrites the element's own `crop` field and a panel
+    // has none. The app's crop modal (D-68) opens instead, and it leaves the
+    // panel untouched.
+    (isImageElement(targetElements[0]) ||
+      isPosterPanelElement(targetElements[0]));
+
+  const showPanelActions =
+    targetElements.length === 1 && isPanelElement(targetElements[0]);
 
   const showAlignActions =
     !isSingleElementBoundContainer && alignActionsPredicate(appState, app);
@@ -241,6 +251,8 @@ export const SelectedShapeActions = ({
         targetElements.some((element) => canHaveArrowheads(element.type))) && (
         <>{renderAction("changeArrowhead")}</>
       )}
+
+      {showPanelActions && renderAction("changePanel")}
 
       {renderAction("changeOpacity")}
 
@@ -638,7 +650,8 @@ const CombinedExtraActions = ({
   const showCropEditorAction =
     !appState.croppingElementId &&
     targetElements.length === 1 &&
-    isImageElement(targetElements[0]);
+    (isImageElement(targetElements[0]) ||
+      isPosterPanelElement(targetElements[0]));
   const showLinkIcon = targetElements.length === 1;
   const showAlignActions = alignActionsPredicate(appState, app);
   let isSingleElementBoundContainer = false;

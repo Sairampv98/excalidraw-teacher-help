@@ -7,12 +7,15 @@ import { STATS_PANELS } from "@excalidraw/common";
 import { getCommonBounds } from "@excalidraw/element";
 import { getUncroppedWidthAndHeight } from "@excalidraw/element";
 import { isImageElement } from "@excalidraw/element";
+import { isPanelElement } from "@excalidraw/element";
 
 import { frameAndChildrenSelectedTogether } from "@excalidraw/element";
 
 import { elementsAreInSameGroup } from "@excalidraw/element";
 
 import type { NonDeletedExcalidrawElement } from "@excalidraw/element/types";
+
+import { panelNativeSize } from "../../scene/panelContent";
 
 import { t } from "../../i18n";
 import { isGridModeEnabled } from "../../snapping";
@@ -298,6 +301,26 @@ export const StatsInner = memo(
                           ? t("labels.imageCropping")
                           : t(`element.${singleElement.type}`)}
                       </StatsRow>
+
+                      {isPanelElement(singleElement) && (
+                        <>
+                          <StatsRow heading>
+                            {t("labels.panel.nativeSize")}
+                          </StatsRow>
+                          <StatsRow columns={2}>
+                            <div>{t("stats.width")}</div>
+                            <div>
+                              {round(panelNativeSize(singleElement).width, 2)}
+                            </div>
+                          </StatsRow>
+                          <StatsRow columns={2}>
+                            <div>{t("stats.height")}</div>
+                            <div>
+                              {round(panelNativeSize(singleElement).height, 2)}
+                            </div>
+                          </StatsRow>
+                        </>
+                      )}
 
                       <StatsRow>
                         <Position

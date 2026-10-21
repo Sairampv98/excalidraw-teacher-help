@@ -40,6 +40,7 @@ export const distanceToElement = (
     case "embeddable":
     case "frame":
     case "magicframe":
+    case "panel":
       return distanceToRectanguloidElement(element, elementsMap, p);
     case "diamond":
       return distanceToDiamondElement(element, elementsMap, p);

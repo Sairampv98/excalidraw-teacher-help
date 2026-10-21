@@ -62,6 +62,7 @@ import {
   hasBoundTextElement,
   isMagicFrameElement,
   isImageElement,
+  isLivePanelElement,
 } from "./typeChecks";
 import { getContainingFrame } from "./frame";
 import { getCornerRadius } from "./utils";
@@ -543,6 +544,45 @@ const drawElementOnCanvas = (
       context.restore();
       break;
     }
+    case "panel": {
+      // A **live** panel paints nothing: its content is a real DOM surface
+      // mounted by `components/PanelOverlay.tsx`, and the canvas must not bake
+      // a single frame of it — the same reason an animated image bails out.
+      //
+      // A **poster** panel paints its poster image at the panel's bounds. The
+      // poster is an ordinary PNG in the document's file store, so it goes
+      // through the image cache exactly like an image element does.
+      if (!element.posterMode || element.posterFileId === null) {
+        break;
+      }
+
+      const cacheEntry = renderConfig.imageCache.get(element.posterFileId);
+      const img = cacheEntry?.image;
+
+      if (img == null || img instanceof Promise) {
+        // The poster is not in the cache yet. Paint nothing rather than a
+        // placeholder: a poster that has not loaded must not look like a
+        // broken image.
+        break;
+      }
+
+      context.save();
+      // A panel has no `scale` (that branch is image-only) and no `crop`: a
+      // poster is always drawn whole, stretched to the panel's bounds.
+      context.drawImage(
+        img,
+        0,
+        0,
+        img.naturalWidth,
+        img.naturalHeight,
+        0 /* hardcoded for the selection box*/,
+        0,
+        element.width,
+        element.height,
+      );
+      context.restore();
+      break;
+    }
     default: {
       if (isTextElement(element)) {
         const rtl = isRTL(element.text);
@@ -908,7 +948,8 @@ export const renderElement = (
     case "image":
     case "text":
     case "iframe":
-    case "embeddable": {
+    case "embeddable":
+    case "panel": {
       if (
         !renderConfig.isExporting &&
         isAnimatedImageElement(element, renderConfig)
@@ -917,6 +958,18 @@ export const renderElement = (
         // This has to bail out *before* the if/else below rather than by
         // inverting its condition: that if/else offers the live draw and the
         // raster cache, and both of them bake in a single frame.
+        break;
+      }
+
+      if (!renderConfig.isExporting && isLivePanelElement(element)) {
+        // A live panel is mounted by the DOM overlay — see
+        // `components/PanelOverlay.tsx`. The canvas paints nothing for it, for
+        // the same reason an animated image bails out above: both the live
+        // draw and the raster cache would bake in a single frame of a
+        // surface that is supposed to be live.
+        //
+        // (An export has no such layer, so a live panel exports as nothing —
+        // the panel's own UI says so.)
         break;
       }
 

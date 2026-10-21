@@ -18,6 +18,7 @@ import {
   isArrowElement,
   isFreeDrawElement,
   isLinearElement,
+  isPanelElement,
 } from "./typeChecks";
 
 import type { ElementsMap, ExcalidrawElement } from "./types";
@@ -41,6 +42,13 @@ export const isInvisiblySmallElement = (
           INVISIBLY_SMALL_ELEMENT_SIZE,
         ))
     );
+  }
+
+  // A panel is a live surface, not a drawn shape: its size comes from the
+  // content it hosts, and a panel that has not measured its content yet is
+  // still a real element. So a zero-size panel is never auto-deleted.
+  if (isPanelElement(element)) {
+    return false;
   }
 
   return element.width === 0 && element.height === 0;

@@ -596,6 +596,50 @@ const renderElementToSvg = (
       }
       break;
     }
+    case "panel": {
+      // A **live** panel exports as **nothing**: the export path has no DOM
+      // overlay to mount the content into, and a live panel has no poster
+      // until it is locked. The panel's own UI says so.
+      //
+      // A **poster** panel exports as its poster — an ordinary PNG in the
+      // document's file store — drawn at the panel's bounds.
+      if (!element.posterMode || element.posterFileId === null) {
+        break;
+      }
+
+      const fileData = files[element.posterFileId];
+      if (!fileData) {
+        break;
+      }
+
+      const image = svgRoot.ownerDocument.createElementNS(SVG_NS, "image");
+      image.setAttribute("href", fileData.dataURL);
+      image.setAttribute("preserveAspectRatio", "none");
+      image.setAttribute("x", "0");
+      image.setAttribute("y", "0");
+      image.setAttribute("width", `${element.width}`);
+      image.setAttribute("height", `${element.height}`);
+      if (opacity !== 1) {
+        image.setAttribute("opacity", `${opacity}`);
+      }
+      image.setAttribute(
+        "transform",
+        `translate(${offsetX || 0} ${
+          offsetY || 0
+        }) rotate(${degree} ${cx} ${cy})`,
+      );
+
+      const g = maybeWrapNodesInFrameClipPath(
+        element,
+        root,
+        [image],
+        renderConfig.frameRendering,
+        elementsMap,
+      );
+
+      addToRoot(g || image, element);
+      break;
+    }
     // frames are not rendered and only acts as a container
     case "frame":
     case "magicframe": {

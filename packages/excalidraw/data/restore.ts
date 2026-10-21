@@ -448,6 +448,32 @@ export const restoreElement = (
   element = { ...element };
 
   switch (element.type) {
+    // A panel must survive a save→load round trip. Without this case the
+    // switch falls through to `return null` at the bottom of this function and
+    // `restoreElements` filters the panel out (`if (migratedElement)`), so the
+    // panel works in the editor and then **silently vanishes on reload**.
+    // This case is deliberately first: it is the highest-value fix in the wave.
+    case "panel": {
+      const restored = restoreElementWithProperties(element, {
+        panelKind: element.panelKind ?? "code",
+        panel: element.panel ?? {
+          source: { type: "inline", payload: null },
+          options: { naturalWidth: null, naturalHeight: null, captions: null },
+        },
+        // `posterMode` is the live/poster discriminator (D-33) — it is NOT the
+        // base element's `locked` flag, which stays `false` in both modes.
+        // A panel that claims to be a poster but carries no poster file is
+        // demoted to live, so the two modes can never be half-and-half.
+        posterMode: element.posterMode === true && !!element.posterFileId,
+        posterFileId: element.posterFileId ?? null,
+      });
+      // `floating` is opt-in and is not part of the restored `base`, so it
+      // arrives through the `...element` spread. A panel is by definition not
+      // owned by its page — it may sit outside the page rect, and it widens
+      // the camera clamp — so a panel is always floating.
+      (restored as Mutable<typeof restored>).floating = true;
+      return restored;
+    }
     case "text":
       // temp fix: cleanup legacy obsidian-excalidraw attribute else it'll
       // conflict when porting between the apps

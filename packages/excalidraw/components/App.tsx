@@ -147,6 +147,9 @@ import {
   isImageElement,
   isEmbeddableElement,
   isInitializedImageElement,
+  isLivePanelElement,
+  isPanelElement,
+  isPosterPanelElement,
   isLinearElement,
   isLinearElementType,
   isUsingAdaptiveRadius,
@@ -276,6 +279,7 @@ import type {
   NonDeleted,
   InitializedExcalidrawImageElement,
   ExcalidrawImageElement,
+  ExcalidrawPanelElement,
   FileId,
   NonDeletedExcalidrawElement,
   ExcalidrawTextContainer,
@@ -432,6 +436,13 @@ import {
   animatedImageFileIds,
   getAnimatedImageElements,
 } from "../scene/animatedImages";
+import { getAllPanelElements } from "../scene/panelContent";
+import { panelKeepsAspectRatio } from "../scene/panelContent";
+import {
+  panelLockUpdate,
+  panelPosterSpec,
+  panelUnlockUpdate,
+} from "../scene/lockPanel";
 import {
   setEraserCursor,
   setCursor,
@@ -463,6 +474,8 @@ import ConvertElementTypePopup, {
 
 import { activeConfirmDialogAtom } from "./ActiveConfirmDialog";
 import { AnimatedImageOverlay } from "./AnimatedImageOverlay";
+import { PanelChrome } from "./PanelChrome";
+import { PanelOverlay } from "./PanelOverlay";
 import { FlowAnimationOverlay } from "./FlowAnimationOverlay";
 import { isFlowAnimationActive, stopFlowAnimation } from "./FlowAnimationState";
 import BraveMeasureTextError from "./BraveMeasureTextError";
@@ -710,6 +723,21 @@ class App extends React.Component<AppProps, AppState> {
     elements: readonly NonDeletedExcalidrawElement[];
     files: BinaryFiles;
     images: ExcalidrawImageElement[];
+  } | null = null;
+  /**
+   * Cache for `getPanelElements()`. The panel overlay is not free to
+   * re-render: it hands a fresh `panels` array to `<PanelOverlay>` on every
+   * render, so the overlay would re-render on every frame of a stroke.
+   *
+   * The cache holds **every** panel, not just the live ones, because a panel
+   * is mutated **in place**: locking it changes its `posterMode` without
+   * changing the identity of the elements array, so the panels' own versions
+   * are what says whether the cached list is still true.
+   */
+  private panelElementsCache: {
+    elements: readonly NonDeletedExcalidrawElement[];
+    allPanels: ExcalidrawPanelElement[];
+    livePanels: ExcalidrawPanelElement[];
   } | null = null;
   /**
    * The element set the embeddables were last scanned for. The scan only
@@ -2481,6 +2509,36 @@ class App extends React.Component<AppProps, AppState> {
                             }
                             croppingElementId={this.state.croppingElementId}
                           />
+                          <PanelOverlay
+                            panels={this.getPanelElements(visibleElements)}
+                            files={this.files}
+                            elementsMap={allElementsMap}
+                            camera={{
+                              zoom: this.state.zoom,
+                              scrollX: this.state.scrollX,
+                              scrollY: this.state.scrollY,
+                              offsetLeft: this.state.offsetLeft,
+                              offsetTop: this.state.offsetTop,
+                            }}
+                            viewport={{
+                              width: this.state.width,
+                              height: this.state.height,
+                            }}
+                          />
+                          <PanelChrome
+                            panels={this.getSelectedPanelElements(
+                              visibleElements,
+                            )}
+                            elementsMap={allElementsMap}
+                            camera={{
+                              zoom: this.state.zoom,
+                              scrollX: this.state.scrollX,
+                              scrollY: this.state.scrollY,
+                              offsetLeft: this.state.offsetLeft,
+                              offsetTop: this.state.offsetTop,
+                            }}
+                            onToggleLock={this.togglePanelLock}
+                          />
                           <FlowAnimationOverlay
                             elementsMap={allElementsMap}
                             camera={{
@@ -3396,6 +3454,130 @@ class App extends React.Component<AppProps, AppState> {
     };
 
     return images;
+  };
+
+  /**
+   * The live panels of the visible elements, for the DOM overlay that mounts
+   * them.
+   *
+   * Memoised on the visible elements, so the overlay gets the same array
+   * reference — and therefore does not have to re-render — while nothing has
+   * changed. The elements array keeps its identity across an in-place
+   * mutation, so the cached panels' **versions** are checked as well: a panel
+   * that was locked or unlocked has to leave the overlay.
+   */
+  private getPanelElements = (
+    elements: readonly NonDeletedExcalidrawElement[],
+  ) => {
+    const cached = this.panelElementsCache;
+
+    if (
+      cached &&
+      cached.elements === elements &&
+      cached.allPanels.every((panel) => {
+        const current = this.scene.getNonDeletedElement(panel.id);
+        return !!current && current.version === panel.version;
+      })
+    ) {
+      return cached.livePanels;
+    }
+
+    const allPanels = getAllPanelElements(elements);
+    const livePanels = allPanels.filter(isLivePanelElement);
+
+    this.panelElementsCache = {
+      elements,
+      allPanels,
+      livePanels,
+    };
+
+    return livePanels;
+  };
+
+  /**
+   * The selected panels, for the panel chrome (the outline and the lock
+   * button).
+   *
+   * A **poster** panel is in this list too: it is selected like any other
+   * element, and its chrome is where it is unlocked again.
+   */
+  private getSelectedPanelElements = (
+    elements: readonly NonDeletedExcalidrawElement[],
+  ) =>
+    elements.filter(
+      (element): element is NonDeleted<ExcalidrawPanelElement> =>
+        isPanelElement(element) &&
+        this.state.selectedElementIds[element.id] === true,
+    );
+
+  /**
+   * The lock transition of a panel: live → poster → live.
+   *
+   * Locking freezes the panel's content into a poster image at the content's
+   * **native** resolution; unlocking throws the poster away and brings the
+   * live surface back. The live payload is never discarded, so the transition
+   * is reversible.
+   *
+   * The foundation wave can only freeze a panel whose content is a file in the
+   * document's own store (an image). The per-kind waves supply the capture
+   * for their own surface; until then the panel says it cannot be locked.
+   */
+  private togglePanelLock = async (panelId: string) => {
+    const element = this.scene.getNonDeletedElement(panelId);
+
+    if (!element || !isPanelElement(element)) {
+      return;
+    }
+
+    if (isPosterPanelElement(element)) {
+      this.scene.mutateElement(element, panelUnlockUpdate());
+      return;
+    }
+
+    const source = element.panel.source;
+
+    if (source.type !== "file") {
+      this.setToast({ message: t("labels.panel.cannotLock") });
+      return;
+    }
+
+    const file = this.files[source.fileId];
+
+    if (!file || !source.mimeType.startsWith("image/")) {
+      this.setToast({ message: t("labels.panel.cannotLock") });
+      return;
+    }
+
+    // The poster keeps the content's **own** pixels, so it is at the content's
+    // native resolution and not at the size the panel happens to be shown at.
+    // `panelPosterSpec()` states that size in one place, so the rule cannot
+    // drift between the capture and the check.
+    const spec = panelPosterSpec(element, MIME_TYPES.png);
+
+    const fileId = randomId() as FileId;
+
+    this.addFiles([
+      {
+        id: fileId,
+        dataURL: file.dataURL,
+        mimeType: MIME_TYPES.png,
+        created: Date.now(),
+        lastRetrieved: Date.now(),
+      },
+    ]);
+
+    this.scene.mutateElement(element, {
+      ...panelLockUpdate(fileId),
+      // the panel now knows the exact size of its own poster
+      panel: {
+        ...element.panel,
+        options: {
+          ...element.panel.options,
+          naturalWidth: spec.width,
+          naturalHeight: spec.height,
+        },
+      },
+    });
   };
 
   public componentWillUnmount() {
@@ -13442,7 +13624,17 @@ class App extends React.Component<AppProps, AppState> {
         this.scene,
         shouldRotateWithDiscreteAngle(event),
         shouldResizeFromCenter(event),
-        selectedElements.some((element) => isImageElement(element))
+        // The **poster rule**: an image keeps its aspect ratio while it is
+        // resized (and shift inverts that), because its pixels are being
+        // stretched. A **poster** panel is exactly that — a raster stretched
+        // to the panel's bounds — so it keeps the ratio too.
+        //
+        // A **live** panel does not: its content is a live surface that
+        // reflows, so it resizes freely.
+        selectedElements.some(
+          (element) =>
+            isImageElement(element) || panelKeepsAspectRatio(element),
+        )
           ? !shouldMaintainAspectRatio(event)
           : shouldMaintainAspectRatio(event),
         resizeX,

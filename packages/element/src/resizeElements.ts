@@ -1423,6 +1423,11 @@ export const resizeMultipleElements = (
           orig.scale[1] * flipFactorY,
         ];
       }
+      // NOTE: a panel has no `scale`, so it is never flipped here. A poster
+      // panel's poster is drawn whole and stretched to the panel's bounds
+      // (see `renderElement.ts`), so there is nothing to mirror. The aspect
+      // ratio of a poster panel is kept by the caller, which is the same
+      // place an image's is kept.
 
       if (isTextElement(orig)) {
         const metrics = measureFontSizeFromWidth(orig, elementsMap, width);

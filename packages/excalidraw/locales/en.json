@@ -169,6 +169,18 @@
       "lockAll": "Lock all",
       "unlockAll": "Unlock all"
     },
+    "panel": {
+      "title": "Panel",
+      "kind": "Kind",
+      "state": "State",
+      "lock": "Lock panel",
+      "unlock": "Unlock panel",
+      "live": "Live",
+      "poster": "Poster",
+      "nativeSize": "Content size",
+      "liveNotExportable": "A live panel exports as nothing. Lock it to make a poster.",
+      "cannotLock": "This panel cannot be locked yet."
+    },
     "statusPublished": "Published",
     "sidebarLock": "Keep sidebar open",
     "selectAllElementsInFrame": "Select all elements in frame",
@@ -311,7 +323,8 @@
     "libraryElementTypeError": {
       "embeddable": "Embeddable elements cannot be added to the library.",
       "iframe": "IFrame elements cannot be added to the library.",
-      "image": "Support for adding images to the library coming soon!"
+      "image": "Support for adding images to the library coming soon!",
+      "panel": "A live panel cannot be added to the library. Lock it first."
     },
     "asyncPasteFailedOnRead": "Couldn't paste (couldn't read from system clipboard).",
     "asyncPasteFailedOnParse": "Couldn't paste.",
@@ -356,7 +369,8 @@
     "magicframe": "Wireframe to code",
     "embeddable": "Web Embed",
     "selection": "Selection",
-    "iframe": "IFrame"
+    "iframe": "IFrame",
+    "panel": "Panel"
   },
   "headings": {
     "canvasActions": "Canvas actions",

@@ -257,6 +257,12 @@ export const generateRoughOptions = (
     }
     case "arrow":
       return options;
+    case "panel": {
+      // A panel has no rough border and no fill: its canvas footprint is
+      // either empty (live) or a poster image (see `renderElement.ts`). The
+      // base options are the right answer for both.
+      return options;
+    }
     default: {
       throw new Error(`Unimplemented type ${element.type}`);
     }
@@ -988,6 +994,7 @@ const _generateElementShape = (
     case "frame":
     case "magicframe":
     case "text":
+    case "panel":
     case "image": {
       const shape: ElementShapes[typeof element.type] = null;
       // we return (and cache) `null` to make sure we don't regenerate
@@ -1088,6 +1095,16 @@ export const getElementShape = <Point extends GlobalPoint | LocalPoint>(
     case "text":
     case "selection":
       return getPolygonShape(element);
+    case "panel":
+      // A panel's on-canvas footprint is a plain rotated rectangle, so it takes
+      // `getPolygonShape`'s generic rotated-rect branch. That helper lives in
+      // `packages/utils` (outside this wave's scope) and its `RectangularElement`
+      // union does not name the panel — but the function reads only
+      // x/y/width/height/angle and special-cases only "diamond", so the cast
+      // is deliberate and narrow.
+      return getPolygonShape(
+        element as unknown as Parameters<typeof getPolygonShape>[0],
+      );
     case "arrow":
     case "line": {
       const roughShape = ShapeCache.generateElementShape(element, null)[0];

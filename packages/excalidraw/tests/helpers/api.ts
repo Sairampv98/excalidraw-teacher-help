@@ -20,6 +20,7 @@ import {
   newImageElement,
   newLinearElement,
   newMagicFrameElement,
+  newPanelElement,
   newTextElement,
 } from "@excalidraw/element";
 
@@ -42,6 +43,7 @@ import type {
   ExcalidrawMagicFrameElement,
   ExcalidrawElbowArrowElement,
   ExcalidrawArrowElement,
+  ExcalidrawPanelElement,
   FixedSegment,
 } from "@excalidraw/element/types";
 
@@ -238,6 +240,11 @@ export class API {
       : never;
     elbowed?: boolean;
     fixedSegments?: FixedSegment[] | null;
+    // panel props
+    panelKind?: T extends "panel" ? ExcalidrawPanelElement["panelKind"] : never;
+    panel?: T extends "panel" ? ExcalidrawPanelElement["panel"] : never;
+    posterMode?: T extends "panel" ? ExcalidrawPanelElement["posterMode"] : never;
+    posterFileId?: T extends "panel" ? ExcalidrawPanelElement["posterFileId"] : never;
   }): T extends "arrow" | "line"
     ? ExcalidrawLinearElement
     : T extends "freedraw"
@@ -250,6 +257,8 @@ export class API {
     ? ExcalidrawFrameElement
     : T extends "magicframe"
     ? ExcalidrawMagicFrameElement
+    : T extends "panel"
+    ? ExcalidrawPanelElement
     : ExcalidrawGenericElement => {
     let element: Mutable<ExcalidrawElement> = null!;
 
@@ -382,6 +391,21 @@ export class API {
         break;
       case "magicframe":
         element = newMagicFrameElement({ ...base, width, height });
+        break;
+      case "panel":
+        element = newPanelElement({
+          ...base,
+          width,
+          height,
+          type: "panel",
+          panelKind: rest.panelKind ?? "code",
+          panel: rest.panel ?? {
+            source: { type: "inline", payload: null },
+            options: { naturalWidth: null, naturalHeight: null, captions: null },
+          },
+          posterMode: rest.posterMode ?? false,
+          posterFileId: rest.posterFileId ?? null,
+        });
         break;
       default:
         assertNever(

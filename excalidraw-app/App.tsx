@@ -50,6 +50,7 @@ import {
   youtubeIcon,
 } from "@excalidraw/excalidraw/components/icons";
 import { isElementLink } from "@excalidraw/element";
+import { isPanelElement, isPosterPanelElement } from "@excalidraw/element";
 import {
   bumpElementVersions,
   restoreAppState,
@@ -157,6 +158,7 @@ import { AppSidebar } from "./components/AppSidebar";
 import { usePageAutoFit, useSidebarWidth } from "./sidebar/useSidebarLayout";
 import { handleCodePaste } from "./sidebar/insertIntoScene";
 import { ReformatChooser } from "./sidebar/ReformatChooser";
+import { CropModal } from "./components/cropModal";
 
 import type { CollabAPI } from "./collab/Collab";
 
@@ -726,6 +728,22 @@ const ExcalidrawWrapper = () => {
     // no-op unless a presenter window is actually connected
     publishScene(elements, appState);
 
+    // the crop of a poster panel is app-level new UI (D-68): the library's
+    // crop action puts the panel into crop mode, and this is where the app
+    // notices and opens its own modal. The panel is never cropped in place —
+    // the modal leaves it untouched and produces a new image element.
+    const croppingId = appState.croppingElementId;
+
+    if (croppingId) {
+      const croppingElement = elements.find(
+        (element) => element.id === croppingId,
+      );
+
+      if (croppingElement && isPosterPanelElement(croppingElement)) {
+        setPanelCropId(croppingId);
+      }
+    }
+
     if (collabAPI?.isCollaborating()) {
       collabAPI.syncElements(elements);
     }
@@ -782,6 +800,11 @@ const ExcalidrawWrapper = () => {
   const [reformatElements, setReformatElements] = useState<
     readonly NonDeletedExcalidrawElement[] | null
   >(null);
+
+  // the poster panel the user asked to crop — the crop of a poster is
+  // app-level new UI (D-68), because the library's crop is an **in-place**
+  // crop of an image element and a panel has to be left untouched.
+  const [panelCropId, setPanelCropId] = useState<string | null>(null);
 
   const handleReformatSelection = useCallback(
     ({
@@ -964,6 +987,36 @@ const ExcalidrawWrapper = () => {
     },
   };
 
+  // the poster panel being cropped, with the poster's own pixels — the crop
+  // rectangle is in the poster's native resolution, not in the panel's
+  // on-canvas size (D-68)
+  const panelCrop =
+    panelCropId && excalidrawAPI
+      ? (() => {
+          const panel = excalidrawAPI
+            .getSceneElements()
+            .find(
+              (element) =>
+                element.id === panelCropId && isPosterPanelElement(element),
+            );
+
+          if (!panel || !isPanelElement(panel) || !panel.posterFileId) {
+            return null;
+          }
+
+          const file = excalidrawAPI.getFiles()[panel.posterFileId];
+
+          return file ? { panel, dataURL: file.dataURL } : null;
+        })()
+      : null;
+
+  const closePanelCrop = () => {
+    setPanelCropId(null);
+    excalidrawAPI?.updateScene({
+      appState: { croppingElementId: null },
+    });
+  };
+
   return (
     <div
       style={{ height: "100%" }}
@@ -1122,6 +1175,20 @@ const ExcalidrawWrapper = () => {
           <ReformatChooser
             elements={reformatElements}
             onClose={() => setReformatElements(null)}
+          />
+        )}
+        {panelCrop && (
+          <CropModal
+            panel={panelCrop.panel}
+            dataURL={panelCrop.dataURL}
+            pageId={excalidrawAPI?.getAppState().currentPageId ?? "page-1"}
+            onClose={closePanelCrop}
+            onApply={(element) => {
+              excalidrawAPI?.updateScene({
+                elements: [...excalidrawAPI.getSceneElements(), element],
+              });
+              closePanelCrop();
+            }}
           />
         )}
         {excalidrawAPI && !isCollabDisabled && (
