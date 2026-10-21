@@ -58,6 +58,7 @@ import {
 } from "@excalidraw/excalidraw/data/restore";
 import { newElementWith } from "@excalidraw/element";
 import { isInitializedImageElement } from "@excalidraw/element";
+import { syncInvalidIndices } from "@excalidraw/element";
 import clsx from "clsx";
 import {
   parseLibraryTokensFromUrl,
@@ -1198,8 +1199,14 @@ const ExcalidrawWrapper = () => {
             pageId={excalidrawAPI?.getAppState().currentPageId ?? "page-1"}
             onClose={closePanelCrop}
             onApply={(element) => {
+              // a NEW element has no fractional index yet, and the scene
+              // validates the indices before it syncs them - so the host app
+              // has to sync them itself (see `insertCodePanel`)
               excalidrawAPI?.updateScene({
-                elements: [...excalidrawAPI.getSceneElements(), element],
+                elements: syncInvalidIndices([
+                  ...excalidrawAPI.getSceneElements(),
+                  element,
+                ]),
               });
               closePanelCrop();
             }}

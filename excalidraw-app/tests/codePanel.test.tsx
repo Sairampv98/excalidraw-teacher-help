@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 
 import { newPanelElement } from "@excalidraw/element";
+import { validateFractionalIndices } from "@excalidraw/element";
 import { Excalidraw } from "@excalidraw/excalidraw";
 import { codePanelContent, emptyCodePanelState } from "@excalidraw/excalidraw";
 import { readCodePanelState } from "@excalidraw/excalidraw";
@@ -26,6 +27,7 @@ import type { ExcalidrawElement } from "@excalidraw/element/types";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
 import { bridgeConnection } from "../bridge/bridgeSession";
+import { insertCodePanel } from "../bridge/insertCodePanel";
 import { useBridgePanel } from "../bridge/useBridgePanel";
 
 import { BRIDGE_URL_ENV_VAR } from "../../packages/vscode-bridge/bridge/src/protocol";
@@ -382,5 +384,46 @@ describe("the app's side of the bridge", () => {
     // a refused connection: the token was wrong, or the extension is not
     // running
     expect(bridgeConnection("reconnecting")).toBe("rejected");
+  });
+
+  it("AC-83 an inserted code panel gets a fractional index, so the scene accepts it", () => {
+    const state: { elements: ExcalidrawElement[] } = { elements: [] };
+
+    const api = {
+      getSceneElements: () => state.elements,
+      getAppState: () => ({
+        width: 800,
+        height: 600,
+        scrollX: 0,
+        scrollY: 0,
+        zoom: { value: 1 },
+        currentPageId: "page-1",
+      }),
+      updateScene: (data: { elements?: readonly ExcalidrawElement[] }) => {
+        if (data.elements) {
+          state.elements = [...data.elements];
+        }
+      },
+    } as unknown as ExcalidrawImperativeAPI;
+
+    insertCodePanel(api);
+
+    expect(state.elements).toHaveLength(1);
+
+    // a NEW element is born with `index: null` ("not yet assigned to the
+    // scene"). The scene validates the indices BEFORE it syncs them, so an
+    // element that still has no index fails that validation - and in dev and
+    // test it throws, which killed the very first insert of a panel into an
+    // empty scene.
+    expect(state.elements[0].index).not.toBeNull();
+
+    // the library's own validator is the oracle: the elements the app hands
+    // over must satisfy it
+    expect(() =>
+      validateFractionalIndices(state.elements, {
+        shouldThrow: true,
+        includeBoundTextValidation: true,
+      }),
+    ).not.toThrow();
   });
 });

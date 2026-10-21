@@ -1,4 +1,4 @@
-import { newPanelElement } from "@excalidraw/element";
+import { newPanelElement, syncInvalidIndices } from "@excalidraw/element";
 import {
   codePanelContent,
   emptyCodePanelState,
@@ -47,8 +47,23 @@ export const insertCodePanel = (api: ExcalidrawImperativeAPI): void => {
 
   stampCurrentPage([panel], appState.currentPageId);
 
+  // A NEW element has no fractional index yet - that is what `index: null`
+  // means ("not yet assigned to the scene"). The library assigns the index
+  // itself when IT inserts an element (`scene.insertElementsAtIndex` syncs
+  // before the scene sees the set), but a host app that adds an element
+  // through `updateScene` has to do it itself: the scene validates the
+  // indices BEFORE it syncs them, and an element with no index fails that
+  // validation. In dev and test that validation throws, and the insert dies
+  // with `InvalidFractionalIndexError` - which is what happened the first
+  // time a panel was inserted into an empty scene.
+  //
+  // `syncInvalidIndices` is the library's own function for this: it assigns
+  // an index to the elements that do not have one and leaves the ones that
+  // already have a valid index alone.
+  const elements = syncInvalidIndices([...api.getSceneElements(), panel]);
+
   api.updateScene({
-    elements: [...api.getSceneElements(), panel],
+    elements,
     appState: {
       selectedElementIds: { [panel.id]: true },
     },
