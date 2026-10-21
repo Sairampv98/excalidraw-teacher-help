@@ -181,6 +181,29 @@ The implementation is the builder's choice, but it has to be **observable**: a t
 asserts the sidebar is not the wheel target after a canvas click, and a test that asserts
 no sidebar control holds the focus after a canvas click.
 
+### A recipe that was prototyped and works
+
+Measured in the live app, with the sidebar over the canvas strip:
+
+| moment | the element under a point in the sidebar strip |
+| --- | --- |
+| before | `DIV.app-sidebar-panel` — the sidebar; the wheel scrolls the sidebar |
+| after a canvas click, with the sidebar released | `CANVAS` — the wheel reaches Excalidraw |
+| after the pointer moves back over the sidebar | the sidebar again — it is interactive again |
+
+The prototype:
+
+1. On a **pointerdown on the canvas**, set the sidebar's `pointer-events` to `none`.
+2. On a **document-level pointermove**, compare the pointer coordinates with the sidebar's
+   bounding rect — **not** with `elementFromPoint`, because an element with
+   `pointer-events: none` is never returned by it — and restore `pointer-events` when the
+   pointer is back over the sidebar.
+
+That restores the canvas in the strip the sidebar covers, and gives the sidebar back as soon
+as the pointer returns. The keyboard half is separate: after a canvas click, blur any
+focused control inside the sidebar, so the canvas keeps the keyboard.
+
+
 ## What must NOT change
 
 - The selection auto-copy of prose in the markdown viewer works and must keep working.
