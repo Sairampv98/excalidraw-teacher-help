@@ -114,14 +114,14 @@ Add these five rows to `SPEC.md` in the Decisions table, and the acceptance rows
 
 | Row | What it checks | File |
 | --- | --- | --- |
-| AC-35 | A panel **survives save -> restore** with `locked`, `panelKind`, the `panel` payload and `posterFileId` intact. | `packages/excalidraw/tests/` |
-| AC-36 | A **live** panel is not painted by the canvas, and a **locked** panel is painted at the panel's bounds. | `packages/excalidraw/tests/` |
-| AC-37 | The panel overlay's screen position equals the position the canvas would use, **through `sceneCoordsToViewportCoords`** — an oracle, never a re-derivation. | `packages/excalidraw/tests/` |
-| AC-38 | Locking a panel produces a poster at the content's **native** resolution, regardless of the on-canvas display size, and locking is **reversible**. | `packages/excalidraw/tests/` |
-| AC-39 | Cropping a poster yields a **new image element on the current page** and leaves the panel untouched. | `excalidraw-app/tests/` |
-| AC-40 | For **every** entry in the dispatch checklist, a test asserts the panel behaves as the recorded decision says. | `packages/excalidraw/tests/` |
+| AC-36 | A panel **survives save -> restore** with `locked`, `panelKind`, the `panel` payload and `posterFileId` intact. | `packages/excalidraw/tests/` |
+| AC-37 | A **live** panel is not painted by the canvas, and a **locked** panel is painted at the panel's bounds. | `packages/excalidraw/tests/` |
+| AC-38 | The panel overlay's screen position equals the position the canvas would use, **through `sceneCoordsToViewportCoords`** — an oracle, never a re-derivation. | `packages/excalidraw/tests/` |
+| AC-39 | Locking a panel produces a poster at the content's **native** resolution, regardless of the on-canvas display size, and locking is **reversible**. | `packages/excalidraw/tests/` |
+| AC-40 | Cropping a poster yields a **new image element on the current page** and leaves the panel untouched. | `excalidraw-app/tests/` |
+| AC-41 | For **every** entry in the dispatch checklist, a test asserts the panel behaves as the recorded decision says. | `packages/excalidraw/tests/` |
 
-**The check file must mention the row's id** — put it in the test name, e.g. `it('AC-35 a panel survives a save and restore round trip', ...)`. The kit's SPEC lint reads the file and fails if the id is absent.
+**The check file must mention the row's id** — put it in the test name, e.g. `it('AC-36 a panel survives a save and restore round trip', ...)`. The kit's SPEC lint reads the file and fails if the id is absent.
 
 ## The files you own
 
