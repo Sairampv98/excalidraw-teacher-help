@@ -148,9 +148,9 @@ Please file an issue ( https://github.com/jsx-eslint/jsx-ast-utils/issues/new )
 
 That is a **plugin limitation being printed, not a lint failure**. The gate still exits 0. Ignore it.
 
-### The "known flakes" are gone — three separate faults, all fixed 2026-10-20
+### The "known flakes" are gone — four separate faults, all fixed 2026-10-20
 
-> **Corrected three times, and this is the complete account.** An earlier version of this section said these two files were flaky under parallel load and that you should not chase them. **That was wrong**, and chasing them is exactly what found the real faults. There were **three** of them, in two files, and none was a flake.
+> **Corrected four times, and this is the complete account.** An earlier version of this section said these two files were flaky under parallel load and that you should not chase them. **That was wrong**, and chasing them is exactly what found the real faults. There were **four** of them, in two files, and none was a flake.
 
 **Fault 1 — duplicate test collection.** `vitest.config.mts` set **no `exclude`**, so Vitest's defaults applied — and those defaults do not cover this repository's worktrees. When the suite ran from the repository root with a worktree present, every test file inside the worktree was collected a **second time**. The duplicate run resolved different paths (the worktree segment leaked into snapshot values, e.g. the exported font URLs). That is what broke `packages/excalidraw/tests/scene/export.test.ts`.
 
@@ -163,6 +163,12 @@ _Fix:_ the helper now waits for an element that is actually an editor — a `tex
 **Fault 3 — the mermaid snapshot raced the dialog's parse state.** The dialog parses the editor's content as soon as it mounts, and the editor starts **empty** before the example text is set. The mocked parser only accepts a definition whose first line is `flowchart TD`, so that first parse rejects and the dialog briefly shows _"Invalid mermaid definition"_ before recovering. The test then snapshotted the **whole dialog's outerHTML** — and it waited only for a canvas to exist, but a canvas is rendered in the error state too, just with its container marked `invisible`. So the snapshot was taken at whichever state the dialog happened to be in.
 
 _Fix:_ each test now waits for the state it actually asserts — the first for a parsed diagram, the second for a real editor.
+
+**Fault 4 — the operating system killed the vitest workers.** This one has a signature worth memorising, because it looks like nothing at all went wrong: vitest exited **non-zero with no summary line and no failing test**. Not "1 failed" — _no test result section at all_. The workers were killed mid-run, so vitest never got to print what it had.
+
+The cause was memory. Vitest defaults to one worker per CPU core; on this 15.4 GB machine that is 12 workers, and the heavier suites (the export and snapshot tests) hold 90–480 MB each. The OS stepped in and reaped them.
+
+_Fix:_ `vitest.config.mts` now sets `maxWorkers: 4, minWorkers: 1`. The suite runs slower in wall-clock terms, but it finishes. **If you ever see a vitest run die with no summary line, this is the first thing to check** — raise `maxWorkers` on a machine with more memory, and do not read it as a code failure.
 
 Three heuristics worth keeping: if a test fails with a path in its name that contains `.worktrees`, you are looking at a collection problem, not a code problem; if a test fails with an **empty** value where it expected content, suspect a helper that waited for the wrong thing; and if a test snapshots a whole live component, make it wait for the state it means to assert.
 
