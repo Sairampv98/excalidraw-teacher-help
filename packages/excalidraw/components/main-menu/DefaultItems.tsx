@@ -6,6 +6,7 @@ import type { Theme } from "@excalidraw/element/types";
 
 import {
   actionClearCanvas,
+  actionInsertDocument,
   actionLoadScene,
   actionSaveToActiveFile,
   actionShortcuts,
@@ -105,6 +106,38 @@ export const LoadScene = () => {
   );
 };
 LoadScene.displayName = "LoadScene";
+
+/**
+ * "Insert document..." — adds another `.excalidraw` file's content to the
+ * canvas that is already open, instead of replacing it (D-35).
+ *
+ * The action is not enabled when the canvas is empty (inserting into an empty
+ * canvas is exactly what "open" does), so the item is not rendered then.
+ */
+export const InsertDocument = () => {
+  const { t } = useI18n();
+  const actionManager = useExcalidrawActionManager();
+
+  if (!actionManager.isActionEnabled(actionInsertDocument)) {
+    return null;
+  }
+
+  const handleSelect = () => {
+    actionManager.executeAction(actionInsertDocument);
+  };
+
+  return (
+    <DropdownMenuItem
+      icon={LoadIcon}
+      onSelect={handleSelect}
+      data-testid="insert-document-button"
+      aria-label={t("buttons.insertDocument")}
+    >
+      {t("buttons.insertDocument")}
+    </DropdownMenuItem>
+  );
+};
+InsertDocument.displayName = "InsertDocument";
 
 export const SaveToActiveFile = () => {
   const { t } = useI18n();

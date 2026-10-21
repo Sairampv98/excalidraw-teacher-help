@@ -5,7 +5,10 @@ import {
   THEME,
 } from "@excalidraw/common";
 
-import { getNonDeletedElements } from "@excalidraw/element";
+import {
+  getNonDeletedElements,
+  selectGroupsForSelectedElements,
+} from "@excalidraw/element";
 
 import { CaptureUpdateAction } from "@excalidraw/element";
 
@@ -21,13 +24,17 @@ import { Tooltip } from "../components/Tooltip";
 import { ExportIcon, questionCircle, saveAs } from "../components/icons";
 import { loadFromJSON, saveAsJSON } from "../data";
 import { isImageFileHandle } from "../data/blob";
-import { nativeFileSystemSupported } from "../data/filesystem";
+import { fileOpen, nativeFileSystemSupported } from "../data/filesystem";
 
 import { resaveAsImageWithScene } from "../data/resave";
 
 import { t } from "../i18n";
 import { getSelectedElements, isSomeElementSelected } from "../scene";
 import { getExportSize } from "../scene/export";
+import {
+  insertDocumentIntoScene,
+  readDocumentFromFile,
+} from "../scene/insertDocument";
 
 import "../components/ToolIcon.scss";
 
@@ -473,6 +480,80 @@ export const actionLoadScene = register({
     }
   },
   keyTest: (event) => event[KEYS.CTRL_OR_CMD] && event.key === KEYS.O,
+});
+
+/**
+ * Merges another `.excalidraw` document into the current canvas (D-35).
+ *
+ * Opening a file **replaces** the canvas, and it keeps doing so — this action
+ * is the explicit way to *add* a document to the canvas that is already open.
+ *
+ * It is not offered when the canvas is empty: inserting into an empty canvas is
+ * exactly what "open" does, and offering both would be noise.
+ */
+export const actionInsertDocument = register({
+  name: "insertDocument",
+  label: "buttons.insertDocument",
+  trackEvent: { category: "export" },
+  predicate: (elements, appState, props, app) => {
+    return (
+      !!app.props.UIOptions.canvasActions.insertDocument &&
+      !appState.viewModeEnabled &&
+      getNonDeletedElements(elements).length > 0
+    );
+  },
+  perform: async (elements, appState, _, app) => {
+    try {
+      const file = await fileOpen({ description: "Excalidraw files" });
+
+      const document = await readDocumentFromFile(file);
+
+      const {
+        elements: nextElements,
+        pages,
+        files,
+        selectedElementIds,
+      } = insertDocumentIntoScene({
+        elements,
+        pages: appState.pages,
+        currentPageId: appState.currentPageId,
+        document,
+        files: app.files,
+      });
+
+      // what arrived is selected, so the user can see it and move it — and the
+      // library's own selection helper keeps a group whole
+      const selection = selectGroupsForSelectedElements(
+        { selectedElementIds, editingGroupId: null },
+        getNonDeletedElements(nextElements),
+        appState,
+        null,
+      );
+
+      return {
+        elements: nextElements,
+        appState: {
+          pages: [...pages],
+          selectedElementIds: selection.selectedElementIds,
+          selectedGroupIds: selection.selectedGroupIds,
+          editingGroupId: selection.editingGroupId,
+        },
+        files,
+        captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+      };
+    } catch (error: any) {
+      if (error?.name === "AbortError") {
+        console.warn(error);
+        return false;
+      }
+      return {
+        elements,
+        appState: { ...appState, errorMessage: error.message },
+        files: app.files,
+        captureUpdate: CaptureUpdateAction.EVENTUALLY,
+      };
+    }
+  },
 });
 
 export const actionExportWithDarkMode = register<

@@ -84,6 +84,7 @@ export type ActionName =
   | "saveToActiveFile"
   | "saveFileToDisk"
   | "loadScene"
+  | "insertDocument"
   | "duplicateSelection"
   | "deleteSelectedElements"
   | "changeViewBackgroundColor"

@@ -42,6 +42,7 @@ export {
   actionSaveToActiveFile,
   actionSaveFileToDisk,
   actionLoadScene,
+  actionInsertDocument,
 } from "./actionExport";
 
 export { actionCopyStyles, actionPasteStyles } from "./actionStyles";
