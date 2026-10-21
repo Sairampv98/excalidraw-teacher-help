@@ -179,18 +179,34 @@ Everything below is inside the task scope `packages/vscode-bridge,packages/excal
 | AC-60 | `excalidraw-app/tests/` | A `run:start` produces a `run:started` / `run:output` / `run:exit` **sequence** in the panel. |
 | AC-61 | `excalidraw-app/tests/` | With **no bridge**, the panel shows the reconnect state, not a blank editor. |
 | AC-62 | `packages/vscode-bridge/` | Every message the extension sends parses under the `BridgeMessage` union, and vice versa. |
+| AC-69 | `excalidraw-app/tests/` | The in-browser fallback is **fetched lazily**: nothing is downloaded until the user asks for it, and the panel then runs the code in the browser. |
 
 **The check file must mention the row's id** — put it in the test name, e.g. `it('AC-57 a connection without the session token is rejected', ...)`. The kit's SPEC lint reads the file and fails if the id is absent.
 
-## Explicitly out of scope
+## The in-browser compiler (Pyodide) — approved, and in scope
 
-**The in-browser compiler (Pyodide).** The design proposes it for the graceful-degradation path, but it means a **new dependency** and a ~10 MB download — and the project's rule is that a new dependency needs the **owner's explicit approval**. Do not add it. Ship the "bridge not connected" state with the install hint instead, and raise the Pyodide question in the close note so the owner can decide.
+**The owner approved this on 2026-10-21** ("lazy download pyodide"). It was previously listed as out of scope because it meant a new dependency; it no longer does, and it is in scope for this wave. Locked as **D-32** in `SPEC.md`.
+
+**The mechanism, from the design §6:**
+
+- **Pyodide** is the in-browser fallback: the panel can run Python with no bridge at all;
+- the runtime is **downloaded lazily at run time** — fetched only when the user asks for it, **never on page load**. `excalidraw-app` is a teaching tool that is often opened on a slow classroom connection, and a 10 MB download on page load is not acceptable;
+- it is deliberately **not** an npm dependency. An installed Pyodide is ~10 MB of the repository's own weight _and_ a 10 MB download; a lazily fetched runtime is paid for only by the teachers who use it. The panel's fallback is therefore reachable with **no installation at all**;
+- JavaScript needs no runtime at all — a native `<script>`/Worker.
+
+**What the panel does when the bridge is absent:** it offers the in-browser path, and it says plainly that the bridge is not connected. It never shows a blank editor.
+
+## The owner has both editors running
+
+As of 2026-10-21 the owner has **both VS Code and VSCodium** open, and the extension must work in both. That is what the design already says (a `.vsix` installs with one click in either), so it is a **test condition**, not a new requirement: the bridge must not depend on anything that is VS-Code-only, and the extension's `package.json` must not use an engine range that excludes VSCodium.
+
+## Still out of scope
 
 **The YouTube caption path** — that is Wave 5c's remaining half, and it needs `yt-dlp` on the teacher's machine.
 
 ## The house rules
 
-- `yarn`, never `npm` or `bun`. **No new dependency** — the app side uses the browser's native `WebSocket`, and the extension side has no runtime dependency of its own.
+- `yarn`, never `npm` or `bun`. **No new npm dependency** — the app side uses the browser's native `WebSocket`, and the extension side has no runtime dependency of its own. Pyodide is **fetched at run time**, not installed.
 - LF line endings, no BOM.
 - The library's own functions are the oracle. Never re-derive a formula the library already has.
 - Run the tests with `npx vitest run <file> --watch=false`. **Never** leave vitest in watch mode.

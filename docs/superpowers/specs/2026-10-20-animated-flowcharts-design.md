@@ -147,6 +147,10 @@ Applying a layout means **moving the elements**, which is a normal scene mutatio
 
 Recommendation: start with **`dagre`** for a first-cut auto-layout, since hierarchical flowcharts are the teaching case and dagre is a single small dependency.
 
+> **Approved by the owner, 2026-10-21** ("ok install dagre"). `dagre` (`0.8.5`) is installed as a runtime dependency of `packages/excalidraw`, with `@types/dagre` (`0.7.54`) for its types — the only dependencies the fork adds to the pre-existing toolchain. Locked as **D-31** in `SPEC.md`.
+>
+> **This design's shape is superseded on two points** by the owner's later decision (question 9): the animation is triggered from a **properties-panel section** and played as an **overlay**, not from a flow panel element. See `docs/superpowers/specs/2026-10-21-flow-animation-design.md` for the shape that was chosen; the auto-layout this section describes is part of it.
+
 ### 5.4 Presenter support
 
 The presenter channel (`presenterChannel.ts:140-152`) is a `BroadcastChannel` carrying structured-clone data, so it _can_ carry an animation field. But it publishes on editor **state change**, not per frame, so a live animation needs its own clock in the presenter.

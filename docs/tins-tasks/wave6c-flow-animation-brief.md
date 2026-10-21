@@ -12,6 +12,18 @@ The owner's decision (2026-10-21, question 9): the animation is an **overlay mod
 
 The full design is `docs/superpowers/specs/2026-10-21-flow-animation-design.md`. **Read it first.** It records where this **supersedes** the earlier `2026-10-20-animated-flowcharts-design.md`: that one proposed a dedicated flow _panel element_; the owner chose a properties-panel section and an overlay, so there is **no new element type** here and nothing is written into the document.
 
+## The auto-layout — approved, and in scope
+
+**The owner approved this on 2026-10-21** ("ok install dagre"). It was previously listed as out of scope because it needed a new dependency; it no longer does.
+
+**`dagre` (`0.8.5`) is installed** as a runtime dependency of `packages/excalidraw`, with `@types/dagre` (`0.7.54`) for its types. Locked as **D-31** in `SPEC.md`. **Use the installed copy — do not add the dependency again**, and do not fetch dagre from a CDN.
+
+The layout is a **normal scene mutation**: it moves the elements, so it is undoable, saved, and visible in the editor. That is a real advantage over React Flow, where the layout is internal.
+
+**Why the layout matters for the animation:** the step order comes from the arrows. A layout that is not the author's own would draw arrows between nodes that are not neighbours, so the order would be the layout's rather than the drawing's. So the layout is **one step the user asks for**, and the animation's order is read from the drawing afterwards.
+
+**The layout is optional.** With no layout applied, the animation reads the drawing as it is — which is the point of the arrows. The properties-panel section offers "Lay this out" as a separate action from "Play".
+
 ## The locked decisions to implement
 
 | Row | The decision in one line |
@@ -78,12 +90,13 @@ Everything below is inside the task scope `packages/excalidraw,SPEC.md`.
 | AC-49 | `packages/excalidraw/tests/` | With no arrows, the steps are the selected elements in **reading order**. |
 | AC-50 | `packages/excalidraw/tests/` | The overlay's position for a shape equals the position the canvas would use, **through `sceneCoordsToViewportCoords`** — an oracle, never a re-derivation. |
 | AC-51 | `packages/excalidraw/tests/` | Playing the animation **changes nothing in the document**: no element is added, changed or removed. |
+| AC-70 | `packages/excalidraw/tests/` | The auto-layout **moves the selected shapes** into a layered arrangement and does so as a normal, undoable scene mutation — and the animation's step order still follows the drawing's arrows afterwards. |
 
 **The check file must mention the row's id** — put it in the test name, e.g. `it('AC-48 the step order follows the arrows', ...)`. The kit's SPEC lint reads the file and fails if the id is absent.
 
 ## The house rules
 
-- `yarn`, never `npm` or `bun`. **No new dependency** — in particular **no `dagre`** and no tweening library. The auto-layout it would enable is out of scope: it needs the owner's explicit approval for a new dependency.
+- `yarn`, never `npm` or `bun`. **No new dependency beyond the approved `dagre`** — and no tweening library. `dagre` is already installed; use the installed copy.
 - LF line endings, no BOM.
 - The library's own functions are the oracle. Never re-derive a formula the library already has (`getCommonBounds`, `sceneCoordsToViewportCoords`).
 - Run the tests with `npx vitest run <file> --watch=false`. **Never** leave vitest in watch mode.

@@ -167,6 +167,8 @@ This is worth stating plainly: **for a code panel, OCR is a fallback, not the pr
 
 ## 6. Graceful degradation: the in-browser compiler
 
+> **Approved by the owner, 2026-10-21** ("lazy download pyodide"). The mechanism below is unchanged: Pyodide is the in-browser fallback, and the runtime is **downloaded lazily** — fetched only when the user asks for it, never on page load. It is deliberately **not** an npm dependency: an installed Pyodide is ~10 MB of the repository's own weight _and_ a 10 MB download on a slow classroom connection, while a lazily fetched runtime is paid for only by the teachers who use it. The panel's fallback is therefore reachable with no installation at all. Locked as **D-32** in `SPEC.md`.
+
 When no bridge is connected, the panel offers an in-browser compiler instead of nothing.
 
 **Recommended: Pyodide**, loaded **lazily** — the ~10 MB runtime is only fetched when the user asks for it, never on page load. This matters: `excalidraw-app` is a teaching tool that is often opened on a slow classroom connection.

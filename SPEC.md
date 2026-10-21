@@ -133,3 +133,14 @@ These are recorded so the numbering does not shift. Their design documents are i
 | presenter panels | 10 | `2026-10-20-presenter-panels-design.md` |
 | sidebar unification | 9 | `2026-10-20-sidebar-unification-design.md` |
 | animated flowcharts | 11 | `2026-10-20-animated-flowcharts-design.md` |
+
+---
+
+## Decisions — the owner's later approvals (2026-10-21)
+
+These are recorded apart from the main table so that the numbering of the waves in flight does not shift underneath them. They are the owner's explicit approvals of two things that would otherwise have needed a new dependency, and they are **locked**.
+
+| Row | The decision | Status | Detail |
+| --- | --- | --- | --- |
+| D-31 | dagre lays the flowchart out, @types/dagre types it | locked | The flowchart's **auto-layout** uses `dagre` (`0.8.5`), added as a runtime dependency of `packages/excalidraw`, with `@types/dagre` (`0.7.54`) for its types. The owner's approval, 2026-10-21. The reason: the animation's step order comes from the arrows, and a layout that is not the author's own would draw arrows between nodes that are not neighbours, so the order would be the layout's rather than the drawing's. These are the **only** dependencies the fork adds to the pre-existing toolchain that D-100 locks. They are used for the layout step only — the animation, the overlay and the reading order do not depend on them. The kit's dependency lint reads the **root** `package.json` only, so it does not see a workspace package's dependencies; this row is the record the lint cannot make. |
+| D-32 | pyodide is the in-browser fallback, downloaded lazily | locked | The code panel's **graceful degradation** — the path that runs Python when the VS Code bridge is not connected — is **Pyodide**, and it is **downloaded lazily at run time**: the runtime is fetched only when the user asks for it, never on page load. The owner's approval, 2026-10-21 ("lazy download pyodide"). It is deliberately **not** an npm dependency: an installed Pyodide is ~10 MB of the repository's own weight and a 10 MB download on a slow classroom connection, while a lazily fetched runtime is paid for only by the teachers who use it. The panel's fallback is therefore reachable with no installation at all, and the panel itself says so plainly when the bridge is absent. |
