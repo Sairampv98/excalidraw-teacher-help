@@ -120,6 +120,19 @@ This is what stops another local process — or a web page via a CSRF-style conn
 
 **A note on the design doc:** it proposed a _random_ free port and a token file under the OS temp dir that the app polls. That is a workable design, but it is **not** what this wave builds — the fixed port plus the in-band token is, and the reason is above. Update the design doc if you disagree, in your close note.
 
+### How the token reaches the app — the owner's decision (2026-10-21)
+
+**The copy-to-clipboard option exists.** The extension already has the two commands that make it work — **"Excalidraw Bridge: Show the connection details"** (which shows the port and the token, with a _Copy token_ button) and **"Excalidraw Bridge: Copy the session token"**.
+
+The **app** side therefore has, in the panel's chrome, a **Bridge** field with a **"Paste from clipboard"** button that calls `navigator.clipboard.readText()`. The teacher clicks _Copy the session token_ in the editor, clicks _Paste_ in the panel, and the panel connects.
+
+Rules for that field:
+
+- the token is held **in memory for the session only** — never written to `localStorage`, never put in a URL, never logged. The extension's token is per-session, so a remembered one would be useless anyway;
+- the field must show a clear state for each of: not connected, connected, and **rejected** (wrong token, or the extension is not running);
+- the token **never travels through a chat window or through the agent** — it is a secret, and this repo's rule is that a secret goes in a file the agent does not read back;
+- a teacher who sets the extension's own `excalidraw-bridge.token` setting gets a **stable** token, which they then paste once per session instead of copying a fresh one each time. That is the teacher's choice, made in their editor - the app does not need to know, and **no token is baked into the app**.
+
 ## The panel
 
 The panel is a **code panel** from the foundation. Its content is **CodeMirror 6**, reusing `packages/excalidraw/components/TTDDialog/CodeMirrorEditor.tsx` as the base component:
