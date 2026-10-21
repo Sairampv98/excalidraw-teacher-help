@@ -72,6 +72,7 @@ import type {
   NonDeletedExcalidrawElement,
   OrderedExcalidrawElement,
 } from "@excalidraw/element/types";
+import type { ExcalidrawPanelElement } from "@excalidraw/element/types";
 import type {
   AppState,
   ExcalidrawImperativeAPI,
@@ -107,6 +108,7 @@ import { AppMainMenu } from "./components/AppMainMenu";
 import { AppWelcomeScreen } from "./components/AppWelcomeScreen";
 import { insertCodePanel } from "./bridge/insertCodePanel";
 import { useBridgePanel } from "./bridge/useBridgePanel";
+import { useOcr } from "./bridge/useOcr";
 import {
   ExportToExcalidrawPlus,
   exportToExcalidrawPlus,
@@ -161,10 +163,11 @@ import { AppSidebar } from "./components/AppSidebar";
 import { usePageAutoFit, useSidebarWidth } from "./sidebar/useSidebarLayout";
 import { handleCodePaste } from "./sidebar/insertIntoScene";
 import { ReformatChooser } from "./sidebar/ReformatChooser";
-import { CropModal } from "./components/cropModal";
+import { CropModal, posterNaturalSize } from "./components/cropModal";
 
 import type { CollabAPI } from "./collab/Collab";
 
+import type { CropRect } from "./components/cropModal";
 polyfill();
 
 window.EXCALIDRAW_THROTTLE_RENDER = true;
@@ -409,7 +412,110 @@ const ExcalidrawWrapper = () => {
 
   // the VS Code bridge: the app's side of the connection, and the code panel
   // it feeds (D-51)
-  const { bridge } = useBridgePanel(excalidrawAPI);
+  const { bridge, requestOcr } = useBridgePanel(excalidrawAPI);
+
+  // the OCR capability: the read happens in the bridge's Node process, and the
+  // app puts the text back on the canvas (D-59)
+  const {
+    read: readOcr,
+    imageOfPanel,
+    message: ocrMessage,
+    busy: ocrBusy,
+  } = useOcr({ api: excalidrawAPI, requestOcr });
+
+  /**
+   * Reads the **panel** the teacher picked: its poster, or the frame the
+   * video is showing right now (D-59).
+   *
+   * The whole picture is the region of interest — the teacher did not pick a
+   * part of it.
+   */
+  const readPanel = useCallback(
+    async (panelId: string) => {
+      const current = excalidrawAPI;
+
+      if (!current) {
+        return;
+      }
+
+      const panel = current
+        .getSceneElements()
+        .find((element) => element.id === panelId);
+
+      if (!panel || !isPanelElement(panel)) {
+        return;
+      }
+
+      const image = imageOfPanel(panel);
+
+      if (!image) {
+        return;
+      }
+
+      await readOcr({
+        image,
+        placement: {
+          x: panel.x,
+          y: panel.y,
+          width: panel.width,
+          height: panel.height,
+        },
+        pageId: panel.pageId,
+        strokeColor: current.getAppState().currentItemStrokeColor,
+      });
+    },
+    [excalidrawAPI, imageOfPanel, readOcr],
+  );
+
+  /**
+   * Reads the **crop** the teacher picked in the crop dialog (D-59).
+   *
+   * The region travels with the request, so the bridge reads only that part
+   * of the picture — the crop is the one OCR lever that costs nothing and buys
+   * the most.
+   */
+  const readCrop = useCallback(
+    async (panel: ExcalidrawPanelElement, crop: CropRect) => {
+      const current = excalidrawAPI;
+
+      if (!current) {
+        return;
+      }
+
+      const file = panel.posterFileId
+        ? current.getFiles()[panel.posterFileId]
+        : null;
+
+      if (!file) {
+        return;
+      }
+
+      const natural = posterNaturalSize(panel);
+
+      await readOcr({
+        image: {
+          dataURL: file.dataURL,
+          width: natural.width,
+          height: natural.height,
+        },
+        region: {
+          x: crop.x,
+          y: crop.y,
+          width: crop.width,
+          height: crop.height,
+        },
+        placement: {
+          x: panel.x,
+          y: panel.y,
+          width: panel.width,
+          height: panel.height,
+        },
+        pageId: panel.pageId,
+        strokeColor: current.getAppState().currentItemStrokeColor,
+      });
+    },
+    [excalidrawAPI, readOcr],
+  );
 
   const [errorMessage, setErrorMessage] = useState("");
   const isCollabDisabled = isRunningInIframe();
@@ -1096,6 +1202,15 @@ const ExcalidrawWrapper = () => {
         // the bridge field of a code panel: the token, and the state of the
         // connection (D-52)
         panelBridge={bridge}
+        // the OCR option of a panel: the read happens in the bridge's Node
+        // process, and the app puts the text back on the canvas (D-59)
+        panelOcr={{
+          message: ocrMessage,
+          busy: ocrBusy,
+          onOcr: (panelId) => {
+            void readPanel(panelId);
+          },
+        }}
         theme={editorTheme}
         pagesEnabled={true}
         sidebarWidth={sidebarWidth}
@@ -1198,6 +1313,11 @@ const ExcalidrawWrapper = () => {
             dataURL={panelCrop.dataURL}
             pageId={excalidrawAPI?.getAppState().currentPageId ?? "page-1"}
             onClose={closePanelCrop}
+            onOcr={(crop) => {
+              void readCrop(panelCrop.panel, crop);
+            }}
+            ocrMessage={ocrMessage}
+            ocrBusy={ocrBusy}
             onApply={(element) => {
               // a NEW element has no fractional index yet, and the scene
               // validates the indices before it syncs them - so the host app

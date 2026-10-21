@@ -4,6 +4,7 @@ import {
   createBridgeClient,
   describeBridgeState,
 } from "../../packages/vscode-bridge/bridge/src/client";
+import { createOcrClient } from "../../packages/vscode-bridge/bridge/src/ocrClient";
 import { bridgeUrl as defaultBridgeUrl } from "../../packages/vscode-bridge/bridge/src/protocol";
 
 import type {
@@ -13,6 +14,10 @@ import type {
   WebSocketConstructor,
 } from "../../packages/vscode-bridge/bridge/src/client";
 import type { BridgeMessage } from "../../packages/vscode-bridge/bridge/src/protocol";
+import type {
+  OcrRequest,
+  OcrResult,
+} from "../../packages/vscode-bridge/bridge/src/ocr";
 
 /**
  * The app's side of the **VS Code bridge**.
@@ -106,6 +111,14 @@ export interface BridgeSession {
   getState: () => BridgeSessionState;
   /** ask the extension to run a program */
   startRun: (command: string, args: string[], cwd?: string) => boolean;
+  /**
+   * Ask the bridge to read the text out of an image (D-59).
+   *
+   * With no bridge the promise **rejects** with the sentence that says the
+   * bridge is needed: a read that fails silently is worse than one that fails
+   * loudly.
+   */
+  requestOcr: (request: Omit<OcrRequest, "id">) => Promise<OcrResult>;
   /** close the connection and stop reconnecting */
   disconnect: () => void;
 }
@@ -129,6 +142,17 @@ export const createBridgeSession = (
   let token = "";
   let client: BridgeClient | null = null;
   let error: string | null = null;
+
+  /**
+   * The OCR half of the conversation.
+   *
+   * The client is the browser's side of the shared contract; it never touches
+   * an engine, and with no bridge it refuses with the sentence that says the
+   * bridge is needed (D-59).
+   */
+  const ocr = createOcrClient({
+    send: (message) => client?.send(message) ?? false,
+  });
 
   const state = (): BridgeSessionState => {
     const clientState: BridgeClientState = client?.getState() ?? {
@@ -161,7 +185,27 @@ export const createBridgeSession = (
       token,
       WebSocketImpl: options.WebSocketImpl,
       onStateChange: publish,
-      onMessage: (message) => options.onMessage?.(message),
+      onMessage: (message) => {
+        // the OCR answers belong to the OCR client, not to the panel's state
+        if (message.type === "ocr:result") {
+          ocr.settle({
+            id: message.id,
+            text: message.text,
+            lines: message.lines ?? [],
+            ...(message.confidence === undefined
+              ? {}
+              : { confidence: message.confidence }),
+          });
+          return;
+        }
+
+        if (message.type === "ocr:error") {
+          ocr.fail(message.id, message.message);
+          return;
+        }
+
+        options.onMessage?.(message);
+      },
     });
 
     client.connect();
@@ -220,6 +264,8 @@ export const createBridgeSession = (
 
       return client.send(message);
     },
+
+    requestOcr: (request) => ocr.recognize(request),
 
     disconnect: () => {
       client?.disconnect();

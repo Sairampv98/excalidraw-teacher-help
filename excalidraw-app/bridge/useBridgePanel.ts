@@ -6,6 +6,8 @@ import type { PanelBridgeControls } from "@excalidraw/excalidraw";
 import type { CodePanelState } from "@excalidraw/excalidraw";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
+import { OCR_NEEDS_BRIDGE } from "../../packages/vscode-bridge/bridge/src/ocrClient";
+
 import {
   applyCodePanelState,
   initialCodePanelState,
@@ -17,6 +19,7 @@ import {
 } from "./bridgeSession";
 
 import type { BridgeSession, BridgeSessionState } from "./bridgeSession";
+import type { OcrRequest } from "../../packages/vscode-bridge/bridge/src/ocr";
 
 /**
  * The app's wiring for the **code panel**.
@@ -132,6 +135,22 @@ export const useBridgePanel = (api: ExcalidrawImperativeAPI | null) => {
     [],
   );
 
+  /**
+   * Reads the text out of an image, over the bridge (D-59).
+   *
+   * With no bridge the promise rejects with the sentence that says the bridge
+   * is needed — the app never fails silently.
+   */
+  const requestOcr = useCallback((request: Omit<OcrRequest, "id">) => {
+    const session = sessionRef.current;
+
+    if (!session) {
+      return Promise.reject(new Error(OCR_NEEDS_BRIDGE));
+    }
+
+    return session.requestOcr(request);
+  }, []);
+
   const bridge: PanelBridgeControls = useMemo(
     () => ({
       status: state.connection,
@@ -151,5 +170,5 @@ export const useBridgePanel = (api: ExcalidrawImperativeAPI | null) => {
     ],
   );
 
-  return { bridge, state, startRun };
+  return { bridge, state, startRun, requestOcr };
 };

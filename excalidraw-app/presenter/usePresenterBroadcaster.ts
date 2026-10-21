@@ -14,7 +14,9 @@ import type {
 import {
   createPresenterChannel,
   getPresenterCamera,
+  isPresenterFileWithinLimit,
   isPresenterSupported,
+  presenterFileTooLargeMessage,
   PRESENTER_STALE_MS,
 } from "./presenterChannel";
 
@@ -182,11 +184,28 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
       return;
     }
 
+    // the size guard: a video is big, and the channel posts the whole file in
+    // one frame. A file that is too big is **refused with a clear error**, not
+    // dropped silently (D-58).
+    const sendable = payload.filter((file) => {
+      if (isPresenterFileWithinLimit(file)) {
+        return true;
+      }
+
+      console.error(`presenter: ${presenterFileTooLargeMessage(file)}`);
+
+      return false;
+    });
+
+    if (!sendable.length) {
+      return;
+    }
+
     try {
       channel.postMessage({
         type: "presenter:files",
         presenterId,
-        files: payload,
+        files: sendable,
       });
     } catch (error) {
       console.error("presenter: failed to send files", error);

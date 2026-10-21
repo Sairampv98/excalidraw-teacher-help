@@ -2,13 +2,15 @@
 // ExcalidrawImageElement & related helpers
 // -----------------------------------------------------------------------------
 
-import { MIME_TYPES, SVG_NS } from "@excalidraw/common";
+import { IMAGE_MIME_TYPES, MIME_TYPES, SVG_NS } from "@excalidraw/common";
 
 import type {
   AppClassProperties,
   DataURL,
   BinaryFiles,
 } from "@excalidraw/excalidraw/types";
+
+import type { ValueOf } from "@excalidraw/common/utility-types";
 
 import { isInitializedImageElement } from "./typeChecks";
 
@@ -17,6 +19,17 @@ import type {
   FileId,
   InitializedExcalidrawImageElement,
 } from "./types";
+
+/**
+ * Whether a media type is one the **image** cache can hold.
+ *
+ * The file store carries videos as well as pictures (D-66, D-58), and a video
+ * is not an `<img>`: it must never reach the image cache.
+ */
+export const isImageMimeType = (
+  mimeType: string,
+): mimeType is ValueOf<typeof IMAGE_MIME_TYPES> =>
+  (Object.values(IMAGE_MIME_TYPES) as string[]).includes(mimeType);
 
 /**
  * Loads a file into a detached `<img>` for the render cache.
@@ -76,7 +89,7 @@ export const updateImageCache = async ({
         return promises.concat(
           (async () => {
             try {
-              if (fileData.mimeType === MIME_TYPES.binary) {
+              if (!isImageMimeType(fileData.mimeType)) {
                 throw new Error("Only images can be added to ImageCache");
               }
 

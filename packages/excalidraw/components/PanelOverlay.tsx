@@ -30,6 +30,13 @@ import {
   readCodePanelState,
 } from "../scene/panelContent";
 import { readVideoPanelState } from "../scene/panelContent";
+import { readPanelPlayback } from "../scene/panelContent";
+import {
+  appliedPlaybackState,
+  INITIAL_PLAYBACK_SYNC_STATE,
+  PLAYBACK_LOCAL_CLOCK_MS,
+  playbackCorrection,
+} from "../scene/panelPlayback";
 
 import { t } from "../i18n";
 
@@ -46,6 +53,8 @@ import type { BinaryFileData, BinaryFiles } from "../types";
 import type { CodeMirrorEditorProps } from "./TTDDialog/CodeMirrorEditor";
 
 import type { PanelCamera } from "../scene/panelContent";
+import type { PanelPlayback } from "../scene/panelContent";
+import type { PlaybackSyncState } from "../scene/panelPlayback";
 
 /**
  * The host of the panel overlay.
@@ -81,7 +90,15 @@ export type VideoPanelEvent =
   /** the teacher switched the caption track */
   | { type: "track"; language: string }
   /** the video told the browser its own size */
-  | { type: "metadata"; width: number; height: number };
+  | { type: "metadata"; width: number; height: number }
+  /**
+   * the position of the video, in seconds, and whether it is playing.
+   *
+   * The host writes it onto the panel **element**, on a coarse tick — the
+   * position is shared state, and it travels with the element to the presenter
+   * (D-57).
+   */
+  | { type: "playback"; time: number; playing: boolean };
 
 type PanelOverlayProps = {
   panels: readonly ExcalidrawPanelElement[];
@@ -97,6 +114,13 @@ type PanelOverlayProps = {
    * a second renderer and not a burn-in.
    */
   onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
+  /**
+   * The host is a **read-only mirror** — the presenter.
+   *
+   * A mirror applies the playback position the editor published and it never
+   * writes one back: two windows writing to each other would fight (D-57).
+   */
+  mirror?: boolean;
 };
 
 /**
@@ -385,10 +409,20 @@ const VideoPanelSurface = ({
   panel,
   file,
   onVideoEvent,
+  mirror,
 }: {
   panel: ExcalidrawPanelElement;
   file: BinaryFileData;
   onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
+  /**
+   * The host is a **read-only mirror** — the presenter (D-57).
+   *
+   * A mirror applies the position the editor published and it keeps the video
+   * moving on its own between the updates. It never writes a position back:
+   * the editor is the source of truth, and two windows writing to each other
+   * would fight.
+   */
+  mirror?: boolean;
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -400,6 +434,10 @@ const VideoPanelSurface = ({
   const state = readVideoPanelState(panel.panel);
   const tracks: PanelCaptionTrack[] = state?.tracks ?? [];
   const language = state?.language ?? DEFAULT_CAPTION_LANGUAGE;
+
+  // this window's model of the video, and the position the editor published
+  const syncStateRef = useRef<PlaybackSyncState>(INITIAL_PLAYBACK_SYNC_STATE);
+  const receivedRef = useRef<PanelPlayback | null>(null);
 
   // the **active** track is the payload's own home for it; the state's list is
   // the fallback for a panel whose payload was written before the track was
@@ -430,6 +468,10 @@ const VideoPanelSurface = ({
   /**
    * Reports the position of the video, and with it the caption that is on
    * screen. The host writes the caption into the bound text element.
+   *
+   * The report is a **fact about the video**, not a request to write: whether
+   * this host may write the position is the host's own decision, and the
+   * library makes it (D-57).
    */
   const reportPosition = useCallback(() => {
     const video = videoRef.current;
@@ -445,7 +487,153 @@ const VideoPanelSurface = ({
     const cue = captionCueAt(activeTrack, now);
 
     onVideoEvent?.(panel.id, { type: "caption", text: cue?.text ?? "" });
+    onVideoEvent?.(panel.id, {
+      type: "playback",
+      time: video.currentTime || 0,
+      playing: !video.paused,
+    });
   }, [activeTrack, onVideoEvent, panel.id]);
+
+  /**
+   * Applies the position the editor published, and keeps the video moving
+   * between the updates (D-57).
+   *
+   * The correction is the library's own rule (`scene/panelPlayback.ts`): a small
+   * drift is closed by the **rate**, a large one by a **seek**.
+   */
+  const applyPublishedPlayback = useCallback((now: number) => {
+    const video = videoRef.current;
+    const received = receivedRef.current;
+
+    if (!video || !received) {
+      return;
+    }
+
+    const correction = playbackCorrection({
+      received,
+      state: syncStateRef.current,
+      now,
+    });
+
+    if (correction.seekTo !== null) {
+      try {
+        video.currentTime = correction.seekTo;
+      } catch {
+        // the browser refused the seek — the video keeps its own position
+      }
+    }
+
+    try {
+      video.playbackRate = correction.playbackRate;
+    } catch {
+      // the browser refused the rate — the video plays at its own speed
+    }
+
+    if (correction.playing) {
+      if (video.paused) {
+        try {
+          const played = video.play() as Promise<void> | undefined;
+
+          played?.catch(() => {
+            // the browser refused to play — the panel stays as it is
+          });
+        } catch {
+          // the browser refused to play — the panel stays as it is
+        }
+      }
+    } else if (!video.paused) {
+      video.pause();
+    }
+
+    syncStateRef.current = appliedPlaybackState({
+      received,
+      correction,
+      now,
+    });
+
+    setPlaying(correction.playing);
+    setTimeMs(Math.round((video.currentTime || 0) * 1000));
+  }, []);
+
+  /**
+   * The published position arrives with the element, so it is applied as soon
+   * as the element carries one.
+   */
+  useEffect(() => {
+    if (!mirror) {
+      return;
+    }
+
+    const playback = readPanelPlayback(panel);
+
+    if (!playback) {
+      return;
+    }
+
+    receivedRef.current = playback;
+
+    applyPublishedPlayback(Date.now());
+  }, [applyPublishedPlayback, mirror, panel]);
+
+  /**
+   * The local clock: the video keeps playing between the updates, and the
+   * clock re-checks the drift while it does.
+   *
+   * `requestVideoFrameCallback` is the browser's own "a frame was presented"
+   * hook, so the check rides the video's own frames. Without it the check runs
+   * on a timer — slower, but the same rule.
+   */
+  useEffect(() => {
+    if (!mirror) {
+      return;
+    }
+
+    const video = videoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let frameHandle: number | null = null;
+
+    const withFrameCallback = video as HTMLVideoElement & {
+      requestVideoFrameCallback?: (
+        callback: (now: number, metadata: unknown) => void,
+      ) => number;
+      cancelVideoFrameCallback?: (handle: number) => void;
+    };
+
+    const tick = () => {
+      if (cancelled) {
+        return;
+      }
+
+      applyPublishedPlayback(Date.now());
+
+      if (typeof withFrameCallback.requestVideoFrameCallback === "function") {
+        frameHandle = withFrameCallback.requestVideoFrameCallback(() => tick());
+        return;
+      }
+
+      timer = setTimeout(tick, PLAYBACK_LOCAL_CLOCK_MS);
+    };
+
+    tick();
+
+    return () => {
+      cancelled = true;
+
+      if (timer !== null) {
+        clearTimeout(timer);
+      }
+
+      if (frameHandle !== null) {
+        withFrameCallback.cancelVideoFrameCallback?.(frameHandle);
+      }
+    };
+  }, [applyPublishedPlayback, mirror]);
 
   const togglePlay = () => {
     const video = videoRef.current;
@@ -634,10 +822,13 @@ const PanelSurface = ({
   panel,
   files,
   onVideoEvent,
+  mirror,
 }: {
   panel: ExcalidrawPanelElement;
   files: BinaryFiles;
   onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
+  /** the host is a read-only mirror — the presenter (D-57) */
+  mirror?: boolean;
 }) => {
   const { source } = panel.panel;
 
@@ -665,6 +856,7 @@ const PanelSurface = ({
           panel={panel}
           file={file}
           onVideoEvent={onVideoEvent}
+          mirror={mirror}
         />
       );
     }
@@ -701,6 +893,7 @@ const Panel = ({
   camera,
   viewport,
   onVideoEvent,
+  mirror,
 }: {
   panel: ExcalidrawPanelElement;
   files: BinaryFiles;
@@ -708,6 +901,8 @@ const Panel = ({
   camera: PanelCamera;
   viewport: { width: number; height: number };
   onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
+  /** the host is a read-only mirror — the presenter (D-57) */
+  mirror?: boolean;
 }) => {
   const { zoom, scrollX, scrollY } = camera;
 
@@ -767,7 +962,12 @@ const Panel = ({
           ),
         }}
       >
-        <PanelSurface panel={panel} files={files} onVideoEvent={onVideoEvent} />
+        <PanelSurface
+          panel={panel}
+          files={files}
+          onVideoEvent={onVideoEvent}
+          mirror={mirror}
+        />
       </div>
     </div>
   );
@@ -791,6 +991,7 @@ const PanelOverlayImpl = ({
   camera,
   viewport,
   onVideoEvent,
+  mirror,
 }: PanelOverlayProps) => {
   if (panels.length === 0) {
     return null;
@@ -813,6 +1014,7 @@ const PanelOverlayImpl = ({
           camera={camera}
           viewport={viewport}
           onVideoEvent={onVideoEvent}
+          mirror={mirror}
         />
       ))}
     </div>
@@ -836,6 +1038,7 @@ const areEqual = (prev: PanelOverlayProps, next: PanelOverlayProps) =>
   prev.camera.offsetTop === next.camera.offsetTop &&
   prev.viewport.width === next.viewport.width &&
   prev.viewport.height === next.viewport.height &&
+  prev.mirror === next.mirror &&
   prev.onVideoEvent === next.onVideoEvent;
 
 export const PanelOverlay = React.memo(PanelOverlayImpl, areEqual);

@@ -9,7 +9,7 @@ import {
 } from "@excalidraw/excalidraw";
 
 import { EVENT, THEME } from "@excalidraw/common";
-import { isInitializedImageElement } from "@excalidraw/element";
+import { isInitializedImageElement, isPanelElement } from "@excalidraw/element";
 
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import type {
@@ -23,8 +23,10 @@ import { useHandleAppTheme } from "../useHandleAppTheme";
 import {
   createPresenterChannel,
   createPresenterId,
+  isPresenterFileWithinLimit,
   isPresenterSupported,
   pointerCollaborators,
+  presenterFileTooLargeMessage,
   PRESENTER_HEARTBEAT_MS,
   PRESENTER_WINDOW_NAME,
   resolvePresenterCamera,
@@ -235,19 +237,30 @@ export const PresenterView = () => {
 
       const missing: FileId[] = [];
 
-      for (const element of elements) {
-        if (!isInitializedImageElement(element)) {
-          continue;
-        }
-        const { fileId } = element;
+      const ask = (fileId: FileId) => {
         if (
           knownFilesRef.current.has(fileId) ||
           requestedFilesRef.current.has(fileId)
         ) {
-          continue;
+          return;
         }
         requestedFilesRef.current.add(fileId);
         missing.push(fileId);
+      };
+
+      for (const element of elements) {
+        // an image element's own file
+        if (isInitializedImageElement(element)) {
+          ask(element.fileId);
+          continue;
+        }
+
+        // a **panel's** file — a video panel's video. It is a file in the
+        // document's own store, and the presenter asks for it exactly as it
+        // asks for an image (D-58).
+        if (isPanelElement(element) && element.panel.source.type === "file") {
+          ask(element.panel.source.fileId);
+        }
       }
 
       if (!missing.length) {
@@ -289,8 +302,25 @@ export const PresenterView = () => {
           if (!api || api.isDestroyed || !message.files.length) {
             break;
           }
-          api.addFiles(message.files);
-          for (const file of message.files) {
+
+          // the size guard: a file that is too big is **refused with a clear
+          // error**, never added half-way (D-58)
+          const accepted = message.files.filter((file) => {
+            if (isPresenterFileWithinLimit(file)) {
+              return true;
+            }
+
+            console.error(`presenter: ${presenterFileTooLargeMessage(file)}`);
+
+            return false;
+          });
+
+          if (!accepted.length) {
+            break;
+          }
+
+          api.addFiles(accepted);
+          for (const file of accepted) {
             knownFilesRef.current.add(file.id);
             requestedFilesRef.current.delete(file.id);
           }

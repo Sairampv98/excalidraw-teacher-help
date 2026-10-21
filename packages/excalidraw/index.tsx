@@ -107,6 +107,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
     renderScrollbars,
     imageOptions,
     panelBridge,
+    panelOcr,
   } = props;
 
   const canvasActions = props.UIOptions?.canvasActions;
@@ -229,6 +230,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
           renderScrollbars={renderScrollbars}
           imageOptions={normalizedImageOptions}
           panelBridge={panelBridge}
+          panelOcr={panelOcr}
         >
           {children}
         </App>
@@ -483,7 +485,9 @@ export type {
 // caption logic (the cues, the cue that is on screen, the caption element)
 export {
   captionBindingUpdate,
+  panelPlaybackUpdate,
   readCaptionBinding,
+  readPanelPlayback,
   readVideoPanelState,
   videoPanelContent,
   withVideoPanelState,
@@ -491,11 +495,31 @@ export {
 export type {
   CaptionBinding,
   CaptionBoundPanel,
+  PanelPlayback,
+  PlaybackPanel,
   VideoPanelContent,
   VideoPanelElement,
   VideoPanelSource,
   VideoPanelState,
 } from "./scene/panelContent";
+
+// the playback sync of a video panel: the rule that keeps the presenter's
+// video in step with the editor's (D-57)
+export {
+  appliedPlaybackState,
+  INITIAL_PLAYBACK_SYNC_STATE,
+  PLAYBACK_HARD_SEEK_SECONDS,
+  PLAYBACK_LOCAL_CLOCK_MS,
+  PLAYBACK_MAX_RATE,
+  PLAYBACK_MIN_RATE,
+  PLAYBACK_PUBLISH_INTERVAL_MS,
+  PLAYBACK_SOFT_SEEK_SECONDS,
+  playbackCorrection,
+} from "./scene/panelPlayback";
+export type {
+  PlaybackCorrection,
+  PlaybackSyncState,
+} from "./scene/panelPlayback";
 export {
   captionCueAt,
   captionTextElement,
@@ -506,7 +530,14 @@ export {
   selectCaptionTrack,
 } from "./components/panelCaptions";
 export type { VideoPanelEvent } from "./components/PanelOverlay";
-export type { PanelBridgeControls } from "./types";
+export type { PanelBridgeControls, PanelOcrControls } from "./types";
+
+// the live video surface: the frame the teacher is looking at, so a host can
+// read the text out of it (D-59)
+export {
+  captureVideoFrame,
+  getVideoSurface,
+} from "./components/videoPanelSurface";
 
 export { CommandPalette } from "./components/CommandPalette/CommandPalette";
 

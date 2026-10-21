@@ -64,6 +64,25 @@ import type { PanelBridgeStatus } from "./scene/panelContent";
 import type React from "react";
 import type { JSX } from "react";
 
+/**
+ * The video media types a **video panel** can carry.
+ *
+ * A video panel's file is a file in the document's own file store, and the
+ * store's media-type list used to be image-shaped. The widening is **type-level
+ * only** — nothing validates the media type at run time (D-66).
+ *
+ * It lives here, and not beside `MIME_TYPES` in the common package, because a
+ * video panel's file is the **excalidraw package's** business: this is the
+ * package that widened `BinaryFileData` to admit it (D-58).
+ */
+export const VIDEO_MIME_TYPES = {
+  mp4: "video/mp4",
+  webm: "video/webm",
+  ogg: "video/ogg",
+  mov: "video/quicktime",
+  m4v: "video/x-m4v",
+} as const;
+
 export type { App };
 
 export type SocketId = string & { _brand: "SocketId" };
@@ -208,6 +227,8 @@ export type PageRect = {
 export type BinaryFileData = {
   mimeType:
     | ValueOf<typeof IMAGE_MIME_TYPES>
+    // a video panel's file is a file in the store like any other (D-66, D-58)
+    | ValueOf<typeof VIDEO_MIME_TYPES>
     // future user or unknown file type
     | typeof MIME_TYPES.binary;
   id: FileId;
@@ -877,6 +898,15 @@ export interface ExcalidrawProps {
    * bridge gets a panel that says it is not connected, and nothing else.
    */
   panelBridge?: PanelBridgeControls;
+
+  /**
+   * The host app's controls for the **OCR option** of a panel (D-59).
+   *
+   * The library draws the button and shows the message; the host owns the
+   * read, because the engine lives in the bridge's Node process — never in the
+   * browser.
+   */
+  panelOcr?: PanelOcrControls;
 }
 
 /**
@@ -899,6 +929,25 @@ export type PanelBridgeControls = {
   onPasteToken?: () => void;
   /** the teacher asked to connect with the token in the field */
   onConnect?: () => void;
+};
+
+/**
+ * What the host tells the library about the **OCR option** of a panel (D-59).
+ *
+ * The library draws the button and shows the message; the **host** owns the
+ * read, because the host is the side that talks to the bridge — the OCR engine
+ * lives in the bridge's Node process and never in the browser (D-59).
+ *
+ * Without this prop there is no button: a host that does not do OCR gets a
+ * panel with no OCR on it.
+ */
+export type PanelOcrControls = {
+  /** a sentence for the state. Never empty. */
+  message: string;
+  /** the teacher asked for this panel to be read */
+  onOcr?: (panelId: string) => void;
+  /** whether a read is running right now */
+  busy?: boolean;
 };
 
 export type SceneData = {

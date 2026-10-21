@@ -160,6 +160,47 @@ export const PRESENTER_HEARTBEAT_MS = 2000;
  */
 export const PRESENTER_STALE_MS = 10000;
 
+/**
+ * The **size guard** of the files channel.
+ *
+ * A video panel's file is a video, and a video is big: the channel posts the
+ * whole `BinaryFileData` in one frame, so a 40 MB video would either block the
+ * editor or be dropped with a console error (D-65).
+ *
+ * The transfer stays **chunk-free** — a second message type would duplicate a
+ * binary path that already works (D-58) — and the guard is what keeps a big
+ * file from becoming an accident.
+ */
+export const PRESENTER_FILE_MAX_BYTES = 32 * 1024 * 1024;
+
+/**
+ * The size of a file, in bytes.
+ *
+ * A `dataURL` is ASCII, so its length is its size. The bytes are the base64
+ * payload, which is what actually travels.
+ */
+export const presenterFileSize = (file: BinaryFileData): number =>
+  file.dataURL.length;
+
+/**
+ * Whether a file is small enough to travel the files channel.
+ */
+export const isPresenterFileWithinLimit = (file: BinaryFileData): boolean =>
+  presenterFileSize(file) <= PRESENTER_FILE_MAX_BYTES;
+
+/**
+ * The sentence the app says when a file is too big to travel.
+ *
+ * It is a **clear error**, not a silent drop: a panel that shows nothing and
+ * says nothing is indistinguishable from a panel that has nothing to show.
+ */
+export const presenterFileTooLargeMessage = (file: BinaryFileData): string =>
+  `the file "${file.id}" is ${Math.round(
+    presenterFileSize(file) / (1024 * 1024),
+  )} MB, and the presenter only takes files up to ${Math.round(
+    PRESENTER_FILE_MAX_BYTES / (1024 * 1024),
+  )} MB — it was not sent`;
+
 export const isPresenterSupported = () =>
   typeof window !== "undefined" && typeof BroadcastChannel !== "undefined";
 

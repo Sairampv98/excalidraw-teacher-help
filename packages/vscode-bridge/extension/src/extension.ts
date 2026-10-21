@@ -7,6 +7,7 @@ import {
   DEFAULT_BRIDGE_HOST,
   type BridgeMessage,
 } from "../../bridge/src/protocol";
+import { createOcrService } from "../../bridge/src/ocr";
 
 import { createBridgeServer, type BridgeConnection } from "./bridge";
 import { resolvePort, resolveToken } from "./config";
@@ -16,9 +17,12 @@ import {
   type EditorDocumentLike,
   type EditorLike,
 } from "./editorState";
+import { createTesseractEngine, engineSearchPaths } from "./ocrEngine";
 import { portConflictMessage } from "./portConflict";
 import { createRunPseudoterminal } from "./pseudoterminal";
 import { createRunner, type Runner } from "./runner";
+
+import type { OcrRequest, OcrResult } from "../../bridge/src/ocr";
 
 /**
  * The extension entry point.
@@ -135,6 +139,53 @@ export function activate(context: vscode.ExtensionContext): void {
     await vscode.tasks.executeTask(task);
   };
 
+  /**
+   * The **OCR service** of the bridge.
+   *
+   * The engine is `tesseract.js` and it runs **here**, in the extension's Node
+   * process — never in the browser (D-59). It is loaded on the first request
+   * and kept afterwards, so the worker is created once and survives every
+   * read.
+   *
+   * A failure is a **message**: the app has to be able to say why the text did
+   * not arrive, so the answer is an `ocr:error` and never a silence.
+   */
+  let ocrService: {
+    recognize: (request: OcrRequest) => Promise<OcrResult>;
+  } | null = null;
+
+  const readText = async (request: OcrRequest) => {
+    try {
+      if (!ocrService) {
+        ocrService = createOcrService(
+          await createTesseractEngine({
+            searchPaths: engineSearchPaths(workspaceRoot),
+          }),
+        );
+      }
+
+      const result = await ocrService.recognize({
+        id: request.id,
+        imageBase64: request.imageBase64,
+        ...(request.region ? { region: request.region } : {}),
+        ...(request.language ? { language: request.language } : {}),
+      });
+
+      bridgeServer?.broadcast({ v: 1, type: "ocr:result", ...result });
+    } catch (error) {
+      const message = (error as Error).message;
+
+      bridgeServer?.broadcast({
+        v: 1,
+        type: "ocr:error",
+        id: request.id,
+        message,
+      });
+
+      vscode.window.showErrorMessage(`Excalidraw Bridge: ${message}`);
+    }
+  };
+
   const handleBridgeMessage = (message: BridgeMessage) => {
     switch (message.type) {
       case "run:start":
@@ -147,12 +198,7 @@ export function activate(context: vscode.ExtensionContext): void {
         bridgeServer?.broadcast({ v: 1, type: "pong" });
         break;
       case "ocr:request":
-        // The OCR service is not part of this wave: it needs a sidecar that
-        // the extension does not ship. The message is understood, so the
-        // panel can already ask - the answer comes with the service.
-        vscode.window.showErrorMessage(
-          "Excalidraw Bridge: OCR is not available in this build yet.",
-        );
+        void readText(message);
         break;
       default:
         break;
