@@ -37,7 +37,14 @@ import type { AppState, DataURL, LibraryItem } from "../types";
 
 import type { ImportedLibraryData } from "./types";
 
-const parseFileContents = async (blob: Blob | File): Promise<string> => {
+/**
+ * Reads a blob as text.
+ *
+ * Exported because the insert path reads a document with the same reader — a
+ * `Blob` that cannot read itself (`Blob.text()` is missing in some browsers,
+ * jsdom among them) falls back to a `FileReader` here.
+ */
+export const parseFileContents = async (blob: Blob | File): Promise<string> => {
   let contents: string;
 
   if (blob.type === MIME_TYPES.png) {

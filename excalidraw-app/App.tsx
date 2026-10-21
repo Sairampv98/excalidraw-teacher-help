@@ -973,6 +973,9 @@ const ExcalidrawWrapper = () => {
         UIOptions={{
           canvasActions: {
             toggleTheme: true,
+            // "File > Insert document..." — adds another `.excalidraw` file's
+            // content to the canvas that is already open (D-35)
+            insertDocument: true,
             export: {
               onExportToBackend,
               renderCustomUI: excalidrawAPI

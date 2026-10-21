@@ -891,7 +891,25 @@ export type CanvasActions = Partial<{
   saveToActiveFile: boolean;
   toggleTheme: boolean | null;
   saveAsImage: boolean;
+  /**
+   * "Insert document..." — adds another `.excalidraw` file's content to the
+   * canvas that is already open, instead of replacing it (D-35).
+   *
+   * Opt-in: the flag is off unless the host app turns it on.
+   */
+  insertDocument: boolean;
 }>;
+
+/**
+ * The canvas actions as the app sees them.
+ *
+ * `insertDocument` is **opt-in** and therefore stays optional here: the
+ * shared `DEFAULT_UI_OPTIONS` (in `@excalidraw/common`) is a literal that
+ * cannot grow a new *required* key without a change in that package, and the
+ * flag is off by default anyway — the host app turns it on.
+ */
+type ResolvedCanvasActions = Required<Omit<CanvasActions, "insertDocument">> &
+  Pick<CanvasActions, "insertDocument"> & { export: ExportOpts };
 
 export type UIOptions = Partial<{
   dockedSidebarBreakpoint: number;
@@ -917,7 +935,7 @@ export type AppProps = Merge<
     UIOptions: Merge<
       UIOptions,
       {
-        canvasActions: Required<CanvasActions> & { export: ExportOpts };
+        canvasActions: ResolvedCanvasActions;
       }
     >;
     imageOptions: Required<ImageOptions>;

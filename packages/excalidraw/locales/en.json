@@ -226,6 +226,7 @@
     "save": "Save to current file",
     "saveAs": "Save as",
     "load": "Open",
+    "insertDocument": "Insert document...",
     "getShareableLink": "Get shareable link",
     "close": "Close",
     "selectLanguage": "Select language",
