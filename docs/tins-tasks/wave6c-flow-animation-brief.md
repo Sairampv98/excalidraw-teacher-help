@@ -12,6 +12,42 @@ The owner's decision (2026-10-21, question 9): the animation is an **overlay mod
 
 The full design is `docs/superpowers/specs/2026-10-21-flow-animation-design.md`. **Read it first.** It records where this **supersedes** the earlier `2026-10-20-animated-flowcharts-design.md`: that one proposed a dedicated flow _panel element_; the owner chose a properties-panel section and an overlay, so there is **no new element type** here and nothing is written into the document.
 
+## What the code says (verified 2026-10-21)
+
+Every line number below was read from the tree. This is the ground truth the design is written against — **do not re-derive it, and do not guess around it**.
+
+### The properties panel
+
+- The **inner** sections are `<fieldset>` + `<legend>` in `packages/excalidraw/components/Actions.tsx:246-313` ("Layers" `:246`, "Align" `:256`, "Actions" `:298`). `Section` (`packages/excalidraw/components/Section.tsx`) is only the **outer a11y landmark**, used in `LayerUI.tsx:242` — it is **not** used inside `Actions.tsx` at all. **So adding a section means adding a `<fieldset>`, and `Section.tsx` and the `headings.*` i18n keys do not change.**
+- A section reads the selection through `targetElements = getTargetElements(elementsMap, appState)` (`Actions.tsx:147`, `packages/element/src/selection.ts:471-484`), and the `elementsMap` comes from `app.scene.getNonDeletedElementsMap()` (`LayerUI.tsx:278`).
+- **`getTargetElements` folds the bound text element in** (`includeBoundTextElement: true`), so a labelled box yields **two** `targetElements` entries. A step resolver must dedupe on the _container_, not trust `targetElements.length`.
+- `Island` (`packages/excalidraw/components/Island.tsx`) is **not** a portal — it is a styled `div` with a `--padding` variable. The section does not need to escape into the canvas.
+- **The dock needs no change.** `excalidraw-app/dock/dockTypes.ts:37-50` binds the properties dock to the live DOM element by CSS selector (`.selected-shape-actions-container`), and `EdgeDocks.tsx:504-540` re-measures on mutation. A new section simply makes the panel taller. The dock is app-level, the panel is library-level, and the library does not know the dock exists.
+
+### The step order
+
+- An arrow holds its bindings: `startBinding` / `endBinding` → `FixedPointBinding.elementId` (`packages/element/src/types.ts:293-310, 346-354`); the shape holds `boundElements` back (`types.ts:35-38, 88-89`). **Read the graph from the arrow** — it is the edge.
+- **There is NO helper that resolves an arrow to its two bound shapes.** `getHoveredElementForBinding` (`packages/element/src/collision.ts:341`) is hit-_testing_ for binding, not a way to read an arrow's bindings. The lookup is `arrow.startBinding?.elementId` / `endBinding?.elementId` into the `ElementsMap` — a five-line function that has to be written.
+- The fork **already has** `packages/element/src/flowchart.ts` (725 lines) with `getNodeRelatives` `:64`, `getSuccessors` `:134`, `getPredecessors` `:142`, `addNewNode` `:240`, `createBindingArrow` `:371`, `isNodeInFlowchart` `:710`. `getSuccessors`/`getPredecessors` are **exported** and may be reusable for the step order; `getNodeRelatives` is **not** exported and is direction-filtered, so it cannot be used as-is.
+- **A reading-order helper does not exist anywhere.** Searches for `readingOrder`, `sortByReading`, `topToBottom`, `byY` return nothing reusable; the only precedent is `packages/excalidraw/components/SearchMenu.tsx:807` — `texts.sort((a, b) => a.y - b.y)`, a **y-only** sort, local to the search results and not exported. It has to be written.
+
+### The overlay
+
+- `packages/excalidraw/components/AnimatedImageOverlay.tsx` is the pattern: an inline `HOST_STYLE` with `pointerEvents: "none"` (`:35-43`, and the comment at `:194-200` explains why it is inline — an overlay that took clicks would break selecting, dragging and the eraser), a value-comparing memo comparator (`:236-253`), and a mount at `App.tsx:2453-2473`.
+- **But the position comes from the oracle, not from the GIF's transform.** The GIF re-derives `(scene + scroll) * zoom` by hand and omits the container offset (`packages/excalidraw/scene/animatedImageOverlay.ts:102-105`); `ElementCanvasButtons.tsx:27-28` uses the library's own `sceneCoordsToViewportCoords` and **subtracts** the offsets. Those are two conventions for the same layer. **D-34 settles it for panels: use `sceneCoordsToViewportCoords` (`packages/common/src/utils.ts:468-487`) and subtract `appState.offsetLeft`/`offsetTop`.**
+- The oracle rule for the test: `packages/excalidraw/tests/animatedImageOverlay.test.ts:1-13` — assert through `sceneCoordsToViewportCoords` **and** through the produced transform string, parsed and applied with plain matrix maths. Never against the overlay's own arithmetic.
+
+### The dagre integration
+
+- `dagre` is a dependency of **`packages/excalidraw` only** (`packages/excalidraw/package.json:97`). **The layout function must live in `packages/excalidraw/**`** — `packages/element/`and`excalidraw-app/` cannot import it without adding their own dependency.
+- `g.node(id).x/y` is the node's **CENTRE**, so the conversion is `newX = node.x - element.width / 2`. The repo's own centre convention is `getCenterForBounds` (`packages/element/src/bounds.ts:1194-1198`).
+- `dagre.layout()` does **not** tolerate cycles. `graphlib.alg.findCycles(g)` is available to detect one (`node_modules/@types/dagre/index.d.ts:63`).
+- **The move template is `alignElements`** (`packages/element/src/align.ts:17-50`): it mutates each element and then calls `updateBoundElements(element, scene, { simultaneouslyUpdated: group })` for **every** moved element. That call is **mandatory** — without it the bound arrows stay behind and the flowchart falls apart.
+- `reconcileElements` is **not** needed: the layout moves existing elements and creates none, so the fractional `index` machinery is not on its path.
+- The action makes it undoable the way `actionAlign.tsx:79-95` does: `captureUpdate: CaptureUpdateAction.IMMEDIATELY`.
+- The clock must **not** be React state. `packages/excalidraw/renderer/animation.ts`'s `AnimationController` is a static registry driven by `requestAnimationFrame`, and it is the right clock: a React `setState` per frame would re-render the whole app 60×/second.
+- **There are no reusable keyframes.** `packages/excalidraw/css/` has no keyframes at all; every one lives next to its own component. The overlay needs **its own SCSS file**, imported by the component, per the library's convention.
+
 ## The auto-layout — approved, and in scope
 
 **The owner approved this on 2026-10-21** ("ok install dagre"). It was previously listed as out of scope because it needed a new dependency; it no longer does.
@@ -27,12 +63,16 @@ The layout is a **normal scene mutation**: it moves the elements, so it is undoa
 ## The locked decisions to implement
 
 | Row | The decision in one line |
-| --- | --- |
+| --- | --- | --- | --- |
 | D-42 | The animation is **configured in a section of the properties panel** and **played as an overlay** over the canvas. It is not a panel element: the user's flowchart stays ordinary shapes and arrows, and playing the animation changes nothing in the document. |
 | D-43 | The **steps are the selected elements**, ordered by the **arrows** between them (a topological sort over the arrow bindings), with reading order as the tie-break. A cycle is the animation's loop, not an error. |
-| D-44 | The overlay **does not replace the canvas**: the canvas keeps drawing the flowchart, and the overlay adds the focus treatment on top. Its position comes from the library's own `sceneCoordsToViewportCoords`. |
+| D-44 | The overlay **does not replace the canvas**: the canvas keeps drawing the flowchart, and the overlay adds the focus treatment on top. Its position comes from the library's own `sceneCoordsToViewportCoords` — the oracle — and not from a hand-derived transform (**D-34**). |
+| D-60 | A step is a **container**, not a shape | locked | `getTargetElements` folds the **bound text** into the selection, so a labelled box yields two `targetElements` entries. A step is therefore the **container** and its bound text together, and the resolver must **dedupe on the container** rather than trust `targetElements.length`. The step's bounds are the union of the container's and its label's, which is what the focus treatment scales about. |
+| D-61 | The reading order is a **row band**, then left to right | locked | There is no reading-order helper in the repository, so one is written. The rule: shapes whose vertical spans **overlap** are in the same band, and within a band they are ordered left to right; bands are ordered top to bottom. The band test is an **overlap**, not a tolerance — two shapes are in the same row when their vertical spans intersect, so a shape that is entirely below another is in a later band, and a shape that straddles two joins the band it overlaps most. That avoids a magic pixel tolerance, and it is stable when a shape is nudged. |
+| D-62 | A **cycle is broken, not refused** | locked | The owner's own words are "this entire thing is in a loop", so a flowchart whose arrows form a cycle is **expected**, not an error — and `dagre.layout()` does not tolerate one. The layout therefore finds the cycle with `graphlib.alg.findCycles(g)`, **drops the back-edge** of each cycle, and lays out the remaining acyclic graph. The dropped edge is the loop, and the animation repeats that step, which is the behaviour the owner asked for. |
+| D-63 | The animation is driven by `AnimationController`, not by React state | locked | The per-frame advance goes through `packages/excalidraw/renderer/animation.ts`'s `AnimationController` — a static registry keyed by string, driven by `requestAnimationFrame`. A React `setState` per frame would re-render the whole Excalidraw app 60 times a second, which is the difference between a smooth animation and a stalled one. The section and the overlay talk through a **jotai atom** (the `PageSplitState.ts` pattern), so nothing about the animation is written into `appState` — and therefore nothing into the saved document. |
 
-Add these three rows to `SPEC.md` in the Decisions table, and the four acceptance rows below to the acceptance table for this wave.
+Add these **seven** rows (D-42, D-43, D-44, D-60, D-61, D-62, D-63) to `SPEC.md` in the Decisions table, and the four acceptance rows below to the acceptance table for this wave.
 
 ## The shape of the flow
 

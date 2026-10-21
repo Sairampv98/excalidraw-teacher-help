@@ -143,9 +143,9 @@ The extension's own `package.json` needs the contributes section:
 
 | Row | The decision in one line |
 | --- | --- |
-| D-47 | The bridge listens on **127.0.0.1 only**, on a **random free port**, and the WebSocket handshake must present a **per-session token** and a **localhost origin**. Anything else is rejected. |
-| D-48 | The extension **runs** the program itself, through a contributed task type and a `Pseudoterminal`, because the VS Code stable API cannot read an arbitrary terminal. The teacher's own terminal still shows the output normally. |
-| D-49 | The code panel is **read-only** and the bridge is the **source of truth**; the panel is a mirror, and a blocked clipboard or a missing bridge shows an explicit state, never a blank editor. |
+| D-50 | The bridge listens on **127.0.0.1 only**, on a **random free port**, and the WebSocket handshake must present a **per-session token** and a **localhost origin**. Anything else is rejected. |
+| D-51 | The extension **runs** the program itself, through a contributed task type and a `Pseudoterminal`, because the VS Code stable API cannot read an arbitrary terminal. The teacher's own terminal still shows the output normally. |
+| D-52 | The code panel is **read-only** and the bridge is the **source of truth**; the panel is a mirror, and a blocked clipboard or a missing bridge shows an explicit state, never a blank editor. |
 
 Add these three rows to `SPEC.md` in the Decisions table, and the acceptance rows below to the **Acceptance — Wave 5** table.
 
@@ -167,21 +167,21 @@ Everything below is inside the task scope `packages/vscode-bridge,packages/excal
 | `packages/excalidraw/components/PanelOverlay.tsx` | changed | the CodeMirror rendering |
 | `excalidraw-app/` | changed | the bridge client: discovery, the WebSocket, the panel content |
 | `packages/excalidraw/tests/`, `excalidraw-app/tests/` | changed | the acceptance rows |
-| `SPEC.md` | changed | D-47, D-48, D-49 and the acceptance rows |
+| `SPEC.md` | changed | D-50, D-51, D-52 and the acceptance rows |
 
 ## The acceptance rows
 
 | Row | Check file | What |
 | --- | --- | --- |
-| AC-57 | `packages/vscode-bridge/` | A WebSocket connection **without the session token** is rejected. |
-| AC-58 | `packages/vscode-bridge/` | A connection with a **non-localhost origin** is rejected. |
-| AC-59 | `excalidraw-app/tests/` | With a **stub bridge**, the panel shows the editor text, the output and the console. |
-| AC-60 | `excalidraw-app/tests/` | A `run:start` produces a `run:started` / `run:output` / `run:exit` **sequence** in the panel. |
-| AC-61 | `excalidraw-app/tests/` | With **no bridge**, the panel shows the reconnect state, not a blank editor. |
-| AC-62 | `packages/vscode-bridge/` | Every message the extension sends parses under the `BridgeMessage` union, and vice versa. |
-| AC-69 | `excalidraw-app/tests/` | The in-browser fallback is **fetched lazily**: nothing is downloaded until the user asks for it, and the panel then runs the code in the browser. |
+| AC-58 | `packages/vscode-bridge/` | A WebSocket connection **without the session token** is rejected. |
+| AC-59 | `packages/vscode-bridge/` | A connection with a **non-localhost origin** is rejected. |
+| AC-60 | `excalidraw-app/tests/` | With a **stub bridge**, the panel shows the editor text, the output and the console. |
+| AC-61 | `excalidraw-app/tests/` | A `run:start` produces a `run:started` / `run:output` / `run:exit` **sequence** in the panel. |
+| AC-62 | `excalidraw-app/tests/` | With **no bridge**, the panel shows the reconnect state, not a blank editor. |
+| AC-63 | `packages/vscode-bridge/` | Every message the extension sends parses under the `BridgeMessage` union, and vice versa. |
+| AC-64 | `excalidraw-app/tests/` | The in-browser fallback is **fetched lazily**: nothing is downloaded until the user asks for it, and the panel then runs the code in the browser. |
 
-**The check file must mention the row's id** — put it in the test name, e.g. `it('AC-57 a connection without the session token is rejected', ...)`. The kit's SPEC lint reads the file and fails if the id is absent.
+**The check file must mention the row's id** — put it in the test name, e.g. `it('AC-58 a connection without the session token is rejected', ...)`. The kit's SPEC lint reads the file and fails if the id is absent.
 
 ## The in-browser compiler (Pyodide) — approved, and in scope
 

@@ -34,9 +34,9 @@ The full video design is `docs/superpowers/specs/2026-10-20-video-panel-design.m
 
 | Row | The decision in one line |
 | --- | --- |
-| D-44 | A video panel is **live** (the canvas skips it, the DOM overlay draws the `<video>`) or **locked** (the canvas paints a poster at the video's **intrinsic** resolution). The on-canvas display size never affects the output resolution. |
-| D-45 | The captions live in an **ordinary Excalidraw text element beside the panel**, not inside the player, and the binding is **scene data** — it survives a page switch and a reload. A video with no caption track gets **no caption element at all**. |
-| D-46 | A **local** video's captions come from a **sidecar** `.srt` / `.vtt` the browser reads; they never touch the bridge. A YouTube video's captions come from the bridge, and a failure is reported honestly as "no captions available" rather than an empty track. |
+| D-53 | A video panel is **live** (the canvas skips it, the DOM overlay draws the `<video>`) or **locked** (the canvas paints a poster at the video's **intrinsic** resolution). The on-canvas display size never affects the output resolution. |
+| D-54 | The captions live in an **ordinary Excalidraw text element beside the panel**, not inside the player, and the binding is **scene data** — it survives a page switch and a reload. A video with no caption track gets **no caption element at all**. |
+| D-55 | A **local** video's captions come from a **sidecar** `.srt` / `.vtt` the browser reads; they never touch the bridge. A YouTube video's captions come from the bridge, and a failure is reported honestly as "no captions available" rather than an empty track. |
 
 Add these three rows to `SPEC.md` in the Decisions table, and the acceptance rows below to the **Acceptance — Wave 5** table.
 
@@ -111,19 +111,19 @@ Everything below is inside the task scope `packages/excalidraw,excalidraw-app,SP
 | `excalidraw-app/sidebar/` | changed | adding a video: the file picker, the sidecar picker, the caption element |
 | `excalidraw-app/components/` | changed | the caption element's creation and its refresh |
 | `packages/excalidraw/tests/`, `excalidraw-app/tests/` | changed | the acceptance rows |
-| `SPEC.md` | changed | D-44, D-45, D-46 and the acceptance rows |
+| `SPEC.md` | changed | D-53, D-54, D-55 and the acceptance rows |
 
 ## The acceptance rows
 
 | Row | Check file | What |
 | --- | --- | --- |
-| AC-52 | `packages/excalidraw/tests/` | A video panel is created with the right `panelKind` and source, and the **live** panel is not painted by the canvas. |
-| AC-53 | `packages/excalidraw/tests/` | A cue change replaces the **bound text element's** text, and the element is on the same page as the panel. |
-| AC-54 | `packages/excalidraw/tests/` | A video with **no** caption track creates **no** caption element. |
-| AC-55 | `packages/excalidraw/tests/` | Locking a local video panel produces a poster at the video's **intrinsic** size, not the on-canvas size. |
-| AC-56 | `excalidraw-app/tests/` | The OCR request carries the **ROI region**, and the OCR benchmark is recorded (median and p95, full frame and subtitle crop). |
+| AC-65 | `packages/excalidraw/tests/` | A video panel is created with the right `panelKind` and source, and the **live** panel is not painted by the canvas. |
+| AC-66 | `packages/excalidraw/tests/` | A cue change replaces the **bound text element's** text, and the element is on the same page as the panel. |
+| AC-67 | `packages/excalidraw/tests/` | A video with **no** caption track creates **no** caption element. |
+| AC-68 | `packages/excalidraw/tests/` | Locking a local video panel produces a poster at the video's **intrinsic** size, not the on-canvas size. |
+| AC-69 | `excalidraw-app/tests/` | The OCR request carries the **ROI region**, and the OCR benchmark is recorded (median and p95, full frame and subtitle crop). |
 
-**The check file must mention the row's id** — put it in the test name, e.g. `it('AC-53 a cue change replaces the bound text element', ...)`. The kit's SPEC lint reads the file and fails if the id is absent.
+**The check file must mention the row's id** — put it in the test name, e.g. `it('AC-66 a cue change replaces the bound text element', ...)`. The kit's SPEC lint reads the file and fails if the id is absent.
 
 ## The house rules
 

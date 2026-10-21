@@ -123,10 +123,10 @@ Record the **median and p95** for both. If the crop budget is missed, the levers
 
 | Row | The decision in one line |
 | --- | --- |
-| D-50 | The presenter renders the **same panel overlays** the editor does, because it already runs a whole second Excalidraw instance. A **read-only** code mirror and a **locked** video panel need **no protocol change** at all. |
-| D-51 | The video's playback position travels **with the element** at about 4 Hz, and the presenter **interpolates** locally between updates. The presenter never writes playback back to the editor. |
-| D-52 | `BinaryFileData` is **widened** to accept video mime types, so video bytes travel the existing `presenter:files` path, with a size guard. |
-| D-53 | OCR is an **in-app capability that speaks the shared `OcrRequest`/`OcrResult` contract over the bridge**. The engine lives in the bridge's Node process, never in the browser. With no bridge, the app says so plainly. |
+| D-56 | The presenter renders the **same panel overlays** the editor does, because it already runs a whole second Excalidraw instance. A **read-only** code mirror and a **locked** video panel need **no protocol change** at all. |
+| D-57 | The video's playback position travels **with the element** at about 4 Hz, and the presenter **interpolates** locally between updates. The presenter never writes playback back to the editor. |
+| D-58 | `BinaryFileData` is **widened** to accept video mime types, so video bytes travel the existing `presenter:files` path, with a size guard. |
+| D-59 | OCR is an **in-app capability that speaks the shared `OcrRequest`/`OcrResult` contract over the bridge**. The engine lives in the bridge's Node process, never in the browser. With no bridge, the app says so plainly. |
 
 Add these four rows to `SPEC.md` in the Decisions table, and the acceptance rows below to the **Acceptance — Wave 5** table.
 
@@ -145,20 +145,20 @@ Everything below is inside the task scope `packages/element,packages/excalidraw,
 | `excalidraw-app/presenter/usePresenterBroadcaster.ts` | changed | publishing the playback position |
 | `excalidraw-app/` | changed | the OCR option in the panel chrome and the crop flow |
 | `packages/excalidraw/tests/`, `excalidraw-app/tests/` | changed | the acceptance rows |
-| `SPEC.md` | changed | D-50, D-51, D-52, D-53 and the acceptance rows |
+| `SPEC.md` | changed | D-56, D-57, D-58, D-59 and the acceptance rows |
 
 ## The acceptance rows
 
 | Row | Check file | What |
 | --- | --- | --- |
-| AC-63 | `excalidraw-app/tests/` | The presenter renders the **same panel overlay** the editor does, from the same element list. |
-| AC-64 | `excalidraw-app/tests/` | A playback position of `t = 5` reaches the presenter, and the presenter does **not** write playback back. |
-| AC-65 | `excalidraw-app/tests/` | A **video** binary file travels the `presenter:files` path, and a file **over the size guard** is refused with a clear error. |
-| AC-66 | `excalidraw-app/tests/` | The OCR request carries the **ROI region**, and the result places **per-line** text elements over the crop. |
-| AC-67 | `packages/vscode-bridge/` | With **no bridge**, the OCR option says the bridge is needed — it does not fail silently, and no OCR engine is bundled in the browser. |
-| AC-68 | `packages/vscode-bridge/` | The OCR **benchmark** is recorded: median and p95, full frame and subtitle crop. |
+| AC-70 | `excalidraw-app/tests/` | The presenter renders the **same panel overlay** the editor does, from the same element list. |
+| AC-71 | `excalidraw-app/tests/` | A playback position of `t = 5` reaches the presenter, and the presenter does **not** write playback back. |
+| AC-72 | `excalidraw-app/tests/` | A **video** binary file travels the `presenter:files` path, and a file **over the size guard** is refused with a clear error. |
+| AC-73 | `excalidraw-app/tests/` | The OCR request carries the **ROI region**, and the result places **per-line** text elements over the crop. |
+| AC-74 | `packages/vscode-bridge/` | With **no bridge**, the OCR option says the bridge is needed — it does not fail silently, and no OCR engine is bundled in the browser. |
+| AC-75 | `packages/vscode-bridge/` | The OCR **benchmark** is recorded: median and p95, full frame and subtitle crop. |
 
-**The check file must mention the row's id** — put it in the test name, e.g. `it('AC-64 the playback position reaches the presenter', ...)`. The kit's SPEC lint reads the file and fails if the id is absent.
+**The check file must mention the row's id** — put it in the test name, e.g. `it('AC-71 the playback position reaches the presenter', ...)`. The kit's SPEC lint reads the file and fails if the id is absent.
 
 ## The house rules
 

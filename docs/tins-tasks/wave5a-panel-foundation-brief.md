@@ -102,26 +102,26 @@ The split rule: **anything that decides geometry is pure and lives in `packages/
 
 | Row | The decision in one line |
 | --- | --- |
-| D-30 | A panel is a **new element type** (`panel`), not a side table in appState: it must be selectable with the normal tools, move and resize, be undoable, land on the right page, and appear in the export — all of which are element behaviours. |
-| D-31 | A panel is **live or locked, never both**: the type discriminates on `locked`, so a panel cannot be half-live and half-poster. The live content is kept so locking is reversible. |
-| D-32 | The **DOM overlay** renders the live panel, positioned through the **same** camera conversion the canvas uses — the same rule the animated-image overlay follows, so overlay and canvas cannot disagree. |
-| D-33 | Locking a panel **never captures the DOM**: the poster is produced from the content's own source at the content's **native** resolution, so a locked panel is not a grainy screen-grab of the on-canvas rectangle. |
-| D-34 | The **crop** operates on the poster image, not on the live content, and produces a **new image element** on the current page — the panel itself is left untouched, so cropping a locked panel gives a copy without destroying the panel. |
+| D-45 | A panel is a **new element type** (`panel`), not a side table in appState: it must be selectable with the normal tools, move and resize, be undoable, land on the right page, and appear in the export — all of which are element behaviours. |
+| D-33 | _(already locked in `SPEC.md` — do not re-add)_ A panel is **live or poster, never both**: the type discriminates on **`posterMode`**, not on the base element's `locked` (which already means "immutable", and would make a poster panel un-selectable). The live content is kept so locking is reversible. |
+| D-34 | _(already locked in `SPEC.md` — do not re-add)_ The **DOM overlay** renders the live panel, positioned through the library's own `sceneCoordsToViewportCoords` — the oracle — and **not** through a hand-derived transform, and **not** as a copy of `animatedImageTransform`. Overlay and canvas therefore cannot disagree. |
+| D-46 | Locking a panel **never captures the DOM**: the poster is produced from the content's own source at the content's **native** resolution, so a locked panel is not a grainy screen-grab of the on-canvas rectangle. |
+| D-47 | The **crop** operates on the poster image, not on the live content, and produces a **new image element** on the current page — the panel itself is left untouched, so cropping a locked panel gives a copy without destroying the panel. |
 
-Add these five rows to `SPEC.md` in the Decisions table, and the acceptance rows below to a new **Acceptance — Wave 5** table.
+Add the **three** new rows (D-45, D-46, D-47) to `SPEC.md` in the Decisions table — D-33 and D-34 are already locked there and are listed above only so you know what they say — and the acceptance rows below to a new **Acceptance — Wave 5** table.
 
 ## The acceptance rows
 
 | Row | What it checks | File |
 | --- | --- | --- |
-| AC-36 | A panel **survives save -> restore** with `locked`, `panelKind`, the `panel` payload and `posterFileId` intact. | `packages/excalidraw/tests/` |
-| AC-37 | A **live** panel is not painted by the canvas, and a **locked** panel is painted at the panel's bounds. | `packages/excalidraw/tests/` |
-| AC-38 | The panel overlay's screen position equals the position the canvas would use, **through `sceneCoordsToViewportCoords`** — an oracle, never a re-derivation. | `packages/excalidraw/tests/` |
-| AC-39 | Locking a panel produces a poster at the content's **native** resolution, regardless of the on-canvas display size, and locking is **reversible**. | `packages/excalidraw/tests/` |
-| AC-40 | Cropping a poster yields a **new image element on the current page** and leaves the panel untouched. | `excalidraw-app/tests/` |
-| AC-41 | For **every** entry in the dispatch checklist, a test asserts the panel behaves as the recorded decision says. | `packages/excalidraw/tests/` |
+| AC-52 | A panel **survives save -> restore** with `locked`, `panelKind`, the `panel` payload and `posterFileId` intact. | `packages/excalidraw/tests/` |
+| AC-53 | A **live** panel is not painted by the canvas, and a **locked** panel is painted at the panel's bounds. | `packages/excalidraw/tests/` |
+| AC-54 | The panel overlay's screen position equals the position the canvas would use, **through `sceneCoordsToViewportCoords`** — an oracle, never a re-derivation. | `packages/excalidraw/tests/` |
+| AC-55 | Locking a panel produces a poster at the content's **native** resolution, regardless of the on-canvas display size, and locking is **reversible**. | `packages/excalidraw/tests/` |
+| AC-56 | Cropping a poster yields a **new image element on the current page** and leaves the panel untouched. | `excalidraw-app/tests/` |
+| AC-57 | For **every** entry in the dispatch checklist, a test asserts the panel behaves as the recorded decision says. | `packages/excalidraw/tests/` |
 
-**The check file must mention the row's id** — put it in the test name, e.g. `it('AC-36 a panel survives a save and restore round trip', ...)`. The kit's SPEC lint reads the file and fails if the id is absent.
+**The check file must mention the row's id** — put it in the test name, e.g. `it('AC-52 a panel survives a save and restore round trip', ...)`. The kit's SPEC lint reads the file and fails if the id is absent.
 
 ## The files you own
 
@@ -140,7 +140,7 @@ Everything below is inside the task scope `packages/element,packages/excalidraw,
 | `excalidraw-app/ocrClient.ts` | new | the OCR service client (against a stub service) |
 | `docs/superpowers/specs/2026-10-20-panel-type-dispatch-checklist.md` | new | the gate artefact |
 | `packages/excalidraw/tests/`, `excalidraw-app/tests/` | changed | the acceptance rows |
-| `SPEC.md` | changed | D-30..D-34 and the acceptance rows |
+| `SPEC.md` | changed | D-45..D-47 and the acceptance rows |
 
 The dispatch checklist will name further files — every one of them must be inside the scope above. If the checklist turns up a file outside it, **stop and report it** rather than editing it.
 
