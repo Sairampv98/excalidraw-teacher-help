@@ -12,6 +12,7 @@ import { dataUrlToBase64, ocrTextElements } from "./ocrPlacement";
 import type { OcrRegion } from "../../packages/vscode-bridge/bridge/src/ocr";
 
 import type {
+  OcrEngineState,
   OcrRequest,
   OcrResult,
 } from "../../packages/vscode-bridge/bridge/src/ocr";
@@ -31,6 +32,10 @@ import type {
  * With no bridge the read fails, and the failure is **said**: the panel shows
  * the reason, so the teacher is never left with a panel that shows nothing and
  * no idea why (D-59).
+ *
+ * The panel also says **which engine** read the text and **how long** it took:
+ * the engine is a choice (D-90), and a choice the teacher cannot see is a
+ * choice the teacher cannot make.
  */
 
 /** the sentence the panel shows before anything was read */
@@ -38,6 +43,47 @@ export const OCR_IDLE_MESSAGE = "Read the text with the bridge.";
 
 /** the sentence the panel shows while a read is running */
 export const OCR_READING_MESSAGE = "Reading the text…";
+
+/**
+ * The sentence that says which engine is in use.
+ *
+ * An engine that is not there is **said**, with the reason: the teacher has to
+ * be able to fix it (D-91).
+ */
+export const ocrEngineMessage = (state: OcrEngineState | null): string => {
+  if (!state) {
+    return OCR_IDLE_MESSAGE;
+  }
+
+  if (state.state === "unavailable") {
+    return state.reason ?? "The OCR engine is not available.";
+  }
+
+  return `${OCR_IDLE_MESSAGE} (engine: ${state.engine ?? "unknown"})`;
+};
+
+/**
+ * The sentence that says what was read, and by whom.
+ *
+ * The engine and the time are in it, so a fast engine and a slow one look
+ * different (D-90).
+ */
+export const ocrReadMessage = ({
+  lines,
+  engine,
+  durationMs,
+}: {
+  lines: number;
+  engine?: string;
+  durationMs?: number;
+}): string => {
+  const count = `${lines} line${lines === 1 ? "" : "s"}`;
+  const by = engine ? ` with ${engine}` : "";
+  const took =
+    durationMs === undefined ? "" : ` in ${Math.round(durationMs)} ms`;
+
+  return `Read ${count}${by}${took}.`;
+};
 
 export type OcrImage = {
   /** the picture, as a data URL */
@@ -58,13 +104,27 @@ export type OcrPlacement = {
 export const useOcr = ({
   api,
   requestOcr,
+  engineState = null,
 }: {
   api: ExcalidrawImperativeAPI | null;
   /** asks the bridge to read a picture */
   requestOcr: (request: Omit<OcrRequest, "id">) => Promise<OcrResult>;
+  /** the engine's state, as the extension said it (D-90, D-91) */
+  engineState?: OcrEngineState | null;
 }) => {
-  const [message, setMessage] = useState(OCR_IDLE_MESSAGE);
+  const [readMessage, setReadMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  /**
+   * The sentence the panel shows.
+   *
+   * It is the read's own sentence when there was one, and otherwise the
+   * engine's: which engine is in use, or - when it is not there - why, and
+   * what to install (D-90, D-91).
+   */
+  const message = busy
+    ? OCR_READING_MESSAGE
+    : readMessage ?? ocrEngineMessage(engineState);
 
   /**
    * Reads a picture and puts the lines back where they were read from.
@@ -92,7 +152,7 @@ export const useOcr = ({
       strokeColor?: string;
     }) => {
       setBusy(true);
-      setMessage(OCR_READING_MESSAGE);
+      setReadMessage(null);
 
       try {
         const result = await requestOcr({
@@ -123,16 +183,24 @@ export const useOcr = ({
           });
         }
 
-        setMessage(
+        setReadMessage(
           elements.length
-            ? `Read ${elements.length} line${elements.length === 1 ? "" : "s"}.`
+            ? ocrReadMessage({
+                lines: elements.length,
+                ...(result.engine === undefined
+                  ? {}
+                  : { engine: result.engine }),
+                ...(result.durationMs === undefined
+                  ? {}
+                  : { durationMs: result.durationMs }),
+              })
             : "No text was found.",
         );
 
         return result;
       } catch (error) {
         // the failure is said, never swallowed
-        setMessage((error as Error).message);
+        setReadMessage((error as Error).message);
 
         return null;
       } finally {

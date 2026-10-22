@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { createOcrClient, OCR_NEEDS_BRIDGE } from "../bridge/src/ocrClient";
+import { parseBridgeMessage } from "../bridge/src/protocol";
 
 /** The repository root, found by walking up from the working directory. */
 const findRepoRoot = (): string => {
@@ -106,29 +107,125 @@ describe("the OCR capability without a bridge", () => {
       expect(read(file)).not.toMatch(engineImport);
     }
 
-    // and no package the browser ships declares it
+    // and no package the browser ships declares it: neither the app nor the
+    // library gains a dependency (D-59, AC-127)
     const appPackage = JSON.parse(read("excalidraw-app/package.json"));
+    const libraryPackage = JSON.parse(read("packages/excalidraw/package.json"));
+
+    for (const shipped of [appPackage, libraryPackage]) {
+      expect(Object.keys(shipped.dependencies ?? {})).not.toContain(
+        "tesseract.js",
+      );
+      expect(Object.keys(shipped.devDependencies ?? {})).not.toContain(
+        "tesseract.js",
+      );
+    }
+
+    // The ROOT package carries the engine as the build-time source the .vsix
+    // is built from (D-89). It is a dependency of the BUILD, not of the
+    // product, and it is not in the browser's half.
     const rootPackage = JSON.parse(read("package.json"));
 
-    expect(Object.keys(appPackage.dependencies ?? {})).not.toContain(
-      "tesseract.js",
-    );
-    expect(Object.keys(appPackage.devDependencies ?? {})).not.toContain(
-      "tesseract.js",
-    );
     expect(Object.keys(rootPackage.dependencies ?? {})).not.toContain(
       "tesseract.js",
     );
-    expect(Object.keys(rootPackage.devDependencies ?? {})).not.toContain(
+    expect(Object.keys(rootPackage.devDependencies ?? {})).toContain(
       "tesseract.js",
     );
 
-    // the extension has no runtime dependency of its own either (AC-64): the
-    // engine is loaded at RUN time, from wherever it is installed
+    // and the EXTENSION declares it: the declared dependency that ships
+    // inside the .vsix, so the teacher installs nothing (D-89)
     const extensionPackage = JSON.parse(
       read("packages/vscode-bridge/extension/package.json"),
     );
 
-    expect(extensionPackage.dependencies).toBeUndefined();
+    expect(Object.keys(extensionPackage.dependencies ?? {})).toEqual([
+      "tesseract.js",
+    ]);
+  });
+
+  it("AC-125 the result carries the engine that ran and how long it took", async () => {
+    const sent: unknown[] = [];
+
+    const client = createOcrClient({
+      send: (message) => {
+        sent.push(message);
+        return true;
+      },
+    });
+
+    const pending = client.recognize({ imageBase64: "SU1BR0U=" });
+
+    const id = (sent[0] as { id: string }).id;
+
+    client.settle({
+      id,
+      text: "the text",
+      lines: [{ text: "the text", x: 1, y: 2, width: 3, height: 4 }],
+      // the engine that ran, and the time it took (D-90)
+      engine: "indra",
+      durationMs: 228,
+    });
+
+    await expect(pending).resolves.toMatchObject({
+      engine: "indra",
+      durationMs: 228,
+    });
+  });
+
+  it("AC-125 the request may name an engine, and the runtime guard accepts it", async () => {
+    const sent: unknown[] = [];
+
+    const client = createOcrClient({
+      send: (message) => {
+        sent.push(message);
+        return true;
+      },
+    });
+
+    void client.recognize({ imageBase64: "SU1BR0U=", engine: "paddle" });
+
+    // the request carries the engine the caller asked for
+    expect(sent[0]).toMatchObject({ type: "ocr:request", engine: "paddle" });
+
+    // and the runtime guard understands both directions: a request that names
+    // an engine, and an answer that says which engine ran (D-90, D-50)
+    expect(
+      parseBridgeMessage(
+        JSON.stringify({
+          v: 1,
+          type: "ocr:request",
+          id: "ocr-1",
+          imageBase64: "QUJD",
+          engine: "indra",
+        }),
+      ),
+    ).toMatchObject({ type: "ocr:request", engine: "indra" });
+
+    expect(
+      parseBridgeMessage(
+        JSON.stringify({
+          v: 1,
+          type: "ocr:result",
+          id: "ocr-1",
+          text: "hello",
+          engine: "indra",
+          durationMs: 228,
+        }),
+      ),
+    ).toMatchObject({ type: "ocr:result", engine: "indra", durationMs: 228 });
+
+    // and an engine that is not one of the three is refused
+    expect(
+      parseBridgeMessage(
+        JSON.stringify({
+          v: 1,
+          type: "ocr:request",
+          id: "ocr-1",
+          imageBase64: "QUJD",
+          engine: "nonsense",
+        }),
+      ),
+    ).toBeNull();
   });
 });

@@ -144,3 +144,22 @@ export function resolveCaptureFps(configured?: number): number {
 
   return DEFAULT_CAPTURE_FPS;
 }
+
+/**
+ * The Python the Python OCR engines run in.
+ *
+ * It is a **setting** (`excalidraw-bridge.pythonPath`), because the engines
+ * that are Python live in a virtual environment the teacher chooses - the
+ * `indra` and `paddle` engines run in a sidecar, and the sidecar is this
+ * interpreter (D-90).
+ *
+ * An empty setting falls back to `python`, which is what a machine with the
+ * engines on its PATH has.
+ */
+export const DEFAULT_PYTHON_PATH = "python";
+
+export function resolvePythonPath(configured?: string): string {
+  const trimmed = configured?.trim();
+
+  return trimmed ? trimmed : DEFAULT_PYTHON_PATH;
+}

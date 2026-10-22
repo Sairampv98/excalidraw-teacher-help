@@ -1,24 +1,37 @@
 import { createRequire } from "node:module";
 import { join } from "node:path";
 
-import { ocrRectangle } from "../../bridge/src/ocr";
+import {
+  DEFAULT_OCR_ENGINE,
+  isOcrEngineName,
+  ocrRectangle,
+} from "../../bridge/src/ocr";
 
-import type { OcrEngine, OcrLine, OcrRequest } from "../../bridge/src/ocr";
+import type {
+  OcrEngine,
+  OcrEngineName,
+  OcrLine,
+  OcrRequest,
+} from "../../bridge/src/ocr";
 
 /**
  * The **OCR engine** of the bridge: `tesseract.js`, in the extension's Node
  * process (D-59).
  *
- * ## The engine is not a dependency of the extension
+ * ## The engine is a DECLARED dependency (D-89)
  *
- * The extension ships with **no runtime dependency of its own** (AC-64), and
- * the project rule is no new dependency without the owner's approval. So the
- * engine is **loaded at run time**, from the process's own module paths, and
- * when it is not there the bridge says so plainly instead of failing
- * silently.
+ * `tesseract.js` is declared in the extension's own manifest and it **ships
+ * inside the `.vsix`**, as files: the engine loads its worker and its core
+ * from paths at run time, so bundling the extension's TypeScript is not
+ * enough. The teacher installs nothing to get OCR.
+ *
+ * A teacher who put `tesseract.js` in the project they teach from still gets
+ * OCR: that run-time install is the **fallback**, and the **declared copy
+ * wins** (D-89).
  *
  * The engine is never in the browser: a WASM OCR engine is a multi-megabyte
- * download, and a classroom connection is slow (D-59).
+ * download, and a classroom connection is slow (D-59). The app's package
+ * gains no dependency at all (AC-127).
  *
  * ## The engine's rules
  *
@@ -36,9 +49,25 @@ export const OCR_ENGINE_MODULE_ID = "tesseract.js";
 
 /**
  * The sentence the bridge sends when the engine is not there.
+ *
+ * It names the thing that is missing, because a teacher who cannot read the
+ * reason cannot fix it (D-91).
  */
 export const OCR_ENGINE_MISSING =
-  "the OCR engine (tesseract.js) is not installed where the bridge can reach it — install it in the folder the bridge runs from";
+  "the OCR engine (tesseract.js) is not where the bridge can reach it — the extension ships its own copy, so this .vsix is broken; reinstall the extension";
+
+/**
+ * The engine the setting names.
+ *
+ * The setting is `excalidraw-bridge.ocrEngine` (D-90): `tesseract`, `indra`
+ * or `paddle`. A value that is not one of them falls back to the default
+ * rather than to a broken engine.
+ */
+export const resolveOcrEngine = (configured?: string): OcrEngineName => {
+  const name = (configured ?? "").trim().toLowerCase();
+
+  return isOcrEngineName(name) ? name : DEFAULT_OCR_ENGINE;
+};
 
 type TesseractBox = { x0: number; y0: number; x1: number; y1: number };
 
@@ -75,20 +104,48 @@ type TesseractModule = {
 /**
  * Where the engine is looked for.
  *
- * The extension's own folder comes first, then the **workspace** — a teacher
+ * The extension's **own** folder comes **first**: that is the declared copy
+ * that ships inside the `.vsix` (D-89). Then the **workspace** — a teacher
  * who installs the engine in the project they teach from gets it — and then
  * the places Node itself looks.
  */
 export const engineSearchPaths = (workspaceRoot?: string): string[] => {
   const paths: string[] = [];
 
+  // the DECLARED copy: the one inside the extension's own installed folder
+  paths.push(join(__dirname, "package.json"));
+
   if (workspaceRoot) {
     paths.push(join(workspaceRoot, "package.json"));
   }
 
-  paths.push(join(__dirname, "package.json"));
-
   return paths;
+};
+
+/**
+ * Where the engine is, when the bridge can reach it.
+ *
+ * It only **resolves** the module - it does not load it - so the check costs
+ * nothing: the engine itself is loaded on the first read, and its worker is
+ * created once and kept (D-89).
+ */
+export const resolveTesseract = (
+  searchPaths: readonly string[] = engineSearchPaths(),
+): { require: NodeRequire; path: string } => {
+  const errors: string[] = [];
+
+  for (const path of searchPaths) {
+    try {
+      const requireFrom = createRequire(path);
+      const resolved = requireFrom.resolve(OCR_ENGINE_MODULE_ID);
+
+      return { require: requireFrom, path: resolved };
+    } catch (error) {
+      errors.push(`${path}: ${(error as Error).message}`);
+    }
+  }
+
+  throw new Error(`${OCR_ENGINE_MISSING} (${errors.join("; ")})`);
 };
 
 /**
@@ -97,22 +154,30 @@ export const engineSearchPaths = (workspaceRoot?: string): string[] => {
 export const loadTesseract = (
   searchPaths: readonly string[] = engineSearchPaths(),
 ): TesseractModule => {
-  const errors: string[] = [];
+  const { require: requireFrom, path: resolved } =
+    resolveTesseract(searchPaths);
 
-  for (const path of searchPaths) {
-    try {
-      const requireFrom = createRequire(path);
-      const resolved = requireFrom.resolve(OCR_ENGINE_MODULE_ID);
+  // the module is required by its resolved path, so it is **not** bundled
+  // into the extension: it travels with the extension as files, and the
+  // loader picks the copy it finds (D-89)
+  return requireFrom(resolved) as TesseractModule;
+};
 
-      // the module is required by its resolved path, so it is **not** bundled
-      // into the extension: the extension stays dependency-free (AC-64)
-      return requireFrom(resolved) as TesseractModule;
-    } catch (error) {
-      errors.push(`${path}: ${(error as Error).message}`);
-    }
+/**
+ * Whether the engine is where the bridge can reach it.
+ *
+ * It resolves the module and stops there: nothing is loaded, and no worker is
+ * created, so the answer is cheap (D-89).
+ */
+export const canLoadTesseract = (
+  searchPaths: readonly string[] = engineSearchPaths(),
+): boolean => {
+  try {
+    resolveTesseract(searchPaths);
+    return true;
+  } catch {
+    return false;
   }
-
-  throw new Error(`${OCR_ENGINE_MISSING} (${errors.join("; ")})`);
 };
 
 /**
@@ -193,6 +258,7 @@ export const createTesseractEngine = async ({
   return {
     recognize: async (request: OcrRequest) => {
       const rectangle = ocrRectangle(request.region);
+      const startedAt = Date.now();
 
       const { data } = await worker.recognize(
         Buffer.from(request.imageBase64, "base64"),
@@ -208,6 +274,9 @@ export const createTesseractEngine = async ({
         ...(data.confidence === undefined
           ? {}
           : { confidence: data.confidence }),
+        // which engine ran, and how long it took (D-90)
+        engine: "tesseract",
+        durationMs: Date.now() - startedAt,
       };
     },
   };

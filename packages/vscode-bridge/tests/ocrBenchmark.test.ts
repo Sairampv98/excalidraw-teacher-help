@@ -106,4 +106,74 @@ describe("the OCR benchmark", () => {
     expect(record.engine.languageDataUncached).toBe(false);
     expect(record.engine.corePathPinnedToSingleFile).toBe(false);
   });
+
+  it("AC-126 the benchmark reports every engine, with its median and p95 for both cases", () => {
+    const engines = record.engines as Record<
+      string,
+      {
+        name: string;
+        available: boolean;
+        reason?: string;
+        fullFrame?: Case;
+        subtitleCrop?: Case;
+      }
+    >;
+
+    // EVERY engine is in the record: the engine is a choice, and a choice the
+    // teacher cannot measure is a choice the teacher cannot make (D-90)
+    expect(Object.keys(engines).sort()).toEqual([
+      "indra",
+      "paddle",
+      "tesseract",
+    ]);
+
+    for (const [name, engine] of Object.entries(engines)) {
+      expect(engine.name).toBe(name);
+
+      if (!engine.available) {
+        // the engine could not run here: it says WHY (D-126)
+        expect(engine.reason).toBeTruthy();
+        expect(engine.fullFrame).toBeUndefined();
+        continue;
+      }
+
+      // and an engine that ran has the numbers for BOTH cases
+      const fullFrame = engine.fullFrame as Case;
+      const subtitleCrop = engine.subtitleCrop as Case;
+
+      expect(fullFrame.runs).toBeGreaterThan(0);
+      expect(subtitleCrop.runs).toBeGreaterThan(0);
+      expect(fullFrame.medianMs).not.toBeNull();
+      expect(fullFrame.p95Ms).not.toBeNull();
+      expect(subtitleCrop.medianMs).not.toBeNull();
+      expect(subtitleCrop.p95Ms).not.toBeNull();
+
+      // the samples are the run, not a summary of a summary
+      expect(fullFrame.samplesMs).toHaveLength(fullFrame.runs);
+      expect(subtitleCrop.samplesMs).toHaveLength(subtitleCrop.runs);
+
+      // and the crop really is a crop
+      expect(subtitleCrop.region).not.toBeNull();
+    }
+  });
+
+  it("AC-126 an engine that could not be measured says why", () => {
+    const engines = record.engines as Record<
+      string,
+      { available: boolean; reason?: string }
+    >;
+
+    // PaddleOCR cannot be installed on this machine's Python 3.14, because
+    // PaddlePaddle ships no cp314 wheel. That is a fact to REPORT, not a
+    // failure to hide (D-91, D-126).
+    const paddle = engines.paddle;
+
+    expect(paddle.available).toBe(false);
+    expect(paddle.reason).toBeTruthy();
+    expect(paddle.reason).toContain("pip install paddleocr paddlepaddle");
+    expect(paddle.reason).toContain(
+      "PaddlePaddle has no build for Python 3.14",
+    );
+    expect(paddle.reason).toContain("3.12 or 3.13");
+  });
 });

@@ -22,7 +22,10 @@ import {
 } from "./bridgeSession";
 
 import type { BridgeSession, BridgeSessionState } from "./bridgeSession";
-import type { OcrRequest } from "../../packages/vscode-bridge/bridge/src/ocr";
+import type {
+  OcrEngineState,
+  OcrRequest,
+} from "../../packages/vscode-bridge/bridge/src/ocr";
 import type { CaptureStateMessage } from "../../packages/vscode-bridge/extension/src/captureState";
 
 /**
@@ -64,6 +67,15 @@ export const useBridgePanel = (api: ExcalidrawImperativeAPI | null) => {
     INITIAL_BRIDGE_SESSION_STATE,
   );
   const [token, setToken] = useState("");
+
+  /**
+   * The OCR engine's **state**, as the extension last said it (D-90, D-91).
+   *
+   * It is a state, not a silence: the panel has to be able to say which engine
+   * is in use, and - when the engine is not there - **why**, and what to
+   * install (D-75).
+   */
+  const [ocrState, setOcrState] = useState<OcrEngineState | null>(null);
 
   const sessionRef = useRef<BridgeSession | null>(null);
   const panelStateRef = useRef<CodePanelState>(initialCodePanelState());
@@ -199,6 +211,17 @@ export const useBridgePanel = (api: ExcalidrawImperativeAPI | null) => {
           return;
         }
 
+        if (message.type === "ocr:state") {
+          // Which engine is in use, and - when it is not there - why (D-90,
+          // D-91).
+          setOcrState({
+            state: message.state,
+            ...(message.engine === undefined ? {} : { engine: message.engine }),
+            ...(message.reason === undefined ? {} : { reason: message.reason }),
+          });
+          return;
+        }
+
         publish(reduceCodePanelState(panelStateRef.current, message));
       },
     });
@@ -273,5 +296,5 @@ export const useBridgePanel = (api: ExcalidrawImperativeAPI | null) => {
     ],
   );
 
-  return { bridge, state, startRun, requestOcr };
+  return { bridge, state, startRun, requestOcr, ocrState };
 };

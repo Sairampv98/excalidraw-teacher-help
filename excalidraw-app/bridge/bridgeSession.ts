@@ -226,6 +226,11 @@ export const createBridgeSession = (
             ...(message.confidence === undefined
               ? {}
               : { confidence: message.confidence }),
+            // which engine ran, and how long it took (D-90)
+            ...(message.engine === undefined ? {} : { engine: message.engine }),
+            ...(message.durationMs === undefined
+              ? {}
+              : { durationMs: message.durationMs }),
           });
           return;
         }
@@ -233,6 +238,16 @@ export const createBridgeSession = (
         if (message.type === "ocr:error") {
           ocr.fail(message.id, message.message);
           return;
+        }
+
+        // The engine's STATE: which engine is in use, and - when it is not
+        // there - why, and what to install (D-90, D-91).
+        if (message.type === "ocr:state") {
+          ocr.setState({
+            state: message.state,
+            ...(message.engine === undefined ? {} : { engine: message.engine }),
+            ...(message.reason === undefined ? {} : { reason: message.reason }),
+          });
         }
 
         // The stream's URL (D-85). It is part of the CONNECTION's state, so

@@ -165,6 +165,12 @@ describe("the bridge protocol", () => {
       id: "ocr-1",
       message: "the OCR engine is not installed",
     },
+    {
+      v: 1,
+      type: "ocr:state",
+      state: "ready",
+      engine: "tesseract",
+    },
     { v: 1, type: "ping" },
     { v: 1, type: "pong" },
   ];

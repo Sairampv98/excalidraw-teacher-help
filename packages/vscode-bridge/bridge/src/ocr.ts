@@ -33,6 +33,55 @@ export type OcrRegion = {
 };
 
 /**
+ * The engines the bridge can read with (D-90).
+ *
+ * - `tesseract` runs **in this process** - it is `tesseract.js`, and it is
+ *   declared and shipped inside the `.vsix` (D-89);
+ * - `indra` and `paddle` are **Python**, so they run in a sidecar the
+ *   extension spawns (D-90).
+ *
+ * The name is the same on both sides of the wire: the app asks for one, the
+ * extension says which one ran.
+ */
+export type OcrEngineName = "tesseract" | "indra" | "paddle";
+
+/** Every engine name, in the order they are offered. */
+export const OCR_ENGINE_NAMES: readonly OcrEngineName[] = [
+  "tesseract",
+  "indra",
+  "paddle",
+];
+
+/**
+ * The engine the bridge uses when nothing says otherwise.
+ *
+ * It is `tesseract`: it is the one that is **shipped** (D-89), so it works
+ * without anything installed.
+ */
+export const DEFAULT_OCR_ENGINE: OcrEngineName = "tesseract";
+
+/** Whether a value is one of the engine names. */
+export const isOcrEngineName = (value: unknown): value is OcrEngineName =>
+  typeof value === "string" &&
+  (OCR_ENGINE_NAMES as readonly string[]).includes(value);
+
+/**
+ * The state of the OCR engine (D-90, D-91).
+ *
+ * It is a **state**, not a silence: the panel has to be able to say which
+ * engine is in use, and - when the engine is not there - **why** it is not
+ * there and what to install (D-75, D-91).
+ */
+export type OcrEngineState = {
+  /** "ready" - the engine can read. "unavailable" - it cannot. */
+  state: "ready" | "unavailable";
+  /** the engine that is in use */
+  engine?: OcrEngineName;
+  /** why the engine is not there. Never empty when the state is "unavailable". */
+  reason?: string;
+};
+
+/**
  * A request to read the text out of an image.
  */
 export type OcrRequest = {
@@ -44,6 +93,13 @@ export type OcrRequest = {
   region?: OcrRegion;
   /** the language to read, when the caller knows it */
   language?: string;
+  /**
+   * The engine the caller wants.
+   *
+   * It is **optional**: when it is absent the extension falls back to its own
+   * setting (`excalidraw-bridge.ocrEngine`, D-90).
+   */
+  engine?: OcrEngineName;
 };
 
 /**
@@ -72,6 +128,14 @@ export type OcrResult = {
   lines: OcrLine[];
   /** the engine's confidence, when it gives one */
   confidence?: number;
+  /**
+   * Which engine **actually** read the text (D-90).
+   *
+   * It is optional, so an extension that predates it still connects (D-50).
+   */
+  engine?: OcrEngineName;
+  /** how long the read took, in milliseconds */
+  durationMs?: number;
 };
 
 /**
@@ -81,6 +145,10 @@ export type OcrEngineResult = {
   text: string;
   lines: OcrLine[];
   confidence?: number;
+  /** which engine read it */
+  engine?: OcrEngineName;
+  /** how long the read took, in milliseconds */
+  durationMs?: number;
 };
 
 /**
@@ -112,6 +180,11 @@ export const createOcrService = (
       ...(result.confidence === undefined
         ? {}
         : { confidence: result.confidence }),
+      // the engine that ran, and the time it took: the panel shows both (D-90)
+      ...(result.engine === undefined ? {} : { engine: result.engine }),
+      ...(result.durationMs === undefined
+        ? {}
+        : { durationMs: result.durationMs }),
     };
   },
 });

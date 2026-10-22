@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-10-21T22:27:07.197Z",
+  "recordedAt": "2026-10-22T16:27:42.950Z",
   "engine": {
     "name": "tesseract.js",
     "version": "7.0.0",
@@ -21,18 +21,18 @@
     "subtitleCropMs": 250
   },
   "inputs": {
-    "note": "a 1080p screencast frame; make-frames.py (next to this file) makes it. The crop is read through the region's rectangle, the way the service reads it."
+    "note": "a 1080p screencast frame and the crop of its subtitle band; make-frames.py (next to this file) makes them"
   },
   "cases": {
     "fullFrame": {
       "image": "frame-1080p.png",
       "region": null,
       "runs": 10,
-      "medianMs": 283,
-      "p95Ms": 337,
+      "medianMs": 278,
+      "p95Ms": 306,
       "minMs": 268,
-      "maxMs": 337,
-      "samplesMs": [281, 268, 317, 281, 283, 293, 298, 287, 337, 278]
+      "maxMs": 306,
+      "samplesMs": [306, 296, 293, 278, 274, 268, 276, 283, 280, 273]
     },
     "subtitleCrop": {
       "image": "frame-1080p.png",
@@ -43,11 +43,78 @@
         "height": 180
       },
       "runs": 10,
-      "medianMs": 126,
-      "p95Ms": 139,
-      "minMs": 123,
-      "maxMs": 139,
-      "samplesMs": [139, 126, 133, 134, 130, 127, 123, 123, 124, 123]
+      "medianMs": 120,
+      "p95Ms": 131,
+      "minMs": 117,
+      "maxMs": 131,
+      "samplesMs": [131, 122, 122, 120, 129, 117, 117, 130, 117, 119]
+    }
+  },
+  "engines": {
+    "tesseract": {
+      "name": "tesseract",
+      "available": true,
+      "version": "7.0.0",
+      "fullFrame": {
+        "image": "frame-1080p.png",
+        "region": null,
+        "runs": 10,
+        "medianMs": 278,
+        "p95Ms": 306,
+        "minMs": 268,
+        "maxMs": 306,
+        "samplesMs": [306, 296, 293, 278, 274, 268, 276, 283, 280, 273]
+      },
+      "subtitleCrop": {
+        "image": "frame-1080p.png",
+        "region": {
+          "x": 0,
+          "y": 900,
+          "width": 1920,
+          "height": 180
+        },
+        "runs": 10,
+        "medianMs": 120,
+        "p95Ms": 131,
+        "minMs": 117,
+        "maxMs": 131,
+        "samplesMs": [131, 122, 122, 120, 129, 117, 117, 130, 117, 119]
+      }
+    },
+    "indra": {
+      "name": "indra",
+      "available": true,
+      "python": "3.14.7",
+      "fullFrame": {
+        "image": "frame-1080p.png",
+        "region": null,
+        "runs": 10,
+        "medianMs": 147,
+        "p95Ms": 186,
+        "minMs": 141,
+        "maxMs": 186,
+        "samplesMs": [143, 143, 164, 141, 186, 147, 152, 146, 149, 148]
+      },
+      "subtitleCrop": {
+        "image": "frame-1080p.png",
+        "region": {
+          "x": 0,
+          "y": 900,
+          "width": 1920,
+          "height": 180
+        },
+        "runs": 10,
+        "medianMs": 74,
+        "p95Ms": 97,
+        "minMs": 63,
+        "maxMs": 97,
+        "samplesMs": [75, 67, 71, 77, 74, 97, 77, 87, 63, 71]
+      }
+    },
+    "paddle": {
+      "name": "paddle",
+      "available": false,
+      "reason": "paddleocr is not installed - pip install paddleocr paddlepaddle. PaddlePaddle has no build for Python 3.14; it needs Python 3.12 or 3.13"
     }
   },
   "verdict": {
