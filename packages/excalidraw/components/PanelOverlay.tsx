@@ -327,7 +327,7 @@ const CodePanelSurface = ({
     getPanelCapture(panel.id),
   );
 
-  /** which view the teacher chose (D-83) */
+  /** which view the panel shows: the default, or the teacher's own choice (D-99) */
   const view = readPanelView(panel.panel);
 
   if (!state || state.connection !== "connected") {
@@ -484,8 +484,8 @@ const CodePanelSurface = ({
               }}
             />
           ) : hasFile ? (
-            // The editor is the DEFAULT view (D-83), and in the live view it
-            // is the fallback when there is no picture.
+            // The editor is the FALLBACK of the live view (D-99), and it is
+            // what the teacher sees when the panel is in the editor view.
             state.editor.text ? (
               <CodePanelEditor
                 value={state.editor.text}
@@ -520,19 +520,27 @@ const CodePanelSurface = ({
             </div>
           )}
 
-          {view === "live" && capture?.status === "unavailable" ? (
+          {view === "live" && capture?.status !== "live" ? (
             // There is no live view, and the panel says **why**: the text
             // mirror above is the fallback, and a fallback the teacher cannot
             // explain is a broken panel (D-75). The reason is shown ONLY in
-            // the live view - in the default view there is nothing to
-            // explain, because the teacher did not ask for the live view
-            // (D-83).
+            // the live view - in the editor view there is nothing to explain,
+            // because the teacher did not ask for the live view (D-83).
+            //
+            // Two reasons, and both of them are the panel's own knowledge: the
+            // capture said it cannot run (and it says why), or there is no
+            // descriptor AT ALL - the editor has not published the live view
+            // yet, or the presenter has not heard it. A presenter that has
+            // heard nothing says so, and never shows a black rectangle
+            // (D-101).
             <div
               className="excalidraw__panel-code-status"
               data-testid="code-panel-live-status"
               style={{ color: VS_CODE_DARK.muted }}
             >
-              {capture.reason}
+              {capture?.status === "unavailable"
+                ? capture.reason
+                : t("labels.panel.code.liveNotArrived")}
             </div>
           ) : null}
         </div>

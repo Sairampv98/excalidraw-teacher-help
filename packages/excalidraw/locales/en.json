@@ -194,7 +194,8 @@
         "viewEditor": "Editor",
         "viewLive": "Live window",
         "showEditor": "Show the mirrored editor",
-        "showLive": "Show the live editor window"
+        "showLive": "Show the live editor window",
+        "liveNotArrived": "The live window has not arrived yet."
       },
       "fileGone": "This panel's file is no longer in the document.",
       "mediaLoading": "Loading the video...",

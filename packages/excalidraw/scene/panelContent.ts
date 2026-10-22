@@ -323,15 +323,28 @@ export type CodePanelContent = PanelContent & {
   /**
    * Which view the panel shows (D-83).
    *
-   * `"editor"` is the **default**: the panel draws the mirrored text in the
-   * editor, with the file's own grammar. `"live"` is the opt-in alternative:
-   * the live picture of the teacher's editor window.
+   * `"live"` is the **default**: the panel draws the live picture of the
+   * teacher's editor window. `"editor"` is the alternative: the mirrored text
+   * in the editor, with the file's own grammar.
    *
    * It is the panel's OWN property and it is persisted with the document, so
    * the teacher's choice survives a reload. It is optional, so a document
    * written before it still loads - and it reads as the default.
    */
   view?: CodePanelView;
+  /**
+   * Whether the teacher **chose** the view (D-99).
+   *
+   * The default alone is not enough: wave 5h wrote `view: "editor"` into
+   * every panel's payload, and that was the OLD default, not a choice. So the
+   * choice is a **flag beside** the view: a panel that carries no flag follows
+   * the default, and a panel the teacher switched keeps what the teacher
+   * switched to.
+   *
+   * It is a flag and not a second view string, so a payload written before
+   * this wave still loads.
+   */
+  viewChosen?: boolean;
 };
 
 /**
@@ -345,11 +358,11 @@ export type CodePanelView = "editor" | "live";
 /**
  * The view a code panel shows when it says nothing.
  *
- * The native editor is the DEFAULT and the live window is the opt-in
- * alternative (D-83): a panel that was created before this wave - or one
- * whose payload says nothing at all - shows the editor.
+ * The live window is the DEFAULT and the mirrored editor is the alternative
+ * (D-99): a panel that was created before this wave - or one whose payload
+ * says nothing at all - shows the live window.
  */
-export const DEFAULT_CODE_PANEL_VIEW: CodePanelView = "editor";
+export const DEFAULT_CODE_PANEL_VIEW: CodePanelView = "live";
 
 /**
  * The live state of a code panel that has not heard from the bridge yet.
@@ -376,8 +389,8 @@ export const codePanelContent = (
     source: { type: "bridge", sessionId },
     options: { naturalWidth: null, naturalHeight: null, captions: null },
     code: state,
-    // a new panel shows the EDITOR: the live window is the opt-in
-    // alternative (D-83)
+    // a new panel shows the LIVE WINDOW (D-99). It carries no choice: the
+    // teacher has not chosen anything yet, so the panel follows the default.
     view: DEFAULT_CODE_PANEL_VIEW,
   };
 
@@ -414,11 +427,20 @@ export const withCodePanelState = (
 /**
  * The view a code panel shows.
  *
- * The only way to READ the view — and a payload that says nothing reads as the
- * DEFAULT: the native editor (D-83).
+ * The only way to READ the view — and a payload that carries no **choice**
+ * reads as the DEFAULT: the live window (D-99).
+ *
+ * The choice is what makes the teacher's own view survive: a panel the teacher
+ * switched carries the flag beside the view, and a panel that carries no flag
+ * follows the default — even when its payload still says the OLD default
+ * (`view: "editor"`, written by wave 5h).
  */
 export const readPanelView = (content: PanelContent): CodePanelView => {
   const widened: Partial<CodePanelContent> = content;
+
+  if (!widened.viewChosen) {
+    return DEFAULT_CODE_PANEL_VIEW;
+  }
 
   return widened.view ?? DEFAULT_CODE_PANEL_VIEW;
 };
@@ -431,14 +453,22 @@ export const readPanelView = (content: PanelContent): CodePanelView => {
  * The spread keeps everything else, and that is the point: the bridge writes
  * the panel's payload on **every keystroke** in the teacher's editor, and the
  * teacher's choice of view must survive that (D-83).
+ *
+ * Writing the view is writing the teacher's **choice**, so the flag goes with
+ * it (D-99): from here on the panel keeps what the teacher switched to, and
+ * only a panel that was never switched follows the default.
  */
 export const withPanelView = (
   content: PanelContent,
   view: CodePanelView,
 ): PanelContent => {
-  const widened: PanelContent & { view?: CodePanelView } = {
+  const widened: PanelContent & {
+    view?: CodePanelView;
+    viewChosen?: boolean;
+  } = {
     ...content,
     view,
+    viewChosen: true,
   };
 
   return widened;

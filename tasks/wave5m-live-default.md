@@ -1,9 +1,8 @@
 ---
 id: wave5m-live-default
 paths: packages/excalidraw,excalidraw-app,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 5m — the live window is the default, and the presenter shows it
@@ -76,4 +75,3 @@ Add to the acceptance table, in the shape
 ## The gates
 
 `node scripts/tins-gate.mjs` must pass 4/4 (typecheck, eslint, prettier, vitest) and `node scripts/rowcheck.mjs --all` must exit 0. The kit's own SPEC lint must pass. In the close note, report **measured** evidence: the panel's header before and after (the toggle's own label and which view a fresh panel opens on), and the presenter's registry before and after.
-

@@ -5,6 +5,7 @@ import clsx from "clsx";
 import {
   CaptureUpdateAction,
   Excalidraw,
+  setPanelCapture,
   useExcalidrawAPI,
 } from "@excalidraw/excalidraw";
 
@@ -296,6 +297,14 @@ export const PresenterView = () => {
         }
         case "presenter:pointer": {
           applyPointer(message.pointer);
+          break;
+        }
+        case "presenter:live-view": {
+          // The live view's **descriptor** (D-101). The presenter is a second
+          // JavaScript context, so the registry that holds the descriptor is
+          // empty here - and the editor hands it over. The picture does not
+          // travel: the panel plays the same stream, in a plain `<img>`.
+          setPanelCapture(message.panelId, message.capture);
           break;
         }
         case "presenter:files": {

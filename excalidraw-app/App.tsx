@@ -410,9 +410,21 @@ const initializeScene = async (opts: {
 const ExcalidrawWrapper = () => {
   const excalidrawAPI = useExcalidrawAPI();
 
+  // mirrors the scene into the presenter window (second display), if open
+  // `true` so the projector uses the same page + page-relative camera contract
+  //
+  // The live view's descriptor goes over the same channel (D-101): the
+  // presenter is a second JavaScript context, so the registry that holds the
+  // descriptor is empty there, and the editor hands it over.
+  const { publishScene, publishPointer, publishLiveView } =
+    usePresenterBroadcaster(true);
+
   // the VS Code bridge: the app's side of the connection, and the code panel
   // it feeds (D-51)
-  const { bridge, requestOcr, ocrState } = useBridgePanel(excalidrawAPI);
+  const { bridge, requestOcr, ocrState } = useBridgePanel(
+    excalidrawAPI,
+    publishLiveView,
+  );
 
   // the OCR capability: the read happens in the bridge's Node process, and the
   // app puts the text back on the canvas (D-59)
@@ -523,10 +535,6 @@ const ExcalidrawWrapper = () => {
   const { editorTheme, appTheme, setAppTheme } = useHandleAppTheme();
 
   const [langCode, setLangCode] = useAppLangCode();
-
-  // mirrors the scene into the presenter window (second display), if open
-  // `true` so the projector uses the same page + page-relative camera contract
-  const { publishScene, publishPointer } = usePresenterBroadcaster(true);
 
   // draggable / auto-hiding edge docks for the toolbar + properties panel
   const { enabled: edgeDocksEnabled, toggle: toggleEdgeDocks } =

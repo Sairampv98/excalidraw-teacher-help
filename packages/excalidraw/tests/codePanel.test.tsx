@@ -589,8 +589,8 @@ describe("the code panel", () => {
     expect(panelRule).not.toContain("#2a2a2a");
   });
 
-  it("AC-101 the live view is opt-in, and it draws the live stream in a plain img", async () => {
-    // the teacher turned the live view on: the panel is in the live view
+  it("AC-101 the live view draws the live stream in a plain img", async () => {
+    // the teacher is in the live view: the panel is in the live view
     const panel = codePanelInView(connectedState(), "live");
 
     await render(<Excalidraw />);
@@ -825,9 +825,10 @@ describe("the code panel", () => {
     });
   });
 
-  it("AC-103 in the default view there is nothing to explain: the panel shows the editor", async () => {
-    // the same missing capture, but the teacher did NOT ask for the live view
-    const panel = codePanel(connectedState());
+  it("AC-103 in the editor view there is nothing to explain: the panel shows the editor", async () => {
+    // the same missing capture, but the teacher is in the EDITOR view - the
+    // one they chose (D-99)
+    const panel = codePanelInView(connectedState(), "editor");
 
     setPanelCapture(panel.id, {
       status: "unavailable",
@@ -871,7 +872,8 @@ describe("the code panel's view", () => {
     registerCodeMirrorLanguage("mermaid", async () => mermaidLite());
   });
 
-  it("AC-106 the code panel's default view is the native editor, and the live window is opt-in", async () => {
+  it("AC-106 the code panel's default view is the live window, and the native editor is the teacher's choice", async () => {
+    // a panel that carries no choice: it follows the default (D-99)
     const panel = codePanel(connectedState());
 
     await render(<Excalidraw />);
@@ -887,16 +889,17 @@ describe("the code panel's view", () => {
       });
     });
 
-    // ... and the panel STILL shows the editor. The live window is the
-    // opt-in alternative, not the automatic one (D-83).
+    // ... and the panel shows the LIVE WINDOW: it is the default, and the
+    // teacher never asked for anything else (D-99).
     await waitFor(() =>
       expect(
-        document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
+        document.querySelector('[data-testid="code-panel-live-frame"]'),
       ).not.toBeNull(),
     );
 
+    // the picture replaced the text: the live window IS the view now
     expect(
-      document.querySelector('[data-testid="code-panel-live-frame"]'),
+      document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
     ).toBeNull();
 
     // and the panel SAYS which view it is in
@@ -905,7 +908,7 @@ describe("the code panel's view", () => {
     ) as HTMLButtonElement;
 
     expect(toggle).not.toBeNull();
-    expect(toggle.getAttribute("data-view")).toBe("editor");
+    expect(toggle.getAttribute("data-view")).toBe("live");
 
     act(() => {
       clearAllPanelCaptures();
@@ -913,7 +916,8 @@ describe("the code panel's view", () => {
   });
 
   it("AC-107 the teacher turns the live view on from the panel, and the choice is the panel's own", async () => {
-    const panel = codePanel(connectedState());
+    // the teacher is in the EDITOR view - the one they chose (D-99)
+    const panel = codePanelInView(connectedState(), "editor");
 
     await render(<Excalidraw />);
 
@@ -986,6 +990,113 @@ describe("the code panel's view", () => {
     );
 
     expect(readPanelView(panel.panel)).toBe("editor");
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
+  });
+
+  it("AC-137 a new code panel shows the live window by default", async () => {
+    // a NEW panel: its payload carries no choice, so it follows the default
+    const fresh = codePanel(connectedState());
+
+    // and a panel that ALREADY exists: wave 5h wrote `view: "editor"` into
+    // every payload, and that was the OLD default - not a choice the teacher
+    // ever made (D-99)
+    const existing = codePanel(connectedState(), {
+      panel: {
+        ...codePanelContent(connectedState(), "session-1"),
+        view: "editor",
+      },
+    });
+
+    await render(<Excalidraw />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(fresh), asElement(existing)]);
+
+    // the bridge is streaming the editor's window ...
+    act(() => {
+      for (const panel of [fresh, existing]) {
+        setPanelCapture(panel.id, {
+          status: "live",
+          streamUrl: "http://127.0.0.1:47511/s/a-capability/frame",
+        });
+      }
+    });
+
+    // ... and BOTH panels show the LIVE WINDOW: it is the default, and the
+    // flip reaches the panels that already exist (D-99)
+    await waitFor(() =>
+      expect(
+        document.querySelectorAll('[data-testid="code-panel-live-frame"]'),
+      ).toHaveLength(2),
+    );
+
+    // the picture replaced the text in both of them
+    expect(
+      document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
+    ).toBeNull();
+
+    // and the panel SAYS which view it is in, so the teacher can see what a
+    // click will do
+    const toggle = document.querySelector(
+      '[data-testid="code-panel-view-toggle"]',
+    ) as HTMLButtonElement;
+
+    expect(toggle).not.toBeNull();
+    expect(toggle.getAttribute("data-view")).toBe("live");
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
+  });
+
+  it("AC-137 a panel the teacher switched to the editor keeps the editor across a reload", async () => {
+    // the teacher switched the panel to the editor view: that is a CHOICE,
+    // and it is in the payload (D-99)
+    const panel = codePanelInView(connectedState(), "editor");
+
+    await render(<Excalidraw />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    expect(readPanelView(panel.panel)).toBe("editor");
+
+    // a RELOAD: the document brings the payload back, and the panel is a new
+    // element - with a new id, and the same payload
+    const reloaded = codePanel(connectedState(), { panel: panel.panel });
+
+    API.setElements([asElement(reloaded)]);
+
+    // the bridge is streaming, and the descriptor arrives for the new panel
+    act(() => {
+      setPanelCapture(reloaded.id, {
+        status: "live",
+        streamUrl: "http://127.0.0.1:47511/s/a-capability/frame",
+      });
+    });
+
+    // the panel STILL shows the editor: the teacher's choice survived the
+    // reload (D-83's promise, and D-99's)
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
+      ).not.toBeNull(),
+    );
+
+    expect(
+      document.querySelector('[data-testid="code-panel-live-frame"]'),
+    ).toBeNull();
+
+    // and the header says which view it is in
+    const toggle = document.querySelector(
+      '[data-testid="code-panel-view-toggle"]',
+    ) as HTMLButtonElement;
+
+    expect(toggle).not.toBeNull();
+    expect(toggle.getAttribute("data-view")).toBe("editor");
 
     act(() => {
       clearAllPanelCaptures();

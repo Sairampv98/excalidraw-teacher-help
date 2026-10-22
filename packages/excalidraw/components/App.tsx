@@ -3740,11 +3740,11 @@ class App extends React.Component<AppProps, AppState> {
    * The code panel's **view**: the native editor or the live editor window
    * (D-83).
    *
-   * The native editor is the default and the live window is the opt-in
-   * alternative, so the teacher turns the live view on from the panel's own
-   * header. The choice is the panel's own and it is persisted in the panel's
-   * payload, so it survives the bridge's own writes - the bridge rewrites that
-   * payload on every keystroke in the teacher's editor.
+   * The live window is the default and the native editor is the alternative
+   * (D-99), so the teacher turns the editor on from the panel's own header.
+   * The choice is the panel's own and it is persisted in the panel's payload,
+   * so it survives the bridge's own writes - the bridge rewrites that payload
+   * on every keystroke in the teacher's editor.
    *
    * The write goes through `mutateElement`, the same path the lock button
    * uses, so it is undoable like every other change.
