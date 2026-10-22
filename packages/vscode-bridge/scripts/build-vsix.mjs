@@ -222,6 +222,20 @@ const depsRoot =
     : join(resolve(packageRoot, "..", ".."), "node_modules");
 
 /**
+ * Where the engine's tree is READ from.
+ *
+ * Without `--deps` it is found the way Node finds a package: the package's own
+ * `node_modules` first, then the one above it, and so on - NOT a fixed
+ * directory. That matters for a worktree with no `node_modules` of its own
+ * (the kit's throwaway worktree, for one): it walks up and finds the
+ * repository's, which is where the engine is installed.
+ */
+const engineDir = () =>
+  depsFlagIndex !== -1 && process.argv[depsFlagIndex + 1]
+    ? join(resolve(process.argv[depsFlagIndex + 1]), ENGINE_PACKAGE)
+    : resolvePackageDir(ENGINE_PACKAGE, packageRoot);
+
+/**
  * Where a package is, when Node would find it there.
  *
  * It is Node's own algorithm: the package's own `node_modules` first, then the
@@ -286,11 +300,11 @@ const collectEngineTree = () => {
     }
   };
 
-  const root = join(depsRoot, ENGINE_PACKAGE);
+  const root = engineDir();
 
-  if (!existsSync(join(root, "package.json"))) {
+  if (!root || !existsSync(join(root, "package.json"))) {
     throw new Error(
-      `the engine (${ENGINE_PACKAGE}) is not installed in ${depsRoot} - the .vsix would ship an extension that cannot read`,
+      `the engine (${ENGINE_PACKAGE}) is not installed (looked in ${depsRoot} and above it) - the .vsix would ship an extension that cannot read`,
     );
   }
 
