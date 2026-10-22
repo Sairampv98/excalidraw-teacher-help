@@ -16,6 +16,7 @@ import type {
 } from "@excalidraw/element/types";
 
 import { Excalidraw } from "../index";
+import { VS_CODE_DARK } from "../components/vscodeTheme";
 import {
   codePanelContent,
   emptyCodePanelState,
@@ -62,6 +63,12 @@ const codePanel = (
 
 const asElement = (panel: ExcalidrawPanelElement) =>
   panel as unknown as NonDeletedExcalidrawElement;
+
+/** The CSS CodeMirror has mounted into the document. */
+const mountedCss = () =>
+  Array.from(document.querySelectorAll("style"))
+    .map((tag) => tag.textContent)
+    .join("\n");
 
 describe("the code panel", () => {
   it("AC-60 the panel shows the editor, the output and the console", async () => {
@@ -291,21 +298,19 @@ describe("the code panel", () => {
     );
 
     // CodeMirror mounts its theme into the document
-    const css = Array.from(document.querySelectorAll("style"))
-      .map((tag) => tag.textContent)
-      .join("\n");
+    const css = mountedCss();
 
     // the VS Code dark theme: the background, the text and the gutter
     expect(css).toContain("background-color: #1e1e1e");
     expect(css).toContain("color: #d4d4d4");
 
     // the VS Code token colours
-    expect(css).toContain("#569cd6"); // keywords
-    expect(css).toContain("#c586c0"); // control flow
+    expect(css).toContain("#c586c0"); // keywords and control flow
     expect(css).toContain("#dcdcaa"); // functions
     expect(css).toContain("#ce9178"); // strings
     expect(css).toContain("#6a9955"); // comments
     expect(css).toContain("#9cdcfe"); // variables
+    expect(css).toContain("#569cd6"); // tags
 
     // and NOT the app's light theme
     expect(css).not.toContain("#0000ff"); // the light theme's keyword colour
@@ -344,5 +349,105 @@ describe("the code panel", () => {
     // and the output and the console shrink instead of the code - they scroll
     expect(output.style.flex).toBe("0 1 auto");
     expect(consoleRegion.style.flex).toBe("0 1 auto");
+  });
+
+  it("AC-98 the panel paints the VS Code token colours", async () => {
+    // The palette is the ONE place the colours are written down, and these
+    // are the colours VS Code PAINTS: the SEMANTIC token colours, because
+    // semantic highlighting is on (D-81). A keyword is purple - #c586c0 -
+    // and not the blue (#569cd6) of the bare TextMate scope, which the
+    // semantic keyword token does not even probe.
+    expect(VS_CODE_DARK.keyword).toBe("#c586c0");
+    expect(VS_CODE_DARK.controlFlow).toBe("#c586c0");
+    expect(VS_CODE_DARK.comment).toBe("#6a9955");
+    expect(VS_CODE_DARK.string).toBe("#ce9178");
+    expect(VS_CODE_DARK.function).toBe("#dcdcaa");
+    expect(VS_CODE_DARK.type).toBe("#4ec9b0");
+    expect(VS_CODE_DARK.variable).toBe("#9cdcfe");
+    expect(VS_CODE_DARK.number).toBe("#b5cea8");
+    expect(VS_CODE_DARK.operator).toBe("#d4d4d4");
+    expect(VS_CODE_DARK.regexp).toBe("#646695");
+    expect(VS_CODE_DARK.constant).toBe("#4fc1ff");
+    expect(VS_CODE_DARK.tag).toBe("#569cd6");
+    expect(VS_CODE_DARK.storage).toBe("#569cd6");
+
+    // and the chrome VS Code paints around the text
+    expect(VS_CODE_DARK.background).toBe("#1e1e1e");
+    expect(VS_CODE_DARK.foreground).toBe("#d4d4d4");
+    expect(VS_CODE_DARK.gutterBackground).toBe("#1e1e1e");
+    expect(VS_CODE_DARK.gutterForeground).toBe("#858585");
+    expect(VS_CODE_DARK.activeLineGutterForeground).toBe("#c6c6c6");
+    expect(VS_CODE_DARK.activeLineBorder).toBe("#282828");
+    expect(VS_CODE_DARK.cursor).toBe("#aeafad");
+    expect(VS_CODE_DARK.selection).toBe("#264f78");
+
+    // the panel's editor wears them - the app's own theme is light here, and
+    // the panel is dark whatever the app's theme is (D-80)
+    await render(<Excalidraw theme="light" />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(codePanel(connectedState()))]);
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
+      ).not.toBeNull(),
+    );
+
+    const css = mountedCss();
+
+    // the chrome: #1e1e1e on #d4d4d4
+    expect(css).toContain("background-color: #1e1e1e");
+    expect(css).toContain("color: #d4d4d4");
+
+    // the token colours
+    expect(css).toContain("color: #c586c0"); // the keyword and the control flow
+    expect(css).toContain("color: #6a9955"); // the comment
+    expect(css).toContain("color: #ce9178"); // the string
+    expect(css).toContain("color: #dcdcaa"); // the function
+    expect(css).toContain("color: #4ec9b0"); // the type
+    expect(css).toContain("color: #9cdcfe"); // the variable
+    expect(css).toContain("color: #b5cea8"); // the number
+    expect(css).toContain("color: #646695"); // the regular expression
+    expect(css).toContain("color: #4fc1ff"); // the constant
+    expect(css).toContain("color: #569cd6"); // the tag
+  });
+
+  it("AC-99 the current line is drawn as a border, the way VS Code draws it, and not as a tinted band", async () => {
+    await render(<Excalidraw theme="light" />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(codePanel(connectedState()))]);
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
+      ).not.toBeNull(),
+    );
+
+    const css = mountedCss();
+
+    // The panel's own rule is the LAST `.cm-activeLine` rule in the sheet:
+    // CodeMirror mounts its base theme first and the user's theme after it,
+    // and a later rule of the same specificity wins. (CodeMirror's base
+    // theme tints the line - #99eeff33 in dark mode - and the panel's rule
+    // overrides it.)
+    const activeLineRules = Array.from(
+      css.matchAll(/\.cm-activeLine\s*\{([^}]*)\}/g),
+    ).map((match) => match[1]);
+
+    expect(activeLineRules.length).toBeGreaterThan(0);
+
+    const panelRule = activeLineRules[activeLineRules.length - 1];
+
+    // VS Code draws the current line as an OUTLINE: neither Dark+ nor Dark
+    // Modern defines `editor.lineHighlightBackground`, so the editor
+    // highlights the line with `border: 2px solid <editor.lineHighlightBorder>`
+    // - a 2px solid #282828 border - and not with a tinted band (D-81).
+    expect(panelRule).toContain("border: 2px solid #282828");
+
+    // and the line is NOT tinted
+    expect(panelRule).toContain("background-color: transparent");
+    expect(panelRule).not.toContain("#2a2a2a");
   });
 });

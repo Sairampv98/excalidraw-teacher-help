@@ -157,6 +157,16 @@ declare module "vscode" {
     New = 3,
   }
 
+  export interface TaskPresentationOptions {
+    reveal?: TaskRevealKind;
+    echo?: boolean;
+    focus?: boolean;
+    panel?: TaskPanelKind;
+    showReuseMessage?: boolean;
+    clear?: boolean;
+    close?: boolean;
+  }
+
   export class Task {
     constructor(
       definition: TaskDefinition,
@@ -168,6 +178,7 @@ declare module "vscode" {
     );
     readonly definition: TaskDefinition;
     readonly execution?: ProcessExecution | ShellExecution | CustomExecution;
+    presentationOptions: TaskPresentationOptions;
   }
 
   export interface TaskExecution {

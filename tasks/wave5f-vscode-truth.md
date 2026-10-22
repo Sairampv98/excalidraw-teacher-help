@@ -3,7 +3,7 @@ id: wave5f-vscode-truth
 paths: packages/excalidraw,packages/vscode-bridge,excalidraw-app,SPEC.md
 read: docs/superpowers/specs,docs/tins-tasks
 base: main
-status: open
+status: merged
 ---
 
 Wave 5f: make the code panel's colours the colours VS Code ACTUALLY uses, and stop the bridge's own terminal from stealing the editor.
@@ -68,4 +68,3 @@ REPORT BACK
 4. Anything you could not do and why, and anything in the brief you found to be wrong.
 5. The final git status of the worktree, with the changes unstaged.
 Do not summarise the design back. Report evidence: command output, test names, file paths.
-
