@@ -141,8 +141,8 @@ const codePanelElement = () =>
  * what the app writes into them is not what the rendered Excalidraw shows.
  * A panel that draws its editor region therefore has to start connected.
  *
- * The `view` is the panel's own: `"live"` is the opt-in live window, and
- * `"editor"` (the default) is the native editor (D-83).
+ * The `view` is the panel's own: `"live"` is the default live window, and
+ * `"editor"` is the native editor the teacher can switch to (D-99).
  */
 const connectedCodePanelElement = (view?: "editor" | "live") => {
   const content = codePanelContent(
@@ -684,7 +684,7 @@ describe("the app's side of the bridge", () => {
     mockClipboard(TEST_TOKEN);
 
     // the panel is already connected, so it draws its editor region, and it is
-    // in the LIVE view: the live window is the opt-in alternative (D-83)
+    // in the LIVE view: the live window is the default (D-99)
     const { api, state, panel } = scene(connectedCodePanelElement("live"));
 
     await render(<Harness api={api} panel={panel} />);

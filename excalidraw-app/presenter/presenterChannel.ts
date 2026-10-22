@@ -15,6 +15,7 @@ import type {
   NormalizedZoomValue,
   SocketId,
 } from "@excalidraw/excalidraw/types";
+import type { PanelCapture } from "@excalidraw/excalidraw";
 import type {
   FileId,
   OrderedExcalidrawElement,
@@ -149,7 +150,21 @@ export type PresenterMessage =
   /** presenter is missing binary files (images) it does not have yet */
   | { type: "presenter:files-request"; presenterId: string; fileIds: FileId[] }
   /** editor answers a file request */
-  | { type: "presenter:files"; presenterId: string; files: BinaryFileData[] };
+  | { type: "presenter:files"; presenterId: string; files: BinaryFileData[] }
+  /**
+   * the live view's **descriptor** for one panel (D-101).
+   *
+   * The picture never travels - it is served as a stream from the extension -
+   * but the presenter is a **second JavaScript context**, so the registry that
+   * holds the descriptor is empty there. The editor hands it over, and the
+   * presenter writes it into its own registry.
+   *
+   * The stream's URL carries the connection's capability (D-86), and the
+   * session token is never in a URL (D-50). A `BroadcastChannel` is readable
+   * only by this origin's own pages, so the descriptor does not travel
+   * further than the window the teacher opened.
+   */
+  | { type: "presenter:live-view"; panelId: string; capture: PanelCapture };
 
 /** presenters announce themselves at least this often while starved */
 export const PRESENTER_HEARTBEAT_MS = 2000;

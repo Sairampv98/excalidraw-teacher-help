@@ -61,8 +61,15 @@ const sameCapture = (a: PanelCapture | null, b: PanelCapture): boolean => {
  *
  * The token never leaves this hook's session: it is in memory for the session
  * only, and it is never written into the document (D-50).
+ *
+ * `publishLiveView` hands the live view's **descriptor** to the presenter
+ * window (D-101): the presenter is a second JavaScript context, so the
+ * registry that holds the descriptor is empty there.
  */
-export const useBridgePanel = (api: ExcalidrawImperativeAPI | null) => {
+export const useBridgePanel = (
+  api: ExcalidrawImperativeAPI | null,
+  publishLiveView?: (panelId: string, capture: PanelCapture) => void,
+) => {
   const [state, setState] = useState<BridgeSessionState>(
     INITIAL_BRIDGE_SESSION_STATE,
   );
@@ -96,6 +103,11 @@ export const useBridgePanel = (api: ExcalidrawImperativeAPI | null) => {
   /** The live view as it was last published, so it is published only on a change. */
   const publishedCaptureRef = useRef<PanelCapture | null>(null);
 
+  // the presenter's half of the live view (D-101), kept in a ref so the
+  // publish path always reads the current one
+  const publishLiveViewRef = useRef(publishLiveView);
+  publishLiveViewRef.current = publishLiveView;
+
   apiRef.current = api;
 
   /**
@@ -128,6 +140,11 @@ export const useBridgePanel = (api: ExcalidrawImperativeAPI | null) => {
 
     for (const id of bridgeCodePanelIds(current.getSceneElements())) {
       setPanelCapture(id, capture);
+
+      // and the presenter gets the same descriptor: it is a second
+      // JavaScript context, so its own registry is empty (D-101). The picture
+      // does not travel - the presenter plays the same stream.
+      publishLiveViewRef.current?.(id, capture);
     }
   }, []);
 

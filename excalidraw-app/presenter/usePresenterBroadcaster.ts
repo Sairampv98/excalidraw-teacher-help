@@ -6,6 +6,7 @@ import type {
   AppState,
   ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
+import type { PanelCapture } from "@excalidraw/excalidraw";
 import type {
   FileId,
   OrderedExcalidrawElement,
@@ -76,6 +77,11 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
   const pointerRef = useRef<PresenterPointer | null>(null);
   const pointerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPointerSentAtRef = useRef(0);
+  // the live view's descriptor, per panel id (D-101). The presenter is a
+  // second JavaScript context, so the registry that holds the descriptor is
+  // empty there: the editor hands it over, and the presenter writes it into
+  // its own registry.
+  const liveViewsRef = useRef<Map<string, PanelCapture>>(new Map());
 
   const hasPresenters = () => presentersRef.current.size > 0;
 
@@ -212,6 +218,31 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
     }
   }, []);
 
+  /**
+   * Hand the live view's **descriptor** to the presenter (D-101).
+   *
+   * The picture never travels: it is served as an MJPEG stream from the
+   * extension, and the panel plays that stream in a plain `<img>`. What the
+   * presenter cannot guess is the descriptor - the capture's state and the
+   * stream's URL - because the registry that holds it lives in the editor's
+   * own JavaScript context.
+   */
+  const sendLiveView = useCallback((panelId: string, capture: PanelCapture) => {
+    const channel = channelRef.current;
+
+    if (!channel) {
+      return;
+    }
+
+    try {
+      channel.postMessage({ type: "presenter:live-view", panelId, capture });
+    } catch (error) {
+      // the descriptor is small and plain, so this should never happen - but a
+      // failed hand-over must not break the editor's capture path
+      console.error("presenter: failed to publish the live view", error);
+    }
+  }, []);
+
   useEffect(() => {
     if (!isPresenterSupported()) {
       return;
@@ -233,6 +264,13 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
           // answer immediately so a freshly opened (or reloaded) presenter
           // window does not have to wait for the next edit
           sendScene();
+
+          // and the live view's descriptor goes with it: a presenter that
+          // connects after the bridge is already streaming would otherwise
+          // show nothing until the next capture state (D-101)
+          for (const [panelId, capture] of liveViewsRef.current) {
+            sendLiveView(panelId, capture);
+          }
           break;
         }
         case "presenter:bye": {
@@ -270,10 +308,11 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
       // in-flight publish can't resurrect a disconnected presenter
       presentersRef.current = new Map();
       sceneRef.current = null;
+      liveViewsRef.current = new Map();
       channelRef.current = null;
       channel?.close();
     };
-  }, [sendFiles, sendScene]);
+  }, [sendFiles, sendLiveView, sendScene]);
 
   const publishScene = useCallback(
     (elements: readonly OrderedExcalidrawElement[], appState: AppState) => {
@@ -307,5 +346,26 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
     [schedulePointerSend],
   );
 
-  return { publishScene, publishPointer, hasPresenters };
+  /**
+   * Publish the live view's **descriptor** for one panel (D-101).
+   *
+   * The bridge's capture is the source: the editor publishes the descriptor
+   * into its own registry, and this hands the same descriptor to the
+   * presenter, which writes it into its own.
+   */
+  const publishLiveView = useCallback(
+    (panelId: string, capture: PanelCapture) => {
+      liveViewsRef.current.set(panelId, capture);
+
+      // no presenter connected -> nothing to mirror, skip all IPC
+      if (!hasPresenters()) {
+        return;
+      }
+
+      sendLiveView(panelId, capture);
+    },
+    [sendLiveView],
+  );
+
+  return { publishScene, publishPointer, publishLiveView, hasPresenters };
 };
