@@ -3,7 +3,7 @@ id: wave5k-panel-chrome
 paths: packages/excalidraw,excalidraw-app,SPEC.md
 read: SPEC.md,packages/excalidraw/components/PanelOverlay.tsx,packages/excalidraw/components/PanelChrome.tsx,packages/excalidraw/css/styles.scss,packages/excalidraw/tests/videoPanel.test.tsx,packages/excalidraw/tests/codePanel.test.tsx
 base: main
-status: open
+status: merged
 ---
 
 Wave 5k: the panel's chrome survives the zoom, the video's volume is usable and tested, and the panel is never blank.
@@ -72,4 +72,3 @@ REPORT BACK
 7. Anything you could not do and why, and anything in this brief you found to be wrong.
 8. The final git status of the worktree, with the changes unstaged.
 Do not summarise the design back. Report evidence: command output, test names, file paths.
-

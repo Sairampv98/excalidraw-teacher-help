@@ -28,11 +28,13 @@ import {
   codePanelFileName,
   CODE_PANEL_REGION_STYLE,
   isBridgeCodePanel,
+  panelScale,
   readCodePanelState,
   readPanelView,
 } from "../scene/panelContent";
 import { readVideoPanelState } from "../scene/panelContent";
 import { readPanelPlayback } from "../scene/panelContent";
+import { PANEL_SCALE_PROPERTY, panelChrome } from "../scene/panelChrome";
 import { getPanelCapture, subscribePanelCaptures } from "../scene/panelFrames";
 import {
   appliedPlaybackState,
@@ -56,6 +58,7 @@ import type { BinaryFileData, BinaryFiles } from "../types";
 import type { CodeMirrorEditorProps } from "./TTDDialog/CodeMirrorEditor";
 
 import type { PanelCamera } from "../scene/panelContent";
+import type { PanelChrome } from "../scene/panelChrome";
 import type { PanelPlayback } from "../scene/panelContent";
 import type { PlaybackSyncState } from "../scene/panelPlayback";
 
@@ -292,10 +295,13 @@ const VS_CODE_HAIRLINE: React.CSSProperties = {
  */
 const CodePanelSurface = ({
   panel,
+  chrome,
   onToggleView,
   mirror,
 }: {
   panel: ExcalidrawPanelElement;
+  /** the chrome's geometry, in the panel's own units (D-92) */
+  chrome: PanelChrome;
   onToggleView?: (panelId: string) => void;
   /** the host is a read-only mirror - the presenter (D-57) */
   mirror?: boolean;
@@ -332,7 +338,9 @@ const CodePanelSurface = ({
           color: VS_CODE_DARK.foreground,
         }}
       >
-        {state?.statusMessage || "Not connected to the Excalidraw Bridge."}
+        {/* the panel says WHY it has nothing to show - a region with nothing
+            in it is never an answer (D-93) */}
+        {state?.statusMessage || t("labels.panel.code.notConnected")}
       </div>
     );
   }
@@ -376,6 +384,11 @@ const CodePanelSurface = ({
             borderBottomWidth: 1,
             borderBottomStyle: "solid",
             borderBottomColor: VS_CODE_DARK.accent,
+            // The chrome is sized for the SCREEN and the content for the
+            // PANEL (D-92): the header keeps its size on screen at any zoom,
+            // and it is tall enough for its own text.
+            minHeight: chrome.headerHeight,
+            fontSize: chrome.headerFontSize,
           }}
         >
           {hasFile ? (
@@ -390,7 +403,10 @@ const CodePanelSurface = ({
                 <span
                   className="excalidraw__panel-code-language"
                   data-testid="code-panel-language"
-                  style={{ color: VS_CODE_DARK.muted }}
+                  style={{
+                    color: VS_CODE_DARK.muted,
+                    fontSize: chrome.languageFontSize,
+                  }}
                 >
                   {state.editor.language}
                 </span>
@@ -431,8 +447,6 @@ const CodePanelSurface = ({
                 color: VS_CODE_DARK.foreground,
                 cursor: "pointer",
                 font: "inherit",
-                marginLeft: 8,
-                padding: "0 6px",
               }}
             >
               {view === "live"
@@ -469,10 +483,24 @@ const CodePanelSurface = ({
           ) : hasFile ? (
             // The editor is the DEFAULT view (D-83), and in the live view it
             // is the fallback when there is no picture.
-            <CodePanelEditor
-              value={state.editor.text}
-              language={state.editor.language}
-            />
+            state.editor.text ? (
+              <CodePanelEditor
+                value={state.editor.text}
+                language={state.editor.language}
+              />
+            ) : (
+              // The file IS open, but it has no content. An empty editor
+              // would look like a broken panel, and the teacher could not
+              // tell it apart from a program that produced nothing - so the
+              // region says what it knows (D-93).
+              <div
+                className="excalidraw__panel-code-status"
+                data-testid="code-panel-empty-file"
+                style={{ color: VS_CODE_DARK.foreground }}
+              >
+                {t("labels.panel.code.emptyFile")}
+              </div>
+            )
           ) : (
             // The bridge is connected, but it has not sent an editor yet. That
             // is either because no file is open in the editor, or because the
@@ -572,11 +600,14 @@ const CodePanelSurface = ({
 const VideoPanelSurface = ({
   panel,
   file,
+  chrome,
   onVideoEvent,
   mirror,
 }: {
   panel: ExcalidrawPanelElement;
   file: BinaryFileData;
+  /** the chrome's geometry, in the panel's own units (D-92) */
+  chrome: PanelChrome;
   onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
   /**
    * The host is a **read-only mirror** — the presenter (D-57).
@@ -870,6 +901,9 @@ const VideoPanelSurface = ({
         muted={muted}
         onTimeUpdate={reportPosition}
         onSeeked={reportPosition}
+        // the ELEMENT is the truth and the state only mirrors it: whatever
+        // changed the element's own volume, the slider follows it
+        onVolumeChange={(event) => setVolume(event.currentTarget.volume)}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         onLoadedMetadata={(event) => {
@@ -901,7 +935,17 @@ const VideoPanelSurface = ({
         ))}
       </video>
 
-      <div className="excalidraw__panel-video-controls">
+      <div
+        className="excalidraw__panel-video-controls"
+        data-testid="panel-video-controls"
+        // The chrome is sized for the SCREEN and the content for the PANEL
+        // (D-92): the control strip keeps its size on screen at any zoom, so
+        // it is never squeezed to nothing and the controls can be hit.
+        style={{
+          minHeight: chrome.controlHeight,
+          fontSize: chrome.controlFontSize,
+        }}
+      >
         <button
           type="button"
           className="excalidraw__panel-video-button"
@@ -909,6 +953,11 @@ const VideoPanelSurface = ({
           onClick={togglePlay}
           title={playing ? "Pause" : "Play"}
           aria-label={playing ? "Pause" : "Play"}
+          style={{
+            width: chrome.buttonSize,
+            height: chrome.buttonSize,
+            fontSize: chrome.buttonFontSize,
+          }}
         >
           {playing ? "❚❚" : "▶"}
         </button>
@@ -923,15 +972,28 @@ const VideoPanelSurface = ({
           value={Math.min(timeMs, Math.max(durationMs, 1))}
           onChange={(event) => seekTo(Number(event.currentTarget.value))}
           aria-label="Seek"
+          style={{
+            minWidth: chrome.seekMinWidth,
+            height: chrome.sliderHeight,
+          }}
         />
 
         <button
           type="button"
           className="excalidraw__panel-video-button"
           data-testid="panel-video-mute"
+          // the muted state is VISIBLE: the button says it, and the volume
+          // slider is dimmed while the panel is muted (AC-129)
+          data-muted={muted ? "true" : "false"}
+          aria-pressed={muted}
           onClick={toggleMute}
           title={muted ? "Unmute" : "Mute"}
           aria-label={muted ? "Unmute" : "Mute"}
+          style={{
+            width: chrome.buttonSize,
+            height: chrome.buttonSize,
+            fontSize: chrome.buttonFontSize,
+          }}
         >
           {muted ? "🔇" : "🔊"}
         </button>
@@ -940,12 +1002,17 @@ const VideoPanelSurface = ({
           type="range"
           className="excalidraw__panel-video-volume"
           data-testid="panel-video-volume"
+          data-muted={muted ? "true" : "false"}
           min={0}
           max={1}
           step={0.05}
           value={volume}
           onChange={(event) => setVolumeTo(Number(event.currentTarget.value))}
           aria-label="Volume"
+          style={{
+            width: chrome.volumeWidth,
+            height: chrome.sliderHeight,
+          }}
         />
 
         {tracks.length > 1 && (
@@ -960,6 +1027,11 @@ const VideoPanelSurface = ({
               })
             }
             aria-label="Caption language"
+            style={{
+              height: chrome.trackHeight,
+              fontSize: chrome.trackFontSize,
+              maxWidth: chrome.trackMaxWidth,
+            }}
           >
             {tracks.map((track) => (
               <option key={track.language} value={track.language}>
@@ -985,12 +1057,15 @@ const VideoPanelSurface = ({
 const PanelSurface = ({
   panel,
   files,
+  chrome,
   onVideoEvent,
   onToggleView,
   mirror,
 }: {
   panel: ExcalidrawPanelElement;
   files: BinaryFiles;
+  /** the chrome's geometry, in the panel's own units (D-92) */
+  chrome: PanelChrome;
   onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
   /** the teacher flips the code panel's view (D-83) */
   onToggleView?: (panelId: string) => void;
@@ -1003,6 +1078,7 @@ const PanelSurface = ({
     return (
       <CodePanelSurface
         panel={panel}
+        chrome={chrome}
         onToggleView={onToggleView}
         mirror={mirror}
       />
@@ -1012,7 +1088,22 @@ const PanelSurface = ({
   if (source.type === "file") {
     const file = files[source.fileId];
 
-    if (file && source.mimeType.startsWith("image/")) {
+    if (!file) {
+      // The file is not in the document's store any more - the teacher deleted
+      // it, or the document was saved without it. The panel says so, because
+      // an empty frame looks like a panel that is broken (D-93).
+      return (
+        <div
+          className="excalidraw__panel-file-gone"
+          data-testid="panel-file-gone"
+          data-panel-kind={panel.panelKind}
+        >
+          {t("labels.panel.fileGone")}
+        </div>
+      );
+    }
+
+    if (source.mimeType.startsWith("image/")) {
       return (
         <img
           className="excalidraw__panel-image"
@@ -1023,11 +1114,12 @@ const PanelSurface = ({
       );
     }
 
-    if (file && source.mimeType.startsWith("video/")) {
+    if (source.mimeType.startsWith("video/")) {
       return (
         <VideoPanelSurface
           panel={panel}
           file={file}
+          chrome={chrome}
           onVideoEvent={onVideoEvent}
           mirror={mirror}
         />
@@ -1082,6 +1174,18 @@ const Panel = ({
 }) => {
   const { zoom, scrollX, scrollY } = camera;
 
+  /**
+   * The scale the panel is rendered at.
+   *
+   * It is the very number the transform carries - `panelTransform` folds the
+   * same value in - so the chrome and the transform cannot disagree about the
+   * zoom (D-92). It is published on the panel element as `--panel-scale`, and
+   * the chrome's sizes are the screen sizes divided by it.
+   */
+  const scale = panelScale(camera);
+
+  const chrome = useMemo(() => panelChrome(scale), [scale]);
+
   const transform = useMemo(
     () => panelTransform(panel, elementsMap, camera),
     // `camera` is rebuilt on every app state change; only its fields can change
@@ -1121,26 +1225,32 @@ const Panel = ({
         data-testid="panel"
         data-panel-id={panel.id}
         data-panel-kind={panel.panelKind}
-        style={{
-          position: "absolute",
-          width: panel.width,
-          height: panel.height,
-          transform,
-          transformOrigin: "0 0",
-          // the panel is an interactive surface: it takes the pointer, unlike
-          // the host and unlike a GIF
-          pointerEvents: "auto",
-          opacity: getRenderOpacity(
-            panel,
-            getContainingFrame(panel, elementsMap),
-            new Set<string>(),
-            null,
-          ),
-        }}
+        style={
+          {
+            position: "absolute",
+            width: panel.width,
+            height: panel.height,
+            transform,
+            transformOrigin: "0 0",
+            // the panel is an interactive surface: it takes the pointer, unlike
+            // the host and unlike a GIF
+            pointerEvents: "auto",
+            opacity: getRenderOpacity(
+              panel,
+              getContainingFrame(panel, elementsMap),
+              new Set<string>(),
+              null,
+            ),
+            // the scale the panel is rendered at, published for the stylesheet
+            // (D-92): the chrome's spacing is divided by it
+            [PANEL_SCALE_PROPERTY]: scale,
+          } as React.CSSProperties
+        }
       >
         <PanelSurface
           panel={panel}
           files={files}
+          chrome={chrome}
           onVideoEvent={onVideoEvent}
           onToggleView={onToggleView}
           mirror={mirror}

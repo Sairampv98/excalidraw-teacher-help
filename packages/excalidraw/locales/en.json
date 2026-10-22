@@ -189,11 +189,14 @@
       },
       "code": {
         "noFile": "No file is open in the editor",
+        "emptyFile": "This file is empty.",
+        "notConnected": "Not connected to the Excalidraw Bridge.",
         "viewEditor": "Editor",
         "viewLive": "Live window",
         "showEditor": "Show the mirrored editor",
         "showLive": "Show the live editor window"
-      }
+      },
+      "fileGone": "This panel's file is no longer in the document."
     },
     "statusPublished": "Published",
     "sidebarLock": "Keep sidebar open",

@@ -26,6 +26,7 @@ import { restoreElements } from "../data/restore";
 import { captionTextElement, videoPanelContent } from "../index";
 import { Excalidraw } from "../index";
 import { readCaptionBinding } from "../scene/panelContent";
+import { PANEL_SCALE_PROPERTY } from "../scene/panelChrome";
 
 import { API } from "./helpers/api";
 import { act, fireEvent, render } from "./test-utils";
@@ -348,5 +349,197 @@ describe("the video panel", () => {
     expect(locked.posterFileId).not.toBeNull();
     expect(locked.panel.options.naturalWidth).toBe(INTRINSIC_WIDTH);
     expect(locked.panel.options.naturalHeight).toBe(INTRINSIC_HEIGHT);
+  });
+
+  it("AC-129 the video's volume slider sets the element's volume, the mute button sets the element's muted, and the control says which state it is in", async () => {
+    const panel = videoPanel();
+
+    await render(
+      <Excalidraw
+        initialData={{
+          elements: [panel] as unknown as ExcalidrawElement[],
+          files: { [VIDEO_FILE_ID]: videoFile() },
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    const video = document.querySelector(
+      '[data-testid="panel-video"]',
+    ) as HTMLVideoElement | null;
+    const volume = document.querySelector(
+      '[data-testid="panel-video-volume"]',
+    ) as HTMLInputElement | null;
+    const mute = document.querySelector(
+      '[data-testid="panel-video-mute"]',
+    ) as HTMLButtonElement | null;
+
+    expect(video).not.toBeNull();
+    expect(volume).not.toBeNull();
+    expect(mute).not.toBeNull();
+
+    // The slider sets the ELEMENT's volume. The element is the truth and the
+    // React state only mirrors it - so the assertion is on the element, not
+    // on the state.
+    await act(async () => {
+      fireEvent.change(volume!, { target: { value: "0.35" } });
+    });
+
+    expect(video!.volume).toBeCloseTo(0.35, 5);
+
+    // and the slider says what it says
+    expect(volume!.value).toBe("0.35");
+
+    // The mute button sets the ELEMENT's muted.
+    await act(async () => {
+      fireEvent.click(mute!);
+    });
+
+    expect(video!.muted).toBe(true);
+
+    // and the control SHOWS which state it is in: the button says it, and the
+    // volume slider carries it, so a muted panel is readable at a glance and
+    // not only in the DOM
+    expect(mute!.getAttribute("aria-pressed")).toBe("true");
+    expect(mute!.getAttribute("aria-label")).toBe("Unmute");
+    expect(mute!.textContent).toBe("🔇");
+    expect(volume!.getAttribute("data-muted")).toBe("true");
+
+    // and unmuting says so too
+    await act(async () => {
+      fireEvent.click(mute!);
+    });
+
+    expect(video!.muted).toBe(false);
+    expect(mute!.getAttribute("aria-pressed")).toBe("false");
+    expect(mute!.getAttribute("aria-label")).toBe("Mute");
+    expect(volume!.getAttribute("data-muted")).toBe("false");
+
+    // and the control is REACHABLE: the mute button and the volume slider are
+    // big enough to hit, ON SCREEN - the panel's own scale is what turns the
+    // size inside the panel into the size the teacher sees (D-92)
+    const panelElement = document.querySelector(
+      '[data-testid="panel"]',
+    ) as HTMLElement | null;
+
+    expect(panelElement).not.toBeNull();
+
+    const scale = parseFloat(
+      getComputedStyle(panelElement!).getPropertyValue(PANEL_SCALE_PROPERTY),
+    );
+
+    expect(parseFloat(mute!.style.width) * scale).toBeGreaterThanOrEqual(20);
+    expect(parseFloat(mute!.style.height) * scale).toBeGreaterThanOrEqual(20);
+    expect(parseFloat(volume!.style.width) * scale).toBeGreaterThanOrEqual(48);
+    expect(parseFloat(volume!.style.height) * scale).toBeGreaterThanOrEqual(16);
+  });
+
+  it("AC-131 the video panel says so when its file is gone", async () => {
+    const panel = videoPanel();
+
+    await render(
+      <Excalidraw
+        initialData={{
+          elements: [panel] as unknown as ExcalidrawElement[],
+          // the file is not in the document's store: it was deleted, or the
+          // document was saved without it
+          files: {},
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    // the panel says so, in words - a blank frame looks like a panel that is
+    // broken (D-93)
+    const gone = document.querySelector('[data-testid="panel-file-gone"]');
+
+    expect(gone).not.toBeNull();
+    expect(gone!.textContent).toBe(
+      "This panel's file is no longer in the document.",
+    );
+
+    // and there is no empty frame pretending to be the video
+    expect(document.querySelector('[data-testid="panel-video"]')).toBeNull();
+    expect(
+      document.querySelector('[data-testid="panel-video-box"]'),
+    ).toBeNull();
+  });
+
+  it("AC-132 the video's captions live outside the player, in the text element beside it", async () => {
+    const panel = videoPanel();
+
+    const caption = API.createElement({
+      type: "text",
+      text: "the first cue",
+      x: 600,
+      y: 300,
+      width: 200,
+      height: 30,
+    }) as unknown as NonDeletedExcalidrawElement;
+
+    const bound = {
+      ...panel,
+      captionBinding: {
+        elementId: caption.id,
+        panelId: panel.id,
+        language: "en",
+      },
+    } as unknown as ExcalidrawPanelElement;
+
+    await render(
+      <Excalidraw
+        initialData={{
+          elements: [bound, caption] as unknown as ExcalidrawElement[],
+          files: { [VIDEO_FILE_ID]: videoFile() },
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    const video = document.querySelector(
+      '[data-testid="panel-video"]',
+    ) as HTMLVideoElement | null;
+
+    expect(video).not.toBeNull();
+
+    // the cues ride in `<track>` elements ...
+    const tracks = video!.querySelectorAll("track");
+
+    expect(tracks.length).toBe(1);
+
+    // ... and NONE of them is `default`: the player does not draw the caption,
+    // because the caption lives in the text element beside the panel (the
+    // owner's rule, 2026-10-21)
+    for (const track of Array.from(tracks)) {
+      expect(track.hasAttribute("default")).toBe(false);
+    }
+
+    // so the player's own box carries no caption at all
+    expect(video!.textContent).not.toContain("the first cue");
+
+    // the browser plays it at 2.5 s
+    Object.defineProperty(video!, "currentTime", {
+      value: 2.5,
+      writable: true,
+      configurable: true,
+    });
+
+    await act(async () => {
+      fireEvent.timeUpdate(video!);
+    });
+
+    // and the caption the teacher reads is the one in the ordinary text
+    // element beside the panel
+    const updated = elementById(caption.id) as unknown as { text: string };
+
+    expect(updated.text).toBe("the second cue");
+
+    // and the panel's own box never shows it
+    expect(
+      document.querySelector('[data-testid="panel-video-box"]')!.textContent,
+    ).not.toContain("the second cue");
   });
 });

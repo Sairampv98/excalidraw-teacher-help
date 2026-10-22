@@ -173,12 +173,23 @@ export const panelKeepsAspectRatio = (element: ExcalidrawElement): boolean =>
   isPosterPanelElement(element);
 
 /**
- * The CSS transform that puts a panel's box exactly where the canvas would
- * draw it.
+ * The scale the panel is rendered at.
  *
- * The placement comes from **the oracle**: `sceneCoordsToViewportCoords`
- * returns viewport coordinates, and the overlay's host sits inside the editor
- * container, so the container's own offset is subtracted for the DOM placement
+ * It is the camera's zoom — the very number `panelTransform` folds into the
+ * panel's transform — so the transform and the chrome cannot disagree about
+ * the zoom (D-92). It is published on the panel element as the CSS custom
+ * property `--panel-scale`, and the chrome's sizes are the screen sizes
+ * divided by it.
+ */
+export const panelScale = (camera: PanelCamera): number => camera.zoom.value;
+
+/**
+ * The transform that draws a panel over the canvas.
+ *
+ * The position comes from the library's own conversion,
+ * `sceneCoordsToViewportCoords`, and not from a hand-derived formula
+ * (D-34): the overlay's host sits inside the editor container, so the
+ * container's own offset is subtracted for the DOM placement
  * (D-34) — the same convention `ElementCanvasButtons` uses.
  *
  * The chain is `translate → scale → rotate → translate`, and the box is laid
@@ -211,8 +222,9 @@ export const panelTransform = (
 
   return [
     `translate(${x - camera.offsetLeft}px, ${y - camera.offsetTop}px)`,
-    // the canvas scales the whole scene; this is that, folded in here
-    `scale(${camera.zoom.value})`,
+    // the canvas scales the whole scene; this is that, folded in here. It is
+    // the same number the chrome is sized against (D-92).
+    `scale(${panelScale(camera)})`,
     `rotate(${element.angle}rad)`,
     `translate(${-shiftX}px, ${-shiftY}px)`,
   ].join(" ");
