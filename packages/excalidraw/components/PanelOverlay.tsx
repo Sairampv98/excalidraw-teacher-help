@@ -31,6 +31,7 @@ import {
   panelScale,
   readCodePanelState,
   readPanelView,
+  videoFormatName,
 } from "../scene/panelContent";
 import { readVideoPanelState } from "../scene/panelContent";
 import { readPanelPlayback } from "../scene/panelContent";
@@ -42,6 +43,7 @@ import {
   PLAYBACK_LOCAL_CLOCK_MS,
   playbackCorrection,
 } from "../scene/panelPlayback";
+import { panelSource, resolveMediaUrl } from "../scene/mediaRegistry";
 
 import { t } from "../i18n";
 
@@ -53,10 +55,11 @@ import {
   unregisterVideoSurface,
 } from "./videoPanelSurface";
 
-import type { BinaryFileData, BinaryFiles } from "../types";
+import type { BinaryFiles } from "../types";
 
 import type { CodeMirrorEditorProps } from "./TTDDialog/CodeMirrorEditor";
 
+import type { MediaPanelSource } from "../scene/mediaRegistry";
 import type { PanelCamera } from "../scene/panelContent";
 import type { PanelChrome } from "../scene/panelChrome";
 import type { PanelPlayback } from "../scene/panelContent";
@@ -577,6 +580,16 @@ const CodePanelSurface = ({
 };
 
 /**
+ * The browser's own error codes for "I cannot play this" (D-97).
+ *
+ * `MEDIA_ERR_DECODE` (3) and `MEDIA_ERR_SRC_NOT_SUPPORTED` (4) are the
+ * browser saying that it cannot decode this container - a `.mkv`, say. The
+ * numbers are the DOM's own, so they are named here rather than read off
+ * `MediaError`, which is not everywhere.
+ */
+const CANNOT_PLAY_CODES = [3, 4];
+
+/**
  * The live surface of a **video panel**.
  *
  * The video is a real `<video>` element — a panel is interactive, so it cannot
@@ -597,15 +610,32 @@ const CodePanelSurface = ({
  * the panel's copy is the same data the document was saved with, so the
  * caption the text element shows is the caption the document knows about.
  */
+/**
+ * The browser's own error codes for "I cannot play this" (D-97).
+ *
+ * `MEDIA_ERR_DECODE` (3) and `MEDIA_ERR_SRC_NOT_SUPPORTED` (4) are the
+ * browser saying that it cannot decode this container - a `.mkv`, say. The
+ * numbers are the DOM's own, so they are named here rather than read off
+ * `MediaError`, which is not everywhere.
+ */
 const VideoPanelSurface = ({
   panel,
-  file,
+  src,
+  mimeType,
   chrome,
   onVideoEvent,
   mirror,
 }: {
   panel: ExcalidrawPanelElement;
-  file: BinaryFileData;
+  /**
+   * Where the video's bytes are.
+   *
+   * A data URL for a file in the document's own store, and a URL the **host**
+   * lent us for a media-backed panel (D-95).
+   */
+  src: string;
+  /** the video's own type, so the panel can say what it cannot play (D-97) */
+  mimeType: string;
   /** the chrome's geometry, in the panel's own units (D-92) */
   chrome: PanelChrome;
   onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
@@ -625,6 +655,15 @@ const VideoPanelSurface = ({
   const [durationMs, setDurationMs] = useState(0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
+  /**
+   * The browser's own verdict on the video (D-97).
+   *
+   * The `<video>` element's `error` event is the **oracle**: it is the browser
+   * saying "I cannot play this", and nothing else knows better. A panel that
+   * shows nothing and says nothing is indistinguishable from a panel that has
+   * nothing to show (D-75, D-93), so the error becomes a sentence.
+   */
+  const [playError, setPlayError] = useState<number | null>(null);
 
   const state = readVideoPanelState(panel.panel);
   const tracks: PanelCaptionTrack[] = state?.tracks ?? [];
@@ -887,13 +926,37 @@ const VideoPanelSurface = ({
     setMuted(video.muted);
   };
 
+  if (playError !== null) {
+    return (
+      <div
+        className="excalidraw__panel-video-error"
+        data-testid="panel-video-error"
+        data-error-code={playError}
+        data-panel-kind={panel.panelKind}
+      >
+        <p className="excalidraw__panel-video-error-text">
+          {CANNOT_PLAY_CODES.includes(playError)
+            ? t("labels.panel.video.cannotPlay", {
+                format: videoFormatName(mimeType),
+              })
+            : t("labels.panel.video.playbackFailed")}
+        </p>
+        {CANNOT_PLAY_CODES.includes(playError) && (
+          <p className="excalidraw__panel-video-error-command">
+            <code>{t("labels.panel.video.convertCommand")}</code>
+          </p>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="excalidraw__panel-video-box" data-testid="panel-video-box">
       <video
         ref={videoRef}
         className="excalidraw__panel-video"
         data-testid="panel-video"
-        src={file.dataURL}
+        src={src}
         playsInline={true}
         // the metadata is what tells the browser the video's own size, and the
         // size is what a poster is captured at
@@ -906,6 +969,9 @@ const VideoPanelSurface = ({
         onVolumeChange={(event) => setVolume(event.currentTarget.volume)}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
+        // The browser's own verdict: it is the only thing that knows whether
+        // this container can be played here (D-97)
+        onError={(event) => setPlayError(event.currentTarget.error?.code ?? 0)}
         onLoadedMetadata={(event) => {
           const video = event.currentTarget;
 
@@ -1046,6 +1112,106 @@ const VideoPanelSurface = ({
 };
 
 /**
+ * The live surface of a **media-backed** video panel (D-95).
+ *
+ * The bytes are not in the document: they are in the **host's** media store,
+ * and the library asks the host's resolver for a URL. The library never sees
+ * the bytes and never touches IndexedDB - it only knows how to ask.
+ *
+ * Until the URL arrives the panel says it is loading, and when the host does
+ * not have the media it says that too: a region with nothing in it says
+ * **why** (D-93).
+ */
+const MediaPanelSurface = ({
+  panel,
+  source,
+  chrome,
+  onVideoEvent,
+  mirror,
+}: {
+  panel: ExcalidrawPanelElement;
+  source: MediaPanelSource;
+  /** the chrome's geometry, in the panel's own units (D-92) */
+  chrome: PanelChrome;
+  onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
+  /** the host is a read-only mirror - the presenter (D-57) */
+  mirror?: boolean;
+}) => {
+  const [url, setUrl] = useState<string | null>(null);
+  const [missing, setMissing] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setUrl(null);
+    setMissing(false);
+
+    void resolveMediaUrl(source.mediaId).then((resolved) => {
+      if (cancelled) {
+        return;
+      }
+
+      if (!resolved) {
+        setMissing(true);
+        return;
+      }
+
+      setUrl(resolved);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [source.mediaId]);
+
+  // The URL is **lent** by the host: the library gives it back when the panel
+  // goes away, so a long session does not leak one object URL per panel.
+  useEffect(
+    () => () => {
+      if (url) {
+        URL.revokeObjectURL(url);
+      }
+    },
+    [url],
+  );
+
+  if (missing) {
+    return (
+      <div
+        className="excalidraw__panel-file-gone"
+        data-testid="panel-media-gone"
+        data-panel-kind={panel.panelKind}
+      >
+        {t("labels.panel.mediaGone")}
+      </div>
+    );
+  }
+
+  if (!url) {
+    return (
+      <div
+        className="excalidraw__panel-media-loading"
+        data-testid="panel-media-loading"
+        data-panel-kind={panel.panelKind}
+      >
+        {t("labels.panel.mediaLoading")}
+      </div>
+    );
+  }
+
+  return (
+    <VideoPanelSurface
+      panel={panel}
+      src={url}
+      mimeType={source.mimeType}
+      chrome={chrome}
+      onVideoEvent={onVideoEvent}
+      mirror={mirror}
+    />
+  );
+};
+
+/**
  * The live surface of a panel.
  *
  * The foundation wave ships a **minimal but real** surface for every kind, so
@@ -1072,7 +1238,8 @@ const PanelSurface = ({
   /** the host is a read-only mirror - the presenter (D-57) */
   mirror?: boolean;
 }) => {
-  const { source } = panel.panel;
+  // the source, widened: a panel may name media in the host's store (D-95)
+  const source = panelSource(panel);
 
   if (panel.panelKind === "code" && isBridgeCodePanel(panel)) {
     return (
@@ -1080,6 +1247,18 @@ const PanelSurface = ({
         panel={panel}
         chrome={chrome}
         onToggleView={onToggleView}
+        mirror={mirror}
+      />
+    );
+  }
+
+  if (source.type === "media") {
+    return (
+      <MediaPanelSurface
+        panel={panel}
+        source={source}
+        chrome={chrome}
+        onVideoEvent={onVideoEvent}
         mirror={mirror}
       />
     );
@@ -1118,7 +1297,8 @@ const PanelSurface = ({
       return (
         <VideoPanelSurface
           panel={panel}
-          file={file}
+          src={file.dataURL}
+          mimeType={source.mimeType}
           chrome={chrome}
           onVideoEvent={onVideoEvent}
           mirror={mirror}

@@ -196,7 +196,14 @@
         "showEditor": "Show the mirrored editor",
         "showLive": "Show the live editor window"
       },
-      "fileGone": "This panel's file is no longer in the document."
+      "fileGone": "This panel's file is no longer in the document.",
+      "mediaLoading": "Loading the video...",
+      "mediaGone": "This panel's video is no longer in this browser's media store.",
+      "video": {
+        "cannotPlay": "This browser cannot play a {{format}} video.",
+        "convertCommand": "ffmpeg -i \"input.mkv\" -c:v libx264 -c:a aac -movflags +faststart \"output.mp4\"",
+        "playbackFailed": "This video could not be played."
+      }
     },
     "statusPublished": "Published",
     "sidebarLock": "Keep sidebar open",

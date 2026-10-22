@@ -542,4 +542,64 @@ describe("the video panel", () => {
       document.querySelector('[data-testid="panel-video-box"]')!.textContent,
     ).not.toContain("the second cue");
   });
+
+  it("AC-135 a video the browser cannot play says why and shows the ffmpeg command", async () => {
+    // a `.mkv`: a container the browser does not decode
+    const panel = videoPanel({
+      panel: videoPanelContent({
+        source: {
+          type: "file",
+          fileId: VIDEO_FILE_ID,
+          mimeType: "video/x-matroska",
+        },
+        tracks: [],
+        language: "en",
+        naturalWidth: INTRINSIC_WIDTH,
+        naturalHeight: INTRINSIC_HEIGHT,
+      }),
+    });
+
+    await render(
+      <Excalidraw
+        initialData={{
+          elements: [panel] as unknown as ExcalidrawElement[],
+          files: { [VIDEO_FILE_ID]: videoFile() },
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    const video = document.querySelector(
+      '[data-testid="panel-video"]',
+    ) as HTMLVideoElement | null;
+
+    expect(video).not.toBeNull();
+
+    // The browser's own verdict is the oracle (D-97): `MEDIA_ERR_SRC_NOT_
+    // SUPPORTED` is it saying "I cannot play this container".
+    Object.defineProperty(video!, "error", {
+      configurable: true,
+      value: { code: 4, message: "The video format is not supported" },
+    });
+
+    await act(async () => {
+      fireEvent.error(video!);
+    });
+
+    // the panel says so, in words: which format, and the command that fixes it
+    const failed = document.querySelector('[data-testid="panel-video-error"]');
+
+    expect(failed).not.toBeNull();
+    expect(failed!.textContent).toContain("matroska");
+    expect(failed!.textContent).toContain("ffmpeg");
+    expect(failed!.textContent).toContain("libx264");
+    expect(failed!.textContent).toContain("output.mp4");
+
+    // and there is no empty player pretending to be the video (D-93)
+    expect(document.querySelector('[data-testid="panel-video"]')).toBeNull();
+    expect(
+      document.querySelector('[data-testid="panel-video-box"]'),
+    ).toBeNull();
+  });
 });

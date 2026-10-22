@@ -37,6 +37,8 @@ import {
   readVideoSize,
 } from "../components/videoCaptions";
 
+import { MEDIA_STORE_MAX_BYTES, storeMedia } from "../data/mediaStore";
+
 import { placementFor } from "./insertIntoScene";
 
 /** the widest the panel is shown on the canvas, in scene units */
@@ -48,6 +50,22 @@ export const VIDEO_PANEL_FALLBACK_HEIGHT = 270;
 
 /** the size of the caption element beside the panel */
 const CAPTION_FONT_SIZE = 20;
+
+/**
+ * Whether **this browser** can play a video of this type.
+ *
+ * The browser's own answer is the oracle (D-97): no list of "good"
+ * extensions is hard-coded, because the answer belongs to the browser the
+ * teacher is actually using. An empty type is not a verdict — the browser
+ * cannot say anything about it — so it counts as playable.
+ */
+export const browserCanPlayVideo = (mimeType: string): boolean => {
+  if (!mimeType || typeof document === "undefined") {
+    return true;
+  }
+
+  return document.createElement("video").canPlayType(mimeType) !== "";
+};
 
 /**
  * Inserts a video panel — and, when the video has captions, the caption
@@ -71,8 +89,23 @@ export const insertVideoPanel = async (
     at?: { x: number; y: number };
   },
 ) => {
-  const dataURL = await getDataURL(videoFile);
-  const fileId = await generateIdFromFile(videoFile);
+  const mimeType = (videoFile.type ||
+    "video/mp4") as BinaryFileData["mimeType"];
+
+  /**
+   * A video over the threshold does **not** travel in the document (D-94).
+   *
+   * Its bytes go into a Blob in the origin's own IndexedDB and the panel
+   * carries a short id instead, so the base64 data URL is never built and the
+   * document never carries the video. A video at or under the threshold keeps
+   * the existing path untouched — the file store, the `dataURL`, the export,
+   * the `.excalidraw` file — so nothing about the small case changes.
+   */
+  const mediaId =
+    videoFile.size > MEDIA_STORE_MAX_BYTES ? await storeMedia(videoFile) : null;
+
+  const dataURL = mediaId ? null : await getDataURL(videoFile);
+  const fileId = mediaId ? null : await generateIdFromFile(videoFile);
 
   // the video's **own** size — the size a poster is captured at, and the size
   // the panel is shown at, scaled down to fit the canvas
@@ -104,11 +137,9 @@ export const insertVideoPanel = async (
     height,
     panelKind: "video",
     panel: videoPanelContent({
-      source: {
-        type: "file",
-        fileId,
-        mimeType: (videoFile.type || "video/mp4") as BinaryFileData["mimeType"],
-      },
+      source: mediaId
+        ? { type: "media", mediaId, mimeType }
+        : { type: "file", fileId: fileId!, mimeType },
       tracks: track ? [track] : [],
       language: track?.language ?? DEFAULT_CAPTION_LANGUAGE,
       // the video's own size, so a poster is captured at the video's size and
@@ -142,20 +173,25 @@ export const insertVideoPanel = async (
 
   const now = Date.now();
 
-  api.addFiles([
-    {
-      id: fileId,
-      // the file store's media-type list is image-shaped, and it lives in
-      // `@excalidraw/element` — outside this wave's scope. A video file keeps
-      // its own type, because the overlay tells "a video" from "a picture" by
-      // it.
-      mimeType: (videoFile.type || "video/mp4") as BinaryFileData["mimeType"],
-      dataURL,
-      created: now,
-      lastRetrieved: now,
-      version: 1,
-    },
-  ]);
+  // A media-backed video is NOT in the document's file store: its bytes are in
+  // the origin's own media store, and the panel names it by id (D-94). So
+  // nothing is added to the file store, and the document carries no video.
+  if (dataURL !== null && fileId !== null) {
+    api.addFiles([
+      {
+        id: fileId,
+        // the file store's media-type list is image-shaped, and it lives in
+        // `@excalidraw/element` — outside this wave's scope. A video file keeps
+        // its own type, because the overlay tells "a video" from "a picture" by
+        // it.
+        mimeType,
+        dataURL,
+        created: now,
+        lastRetrieved: now,
+        version: 1,
+      },
+    ]);
+  }
 
   stampCurrentPage(
     caption ? [bound, caption] : [bound],
