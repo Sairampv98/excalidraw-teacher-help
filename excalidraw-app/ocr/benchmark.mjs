@@ -31,14 +31,16 @@
  *     node excalidraw-app/ocr/benchmark.mjs \
  *       --engine <engine-dir> \
  *       --frame <frame-1080p.png> \
- *       --crop <subtitle-band.png> \
  *       --region 0,900,1920,180 \
  *       --runs 10 \
  *       --out excalidraw-app/ocr/benchmark-result.json
  *
- * The two images are a 1080p screencast frame and the crop of its subtitle
- * band; `make-frames.py` (next to this file) makes them, so the numbers in the
- * record can be reproduced on another machine.
+ * The image is a 1080p screencast frame; `make-frames.py` (next to this file)
+ * makes it, so the numbers in the record can be reproduced on another machine.
+ *
+ * The **crop** is measured through the region's rectangle, on the very same
+ * frame: that is the ROI lever, and it is measured the way the service uses
+ * it — the engine reads only that part of the picture.
  */
 
 import { createRequire } from "node:module";
@@ -89,13 +91,12 @@ const args = parseArgs(process.argv.slice(2));
 
 const engineDir = args.engine;
 const framePath = args.frame;
-const cropPath = args.crop;
 const outPath = args.out ?? "excalidraw-app/ocr/benchmark-result.json";
 const runs = Number(args.runs ?? 10);
 
-if (!engineDir || !framePath || !cropPath) {
+if (!engineDir || !framePath) {
   console.error(
-    "usage: node benchmark.mjs --engine <dir> --frame <png> --crop <png> [--region x,y,w,h] [--runs n] [--out <json>]",
+    "usage: node benchmark.mjs --engine <dir> --frame <png> [--region x,y,w,h] [--runs n] [--out <json>]",
   );
   process.exit(2);
 }
@@ -119,16 +120,20 @@ const engineVersion = require("tesseract.js/package.json").version;
  * setup and for whatever the engine loads lazily. It is not part of the
  * measurement, because the service that answers the app keeps its worker
  * alive — that is the lever the design names first.
+ *
+ * `rectangle` is the **ROI crop**: the engine reads only that part of the
+ * image, which is exactly what the service does when a request carries a
+ * region. The boxes it reports are still in the whole image's pixels.
  */
-const measure = async (worker, path, count) => {
+const measure = async (worker, path, count, rectangle = null) => {
   const samples = [];
 
-  await worker.recognize(path);
+  await worker.recognize(path, rectangle ? { rectangle } : {});
 
   for (let i = 0; i < count; i += 1) {
     const started = performance.now();
 
-    await worker.recognize(path);
+    await worker.recognize(path, rectangle ? { rectangle } : {});
 
     samples.push(Math.round(performance.now() - started));
   }
@@ -151,7 +156,21 @@ const run = async () => {
 
   try {
     const frameSamples = await measure(worker, framePath, runs);
-    const cropSamples = await measure(worker, cropPath, runs);
+    // the crop: the SAME frame, read through the region's rectangle — this is
+    // the ROI lever, measured the way the service uses it
+    const cropSamples = await measure(
+      worker,
+      framePath,
+      runs,
+      region
+        ? {
+            left: region.x,
+            top: region.y,
+            width: region.width,
+            height: region.height,
+          }
+        : null,
+    );
 
     const record = {
       recordedAt: new Date().toISOString(),
@@ -186,7 +205,7 @@ const run = async () => {
           ...summarise(frameSamples),
         },
         subtitleCrop: {
-          image: basename(cropPath),
+          image: basename(framePath),
           region,
           ...summarise(cropSamples),
         },
@@ -212,8 +231,8 @@ const run = async () => {
   }
 };
 
-if (!existsSync(framePath) || !existsSync(cropPath)) {
-  console.error("the frame or the crop is missing");
+if (!existsSync(framePath)) {
+  console.error("the frame is missing");
   process.exit(2);
 }
 

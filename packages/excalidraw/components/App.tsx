@@ -442,9 +442,13 @@ import { getAllPanelElements } from "../scene/panelContent";
 import { panelKeepsAspectRatio } from "../scene/panelContent";
 import {
   captionBindingUpdate,
+  panelPlaybackUpdate,
   readCaptionBinding,
+  readPanelPlayback,
   readVideoPanelState,
 } from "../scene/panelContent";
+
+import { PLAYBACK_PUBLISH_INTERVAL_MS } from "../scene/panelPlayback";
 
 import {
   panelLockUpdate,
@@ -755,6 +759,14 @@ class App extends React.Component<AppProps, AppState> {
     allPanels: ExcalidrawPanelElement[];
     livePanels: ExcalidrawPanelElement[];
   } | null = null;
+  /**
+   * When the playback position of every video panel was last **written** onto
+   * its element.
+   *
+   * The position is shared state and it travels with the element, so it is
+   * written on a coarse tick — about 4 Hz — and not on every frame (D-57).
+   */
+  private lastPlaybackPublishedAt = new Map<string, number>();
   /**
    * The element set the embeddables were last scanned for. The scan only
    * matters when elements are added or removed — an embeddable is validated
@@ -2541,6 +2553,10 @@ class App extends React.Component<AppProps, AppState> {
                               height: this.state.height,
                             }}
                             onVideoEvent={this.onVideoPanelEvent}
+                            // a view-only host is a read-only mirror — the
+                            // presenter. It applies the published playback and
+                            // never writes one back (D-57).
+                            mirror={this.state.viewModeEnabled}
                           />
                           <PanelChrome
                             panels={this.getSelectedPanelElements(
@@ -2556,6 +2572,7 @@ class App extends React.Component<AppProps, AppState> {
                             }}
                             onToggleLock={this.togglePanelLock}
                             bridge={this.props.panelBridge}
+                            ocr={this.props.panelOcr}
                           />
                           <FlowAnimationOverlay
                             elementsMap={allElementsMap}
@@ -3552,7 +3569,57 @@ class App extends React.Component<AppProps, AppState> {
         return;
       case "metadata":
         this.setPanelNativeSize(panel, event.width, event.height);
+        return;
+      case "playback":
+        this.publishPanelPlayback(panel, event.time, event.playing);
     }
+  };
+
+  /**
+   * Publishes the **playback position** of a video panel onto the element.
+   *
+   * The position is shared state: the presenter is a second Excalidraw
+   * instance, and it shows the same video at the same place (D-57). It rides on
+   * the **element**, so it travels with the scene — there is no second
+   * transport for it.
+   *
+   * It is written on a **coarse tick** (about 4 Hz), not on every frame: the
+   * scene message is throttled to 40 ms and carries the whole element list, so
+   * a write per frame would flood the channel for nothing.
+   *
+   * A **view-only** host never writes: the presenter must not write playback
+   * back, or the two windows would fight over the same video. This is the one
+   * place that decides it.
+   */
+  private publishPanelPlayback = (
+    panel: ExcalidrawPanelElement,
+    time: number,
+    playing: boolean,
+  ) => {
+    if (this.state.viewModeEnabled) {
+      return;
+    }
+
+    const now = Date.now();
+    const last = this.lastPlaybackPublishedAt.get(panel.id) ?? 0;
+    const current = readPanelPlayback(panel);
+
+    // a change of state is worth publishing at once; a position is not
+    if (
+      current &&
+      current.playing === playing &&
+      now - last < PLAYBACK_PUBLISH_INTERVAL_MS
+    ) {
+      return;
+    }
+
+    this.lastPlaybackPublishedAt.set(panel.id, now);
+
+    const widened = panel as VideoPanelElement;
+
+    this.scene.mutateElement(widened, {
+      ...panelPlaybackUpdate({ time, playing }),
+    });
   };
 
   /**

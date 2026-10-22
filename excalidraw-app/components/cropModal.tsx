@@ -108,6 +108,17 @@ export type CropModalProps = {
   onApply: (element: ReturnType<typeof cropPosterToImageElement>) => void;
   /** called when the crop is dismissed */
   onClose: () => void;
+  /**
+   * The **OCR option**: the teacher asks for the text of the crop (D-59).
+   *
+   * The read happens in the bridge's Node process; the crop travels with the
+   * request, so only the picked part of the picture is read.
+   */
+  onOcr?: (crop: CropRect) => void;
+  /** what the OCR option says. Never empty. */
+  ocrMessage?: string;
+  /** whether a read is running right now */
+  ocrBusy?: boolean;
 };
 
 /**
@@ -122,6 +133,9 @@ export const CropModal = ({
   pageId,
   onApply,
   onClose,
+  onOcr,
+  ocrMessage,
+  ocrBusy,
 }: CropModalProps) => {
   const natural = posterNaturalSize(panel);
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -204,6 +218,23 @@ export const CropModal = ({
     );
   }, [displayScale, onApply, pageId, panel, selection]);
 
+  /**
+   * The crop, in the poster's own pixels — the same rectangle the OCR request
+   * carries (D-59).
+   */
+  const cropInOwnPixels = useMemo((): CropRect | null => {
+    if (!selection || selection.width <= 0 || selection.height <= 0) {
+      return null;
+    }
+
+    return {
+      x: Math.round(selection.x * displayScale.x),
+      y: Math.round(selection.y * displayScale.y),
+      width: Math.round(selection.width * displayScale.x),
+      height: Math.round(selection.height * displayScale.y),
+    };
+  }, [displayScale, selection]);
+
   return (
     <div
       className="excalidraw-modal excalidraw-modal--excalidraw"
@@ -253,6 +284,25 @@ export const CropModal = ({
           </div>
         </div>
         <div className="excalidraw-modal__footer">
+          {onOcr && (
+            <>
+              <button
+                type="button"
+                data-testid="panel-crop-ocr"
+                onClick={() => {
+                  if (cropInOwnPixels) {
+                    onOcr(cropInOwnPixels);
+                  }
+                }}
+                disabled={!cropInOwnPixels || ocrBusy}
+              >
+                Read the text
+              </button>
+              <span data-testid="panel-crop-ocr-message">
+                {ocrMessage ?? ""}
+              </span>
+            </>
+          )}
           <button type="button" onClick={onClose}>
             Cancel
           </button>

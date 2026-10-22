@@ -1,5 +1,9 @@
 import type { FileId } from "@excalidraw/element/types";
 
+import { isOcrLine, isOcrRegion } from "./ocr";
+
+import type { OcrLine, OcrRegion } from "./ocr";
+
 /**
  * The bridge protocol - the ONE definition of the message types.
  *
@@ -54,6 +58,7 @@ export const BRIDGE_MESSAGE_TYPES = [
   "run:stop",
   "ocr:request",
   "ocr:result",
+  "ocr:error",
   "ping",
   "pong",
 ] as const;
@@ -125,8 +130,16 @@ export type BridgeMessage =
       v: 1;
       type: "ocr:request";
       id: string;
-      fileId: FileId;
+      /** the file the image came from, when it came from one */
+      fileId?: FileId;
       imageBase64: string;
+      /**
+       * The region of interest, in the image's **own pixels**.
+       *
+       * The crop is the one OCR lever that costs nothing and buys the most, so
+       * it travels with the request (D-55, D-59).
+       */
+      region?: OcrRegion;
       language?: string;
     }
   /** extension -> panel. The text that was read out of an image. */
@@ -134,9 +147,24 @@ export type BridgeMessage =
       v: 1;
       type: "ocr:result";
       id: string;
-      fileId: FileId;
+      /** the file the image came from, when it came from one */
+      fileId?: FileId;
       text: string;
+      /** the per-line boxes, so the text can be placed as individual elements */
+      lines?: OcrLine[];
       confidence?: number;
+    }
+  /**
+   * extension -> panel. The read **failed**.
+   *
+   * A failure is a message, not a silence: the app has to be able to say why
+   * the text did not arrive (D-59).
+   */
+  | {
+      v: 1;
+      type: "ocr:error";
+      id: string;
+      message: string;
     }
   /** panel -> extension. */
   | { v: 1; type: "ping" }
@@ -218,17 +246,22 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
     case "ocr:request":
       return (
         typeof value.id === "string" &&
-        typeof value.fileId === "string" &&
+        (value.fileId === undefined || typeof value.fileId === "string") &&
         typeof value.imageBase64 === "string" &&
+        (value.region === undefined || isOcrRegion(value.region)) &&
         (value.language === undefined || typeof value.language === "string")
       );
     case "ocr:result":
       return (
         typeof value.id === "string" &&
-        typeof value.fileId === "string" &&
+        (value.fileId === undefined || typeof value.fileId === "string") &&
         typeof value.text === "string" &&
+        (value.lines === undefined ||
+          (Array.isArray(value.lines) && value.lines.every(isOcrLine))) &&
         (value.confidence === undefined || typeof value.confidence === "number")
       );
+    case "ocr:error":
+      return typeof value.id === "string" && typeof value.message === "string";
     case "ping":
     case "pong":
       return true;

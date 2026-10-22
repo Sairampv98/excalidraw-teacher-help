@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-10-21T18:46:18.787Z",
+  "recordedAt": "2026-10-21T22:27:07.197Z",
   "engine": {
     "name": "tesseract.js",
     "version": "7.0.0",
@@ -21,21 +21,21 @@
     "subtitleCropMs": 250
   },
   "inputs": {
-    "note": "a 1080p screencast frame and the crop of its subtitle band; make-frames.py (next to this file) makes them"
+    "note": "a 1080p screencast frame; make-frames.py (next to this file) makes it. The crop is read through the region's rectangle, the way the service reads it."
   },
   "cases": {
     "fullFrame": {
       "image": "frame-1080p.png",
       "region": null,
       "runs": 10,
-      "medianMs": 261,
-      "p95Ms": 272,
-      "minMs": 258,
-      "maxMs": 272,
-      "samplesMs": [272, 269, 267, 261, 264, 261, 261, 258, 265, 261]
+      "medianMs": 283,
+      "p95Ms": 337,
+      "minMs": 268,
+      "maxMs": 337,
+      "samplesMs": [281, 268, 317, 281, 283, 293, 298, 287, 337, 278]
     },
     "subtitleCrop": {
-      "image": "subtitle-band.png",
+      "image": "frame-1080p.png",
       "region": {
         "x": 0,
         "y": 900,
@@ -43,11 +43,11 @@
         "height": 180
       },
       "runs": 10,
-      "medianMs": 97,
-      "p95Ms": 102,
-      "minMs": 96,
-      "maxMs": 102,
-      "samplesMs": [97, 96, 97, 97, 96, 96, 97, 97, 102, 97]
+      "medianMs": 126,
+      "p95Ms": 139,
+      "minMs": 123,
+      "maxMs": 139,
+      "samplesMs": [139, 126, 133, 134, 130, 127, 123, 123, 124, 123]
     }
   },
   "verdict": {

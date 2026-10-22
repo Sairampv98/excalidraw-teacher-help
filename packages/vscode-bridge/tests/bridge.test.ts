@@ -143,6 +143,7 @@ describe("the bridge protocol", () => {
       id: "ocr-1",
       fileId: "file-1" as FileId,
       imageBase64: "QUJD",
+      region: { x: 0, y: 900, width: 1920, height: 180 },
     },
     {
       v: 1,
@@ -150,6 +151,13 @@ describe("the bridge protocol", () => {
       id: "ocr-1",
       fileId: "file-1" as FileId,
       text: "hello",
+      lines: [{ text: "hello", x: 10, y: 20, width: 100, height: 30 }],
+    },
+    {
+      v: 1,
+      type: "ocr:error",
+      id: "ocr-1",
+      message: "the OCR engine is not installed",
     },
     { v: 1, type: "ping" },
     { v: 1, type: "pong" },

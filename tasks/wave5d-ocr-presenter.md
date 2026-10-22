@@ -3,7 +3,7 @@ id: wave5d-ocr-presenter
 paths: packages/element,packages/excalidraw,packages/vscode-bridge,excalidraw-app,SPEC.md
 read: docs/superpowers/specs,docs/tins-tasks
 base: main
-status: open
+status: merged
 ---
 
 Build wave 5d: two things the fork owner asked for that share the OCR service and the presenter channel - the presenter shows the panels (item 10), and OCR is an in-app capability.
@@ -69,4 +69,3 @@ REPORT BACK:
 6. Anything you could not do and why, including anything in the brief you found to be wrong.
 7. The final git status of the worktree, with the changes unstaged.
 Do not summarise the design back. Report evidence: command output, test names, file paths.
-

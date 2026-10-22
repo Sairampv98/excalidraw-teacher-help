@@ -15,7 +15,7 @@ import { t } from "../i18n";
 import { LockedIcon, UnlockedIcon } from "./icons";
 
 import type { PanelCamera } from "../scene/panelContent";
-import type { PanelBridgeControls } from "../types";
+import type { PanelBridgeControls, PanelOcrControls } from "../types";
 
 /**
  * The chrome of the panel layer: the outline of a selected panel and its lock
@@ -37,6 +37,8 @@ type PanelChromeProps = {
   onToggleLock: (panelId: string) => void;
   /** the host app's bridge controls, when the host talks to a bridge */
   bridge?: PanelBridgeControls;
+  /** the host app's OCR controls, when the host can read a picture (D-59) */
+  ocr?: PanelOcrControls;
 };
 
 /**
@@ -117,18 +119,73 @@ const PanelBridgeField = ({
   );
 };
 
+/**
+ * The **OCR option** of a panel (D-59).
+ *
+ * The button asks the host to read the panel's picture; the host owns the
+ * read, because the engine lives in the bridge's Node process and never in the
+ * browser. The message is the host's own — with no bridge it says that the
+ * bridge is needed, and it never says nothing (D-59).
+ */
+const PanelOcrButton = ({
+  panel,
+  camera,
+  ocr,
+}: {
+  panel: ExcalidrawPanelElement;
+  camera: PanelCamera;
+  ocr: PanelOcrControls;
+}) => {
+  const position = panelCornerPosition(panel, camera, "bottom-left");
+
+  return (
+    <div
+      className="excalidraw__panel-ocr"
+      data-testid="panel-ocr"
+      data-panel-id={panel.id}
+      style={{
+        position: "absolute",
+        left: position.x,
+        top: position.y,
+        // the field is a control: it takes the pointer, unlike the outline
+        pointerEvents: "auto",
+      }}
+    >
+      <button
+        type="button"
+        className="excalidraw__panel-ocr-button"
+        data-testid="panel-ocr-button"
+        onClick={() => ocr.onOcr?.(panel.id)}
+        disabled={ocr.busy || !ocr.onOcr}
+        title={t("labels.panel.ocr")}
+        aria-label={t("labels.panel.ocr")}
+      >
+        {t("labels.panel.ocr")}
+      </button>
+      <span
+        className="excalidraw__panel-ocr-message"
+        data-testid="panel-ocr-message"
+      >
+        {ocr.message}
+      </span>
+    </div>
+  );
+};
+
 const PanelChromeItem = ({
   panel,
   elementsMap,
   camera,
   onToggleLock,
   bridge,
+  ocr,
 }: {
   panel: ExcalidrawPanelElement;
   elementsMap: ElementsMap;
   camera: PanelCamera;
   onToggleLock: (panelId: string) => void;
   bridge?: PanelBridgeControls;
+  ocr?: PanelOcrControls;
 }) => {
   const { zoom, scrollX, scrollY } = camera;
 
@@ -189,6 +246,7 @@ const PanelChromeItem = ({
       {bridge && isBridgeCodePanel(panel) && (
         <PanelBridgeField panel={panel} camera={camera} bridge={bridge} />
       )}
+      {ocr && <PanelOcrButton panel={panel} camera={camera} ocr={ocr} />}
     </React.Fragment>
   );
 };
@@ -199,6 +257,7 @@ export const PanelChrome = ({
   camera,
   onToggleLock,
   bridge,
+  ocr,
 }: PanelChromeProps) => {
   if (panels.length === 0) {
     return null;
@@ -228,6 +287,7 @@ export const PanelChrome = ({
           camera={camera}
           onToggleLock={onToggleLock}
           bridge={bridge}
+          ocr={ocr}
         />
       ))}
     </div>

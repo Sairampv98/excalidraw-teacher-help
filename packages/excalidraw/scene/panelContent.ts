@@ -660,12 +660,73 @@ export const captionBindingUpdate = (
 });
 
 /**
+ * The **playback position** of a panel whose content is time-based — a video.
+ *
+ * It is state that has to be **shared**: the editor plays the video, and the
+ * presenter (a second Excalidraw instance) has to show the same video at the
+ * same position (D-57).
+ *
+ * The position is in **seconds**, because that is what the `<video>` element
+ * speaks.
+ */
+export type PanelPlayback = {
+  /** the position, in seconds */
+  time: number;
+  /** whether the content is playing */
+  playing: boolean;
+};
+
+/**
+ * A panel element that carries a playback position.
+ *
+ * ## WHY THE PLAYBACK IS HERE AND NOT IN THE PANEL'S PAYLOAD
+ *
+ * The payload is the panel's **own content**; the playback is not content, it is
+ * the **state of the content right now**, and it changes while the teacher
+ * teaches. It rides on the element, beside the payload, for the same reason the
+ * caption binding does (D-54): the element type lives in `@excalidraw/element`,
+ * outside this wave's scope, so the widening happens here, in one place, and
+ * every reader goes through `readPanelPlayback()`.
+ *
+ * The element is not part of the payload, and it still survives a reload and a
+ * trip to the presenter: `restoreElement` keeps the properties it does not know.
+ */
+export type PlaybackPanel = ExcalidrawPanelElement & {
+  playback?: PanelPlayback | null;
+};
+
+/**
+ * The playback position of a panel, or null when the panel carries none.
+ *
+ * The only way to read it — the widening stays in here.
+ */
+export const readPanelPlayback = (
+  panel: ExcalidrawPanelElement,
+): PanelPlayback | null => {
+  const widened: PlaybackPanel = panel;
+
+  return widened.playback ?? null;
+};
+
+/**
+ * The element update that gives a panel a playback position (or takes it away).
+ *
+ * The only way to write it — the widening stays in here.
+ */
+export const panelPlaybackUpdate = (
+  playback: PanelPlayback | null,
+): { playback: PanelPlayback | null } => ({
+  playback,
+});
+
+/**
  * A **video panel** element: the payload carries the video's own state, and the
- * element carries the caption binding.
+ * element carries the caption binding and the playback position.
  *
  * Both widenings live here, in one place, because the element type itself
  * lives in `@excalidraw/element` — outside this wave's scope.
  */
-export type VideoPanelElement = CaptionBoundPanel & {
-  panel: VideoPanelContent;
-};
+export type VideoPanelElement = CaptionBoundPanel &
+  PlaybackPanel & {
+    panel: VideoPanelContent;
+  };

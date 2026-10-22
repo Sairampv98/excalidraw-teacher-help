@@ -180,6 +180,7 @@
       "nativeSize": "Content size",
       "liveNotExportable": "A live panel exports as nothing. Lock it to make a poster.",
       "cannotLock": "This panel cannot be locked yet.",
+      "ocr": "Read the text",
       "bridge": {
         "label": "Bridge",
         "placeholder": "Session token",
