@@ -141,6 +141,13 @@ const brokenEngineTree = (missing: string) => {
   return root;
 };
 
+/**
+ * The build copies the engine's runtime tree - 24 MB of it, the wasm cores
+ * among them - so it takes longer than vitest's five-second default. The
+ * timeout is the build's, not the assertion's: the build is a real build.
+ */
+const BUILD_TIMEOUT_MS = 120_000;
+
 describe("the .vsix", () => {
   it("AC-64 the .vsix builds and is a valid zip with extension/ at its root, [Content_Types].xml and extension.vsixmanifest", () => {
     const outDir = mkdtempSync(join(tmpdir(), "excalidraw-bridge-"));
@@ -221,7 +228,7 @@ describe("the .vsix", () => {
     // the app's type-only import is gone - the extension has no dependency
     // on the library
     expect(bundle).not.toContain("@excalidraw/element");
-  });
+  }, BUILD_TIMEOUT_MS);
 
   it("AC-64 the manifest declares tesseract.js, and nothing else", () => {
     const manifest = JSON.parse(
@@ -296,7 +303,7 @@ describe("the .vsix", () => {
         `extension/node_modules/${dependency}/package.json`,
       );
     }
-  });
+  }, BUILD_TIMEOUT_MS);
 
   it("AC-121 the build fails loudly when a file the engine needs is missing", () => {
     // the tree is not there at all
