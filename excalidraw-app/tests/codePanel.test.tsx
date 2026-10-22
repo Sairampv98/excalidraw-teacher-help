@@ -680,7 +680,7 @@ describe("the app's side of the bridge", () => {
     expect(state.elements[0].height).toBe(200);
   });
 
-  it("AC-102 the app's frame handler writes nothing into the document", async () => {
+  it("AC-102 the app's capture handler writes nothing into the document", async () => {
     mockClipboard(TEST_TOKEN);
 
     // the panel is already connected, so it draws its editor region, and it is
@@ -703,7 +703,7 @@ describe("the app's side of the bridge", () => {
 
     await waitFor(() => expect(socket.sent.length).toBe(1));
 
-    // the extension says hello ...
+    // the extension says hello, with the stream's URL in it ...
     act(() => {
       socket.receive({
         v: 1,
@@ -711,18 +711,17 @@ describe("the app's side of the bridge", () => {
         version: "0.1.0",
         workspace: "demo",
         appName: "VSCodium",
+        streamUrl: "http://127.0.0.1:47511/s/a-capability/frame",
       });
     });
 
-    // ... and then it streams a frame of the editor's own window
+    // ... and then it says the capture is running. The picture itself does
+    // NOT come over the websocket: it is served as an MJPEG stream (D-85).
     act(() => {
       socket.receive({
         v: 1,
-        type: "editor:frame",
+        type: "editor:capture",
         state: "live",
-        data: "a-frame-in-base64",
-        width: 1295,
-        height: 687,
         seq: 1,
       });
     });
@@ -742,6 +741,69 @@ describe("the app's side of the bridge", () => {
       "a-frame-in-base64",
     );
     expect(JSON.stringify(state.elements)).not.toContain("editor:frame");
+    expect(JSON.stringify(state.elements)).not.toContain("editor:capture");
+  });
+
+  it("AC-114 the app's capture handler writes nothing into the document", async () => {
+    mockClipboard(TEST_TOKEN);
+
+    // the panel is already connected, and it is in the LIVE view
+    const { api, state, panel } = scene(connectedCodePanelElement("live"));
+
+    await render(<Harness api={api} panel={panel} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    fireEvent.click(
+      document.querySelector('[data-testid="panel-bridge-paste"]')!,
+    );
+
+    await waitFor(() => expect(FakeSocket.instances.length).toBe(1));
+
+    const socket = lastSocket();
+
+    socket.open();
+
+    await waitFor(() => expect(socket.sent.length).toBe(1));
+
+    act(() => {
+      socket.receive({
+        v: 1,
+        type: "bridge:hello",
+        version: "0.1.0",
+        workspace: "demo",
+        appName: "VSCodium",
+        streamUrl: "http://127.0.0.1:47511/s/a-capability/frame",
+      });
+    });
+
+    act(() => {
+      socket.receive({
+        v: 1,
+        type: "editor:capture",
+        state: "live",
+        seq: 1,
+      });
+    });
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-live-frame"]'),
+      ).not.toBeNull(),
+    );
+
+    // The protocol has no message that carries a picture any more: the
+    // frames travel over the extension's own HTTP server as an MJPEG stream,
+    // and the app's data never sees them (D-85, D-114).
+    const document_ = JSON.stringify(state.elements);
+
+    expect(document_).not.toContain("data:image");
+    expect(document_).not.toContain("base64");
+    expect(document_).not.toContain("editor:frame");
+
+    // and the panel's own state carries no picture either
+    expect(Object.keys(panelState(state)!)).not.toContain("data");
+    expect(Object.keys(panelState(state)!)).not.toContain("frame");
   });
 });
 

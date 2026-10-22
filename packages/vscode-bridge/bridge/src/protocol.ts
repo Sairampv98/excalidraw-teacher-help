@@ -51,7 +51,7 @@ export const BRIDGE_MESSAGE_TYPES = [
   "bridge:auth",
   "bridge:hello",
   "editor:content",
-  "editor:frame",
+  "editor:capture",
   "run:started",
   "run:output",
   "run:exit",
@@ -99,6 +99,22 @@ export type BridgeMessage =
        * simply does not say which editor it is.
        */
       appName?: string;
+      /**
+       * The **MJPEG stream's** URL - the live view of the editor's own window
+       * (D-85).
+       *
+       * The picture itself never travels over the websocket: the extension
+       * serves it from the HTTP server it already has, and the panel plays it
+       * in a plain `<img>`. So the app does no per-frame work at all.
+       *
+       * The URL carries the **connection's capability** in its path, and the
+       * session TOKEN is never in a URL (D-50, D-86). The capability is
+       * single-purpose and per connection: it dies with the connection.
+       *
+       * Optional, so an extension that predates the field still connects; the
+       * panel then falls back to the mirrored text and says why.
+       */
+      streamUrl?: string;
     }
   /** extension -> panel. The active editor's text. */
   | {
@@ -111,39 +127,37 @@ export type BridgeMessage =
       version: number;
     }
   /**
-   * extension -> panel. One frame of the editor's own window (D-82).
+   * extension -> panel. The state of the capture of the editor's own window
+   * (D-82, D-85).
    *
-   * The frame is a PNG, base64-encoded, and it travels in **one** message:
-   * the transport's frame length is 64-bit and has no size cap, so a frame is
-   * never chunked and never split.
+   * **The picture is NOT in this message.** The frames are served as an MJPEG
+   * stream from the extension's own HTTP server, and the panel plays that
+   * stream in a plain `<img>` - so a frame never travels over the websocket
+   * and never reaches the app's data at all.
    *
-   * The frame does NOT ride in the panel's element payload - the payload is
-   * saved with the document - so it reaches the panel over the app's own
-   * in-memory registry instead.
+   * What travels is the **state**: "live" (the capture is running) or
+   * "unavailable" (it cannot run, and this is why). The state is a message,
+   * not a silence: the panel has to be able to say why there is no live view
+   * (D-75).
+   *
+   * The state is published when it **changes**, not per frame: the panel
+   * re-renders when the state changes, and the app does no per-frame work.
    */
   | {
       v: 1;
-      type: "editor:frame";
+      type: "editor:capture";
       /**
-       * "live" - a frame arrived. "unavailable" - the capture cannot run.
-       *
-       * The second state is a **message**, not a silence: the panel has to be
-       * able to say why there is no live view (D-75).
+       * "live" - the capture is running. "unavailable" - the capture cannot
+       * run.
        */
       state: "live" | "unavailable";
-      /** the PNG, base64-encoded. Empty when the state is "unavailable". */
-      data: string;
-      /** the captured region's width, in the frame's own pixels. */
-      width: number;
-      /** the captured region's height, in the frame's own pixels. */
-      height: number;
-      /** the frame's number: 1, 2, 3 ... */
-      seq: number;
       /**
        * Why the capture is not running. Never empty when the state is
-       * "unavailable".
+       * "unavailable", and never set when it is "live".
        */
       reason?: string;
+      /** the frame's number when the state was published: 1, 2, 3 ... */
+      seq: number;
     }
   /** extension -> panel. The program started. */
   | { v: 1; type: "run:started"; runId: string; command: string; cwd: string }
@@ -244,7 +258,10 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
       return (
         typeof value.version === "string" &&
         typeof value.workspace === "string" &&
-        (value.appName === undefined || typeof value.appName === "string")
+        (value.appName === undefined || typeof value.appName === "string") &&
+        // the stream's URL is optional: an extension that predates it still
+        // connects, and the panel falls back to the mirrored text (D-85)
+        (value.streamUrl === undefined || typeof value.streamUrl === "string")
       );
     case "editor:content":
       return (
@@ -254,24 +271,15 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
         typeof value.version === "number" &&
         (value.selection === undefined || isSelection(value.selection))
       );
-    case "editor:frame":
+    case "editor:capture":
       return (
         (value.state === "live" || value.state === "unavailable") &&
-        typeof value.data === "string" &&
-        typeof value.width === "number" &&
-        typeof value.height === "number" &&
         typeof value.seq === "number" &&
-        (value.reason === undefined || typeof value.reason === "string") &&
-        // a live frame carries a picture and its own size; an unavailable
-        // capture carries the reason and nothing else
+        // a live capture carries no reason; an unavailable one carries the
+        // reason and nothing else - the panel has to be able to SAY it (D-75)
         (value.state === "live"
-          ? value.data.length > 0 &&
-            value.width > 0 &&
-            value.height > 0 &&
-            value.reason === undefined
-          : value.data.length === 0 &&
-            typeof value.reason === "string" &&
-            value.reason.length > 0)
+          ? value.reason === undefined
+          : typeof value.reason === "string" && value.reason.length > 0)
       );
     case "run:started":
       return (

@@ -180,28 +180,39 @@ export const reduceCodePanelState = (
 /**
  * The capture of the editor's window, as the panel's registry holds it.
  *
- * The frame does **not** go into the element's payload: the payload is saved
+ * The picture does **not** go into the element's payload: the payload is saved
  * with the document, so a frame in it would put the teacher's screen into the
- * `.excalidraw` file (D-82). The frame travels on the library's own
- * in-memory registry instead, and this is the shape it has there.
+ * `.excalidraw` file (D-82). Since wave 5i the picture does not even reach
+ * the app: the frames are served as an MJPEG stream from the extension's own
+ * HTTP server, and the panel plays that stream in a plain `<img>` (D-85).
+ *
+ * So what the registry holds is the live view's **descriptor**: the capture's
+ * state and the URL of the stream. The URL carries the connection's
+ * capability, and the session token is never in a URL (D-50, D-86).
  */
 export const toPanelCapture = (
-  message: Extract<BridgeMessage, { type: "editor:frame" }>,
+  message: Extract<BridgeMessage, { type: "editor:capture" }>,
+  streamUrl: string | null,
 ): PanelCapture =>
   message.state === "live"
-    ? {
-        status: "live",
-        data: message.data,
-        width: message.width,
-        height: message.height,
-        seq: message.seq,
-      }
+    ? streamUrl
+      ? {
+          status: "live",
+          streamUrl,
+        }
+      : {
+          status: "unavailable",
+          // The capture is running, but there is no stream to point at: an
+          // extension that predates the stream. The panel says why instead of
+          // showing an empty region.
+          reason:
+            "the live view is not available: the bridge did not offer a stream",
+        }
     : {
         status: "unavailable",
         // the reason is never empty - the panel has to say why there is no
         // live view (D-75)
         reason: message.reason ?? "the live view is not available",
-        seq: message.seq,
       };
 
 /**

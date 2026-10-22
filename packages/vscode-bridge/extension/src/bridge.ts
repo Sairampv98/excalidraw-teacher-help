@@ -17,6 +17,8 @@ import {
   WS_OPCODE,
 } from "../../bridge/src/ws-frame";
 
+import { createMjpegStream, type MjpegFrame } from "./stream";
+
 import type { Duplex } from "node:stream";
 import type { Socket } from "node:net";
 
@@ -53,6 +55,14 @@ export interface BridgeConnection {
   readonly id: string;
   /** The origin the connection came from. */
   readonly origin: string | undefined;
+  /**
+   * The **stream capability** of this connection.
+   *
+   * It is `null` until the connection authenticates, and it dies with the
+   * connection: a request for the stream that carries a capability which was
+   * revoked gets a 404 (D-86).
+   */
+  capability: string | null;
   /** Send a message to this client. */
   send: (message: BridgeMessage) => void;
   /** Close this client. */
@@ -102,6 +112,14 @@ export interface BridgeServer {
   close: () => Promise<void>;
   /** Send a message to every authenticated client. */
   broadcast: (message: BridgeMessage) => void;
+  /**
+   * Publish a frame of the editor's window to the **MJPEG stream** (D-85).
+   *
+   * The frame does NOT travel over the websocket: it goes to the HTTP
+   * server's own stream endpoint, and the panel plays that stream in a plain
+   * `<img>`. So the app does no per-frame work at all.
+   */
+  publishFrame: (frame: MjpegFrame) => void;
   /** The port the server is on. */
   readonly port: number;
   /** How many clients are authenticated. */
@@ -178,6 +196,14 @@ export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
   let connectionCounter = 0;
   let boundPort = options.port ?? 0;
 
+  /**
+   * The **MJPEG stream** (D-85).
+   *
+   * It is served by the very same HTTP server that carries the websocket
+   * upgrade: the same fixed loopback port, a different path.
+   */
+  const stream = createMjpegStream({ port: () => boundPort, host });
+
   const httpServer = createServer((req, res) => {
     if (req.url === "/bridge/health") {
       res.writeHead(200, { "content-type": "application/json" });
@@ -191,6 +217,12 @@ export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
       );
       return;
     }
+
+    // The stream answers for itself, including a request it refuses.
+    if (stream.handle(req, res)) {
+      return;
+    }
+
     res.writeHead(404, { "content-type": "text/plain" });
     res.end("not found\n");
   });
@@ -233,6 +265,35 @@ export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
     const id = `client-${++connectionCounter}`;
     let authenticated = false;
     let closed = false;
+    let forgotten = false;
+
+    /**
+     * The connection is over.
+     *
+     * It leaves the set of clients, and its **capability** - the thing that
+     * authorises the MJPEG stream - dies with it (D-86). The socket's `end`
+     * is the peer's way of saying it will send no more, and it is the signal
+     * that comes FIRST: an abortive close is only noticed by the next read
+     * or write, which may never happen.
+     */
+    const forget = () => {
+      if (forgotten) {
+        return;
+      }
+
+      forgotten = true;
+      closed = true;
+
+      if (connection.capability) {
+        stream.revoke(connection.capability);
+        connection.capability = null;
+      }
+
+      if (authenticated) {
+        connections.delete(connection);
+        options.onDisconnect?.(connection);
+      }
+    };
 
     // a connection that never presents the token is refused like any other
     const authTimer = setTimeoutNode(() => {
@@ -255,10 +316,7 @@ export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
         // the socket is already gone
       }
       socket.end();
-      if (authenticated) {
-        connections.delete(connection);
-        options.onDisconnect?.(connection);
-      }
+      forget();
     };
 
     const send = (message: BridgeMessage) => {
@@ -277,7 +335,14 @@ export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
       }
     };
 
-    const connection: BridgeConnection = { id, origin, send, close };
+    const connection: BridgeConnection = {
+      id,
+      origin,
+      // the capability is drawn when the connection authenticates
+      capability: null,
+      send,
+      close,
+    };
 
     const decoder = createFrameDecoder((frame) => {
       if (frame.opcode === WS_OPCODE.close) {
@@ -321,7 +386,20 @@ export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
         authenticated = true;
         clearTimeoutNode(authTimer);
         connections.add(connection);
-        send({ v: 1, type: "bridge:hello", version, workspace, appName });
+
+        // The **capability** of THIS connection (D-86). It is the stream's
+        // authorisation, it is single-purpose, and it dies with the
+        // connection. The session token is never in a URL (D-50).
+        connection.capability = stream.createCapability();
+
+        send({
+          v: 1,
+          type: "bridge:hello",
+          version,
+          workspace,
+          appName,
+          streamUrl: stream.urlFor(connection.capability),
+        });
         options.onConnect?.(connection);
         return;
       }
@@ -338,14 +416,18 @@ export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
     });
     socket.on("error", () => {
       close(1011, "socket error");
+      // An errored socket is not a closed socket: it has to be destroyed, or
+      // the server never finishes shutting down.
+      socket.destroy();
     });
-    socket.on("close", () => {
-      closed = true;
-      if (authenticated) {
-        connections.delete(connection);
-        options.onDisconnect?.(connection);
-      }
+    socket.on("end", () => {
+      // The peer will send no more: the connection is over. It has to be
+      // ended on this side too, or the socket lingers and the server never
+      // finishes shutting down.
+      close(1000, "bye");
+      forget();
     });
+    socket.on("close", forget);
 
     if (head && head.length) {
       decoder.push(head);
@@ -379,12 +461,16 @@ export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
           connection.close(1001, "the bridge is shutting down");
         }
         connections.clear();
+        stream.close();
         httpServer.close(() => resolve());
       }),
     broadcast: (message: BridgeMessage) => {
       for (const connection of [...connections]) {
         connection.send(message);
       }
+    },
+    publishFrame: (frame: MjpegFrame) => {
+      stream.publish(frame);
     },
     get port() {
       return boundPort;

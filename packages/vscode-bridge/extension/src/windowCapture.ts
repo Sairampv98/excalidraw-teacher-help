@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { join } from "node:path";
+import { crc32 } from "node:zlib";
 
 import { DEFAULT_CAPTURE_FPS } from "./config";
 
@@ -31,18 +32,21 @@ import { DEFAULT_CAPTURE_FPS } from "./config";
  *    the editor, not the occluder. The raw capture costs about 12 ms a frame.
  *
  * So the helper is a **PowerShell script that ships inside the extension**:
- * it finds the window, then loops - `PrintWindow` into a bitmap, encode PNG,
- * write the bytes to stdout each prefixed with their length as four
- * little-endian bytes - with ONE header line first (`HEADER <width>
- * <height>`), so the reader learns the frame's size before the frames arrive.
+ * it finds the window, then loops - `PrintWindow` into a bitmap of the
+ * **client area**, downscale it, encode it as a **JPEG**, write the bytes to
+ * stdout each prefixed with their length as four little-endian bytes - with
+ * ONE header line first (`HEADER <width> <height>`, the scaled size), so the
+ * reader learns the frame's size before the frames arrive.
  *
  * Two rules this module exists to keep:
  *
  *  - **one helper** for the whole session. The frames are read off its
  *    running stdout. A helper per frame would spawn a process every frame for
  *    the whole lesson, and each of them would capture a different moment.
- *  - **only the newest frame is kept**. The panel wants the editor as it is
- *    now; a queue of older frames would show the editor as it was.
+ *  - **only the newest frame is kept**, and **only a picture that changed**
+ *    is published at all (D-88). The panel wants the editor as it is now, so
+ *    a queue of older frames would show the editor as it was - and an
+ *    unchanged picture costs no traffic and no app work.
  *
  * This module imports nothing from `vscode`, so it can be driven by a test
  * without an editor - the same reason `config.ts` and `editorState.ts` keep
@@ -51,6 +55,25 @@ import { DEFAULT_CAPTURE_FPS } from "./config";
 
 /** Where the helper lives, relative to the extension's own root. */
 export const CAPTURE_SCRIPT_RELATIVE_PATH = join("media", "capture.ps1");
+
+/**
+ * The JPEG quality the helper encodes with (D-87).
+ *
+ * Measured on the teacher's live VS Code window on 2026-10-22: PNG 115,884 B
+ * (154,512 B base64), JPEG q85 116,166 B, q75 93,736 B, **q60 73,922 B**, q45
+ * 63,591 B, q60 at 0.75 scale **45,091 B**. The mean luminance stays ~232 at
+ * every setting, so the picture is still real content.
+ */
+export const CAPTURE_QUALITY = 60;
+
+/**
+ * The scale the picture is drawn at (D-87).
+ *
+ * The panel shows the editor's window at a fraction of its size, so the
+ * picture is captured at a fraction too: at 0.75 the JPEG is 45,091 bytes
+ * instead of 73,922.
+ */
+export const CAPTURE_SCALE = 0.75;
 
 /** The part of `child_process.ChildProcess` the capture uses. */
 export interface CaptureProcess {
@@ -110,6 +133,11 @@ export const editorProcessName = (appName?: string | null): string => {
  *
  * `-MaxFrames 0` means "until the extension kills the helper": the capture
  * lasts as long as the session does.
+ *
+ * `-Quality` and `-Scale` are the capture's own knobs (D-87): the JPEG
+ * quality and the scale the picture is drawn at. They are passed here rather
+ * than written into the script, so the script needs no editing to change
+ * them.
  */
 export const captureArgs = (options: {
   /** the helper's path */
@@ -120,6 +148,10 @@ export const captureArgs = (options: {
   titleLike: string;
   /** how many frames a second */
   fps: number;
+  /** the JPEG quality */
+  quality?: number;
+  /** the scale the picture is drawn at */
+  scale?: number;
 }): string[] => [
   "-NoProfile",
   "-ExecutionPolicy",
@@ -132,6 +164,10 @@ export const captureArgs = (options: {
   options.titleLike,
   "-Fps",
   String(options.fps),
+  "-Quality",
+  String(options.quality ?? CAPTURE_QUALITY),
+  "-Scale",
+  String(options.scale ?? CAPTURE_SCALE),
   "-MaxFrames",
   "0",
 ];
@@ -144,7 +180,7 @@ export interface CaptureSize {
 
 export interface CaptureReaderOptions {
   /** a frame arrived */
-  onFrame: (png: Buffer) => void;
+  onFrame: (bytes: Buffer) => void;
   /** the helper's header line carried the size */
   onHeader?: (size: CaptureSize) => void;
   /** the helper's first line was not a header: it says what went wrong */
@@ -156,7 +192,8 @@ export interface CaptureReaderOptions {
  *
  * The stream is: ONE text line (the header, or the reason there is no
  * window), and then the frames - each one prefixed with its length as four
- * little-endian bytes.
+ * little-endian bytes. The bytes are a **JPEG** (D-87); the prefix is
+ * exactly as it was.
  */
 export const createCaptureReader = (options: CaptureReaderOptions) => {
   let buffer: Buffer = Buffer.alloc(0);
@@ -227,10 +264,15 @@ export const createCaptureReader = (options: CaptureReaderOptions) => {
   };
 };
 
-/** One frame of the editor's window, ready for the wire. */
+/** One frame of the editor's window, ready for the stream. */
 export interface CaptureFrame {
-  /** the PNG, base64-encoded */
-  data: string;
+  /**
+   * The JPEG bytes, exactly as the helper wrote them.
+   *
+   * They stay **bytes**: the picture goes to the MJPEG stream and to nothing
+   * else (D-85), so it never becomes base64 and never becomes text.
+   */
+  bytes: Buffer;
   /** the frame's own width, in pixels */
   width: number;
   /** the frame's own height, in pixels */
@@ -278,6 +320,8 @@ export const createWindowCapture = (
 
   let seq = 0;
   let stopped = false;
+  /** the CRC of the last PUBLISHED frame: an unchanged picture is skipped */
+  let lastChecksum: number | null = null;
   let reported = false;
 
   const reportUnavailable = (reason: string) => {
@@ -332,13 +376,27 @@ export const createWindowCapture = (
         reportUnavailable(line);
       }
     },
-    onFrame: (png) => {
+    onFrame: (bytes) => {
       // a frame means the capture IS working: a later failure may be reported
       reported = false;
-      seq += 1;
 
+      // The change detection is HERE, in the extension, and not in the helper
+      // (D-88). The helper's JPEG encoding is deterministic, so an unchanged
+      // editor produces byte-identical JPEG - and `zlib.crc32` (a Node
+      // builtin, Node 20.15 and later: the extension's manifest asks for
+      // VS Code 1.91, which ships it) catches that without the helper
+      // reading its own pixels back. An unchanged picture is NOT published
+      // again, so a static editor costs no traffic and no app work at all.
+      const checksum = crc32(bytes);
+
+      if (checksum === lastChecksum) {
+        return;
+      }
+
+      lastChecksum = checksum;
+      seq += 1;
       options.onFrame({
-        data: png.toString("base64"),
+        bytes,
         width,
         height,
         seq,

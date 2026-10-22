@@ -10,6 +10,7 @@ import {
 import { createOcrService } from "../../bridge/src/ocr";
 
 import { createBridgeServer, type BridgeConnection } from "./bridge";
+import { createCaptureStatePublisher } from "./captureState";
 import { resolveCaptureFps, resolvePort, resolveToken } from "./config";
 import {
   documentForTabUri,
@@ -29,8 +30,11 @@ import {
   editorProcessName,
   type WindowCapture,
 } from "./windowCapture";
+import { createCoalescedPublisher } from "./publish";
 
 import type { OcrRequest, OcrResult } from "../../bridge/src/ocr";
+import type { CaptureStateMessage } from "./captureState";
+import type { CoalescedPublisher } from "./publish";
 
 /**
  * The extension entry point.
@@ -53,6 +57,15 @@ let extensionVersion = "0.0.0";
 let bridgeServer: ReturnType<typeof createBridgeServer> | null = null;
 
 let windowCapture: WindowCapture | null = null;
+
+/**
+ * The editor's text, published **at most every 100 ms** (D-88).
+ *
+ * It is a module-level variable so that `deactivate` can flush the last
+ * state: the trailing publish is the one that carries the final text, and it
+ * must not be lost when the extension goes away.
+ */
+let textPublisher: CoalescedPublisher | null = null;
 
 export function activate(context: vscode.ExtensionContext): void {
   extensionVersion = context.extension?.packageJSON?.version ?? "0.0.0";
@@ -125,46 +138,36 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   /**
-   * The live view of the editor's **own window** (D-82).
+   * The live view of the editor's **own window** (D-82, D-85).
    *
-   * The picture rides the websocket as an `editor:frame` message - it never
-   * rides in the panel's payload, because the payload is saved with the
-   * document.
+   * The picture does **not** ride the websocket: it is served as an MJPEG
+   * stream from the extension's own HTTP server, and the panel plays that
+   * stream in a plain `<img>`. So a frame never enters the app's data - it
+   * cannot reach the panel's payload either, and the app does no per-frame
+   * work at all.
+   *
+   * What rides the websocket is the capture's **STATE**, and it is published
+   * when the state changes: the panel re-renders when the state changes, not
+   * when a picture arrives.
    *
    * The capture is **one** helper for the whole session: a helper per frame
    * would spawn a process every frame for the whole lesson, and each of them
    * would capture a different moment.
    */
-  let lastCaptureMessage: BridgeMessage | null = null;
-
-  const broadcastCapture = (message: BridgeMessage) => {
-    lastCaptureMessage = message;
-    bridgeServer?.broadcast(message);
-  };
+  let lastCaptureMessage: CaptureStateMessage | null = null;
 
   /**
-   * The capture cannot run, and this is why.
-   *
-   * A failure is a **message**, not a silence: the panel has to be able to
-   * say why there is no live view, and fall back to the text (D-75).
+   * The capture's state, published only when it **changes** (D-85).
    */
-  const captureUnavailable = (reason: string): BridgeMessage => ({
-    v: 1,
-    type: "editor:frame",
-    state: "unavailable",
-    data: "",
-    width: 0,
-    height: 0,
-    seq: 0,
-    reason,
+  const captureState = createCaptureStatePublisher((message) => {
+    lastCaptureMessage = message;
+    bridgeServer?.broadcast(message);
   });
 
   const startWindowCapture = () => {
     if (process.platform !== "win32") {
       // the capture is a Windows program: `PrintWindow` is a Windows API
-      broadcastCapture(
-        captureUnavailable("the live view of the editor needs Windows"),
-      );
+      captureState.unavailable("the live view of the editor needs Windows");
       return;
     }
 
@@ -183,24 +186,37 @@ export function activate(context: vscode.ExtensionContext): void {
       titleLike: workspace,
       fps: resolveCaptureFps(configuration.get<number>("captureFps")),
       onFrame: (frame) => {
-        broadcastCapture({
-          v: 1,
-          type: "editor:frame",
-          state: "live",
-          data: frame.data,
-          width: frame.width,
-          height: frame.height,
-          seq: frame.seq,
-        });
+        // The picture goes to the MJPEG STREAM and to nothing else (D-85).
+        bridgeServer?.publishFrame({ bytes: frame.bytes, seq: frame.seq });
+
+        // and the state says the capture is running - once, when it changes.
+        captureState.live(frame.seq);
       },
       onUnavailable: (reason) => {
-        broadcastCapture(captureUnavailable(reason));
+        // A failure is a **message**, not a silence: the panel has to be able
+        // to say why there is no live view, and fall back to the text (D-75).
+        captureState.unavailable(reason);
       },
     });
   };
 
+  /**
+   * The editor's text, published **at most every 100 ms** (D-88).
+   *
+   * Every keystroke used to make the app rewrite the whole scene, because
+   * the message carries the whole file. The trailing publish always carries
+   * the LAST state, so the final text is never lost.
+   */
+  textPublisher = createCoalescedPublisher({
+    publish: () => {
+      bridgeServer?.broadcast(editorContentMessage(currentEditor()));
+    },
+  });
+
   const publishEditorContent = () => {
-    bridgeServer?.broadcast(editorContentMessage(currentEditor()));
+    // The publish is coalesced: at most one every 100 ms, and the last state
+    // is always published (D-88).
+    textPublisher?.request();
   };
 
   const sendEditorContentTo = (connection: BridgeConnection) => {
@@ -426,6 +442,12 @@ export function deactivate(): void {
   // the capture is a process of its own: it goes away with the extension
   windowCapture?.stop();
   windowCapture = null;
+
+  // The trailing publish carries the LAST state, so it is flushed before the
+  // extension goes away - the final text is never lost (D-88).
+  textPublisher?.flush();
+  textPublisher?.stop();
+  textPublisher = null;
 
   void bridgeServer?.close();
   bridgeServer = null;

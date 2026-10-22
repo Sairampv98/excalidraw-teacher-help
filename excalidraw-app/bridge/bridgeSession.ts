@@ -57,6 +57,18 @@ export type BridgeSessionState = {
   message: string;
   /** how many times the client has tried to connect */
   attempt: number;
+  /**
+   * The **MJPEG stream's** URL - the live view of the editor's own window
+   * (D-85).
+   *
+   * It is `null` until the extension says hello, and it changes with the
+   * connection: the URL carries the connection's capability, and the
+   * capability dies with the connection (D-86).
+   *
+   * The session TOKEN is never in a URL (D-50), and this URL is never written
+   * into the document: the panel's payload is saved with it.
+   */
+  streamUrl: string | null;
 };
 
 /** The state of a session that has never connected. */
@@ -65,6 +77,7 @@ export const INITIAL_BRIDGE_SESSION_STATE: BridgeSessionState = {
   connection: "not-connected",
   message: "Not connected to the Excalidraw Bridge.",
   attempt: 0,
+  streamUrl: null,
 };
 
 /**
@@ -144,6 +157,15 @@ export const createBridgeSession = (
   let error: string | null = null;
 
   /**
+   * The stream's URL, from the extension's `bridge:hello` (D-85).
+   *
+   * It belongs to the CONNECTION: the URL carries the connection's
+   * capability, and a new connection gets a new one. So it is cleared when
+   * the connection goes away.
+   */
+  let streamUrl: string | null = null;
+
+  /**
    * The OCR half of the conversation.
    *
    * The client is the browser's side of the shared contract; it never touches
@@ -166,6 +188,7 @@ export const createBridgeSession = (
       connection: bridgeConnection(clientState.status),
       message: error ?? describeBridgeState(clientState),
       attempt: clientState.attempt,
+      streamUrl,
     };
   };
 
@@ -179,6 +202,14 @@ export const createBridgeSession = (
     }
 
     client?.disconnect();
+
+    // A new connection gets a NEW capability, so the old stream's URL is
+    // dead: it is cleared until the extension's hello says the new one
+    // (D-86).
+    if (streamUrl !== null) {
+      streamUrl = null;
+      publish();
+    }
 
     client = createBridgeClient({
       url,
@@ -202,6 +233,17 @@ export const createBridgeSession = (
         if (message.type === "ocr:error") {
           ocr.fail(message.id, message.message);
           return;
+        }
+
+        // The stream's URL (D-85). It is part of the CONNECTION's state, so
+        // the panel's live view follows the connection.
+        if (message.type === "bridge:hello") {
+          const next = message.streamUrl ?? null;
+
+          if (next !== streamUrl) {
+            streamUrl = next;
+            publish();
+          }
         }
 
         options.onMessage?.(message);
@@ -270,6 +312,12 @@ export const createBridgeSession = (
     disconnect: () => {
       client?.disconnect();
       client = null;
+
+      // the capability is dead with the connection, so the stream's URL is too
+      if (streamUrl !== null) {
+        streamUrl = null;
+      }
+
       publish();
     },
   };

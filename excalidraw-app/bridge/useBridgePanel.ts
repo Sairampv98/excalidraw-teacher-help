@@ -4,7 +4,7 @@ import { CaptureUpdateAction } from "@excalidraw/element";
 import { clearAllPanelCaptures, setPanelCapture } from "@excalidraw/excalidraw";
 
 import type { PanelBridgeControls } from "@excalidraw/excalidraw";
-import type { CodePanelState } from "@excalidraw/excalidraw";
+import type { CodePanelState, PanelCapture } from "@excalidraw/excalidraw";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
 import { OCR_NEEDS_BRIDGE } from "../../packages/vscode-bridge/bridge/src/ocrClient";
@@ -23,7 +23,30 @@ import {
 
 import type { BridgeSession, BridgeSessionState } from "./bridgeSession";
 import type { OcrRequest } from "../../packages/vscode-bridge/bridge/src/ocr";
-import type { BridgeMessage } from "../../packages/vscode-bridge/bridge/src/protocol";
+import type { CaptureStateMessage } from "../../packages/vscode-bridge/extension/src/captureState";
+
+/**
+ * Are two live views the same one?
+ *
+ * The panel re-renders when the live view **changes**, so the app has to
+ * know whether it changed: the same stream URL and the same state is the
+ * same live view, and the panel must not re-render for it (D-85).
+ */
+const sameCapture = (a: PanelCapture | null, b: PanelCapture): boolean => {
+  if (!a || a.status !== b.status) {
+    return false;
+  }
+
+  if (a.status === "live" && b.status === "live") {
+    return a.streamUrl === b.streamUrl;
+  }
+
+  if (a.status === "unavailable" && b.status === "unavailable") {
+    return a.reason === b.reason;
+  }
+
+  return false;
+};
 
 /**
  * The app's wiring for the **code panel**.
@@ -46,61 +69,99 @@ export const useBridgePanel = (api: ExcalidrawImperativeAPI | null) => {
   const panelStateRef = useRef<CodePanelState>(initialCodePanelState());
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(api);
 
+  /**
+   * The capture's **state**, as the extension last said it (D-85).
+   *
+   * The picture itself is not here: the frames are served as an MJPEG stream
+   * from the extension's own HTTP server, and the panel plays that stream in
+   * a plain `<img>`. So the app does no per-frame work at all.
+   */
+  const captureRef = useRef<CaptureStateMessage | null>(null);
+
+  /** The stream's URL, from the extension's hello. It belongs to the connection. */
+  const streamUrlRef = useRef<string | null>(null);
+
+  /** The live view as it was last published, so it is published only on a change. */
+  const publishedCaptureRef = useRef<PanelCapture | null>(null);
+
   apiRef.current = api;
 
-  /** Write the panel's state into the code panels of the scene. */
-  const publish = useCallback((next: CodePanelState) => {
-    panelStateRef.current = next;
-
+  /**
+   * Publish the live view into the library's registry (D-82, D-85).
+   *
+   * The registry is the library's own in-memory store, keyed by the panel
+   * element's id. It holds the live view's **descriptor** - the capture's
+   * state and the stream's URL - and never a picture: the payload is saved
+   * with the document, and the picture does not even reach the app.
+   *
+   * It is published **only when the descriptor changes**, so the panel
+   * re-renders when the state changes and not on every message.
+   */
+  const publishCapture = useCallback(() => {
     const current = apiRef.current;
+    const message = captureRef.current;
 
-    if (!current) {
+    if (!current || !message) {
       return;
     }
 
-    const elements = current.getSceneElements();
-    const updated = applyCodePanelState(elements, next);
+    const capture = toPanelCapture(message, streamUrlRef.current);
 
-    if (updated === elements) {
+    if (sameCapture(publishedCaptureRef.current, capture)) {
+      // nothing changed: the panel must not re-render
       return;
     }
 
-    current.updateScene({
-      elements: updated,
-      // the mirror is not something the teacher undoes
-      captureUpdate: CaptureUpdateAction.NEVER,
-    });
+    publishedCaptureRef.current = capture;
+
+    for (const id of bridgeCodePanelIds(current.getSceneElements())) {
+      setPanelCapture(id, capture);
+    }
   }, []);
 
-  /**
-   * Publish the editor's window into the library's frame registry (D-82).
-   *
-   * The frame does **not** go through `publish`: the element's payload is
-   * saved with the document, and a frame in it would put the teacher's screen
-   * into the `.excalidraw` file. The registry is the library's own in-memory
-   * store, keyed by the panel element's id.
-   */
-  const publishCapture = useCallback(
-    (message: Extract<BridgeMessage, { type: "editor:frame" }>) => {
+  /** Write the panel's state into the code panels of the scene. */
+  const publish = useCallback(
+    (next: CodePanelState) => {
+      panelStateRef.current = next;
+
+      // The live view is published here too, so that a panel which has just
+      // become connected gets the live view with it (D-85).
+      publishCapture();
+
       const current = apiRef.current;
 
       if (!current) {
         return;
       }
 
-      const capture = toPanelCapture(message);
+      const elements = current.getSceneElements();
+      const updated = applyCodePanelState(elements, next);
 
-      for (const id of bridgeCodePanelIds(current.getSceneElements())) {
-        setPanelCapture(id, capture);
+      if (updated === elements) {
+        return;
       }
+
+      current.updateScene({
+        elements: updated,
+        // the mirror is not something the teacher undoes
+        captureUpdate: CaptureUpdateAction.NEVER,
+      });
     },
-    [],
+    [publishCapture],
   );
 
   useEffect(() => {
     const session = createBridgeSession({
       onStateChange: (next) => {
         setState(next);
+
+        // The stream's URL is part of the CONNECTION's state (D-85): a new
+        // connection gets a new capability, so the live view has to be
+        // published again with the new URL.
+        if (next.streamUrl !== streamUrlRef.current) {
+          streamUrlRef.current = next.streamUrl;
+          publishCapture();
+        }
 
         const current = panelStateRef.current;
 
@@ -129,10 +190,12 @@ export const useBridgePanel = (api: ExcalidrawImperativeAPI | null) => {
           }));
         }
 
-        if (message.type === "editor:frame") {
-          // The live view of the editor's own window. It rides the registry,
-          // never the payload (D-82).
-          publishCapture(message);
+        if (message.type === "editor:capture") {
+          // The live view of the editor's own window: the **state** only
+          // (D-85). The picture is served as an MJPEG stream and never
+          // reaches the app, so there is nothing per frame to do here.
+          captureRef.current = message;
+          publishCapture();
           return;
         }
 
