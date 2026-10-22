@@ -364,10 +364,14 @@ The owner reported on 2026-10-21 that the sidebar's **Copy code** button pastes 
 
 ## Later waves — not implemented by this task
 
-These are recorded so the numbering does not shift. Their design documents are in `docs/superpowers/specs/`.
+These are recorded so the numbering does not shift. Their design documents are in `docs/superpowers/specs/`, and the waves that are specified but not yet built are in `docs/tins-tasks/`.
 
 | area | items | design document |
 | --- | --- | --- |
+| **the owner's review of 2026-10-22** — the seven items, what each turned out to be when it was measured, and which wave answers it | 1-7 | `docs/tins-tasks/2026-10-22-owner-review.md` |
+| wave 5m — the live window **by default**, and the live window in the **presenter** | 1, 1b, 2 | `docs/tins-tasks/wave5m-live-default-brief.md` |
+| wave 5n — the **screenshot** (the editor's window, or the video's paused frame), its **three** choices, and **one theme** for every affordance | 1c, 1d, 6 | `docs/tins-tasks/wave5n-screenshot-brief.md` |
+| wave 5o — PaddleOCR's **oneDNN fall-back**, and the measured truth about its speed | the OCR models | `docs/tins-tasks/wave5o-paddle-fallback-brief.md` |
 | canvas panels (the shared primitive) | 6, 7, 10, 11 | `2026-10-20-canvas-panel-foundation-design.md` |
 | VS Code bridge | 6 | `2026-10-20-vscode-bridge-design.md` |
 | video panel | 7 | `2026-10-20-video-panel-design.md` |
