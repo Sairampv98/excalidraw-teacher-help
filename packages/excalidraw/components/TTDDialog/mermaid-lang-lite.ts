@@ -1,5 +1,7 @@
 import { StreamLanguage } from "@codemirror/language";
 
+import { registerCodeMirrorLanguage } from "../codeLanguages";
+
 const mermaidStreamParser = StreamLanguage.define({
   token(stream) {
     // Comments: %%...
@@ -80,3 +82,16 @@ const mermaidStreamParser = StreamLanguage.define({
 export function mermaidLite() {
   return mermaidStreamParser;
 }
+
+/**
+ * The library OWNS the mermaid grammar.
+ *
+ * It is the only grammar the library has, it has no dependency of its own, and
+ * the text-to-diagram dialog is the only thing that speaks mermaid - so the
+ * library registers it itself, at module load, and the host never has to.
+ *
+ * Everything else the editor shows is a real source file, and those grammars
+ * belong to the HOST: the library reaches them through the registry
+ * (`../codeLanguages`).
+ */
+registerCodeMirrorLanguage("mermaid", async () => mermaidLite());

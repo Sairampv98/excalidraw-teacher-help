@@ -3,7 +3,7 @@ id: wave5h-native-editor
 paths: packages/excalidraw,excalidraw-app,SPEC.md,yarn.lock
 read: SPEC.md,packages/excalidraw/scene/panelContent.ts,packages/excalidraw/components/PanelOverlay.tsx,packages/excalidraw/components/TTDDialog/CodeMirrorEditor.tsx,packages/excalidraw/components/PanelChrome.tsx,packages/excalidraw/scene/panelFrames.ts,excalidraw-app/sidebar/codeCard.ts
 base: main
-status: open
+status: merged
 ---
 
 Wave 5h: the NATIVE editor is the code panel's default again, and it knows the language.
@@ -166,4 +166,3 @@ REPORT BACK
 7. Anything you could not do and why, and anything in this brief you found to be wrong.
 8. The final git status of the worktree, with the changes unstaged.
 Do not summarise the design back. Report evidence: command output, test names, file paths.
-

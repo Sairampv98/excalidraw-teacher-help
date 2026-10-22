@@ -21,7 +21,10 @@ import type { Theme } from "@excalidraw/element/types";
 
 import { VS_CODE_DARK, VS_CODE_DARK_TOKEN_COLORS } from "../vscodeTheme";
 
-import { mermaidLite } from "./mermaid-lang-lite";
+import { loadCodeMirrorLanguage } from "../codeLanguages";
+
+// The library owns the mermaid grammar, and importing it registers it.
+import "./mermaid-lang-lite";
 
 /**
  * The theme an editor wears.
@@ -46,6 +49,19 @@ export interface CodeMirrorEditorProps {
    * is on the screen.
    */
   readOnly?: boolean;
+  /**
+   * The language of the text, as VS Code names it (`python`, `java`,
+   * `javascript`, `cpp`, ...).
+   *
+   * The grammar comes from the **registry** (`../codeLanguages`), which the
+   * HOST fills - the library has no grammar dependencies of its own. A
+   * language that is not registered gets **no** grammar: an unknown file must
+   * never be highlighted as something it is not.
+   *
+   * `"mermaid"` is the library's own: the text-to-diagram dialog is the only
+   * thing that speaks mermaid.
+   */
+  language?: string;
 }
 
 // ---- Dark theme ----
@@ -242,6 +258,7 @@ const CodeMirrorEditor = ({
   theme,
   errorLine,
   readOnly = false,
+  language,
 }: CodeMirrorEditorProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -249,6 +266,7 @@ const CodeMirrorEditor = ({
   const onKeyboardSubmitRef = useRef(onKeyboardSubmit);
   const themeCompartmentRef = useRef(new Compartment());
   const errorLineCompartmentRef = useRef(new Compartment());
+  const languageCompartmentRef = useRef(new Compartment());
 
   onChangeRef.current = onChange;
   onKeyboardSubmitRef.current = onKeyboardSubmit;
@@ -289,7 +307,9 @@ const CodeMirrorEditor = ({
           EditorView.editable.of(!readOnly),
           themeCompartment.of(getThemeExtensions(theme)),
           errorLineCompartmentRef.current.of([]),
-          mermaidLite(),
+          // the grammar lives in its own compartment: it is fetched
+          // asynchronously, and it is swapped when the file changes
+          languageCompartmentRef.current.of([]),
           drawSelection({ drawRangeCursor: true }),
           ...(placeholder ? [cmPlaceholder(placeholder)] : []),
         ],
@@ -336,6 +356,42 @@ const CodeMirrorEditor = ({
       ),
     });
   }, [errorLine]);
+
+  /**
+   * The grammar of the file.
+   *
+   * The grammar is fetched from the **registry** the host filled, so it is
+   * asynchronous. Until it arrives the PREVIOUS grammar stays: there is no
+   * flash of unhighlighted text, and the file is never highlighted as
+   * something it is not.
+   *
+   * A language that is not registered - or no language at all - resolves to no
+   * grammar, and the grammar is REMOVED.
+   */
+  useEffect(() => {
+    const view = viewRef.current;
+
+    if (!view) {
+      return;
+    }
+
+    let cancelled = false;
+
+    loadCodeMirrorLanguage(language ?? "").then((extension) => {
+      if (cancelled) {
+        return;
+      }
+
+      view.dispatch({
+        effects: languageCompartmentRef.current.reconfigure(
+          extension ? [extension] : [],
+        ),
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [language]);
 
   // Sync external value changes into EditorView
   useEffect(() => {

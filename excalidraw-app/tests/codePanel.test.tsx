@@ -6,6 +6,9 @@
  * lint reads this file and fails if a row id is missing.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import React from "react";
@@ -15,6 +18,11 @@ import { validateFractionalIndices } from "@excalidraw/element";
 import { Excalidraw } from "@excalidraw/excalidraw";
 import { codePanelContent, emptyCodePanelState } from "@excalidraw/excalidraw";
 import { readCodePanelState } from "@excalidraw/excalidraw";
+import { withPanelView } from "@excalidraw/excalidraw";
+import {
+  codeMirrorLanguageIds,
+  loadCodeMirrorLanguage,
+} from "@excalidraw/excalidraw";
 import { API } from "@excalidraw/excalidraw/tests/helpers/api";
 import {
   act,
@@ -33,6 +41,7 @@ import {
 } from "../bridge/codePanel";
 import { insertCodePanel } from "../bridge/insertCodePanel";
 import { useBridgePanel } from "../bridge/useBridgePanel";
+import { CODE_LANGUAGE_IDS } from "../codeLanguages";
 
 import { BRIDGE_URL_ENV_VAR } from "../../packages/vscode-bridge/bridge/src/protocol";
 
@@ -131,8 +140,40 @@ const codePanelElement = () =>
  * The harness's API is a stand-in: it holds the elements in a variable, so
  * what the app writes into them is not what the rendered Excalidraw shows.
  * A panel that draws its editor region therefore has to start connected.
+ *
+ * The `view` is the panel's own: `"live"` is the opt-in live window, and
+ * `"editor"` (the default) is the native editor (D-83).
  */
-const connectedCodePanelElement = () =>
+const connectedCodePanelElement = (view?: "editor" | "live") => {
+  const content = codePanelContent(
+    {
+      ...emptyCodePanelState(),
+      connection: "connected",
+      statusMessage: "Connected to the Excalidraw Bridge.",
+    },
+    "session-1",
+  );
+
+  return newPanelElement({
+    type: "panel",
+    x: 100,
+    y: 100,
+    width: 400,
+    height: 300,
+    panelKind: "code",
+    panel: view ? withPanelView(content, view) : content,
+    posterMode: false,
+    posterFileId: null,
+  });
+};
+
+/**
+ * A code panel that is connected and is mirroring a **python** file.
+ *
+ * The bridge sends VS Code's own language id, so the panel knows the file is
+ * `python` - and the editor must wear the python grammar (D-84).
+ */
+const pythonCodePanelElement = () =>
   newPanelElement({
     type: "panel",
     x: 100,
@@ -145,6 +186,13 @@ const connectedCodePanelElement = () =>
         ...emptyCodePanelState(),
         connection: "connected",
         statusMessage: "Connected to the Excalidraw Bridge.",
+        editor: {
+          uri: "file:///demo/main.py",
+          language: "python",
+          text: "def greet():\n    return 1",
+          selection: null,
+          version: 1,
+        },
       },
       "session-1",
     ),
@@ -635,8 +683,9 @@ describe("the app's side of the bridge", () => {
   it("AC-102 the app's frame handler writes nothing into the document", async () => {
     mockClipboard(TEST_TOKEN);
 
-    // the panel is already connected, so it draws its editor region
-    const { api, state, panel } = scene(connectedCodePanelElement());
+    // the panel is already connected, so it draws its editor region, and it is
+    // in the LIVE view: the live window is the opt-in alternative (D-83)
+    const { api, state, panel } = scene(connectedCodePanelElement("live"));
 
     await render(<Harness api={api} panel={panel} />);
 
@@ -693,5 +742,159 @@ describe("the app's side of the bridge", () => {
       "a-frame-in-base64",
     );
     expect(JSON.stringify(state.elements)).not.toContain("editor:frame");
+  });
+});
+
+describe("the app's code languages", () => {
+  /**
+   * The colour CodeMirror paints a word in, or null when the word is not
+   * painted at all.
+   *
+   * CodeMirror marks a token with a class, and the class carries the colour in
+   * the stylesheet it mounts. So the word's colour is found by looking the
+   * class up - the test never has to know which class a token happens to get.
+   */
+  const tokenColour = (word: string): string | null => {
+    const content = document.querySelector(
+      '[data-testid="code-panel-source"] .cm-content',
+    );
+
+    if (!content) {
+      return null;
+    }
+
+    const span = Array.from(content.querySelectorAll("span")).find(
+      (candidate) => candidate.textContent === word,
+    );
+
+    if (!span) {
+      return null;
+    }
+
+    const css = Array.from(document.querySelectorAll("style"))
+      .map((tag) => tag.textContent)
+      .join("\n");
+
+    for (const className of Array.from(span.classList)) {
+      const rule = new RegExp(
+        `\\.${className.replace(
+          /[.*+?^${}()|[\]\\]/g,
+          "\\$&",
+        )}\\s*\\{([^}]*)\\}`,
+      ).exec(css);
+
+      if (rule) {
+        return rule[1];
+      }
+    }
+
+    return null;
+  };
+
+  it("AC-108 a python file is highlighted with the python grammar, not the mermaid one", async () => {
+    // the app's grammars are registered when the module is imported
+    await import("../codeLanguages");
+
+    const panel = pythonCodePanelElement();
+
+    await render(<Excalidraw initialData={{ elements: [panel] }} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
+      ).not.toBeNull(),
+    );
+
+    // `def` is painted - the python grammar knows it is a keyword. The
+    // grammar arrives ASYNCHRONOUSLY (the app fetches it with a dynamic
+    // import), so the test waits for the painting rather than for the
+    // editor.
+    await waitFor(
+      () => {
+        const colour = tokenColour("def");
+
+        expect(colour).not.toBeNull();
+
+        // ... with the VS Code KEYWORD colour (#c586c0) ...
+        expect(colour).toContain("#c586c0");
+
+        // ... and NOT with the variable colour (#9cdcfe). That is the bug the
+        // owner reported: the mermaid grammar matched `def` as a node name and
+        // painted it as a variable (D-84).
+        expect(colour).not.toContain("#9cdcfe");
+      },
+      { timeout: 10000 },
+    );
+  });
+
+  it("AC-111 the app registers the six day-1 languages, and fetches them lazily", async () => {
+    await import("../codeLanguages");
+
+    const ids = codeMirrorLanguageIds();
+
+    // the six the owner asked for, plus TypeScript and JSX, which come free
+    // with the JavaScript package
+    for (const id of CODE_LANGUAGE_IDS) {
+      expect(ids).toContain(id);
+    }
+
+    expect(ids).toContain("javascript");
+    expect(ids).toContain("java");
+    expect(ids).toContain("python");
+    expect(ids).toContain("c");
+    expect(ids).toContain("cpp");
+    expect(ids).toContain("rust");
+
+    // and the grammar is really there
+    expect(await loadCodeMirrorLanguage("python")).not.toBeNull();
+    expect(await loadCodeMirrorLanguage("mermaid")).not.toBeNull();
+
+    // and the registrations are LAZY: every grammar is fetched with a DYNAMIC
+    // import, so it is downloaded only when a file of that language is
+    // actually shown.
+    const source = readFileSync(
+      join(__dirname, "..", "codeLanguages.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain('import("@codemirror/lang-python")');
+
+    // there is NO static import of a grammar package: that would fetch all
+    // of them on every page load
+    expect(source).not.toMatch(/from "@codemirror\/lang-/);
+  });
+
+  it("AC-112 the library's package.json gains no dependency: the grammars are the app's", async () => {
+    const libraryPackage = JSON.parse(
+      readFileSync(
+        join(__dirname, "..", "..", "packages", "excalidraw", "package.json"),
+        "utf8",
+      ),
+    );
+
+    const appPackage = JSON.parse(
+      readFileSync(join(__dirname, "..", "package.json"), "utf8"),
+    );
+
+    const libraryDependencies = Object.keys(libraryPackage.dependencies ?? {});
+    const appDependencies = Object.keys(appPackage.dependencies ?? {});
+
+    for (const grammar of [
+      "@codemirror/lang-cpp",
+      "@codemirror/lang-java",
+      "@codemirror/lang-javascript",
+      "@codemirror/lang-python",
+      "@codemirror/lang-rust",
+    ]) {
+      // the APP has it ...
+      expect(appDependencies).toContain(grammar);
+
+      // ... and the published LIBRARY has none of them: the library reaches
+      // the grammars through its registry, so it never grows a grammar
+      // dependency (D-84).
+      expect(libraryDependencies).not.toContain(grammar);
+    }
   });
 });

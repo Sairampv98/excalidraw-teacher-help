@@ -6,9 +6,11 @@
  * lint reads this file and fails if a row id is missing.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, afterEach } from "vitest";
 
 import React from "react";
+
+import { render as renderComponent } from "@testing-library/react";
 
 import type {
   ExcalidrawPanelElement,
@@ -17,19 +19,30 @@ import type {
 
 import { Excalidraw } from "../index";
 import { VS_CODE_DARK } from "../components/vscodeTheme";
+import { TTDDialogInput } from "../components/TTDDialog/TTDDialogInput";
+import { UIAppStateContext } from "../context/ui-appState";
+import { getDefaultAppState } from "../appState";
 import {
   codePanelContent,
   emptyCodePanelState,
   readCodePanelState,
+  readPanelView,
+  withCodePanelState,
+  withPanelView,
 } from "../scene/panelContent";
 import {
   clearAllPanelCaptures,
   getPanelCapture,
   setPanelCapture,
 } from "../scene/panelFrames";
+import {
+  loadCodeMirrorLanguage,
+  registerCodeMirrorLanguage,
+} from "../components/codeLanguages";
+import { mermaidLite } from "../components/TTDDialog/mermaid-lang-lite";
 
 import { API } from "./helpers/api";
-import { act, render, waitFor } from "./test-utils";
+import { act, fireEvent, render, waitFor } from "./test-utils";
 
 import type { CodePanelState } from "../scene/panelContent";
 
@@ -69,11 +82,79 @@ const codePanel = (
 const asElement = (panel: ExcalidrawPanelElement) =>
   panel as unknown as NonDeletedExcalidrawElement;
 
+/**
+ * A code panel in a given **view** (D-83).
+ *
+ * The view is the panel's own property and it lives in its payload, so a
+ * panel that is born in the live view is built by widening the payload.
+ */
+const codePanelInView = (
+  state: CodePanelState,
+  view: "editor" | "live",
+): ExcalidrawPanelElement =>
+  codePanel(state, {
+    panel: withPanelView(codePanelContent(state, "session-1"), view),
+  });
+
+/**
+ * The UI app state, for a component that is rendered on its own.
+ *
+ * The text-to-diagram dialog reads the theme from it, and the dialog is
+ * normally rendered by the app's own layer.
+ */
+const uiAppState = () => ({
+  ...getDefaultAppState(),
+  offsetTop: 0,
+  offsetLeft: 0,
+  width: 1000,
+  height: 1000,
+});
+
 /** The CSS CodeMirror has mounted into the document. */
 const mountedCss = () =>
   Array.from(document.querySelectorAll("style"))
     .map((tag) => tag.textContent)
     .join("\n");
+
+/**
+ * The colour CodeMirror paints a word in, or null when the word is not
+ * painted at all.
+ *
+ * CodeMirror marks a token with a class, and the class carries the colour in
+ * the stylesheet it mounts. So the word's colour is found by looking the
+ * class up - the test never has to know which class a token happens to get.
+ */
+const tokenColour = (word: string): string | null => {
+  const content = document.querySelector(
+    '[data-testid="code-panel-source"] .cm-content',
+  );
+
+  if (!content) {
+    return null;
+  }
+
+  const span = Array.from(content.querySelectorAll("span")).find(
+    (candidate) => candidate.textContent === word,
+  );
+
+  if (!span) {
+    return null;
+  }
+
+  const css = mountedCss();
+
+  for (const className of Array.from(span.classList)) {
+    const rule = new RegExp(
+      `\\.${className.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`,
+    ).exec(css);
+
+    if (rule) {
+      return rule[1];
+    }
+  }
+
+  return null;
+};
 
 describe("the code panel", () => {
   it("AC-60 the panel shows the editor, the output and the console", async () => {
@@ -456,8 +537,9 @@ describe("the code panel", () => {
     expect(panelRule).not.toContain("#2a2a2a");
   });
 
-  it("AC-101 the panel draws the live frame at the frame's own aspect ratio", async () => {
-    const panel = codePanel(connectedState());
+  it("AC-101 the live view is opt-in, and it draws the live frame at the frame's own aspect ratio", async () => {
+    // the teacher turned the live view on: the panel is in the live view
+    const panel = codePanelInView(connectedState(), "live");
 
     await render(<Excalidraw />);
 
@@ -520,7 +602,8 @@ describe("the code panel", () => {
   });
 
   it("AC-102 a frame never reaches the element payload", async () => {
-    const panel = codePanel(connectedState());
+    // the live view is opt-in, so the panel is put in it (D-83)
+    const panel = codePanelInView(connectedState(), "live");
 
     setPanelCapture(panel.id, {
       status: "live",
@@ -560,8 +643,9 @@ describe("the code panel", () => {
     });
   });
 
-  it("AC-103 with no capture the panel falls back to the text and says why", async () => {
-    const panel = codePanel(connectedState());
+  it("AC-103 in the live view, with no capture, the panel falls back to the text and says why", async () => {
+    // the teacher turned the live view on, and there is no picture to show
+    const panel = codePanelInView(connectedState(), "live");
 
     // there is no ffmpeg, or the capture stopped: the extension says so
     setPanelCapture(panel.id, {
@@ -599,5 +683,286 @@ describe("the code panel", () => {
     act(() => {
       clearAllPanelCaptures();
     });
+  });
+
+  it("AC-103 in the default view there is nothing to explain: the panel shows the editor", async () => {
+    // the same missing capture, but the teacher did NOT ask for the live view
+    const panel = codePanel(connectedState());
+
+    setPanelCapture(panel.id, {
+      status: "unavailable",
+      reason: "ffmpeg could not be started: spawn ffmpeg ENOENT",
+      seq: 0,
+    });
+
+    await render(<Excalidraw />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
+      ).not.toBeNull(),
+    );
+
+    // the editor is there ...
+    expect(
+      document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
+    ).not.toBeNull();
+
+    // ... and there is NO reason line: the teacher did not ask for the live
+    // view, so there is nothing to explain (D-83).
+    expect(
+      document.querySelector('[data-testid="code-panel-live-status"]'),
+    ).toBeNull();
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
+  });
+});
+
+describe("the code panel's view", () => {
+  /**
+   * The registry is global, so the spies a test installs are undone after it:
+   * the library's own mermaid grammar is back for the next test.
+   */
+  afterEach(() => {
+    registerCodeMirrorLanguage("mermaid", async () => mermaidLite());
+  });
+
+  it("AC-106 the code panel's default view is the native editor, and the live window is opt-in", async () => {
+    const panel = codePanel(connectedState());
+
+    await render(<Excalidraw />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    // a live frame arrives - the bridge is streaming the editor's window ...
+    act(() => {
+      setPanelCapture(panel.id, {
+        status: "live",
+        data: "a-frame-in-base64",
+        width: 1280,
+        height: 720,
+        seq: 1,
+      });
+    });
+
+    // ... and the panel STILL shows the editor. The live window is the
+    // opt-in alternative, not the automatic one (D-83).
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
+      ).not.toBeNull(),
+    );
+
+    expect(
+      document.querySelector('[data-testid="code-panel-live-frame"]'),
+    ).toBeNull();
+
+    // and the panel SAYS which view it is in
+    const toggle = document.querySelector(
+      '[data-testid="code-panel-view-toggle"]',
+    ) as HTMLButtonElement;
+
+    expect(toggle).not.toBeNull();
+    expect(toggle.getAttribute("data-view")).toBe("editor");
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
+  });
+
+  it("AC-107 the teacher turns the live view on from the panel, and the choice is the panel's own", async () => {
+    const panel = codePanel(connectedState());
+
+    await render(<Excalidraw />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    act(() => {
+      setPanelCapture(panel.id, {
+        status: "live",
+        data: "a-frame-in-base64",
+        width: 1280,
+        height: 720,
+        seq: 1,
+      });
+    });
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
+      ).not.toBeNull(),
+    );
+
+    // the toggle is in the panel's OWN header, which is always mounted. It is
+    // NOT in the chrome: the chrome is only rendered for a SELECTED panel, so
+    // a button there would be invisible until the panel is selected.
+    const toggle = document.querySelector(
+      '[data-testid="code-panel-view-toggle"]',
+    ) as HTMLButtonElement;
+
+    expect(toggle).not.toBeNull();
+    expect(toggle.getAttribute("data-view")).toBe("editor");
+
+    // the teacher turns the live view on
+    fireEvent.click(toggle);
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-live-frame"]'),
+      ).not.toBeNull(),
+    );
+
+    // and the frame replaces the text
+    expect(
+      document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
+    ).toBeNull();
+
+    // the choice is the PANEL's own, and it is persisted in its payload
+    expect(readPanelView(panel.panel)).toBe("live");
+
+    // and it survives the bridge's own writes: the bridge rewrites the
+    // panel's payload on every keystroke in the teacher's editor, and the
+    // teacher's choice of view must not be wiped by that (D-83).
+    const afterBridgeWrite = withCodePanelState(panel.panel, {
+      ...connectedState(),
+      editor: {
+        ...connectedState().editor,
+        text: "print('bye')",
+        version: 4,
+      },
+    });
+
+    expect(readPanelView(afterBridgeWrite)).toBe("live");
+
+    // and the teacher turns it back
+    fireEvent.click(
+      document.querySelector('[data-testid="code-panel-view-toggle"]')!,
+    );
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
+      ).not.toBeNull(),
+    );
+
+    expect(readPanelView(panel.panel)).toBe("editor");
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
+  });
+
+  it("AC-108 the editor's grammar follows the file's language, and it is not the mermaid one", async () => {
+    const asked: string[] = [];
+
+    registerCodeMirrorLanguage("python", async () => {
+      asked.push("python");
+      return [];
+    });
+
+    registerCodeMirrorLanguage("mermaid", async () => {
+      asked.push("mermaid");
+      return [];
+    });
+
+    // the file VS Code calls `python`
+    const panel = codePanel(connectedState());
+
+    await render(<Excalidraw />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
+      ).not.toBeNull(),
+    );
+
+    // the editor asked the registry for the FILE's language ...
+    await waitFor(() => expect(asked).toContain("python"), { timeout: 10000 });
+
+    // ... and it did NOT ask for the mermaid grammar. The mermaid grammar
+    // belongs to the text-to-diagram dialog, which is the only thing that
+    // speaks mermaid (D-84).
+    expect(asked).not.toContain("mermaid");
+  });
+
+  it("AC-109 the mermaid grammar is for mermaid only, and the text-to-diagram dialog keeps it", async () => {
+    // the library's own grammar is registered
+    expect(await loadCodeMirrorLanguage("mermaid")).not.toBeNull();
+
+    // the spy goes in AFTER that check, so the only thing that can put
+    // "mermaid" into `asked` is the dialog itself
+    const asked: string[] = [];
+
+    registerCodeMirrorLanguage("mermaid", async () => {
+      asked.push("mermaid");
+      return mermaidLite();
+    });
+
+    // and the text-to-diagram dialog asks for it: the dialog is the mermaid
+    // input, so it is the one thing that wears the mermaid grammar.
+    renderComponent(
+      <UIAppStateContext.Provider value={uiAppState()}>
+        <TTDDialogInput
+          input="flowchart TD"
+          placeholder="mermaid"
+          onChange={() => {}}
+        />
+      </UIAppStateContext.Provider>,
+    );
+
+    await waitFor(() => expect(asked).toContain("mermaid"), { timeout: 10000 });
+  });
+
+  it("AC-110 a language that is not registered gets NO grammar", async () => {
+    // a language nobody registered: it must not be highlighted as something
+    // it is not (D-84).
+    const state = connectedState();
+
+    const panel = codePanel({
+      ...state,
+      editor: {
+        ...state.editor,
+        uri: "file:///demo/main.bf",
+        language: "brainfuck",
+        text: "def greet():",
+      },
+    });
+
+    await render(<Excalidraw />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
+      ).not.toBeNull(),
+    );
+
+    // the text is there ...
+    expect(
+      document.querySelector('[data-testid="code-panel-source"] .cm-content')
+        ?.textContent,
+    ).toContain("def greet():");
+
+    // ... and NO word is painted: an unknown language is plain text, and it
+    // is never the mermaid one.
+    expect(tokenColour("def")).toBeNull();
+
+    expect(
+      document.querySelectorAll(
+        '[data-testid="code-panel-source"] .cm-content span',
+      ).length,
+    ).toBe(0);
   });
 });

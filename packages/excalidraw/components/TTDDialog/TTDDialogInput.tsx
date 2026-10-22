@@ -108,6 +108,10 @@ export const TTDDialogInput = ({
         placeholder={placeholder}
         theme={theme}
         errorLine={errorLine}
+        // This IS the mermaid input - the text-to-diagram prompt. It is the
+        // only thing that speaks mermaid, so it is the only thing that wears
+        // the mermaid grammar.
+        language="mermaid"
       />
     );
   }

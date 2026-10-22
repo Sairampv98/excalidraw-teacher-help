@@ -188,7 +188,11 @@
         "connect": "Connect"
       },
       "code": {
-        "noFile": "No file is open in the editor"
+        "noFile": "No file is open in the editor",
+        "viewEditor": "Editor",
+        "viewLive": "Live window",
+        "showEditor": "Show the mirrored editor",
+        "showLive": "Show the live editor window"
       }
     },
     "statusPublished": "Published",

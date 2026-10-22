@@ -443,8 +443,10 @@ import { panelKeepsAspectRatio } from "../scene/panelContent";
 import {
   captionBindingUpdate,
   panelPlaybackUpdate,
+  panelViewUpdate,
   readCaptionBinding,
   readPanelPlayback,
+  readPanelView,
   readVideoPanelState,
 } from "../scene/panelContent";
 
@@ -2553,6 +2555,9 @@ class App extends React.Component<AppProps, AppState> {
                               height: this.state.height,
                             }}
                             onVideoEvent={this.onVideoPanelEvent}
+                            // the teacher flips the code panel's view from the
+                            // panel's own header (D-83)
+                            onToggleView={this.togglePanelView}
                             // a view-only host is a read-only mirror — the
                             // presenter. It applies the published playback and
                             // never writes one back (D-57).
@@ -3729,6 +3734,31 @@ class App extends React.Component<AppProps, AppState> {
         },
       },
     });
+  };
+
+  /**
+   * The code panel's **view**: the native editor or the live editor window
+   * (D-83).
+   *
+   * The native editor is the default and the live window is the opt-in
+   * alternative, so the teacher turns the live view on from the panel's own
+   * header. The choice is the panel's own and it is persisted in the panel's
+   * payload, so it survives the bridge's own writes - the bridge rewrites that
+   * payload on every keystroke in the teacher's editor.
+   *
+   * The write goes through `mutateElement`, the same path the lock button
+   * uses, so it is undoable like every other change.
+   */
+  private togglePanelView = (panelId: string) => {
+    const element = this.scene.getNonDeletedElement(panelId);
+
+    if (!element || !isPanelElement(element)) {
+      return;
+    }
+
+    const next = readPanelView(element.panel) === "live" ? "editor" : "live";
+
+    this.scene.mutateElement(element, panelViewUpdate(element.panel, next));
   };
 
   /**
