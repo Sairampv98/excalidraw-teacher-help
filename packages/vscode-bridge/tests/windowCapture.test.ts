@@ -13,6 +13,8 @@ import { describe, expect, it } from "vitest";
 
 import { resolveCaptureFps } from "../extension/src/config";
 import {
+  CAPTURE_QUALITY,
+  CAPTURE_SCALE,
   CAPTURE_SCRIPT_RELATIVE_PATH,
   captureArgs,
   createWindowCapture,
@@ -23,38 +25,37 @@ import {
 } from "../extension/src/windowCapture";
 
 /**
- * A PNG of the given size.
+ * A JPEG of the given size.
  *
- * The bytes are the ones the standard describes: the signature, then an IHDR
- * chunk that carries the width and the height.
+ * The bytes are the ones a JPEG starts with: the SOI marker, then a frame
+ * header that carries the width and the height.
+ *
+ * The extension never looks inside them - the browser decodes the picture,
+ * not the app (D-85) - so a stand-in is enough.
  */
-const pngBytes = (width: number, height: number, marker = 0): Buffer => {
-  const header = Buffer.alloc(13);
+const jpegBytes = (width: number, height: number, marker = 0): Buffer => {
+  const size = Buffer.alloc(4);
 
-  header.writeUInt32BE(width, 0);
-  header.writeUInt32BE(height, 4);
+  size.writeUInt16BE(width, 0);
+  size.writeUInt16BE(height, 2);
 
   return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    Buffer.from([0x00, 0x00, 0x00, 0x0d]),
-    Buffer.from("IHDR", "ascii"),
-    header,
-    Buffer.from([0x08, 0x06, 0x00, 0x00, 0x00]),
-    Buffer.from([0x00, 0x00, 0x00, 0x00]),
+    Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+    size,
     // a marker, so that two frames are never the same bytes
     Buffer.from([marker]),
   ]);
 };
 
 /** A frame the way the helper writes it: the length, then the bytes. */
-const lengthPrefixed = (png: Buffer): Buffer =>
+const lengthPrefixed = (jpeg: Buffer): Buffer =>
   Buffer.concat([
     (() => {
       const length = Buffer.alloc(4);
-      length.writeUInt32LE(png.length, 0);
+      length.writeUInt32LE(jpeg.length, 0);
       return length;
     })(),
-    png,
+    jpeg,
   ]);
 
 /** The helper, standing in for the real one. */
@@ -153,10 +154,10 @@ describe("the capture of the editor's own window", () => {
     expect(calls[0].args).toContain("-ProcessName");
     expect(calls[0].args).toContain("Code");
 
-    // the helper says the size of the window first, and then the frames
-    helper.stream.write(Buffer.from("HEADER 1295 687\r\n", "ascii"));
+    // the helper says the size of the picture first, and then the frames
+    helper.stream.write(Buffer.from("HEADER 962 506\r\n", "ascii"));
 
-    const picture = pngBytes(1295, 687);
+    const picture = jpegBytes(962, 506);
 
     helper.stream.write(lengthPrefixed(picture));
 
@@ -165,13 +166,110 @@ describe("the capture of the editor's own window", () => {
     // the frame's OWN size, from the helper's header: the picture has to keep
     // the aspect ratio it has in the editor, and the editor's size is not the
     // panel's size on the canvas (D-82)
-    expect(frames[0].width).toBe(1295);
-    expect(frames[0].height).toBe(687);
-    expect(frames[0].data).toBe(picture.toString("base64"));
+    expect(frames[0].width).toBe(962);
+    expect(frames[0].height).toBe(506);
+
+    // the bytes are the JPEG's bytes: the picture never becomes text, and
+    // never becomes a base64 blob (D-85)
+    expect(frames[0].bytes).toEqual(picture);
     expect(frames[0].seq).toBe(1);
 
-    // the next frame is numbered
-    helper.stream.write(lengthPrefixed(pngBytes(1295, 687)));
+    // the next frame is numbered - and it is a DIFFERENT picture, because an
+    // unchanged one is not published again (D-88)
+    helper.stream.write(lengthPrefixed(jpegBytes(962, 506, 1)));
+
+    await until(() => frames.length === 2);
+
+    expect(frames[1].seq).toBe(2);
+  });
+
+  it("AC-120 the helper is spawned once, and its frames are read from its running stdout", async () => {
+    const calls: { command: string; args: string[] }[] = [];
+    const helper = new FakeHelper();
+    const frames: CaptureFrame[] = [];
+
+    const capture = createWindowCapture({
+      scriptPath: "C:/ext/media/capture.ps1",
+      processName: "Code",
+      titleLike: "excalidraw",
+      spawn: (command, args) => {
+        calls.push({ command, args });
+        return helper;
+      },
+      onFrame: (frame) => {
+        frames.push(frame);
+      },
+    });
+
+    // the helper is spawned ONCE ...
+    expect(calls).toHaveLength(1);
+    expect(calls[0].command).toBe("powershell.exe");
+
+    // ... and the frames are read off its RUNNING stdout, not from a new
+    // process per frame: a helper per frame would spawn a process every
+    // frame for the whole lesson, and each of them would capture a different
+    // moment (D-82, D-120).
+    helper.stream.write(Buffer.from("HEADER 962 506\r\n", "ascii"));
+
+    const first = jpegBytes(962, 506, 1);
+    const second = jpegBytes(962, 506, 2);
+
+    helper.stream.write(lengthPrefixed(first));
+
+    await until(() => frames.length === 1);
+
+    helper.stream.write(lengthPrefixed(second));
+
+    await until(() => frames.length === 2);
+
+    // still ONE helper
+    expect(calls).toHaveLength(1);
+    expect(helper.killed).toBe(false);
+
+    // and the bytes the extension read are the JPEG's bytes the helper wrote
+    // - not a base64 copy of them
+    expect(frames[0].bytes).toEqual(first);
+    expect(frames[1].bytes).toEqual(second);
+    expect(frames[0].bytes.toString("base64")).not.toBe(
+      frames[0].bytes.toString("utf8"),
+    );
+
+    capture.stop();
+  });
+
+  it("AC-117 an unchanged picture is not published again", async () => {
+    const helper = new FakeHelper();
+    const frames: CaptureFrame[] = [];
+
+    createWindowCapture({
+      scriptPath: "C:/ext/media/capture.ps1",
+      processName: "Code",
+      titleLike: "excalidraw",
+      spawn: () => helper,
+      onFrame: (frame) => {
+        frames.push(frame);
+      },
+    });
+
+    helper.stream.write(Buffer.from("HEADER 962 506\r\n", "ascii"));
+
+    const picture = jpegBytes(962, 506);
+
+    // the SAME picture, twice: the editor did not change, so the helper's
+    // JPEG encoding is byte-identical, and an unchanged picture is NOT
+    // published again (D-88)
+    helper.stream.write(lengthPrefixed(picture));
+    helper.stream.write(lengthPrefixed(picture));
+
+    await until(() => frames.length >= 1);
+
+    // give the second copy a chance to arrive and be skipped
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(frames).toHaveLength(1);
+
+    // and a picture that DID change is published again
+    helper.stream.write(lengthPrefixed(jpegBytes(962, 506, 9)));
 
     await until(() => frames.length === 2);
 
@@ -200,7 +298,7 @@ describe("the capture of the editor's own window", () => {
 
     // five frames arrive
     for (let index = 0; index < 5; index++) {
-      helper.stream.write(lengthPrefixed(pngBytes(800, 600)));
+      helper.stream.write(lengthPrefixed(jpegBytes(800, 600)));
     }
 
     await until(() => frames.length >= 1);
@@ -238,9 +336,9 @@ describe("the capture of the editor's own window", () => {
     // three frames in ONE read: only the newest is handed over. The panel
     // wants the editor as it is NOW, and a queue of older frames would show
     // the editor as it was (D-82).
-    const first = pngBytes(800, 600, 1);
-    const second = pngBytes(800, 600, 2);
-    const third = pngBytes(800, 600, 3);
+    const first = jpegBytes(800, 600, 1);
+    const second = jpegBytes(800, 600, 2);
+    const third = jpegBytes(800, 600, 3);
 
     helper.stream.write(
       Buffer.concat([
@@ -253,7 +351,7 @@ describe("the capture of the editor's own window", () => {
     await until(() => frames.length >= 1);
 
     expect(frames).toHaveLength(1);
-    expect(frames[0].data).toBe(third.toString("base64"));
+    expect(frames[0].bytes).toEqual(third);
   });
 
   it("AC-105 the extension finds its own window", () => {
@@ -284,6 +382,12 @@ describe("the capture of the editor's own window", () => {
 
     // and the helper runs for as long as the session does
     expect(args[args.indexOf("-MaxFrames") + 1]).toBe("0");
+
+    // the picture's QUALITY and SCALE are the capture's own knobs (D-87)
+    expect(args).toContain("-Quality");
+    expect(args[args.indexOf("-Quality") + 1]).toBe("60");
+    expect(args).toContain("-Scale");
+    expect(args[args.indexOf("-Scale") + 1]).toBe("0.75");
   });
 
   it("AC-105 the capture is configurable", () => {
@@ -333,6 +437,46 @@ describe("the capture of the editor's own window", () => {
 
     // ... and the extension still has no dependency of its own (AC-64)
     expect(manifest.dependencies).toBeUndefined();
+  });
+
+  it("AC-116 the capture is the client area, a JPEG, and scaled", () => {
+    const packageRoot = findPackageRoot();
+    const script = readFileSync(
+      join(packageRoot, "extension", "media", "capture.ps1"),
+      "utf8",
+    );
+
+    // The FORMAT: a JPEG, not a PNG. The picture goes over the wire to the
+    // MJPEG stream, so the bytes matter (D-87).
+    expect(script).toContain("image/jpeg");
+    expect(script).toContain("Encoder]::Quality");
+    expect(script).not.toContain("ImageFormat]::Png");
+
+    // The QUALITY: 60, and it is a parameter of the helper, so it can be
+    // changed without editing the script.
+    expect(script).toContain("[int]$Quality = 60");
+    expect(CAPTURE_QUALITY).toBe(60);
+
+    // The SIZE: the CLIENT area, not the window. The OS title bar and the
+    // borders are not the editor, and they are not in the picture either.
+    expect(script).toContain("GetClientRect");
+    expect(script).toContain("ClientToScreen");
+    expect(script).not.toContain("GetWindowRect");
+
+    // and the flags are 3: PW_CLIENTONLY and PW_RENDERFULLCONTENT together.
+    // RENDERFULLCONTENT is what understands DirectComposition, so the editor
+    // is drawn even when something is on top of it.
+    expect(script).toContain("PrintWindow(hwnd, hdc, 3)");
+
+    // The SCALE: 0.75, and the header line reports the SCALED size - the
+    // size of the picture that is written.
+    expect(script).toContain("[double]$Scale = 0.75");
+    expect(CAPTURE_SCALE).toBe(0.75);
+    expect(script).toContain("HEADER ' + $outW + ' ' + $outH");
+
+    // and the length prefix in front of each frame is still four
+    // little-endian bytes
+    expect(script).toContain("GetBytes([int]$bytes.Length)");
   });
 
   it("AC-103 the capture says why it cannot run", async () => {

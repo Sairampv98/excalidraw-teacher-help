@@ -496,8 +496,8 @@ export {
 } from "./components/codeLanguages";
 export type { CodeMirrorLanguageLoader } from "./components/codeLanguages";
 
-// the live frames of the code panels: the registry that holds them, and the
-// reason it is NOT the element's payload (D-82)
+// the live view of the code panels: the registry that holds it, and the
+// reason it is NOT the element's payload (D-82, D-85)
 export {
   clearAllPanelCaptures,
   clearPanelCapture,
@@ -507,8 +507,8 @@ export {
 } from "./scene/panelFrames";
 export type {
   PanelCapture,
+  PanelCaptureLive,
   PanelCaptureUnavailable,
-  PanelLiveFrame,
 } from "./scene/panelFrames";
 
 // the video panel: the payload's video kind, the caption binding, and the

@@ -3,7 +3,7 @@ id: wave5i-mjpeg-transport
 paths: packages/vscode-bridge,packages/excalidraw,excalidraw-app,SPEC.md
 read: SPEC.md,packages/vscode-bridge/bridge/src/protocol.ts,packages/vscode-bridge/extension/src/bridge.ts,packages/vscode-bridge/extension/src/windowCapture.ts,packages/vscode-bridge/extension/media/capture.ps1,packages/excalidraw/components/PanelOverlay.tsx,excalidraw-app/bridge/useBridgePanel.ts
 base: main
-status: open
+status: merged
 ---
 
 Wave 5i: the panel stops re-rendering on every frame and on every keystroke.
@@ -125,4 +125,3 @@ REPORT BACK
 8. Anything you could not do and why, and anything in this brief you found to be wrong.
 9. The final git status of the worktree, with the changes unstaged.
 Do not summarise the design back. Report evidence: command output, test names, file paths.
-

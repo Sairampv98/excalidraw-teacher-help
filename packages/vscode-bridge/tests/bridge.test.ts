@@ -128,11 +128,8 @@ describe("the bridge protocol", () => {
     },
     {
       v: 1,
-      type: "editor:frame",
+      type: "editor:capture",
       state: "live",
-      data: "QUJD",
-      width: 1295,
-      height: 687,
       seq: 1,
     },
     {
@@ -225,6 +222,38 @@ describe("the bridge protocol", () => {
 });
 
 describe("the bridge server", () => {
+  it("AC-114 a frame never travels over the websocket", async () => {
+    const server = await startServer();
+    const client = await connect(server);
+
+    auth(client);
+
+    await client.waitForMessage((frame) =>
+      frame.payload.toString("utf8").includes("bridge:hello"),
+    );
+
+    const before = messages(client).length;
+
+    // The extension publishes a frame of the editor's window. It goes to the
+    // MJPEG STREAM and to nothing else (D-85): the websocket is not a
+    // picture's road, so a frame can never reach the app's data - and so it
+    // can never reach the element's payload either (D-82).
+    server.publishFrame({ bytes: Buffer.from("a-jpeg", "utf8"), seq: 1 });
+
+    // give the server a moment to say something wrong
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const after = messages(client);
+
+    expect(after.length).toBe(before);
+    expect(after.some((message) => message.type === "editor:capture")).toBe(
+      false,
+    );
+    expect(
+      after.some((message) => JSON.stringify(message).includes("a-jpeg")),
+    ).toBe(false);
+  });
+
   it("AC-58 a connection without the session token is rejected", async () => {
     const server = await startServer({ authTimeoutMs: 250 });
 

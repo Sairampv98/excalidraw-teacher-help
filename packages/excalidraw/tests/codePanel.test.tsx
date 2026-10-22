@@ -537,7 +537,7 @@ describe("the code panel", () => {
     expect(panelRule).not.toContain("#2a2a2a");
   });
 
-  it("AC-101 the live view is opt-in, and it draws the live frame at the frame's own aspect ratio", async () => {
+  it("AC-101 the live view is opt-in, and it draws the live stream in a plain img", async () => {
     // the teacher turned the live view on: the panel is in the live view
     const panel = codePanelInView(connectedState(), "live");
 
@@ -546,16 +546,14 @@ describe("the code panel", () => {
     API.setAppState({ width: 1000, height: 1000 });
     API.setElements([asElement(panel)]);
 
-    // the frame arrives on the library's own registry - the second channel
-    // that keeps the picture OUT of the element's payload (D-82). It arrives
-    // while the panel is on the screen, so the panel has to be told about it.
+    // The live view arrives on the library's own registry - the second channel
+    // that keeps the picture OUT of the element's payload (D-82). What is in
+    // it now is the **stream's URL**, not a picture: the frames are served as
+    // an MJPEG stream and the panel plays them in a plain `<img>` (D-85).
     act(() => {
       setPanelCapture(panel.id, {
         status: "live",
-        data: "a-frame-in-base64",
-        width: 1280,
-        height: 720,
-        seq: 1,
+        streamUrl: "http://127.0.0.1:47511/s/a-capability/frame",
       });
     });
 
@@ -569,17 +567,21 @@ describe("the code panel", () => {
       return found as HTMLImageElement;
     })) as HTMLImageElement;
 
-    // the picture IS the frame ...
+    // the picture IS the stream ...
     expect(image.getAttribute("src")).toBe(
-      "data:image/png;base64,a-frame-in-base64",
+      "http://127.0.0.1:47511/s/a-capability/frame",
     );
 
-    // ... and it keeps the aspect ratio it has in the editor: the width and
-    // the height are the FRAME's own - not the panel's size on the canvas -
-    // and the picture is fitted into the panel, not stretched (D-82)
-    expect(image.getAttribute("width")).toBe("1280");
-    expect(image.getAttribute("height")).toBe("720");
+    // ... and it is NOT a data URL: the app never holds a byte of the picture
+    // (D-85)
+    expect(image.getAttribute("src")).not.toContain("data:image");
+
+    // ... and it keeps the aspect ratio it has in the editor: the picture is
+    // fitted into the panel and not stretched (D-82). The frame's own size
+    // comes from the stream itself - the app is never told it.
     expect(image.style.objectFit).toBe("contain");
+    expect(image.getAttribute("width")).toBeNull();
+    expect(image.getAttribute("height")).toBeNull();
 
     // the tab strip is still there: the live view replaces the TEXT, not the
     // panel's chrome
@@ -607,10 +609,7 @@ describe("the code panel", () => {
 
     setPanelCapture(panel.id, {
       status: "live",
-      data: "a-frame-in-base64",
-      width: 1280,
-      height: 720,
-      seq: 1,
+      streamUrl: "http://127.0.0.1:47511/s/a-capability/frame",
     });
 
     await render(<Excalidraw />);
@@ -618,7 +617,7 @@ describe("the code panel", () => {
     API.setAppState({ width: 1000, height: 1000 });
     API.setElements([asElement(panel)]);
 
-    // the panel really does draw the frame ...
+    // the panel really does draw the live view ...
     await waitFor(() =>
       expect(
         document.querySelector('[data-testid="code-panel-live-frame"]'),
@@ -627,7 +626,8 @@ describe("the code panel", () => {
 
     // ... and the payload carries NO frame at all. The payload is saved with
     // the document, so a frame in it would put the teacher's screen into the
-    // .excalidraw file (D-82).
+    // .excalidraw file (D-82). And since wave 5i the frame does not even
+    // reach the app: it is served as an MJPEG stream (D-85).
     const state = readCodePanelState(panel.panel);
 
     expect(JSON.stringify(state)).not.toContain("a-frame-in-base64");
@@ -635,7 +635,7 @@ describe("the code panel", () => {
     expect(Object.keys(state!)).not.toContain("frame");
     expect(Object.keys(state!)).not.toContain("data");
 
-    // the frame is in the registry, and the registry is NOT in the element
+    // the live view is in the registry, and the registry is NOT in the element
     expect(getPanelCapture(panel.id)?.status).toBe("live");
 
     act(() => {
@@ -643,15 +643,62 @@ describe("the code panel", () => {
     });
   });
 
-  it("AC-103 in the live view, with no capture, the panel falls back to the text and says why", async () => {
-    // the teacher turned the live view on, and there is no picture to show
+  it("AC-113 the panel's live view is a plain img pointed at the stream", async () => {
+    // the teacher turned the live view on: the panel is in the live view
     const panel = codePanelInView(connectedState(), "live");
 
-    // there is no ffmpeg, or the capture stopped: the extension says so
+    await render(<Excalidraw />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    act(() => {
+      setPanelCapture(panel.id, {
+        status: "live",
+        streamUrl: "http://127.0.0.1:47511/s/a-capability/frame",
+      });
+    });
+
+    const image = (await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="code-panel-live-frame"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found as HTMLImageElement;
+    })) as HTMLImageElement;
+
+    // A PLAIN `<img>`: the browser decodes the MJPEG stream natively, so the
+    // app does no per-frame work at all (D-85).
+    expect(image.tagName).toBe("IMG");
+    expect(image.getAttribute("src")).toBe(
+      "http://127.0.0.1:47511/s/a-capability/frame",
+    );
+
+    // and NOT a data URL: the picture never becomes text, and never becomes
+    // a base64 blob the app has to build and swap (D-85)
+    expect(image.getAttribute("src")).not.toContain("data:image");
+
+    // the panel's own state carries no picture either: the payload is saved
+    // with the document (D-82)
+    const state = readCodePanelState(panel.panel);
+
+    expect(Object.keys(state!)).not.toContain("data");
+    expect(Object.keys(state!)).not.toContain("frame");
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
+  });
+
+  it("AC-119 the live view falls back to the text mirror and says why", async () => {
+    // the teacher turned the live view on, and the capture cannot run
+    const panel = codePanelInView(connectedState(), "live");
+
     setPanelCapture(panel.id, {
       status: "unavailable",
-      reason: "ffmpeg could not be started: spawn ffmpeg ENOENT",
-      seq: 0,
+      reason: "the capture helper could not be started",
     });
 
     await render(<Excalidraw />);
@@ -673,7 +720,48 @@ describe("the code panel", () => {
     );
 
     expect(status).not.toBeNull();
-    expect(status!.textContent).toContain("ffmpeg");
+    expect(status!.textContent).toContain("capture helper");
+
+    // and there is no picture pretending to be the editor
+    expect(
+      document.querySelector('[data-testid="code-panel-live-frame"]'),
+    ).toBeNull();
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
+  });
+
+  it("AC-103 in the live view, with no capture, the panel falls back to the text and says why", async () => {
+    // the teacher turned the live view on, and there is no picture to show
+    const panel = codePanelInView(connectedState(), "live");
+
+    // the capture helper cannot run, or it stopped: the extension says so
+    setPanelCapture(panel.id, {
+      status: "unavailable",
+      reason: "the capture helper could not be started",
+    });
+
+    await render(<Excalidraw />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    // the TEXT is the fallback: the mirrored code is still there ...
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
+      ).not.toBeNull(),
+    );
+
+    // ... and the panel SAYS why there is no live view. A fallback the
+    // teacher cannot explain is a broken panel (D-75).
+    const status = document.querySelector(
+      '[data-testid="code-panel-live-status"]',
+    );
+
+    expect(status).not.toBeNull();
+    expect(status!.textContent).toContain("capture helper");
 
     // and there is no picture pretending to be the editor
     expect(
@@ -691,8 +779,7 @@ describe("the code panel", () => {
 
     setPanelCapture(panel.id, {
       status: "unavailable",
-      reason: "ffmpeg could not be started: spawn ffmpeg ENOENT",
-      seq: 0,
+      reason: "the capture helper could not be started",
     });
 
     await render(<Excalidraw />);
@@ -744,10 +831,7 @@ describe("the code panel's view", () => {
     act(() => {
       setPanelCapture(panel.id, {
         status: "live",
-        data: "a-frame-in-base64",
-        width: 1280,
-        height: 720,
-        seq: 1,
+        streamUrl: "http://127.0.0.1:47511/s/a-capability/frame",
       });
     });
 
@@ -787,10 +871,7 @@ describe("the code panel's view", () => {
     act(() => {
       setPanelCapture(panel.id, {
         status: "live",
-        data: "a-frame-in-base64",
-        width: 1280,
-        height: 720,
-        seq: 1,
+        streamUrl: "http://127.0.0.1:47511/s/a-capability/frame",
       });
     });
 

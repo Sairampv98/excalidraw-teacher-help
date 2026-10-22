@@ -303,11 +303,16 @@ const CodePanelSurface = ({
   const state = readCodePanelState(panel.panel);
 
   /**
-   * The live view of the editor's **own window** (D-82).
+   * The live view of the editor's **own window** (D-82, D-85).
    *
    * The frames do NOT ride in the element's payload - the payload is saved
-   * with the document - so they live in the library's own in-memory registry,
-   * and this panel reads the entry that belongs to **its** element id.
+   * with the document - and they do not even travel over the websocket: the
+   * extension serves them as an MJPEG stream, and the panel plays that
+   * stream in a plain `<img>`. So the app does no per-frame work at all.
+   *
+   * What the registry holds is the live view's **descriptor**: the capture's
+   * state and the stream's URL. It changes when the state changes, and only
+   * then does this panel re-render.
    */
   const capture = useSyncExternalStore(subscribePanelCaptures, () =>
     getPanelCapture(panel.id),
@@ -442,16 +447,17 @@ const CodePanelSurface = ({
           data-testid="code-panel-source"
         >
           {view === "live" && capture?.status === "live" ? (
-            // The live view of the editor's window. The picture keeps the
-            // aspect ratio it has in the editor: the width and the height are
-            // the FRAME's own, and `contain` fits it into the panel without
-            // stretching it (D-82).
+            // The live view of the editor's window: a **plain `<img>`**
+            // pointed at the extension's MJPEG stream (D-85). The browser
+            // decodes the JPEG natively, so the app does nothing per frame.
+            // The picture keeps the aspect ratio it has in the editor:
+            // `contain` fits it into the panel without stretching it, and
+            // the frame's own size comes from the stream itself - the app is
+            // never told it (D-82).
             <img
               className="excalidraw__panel-code-live"
               data-testid="code-panel-live-frame"
-              src={`data:image/png;base64,${capture.data}`}
-              width={capture.width}
-              height={capture.height}
+              src={capture.streamUrl}
               alt=""
               style={{
                 width: "100%",

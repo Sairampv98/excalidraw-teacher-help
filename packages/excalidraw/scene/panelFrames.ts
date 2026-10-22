@@ -1,5 +1,5 @@
 /**
- * The live frames of the code panels - and the place they **must not** be.
+ * The live view of the code panels - and the place the picture **must not** be.
  *
  * A panel's live state rides inside the element's payload (`CodePanelState`,
  * written by `withCodePanelState`), and the payload is **saved with the
@@ -7,33 +7,48 @@
  * the `.excalidraw` file, and it would grow the document by hundreds of
  * kilobytes a second (D-82).
  *
- * The frames therefore travel on a **second channel**: this registry. It is
- * a module-level store - never serialized, never inside an element - owned by
- * the **library**, and the two sides of it are:
+ * Since wave 5i the rule is **stronger**: the frames do not travel over the
+ * websocket at all. The extension serves them as an MJPEG stream from its own
+ * HTTP server, and the panel plays that stream in a plain `<img>` (D-85). So
+ * a frame never enters the app's data - it is never in a message, never in
+ * the registry, and never in the element.
  *
- *  - the **app** pushes each arriving frame in (`setPanelCapture`);
+ * What the registry holds is therefore the live view's **descriptor**: the
+ * capture's state and the URL of the stream. It is a module-level store -
+ * never serialized, never inside an element - owned by the **library**, and
+ * the two sides of it are:
+ *
+ *  - the **app** pushes the descriptor in (`setPanelCapture`), when the
+ *    capture's state changes;
  *  - the **panel** subscribes to it (`subscribePanelCaptures`) and reads the
- *    frame that belongs to **its own** element id.
+ *    entry that belongs to **its own** element id.
  *
  * The key is the panel element's id, so two panels cannot show each other's
- * frames.
+ * live view.
  *
  * The registry is per window: the presenter is a second Excalidraw instance in
- * another window, with its own module instance, so it has no frames and shows
+ * another window, with its own module instance, so it has no stream and shows
  * the text mirror - the same fallback a panel without a bridge shows.
  */
 
-/** A frame of the editor's window, as it is drawn. */
-export interface PanelLiveFrame {
+/**
+ * The live view is running.
+ *
+ * The picture is NOT here: the panel points a plain `<img>` at the stream,
+ * and the browser decodes it natively. So the app does no per-frame work at
+ * all (D-85).
+ */
+export interface PanelCaptureLive {
   status: "live";
-  /** the PNG, base64-encoded */
-  data: string;
-  /** the frame's own width, in pixels */
-  width: number;
-  /** the frame's own height, in pixels */
-  height: number;
-  /** the frame's number: 1, 2, 3 ... */
-  seq: number;
+  /**
+   * The MJPEG stream's URL.
+   *
+   * It carries the connection's **capability** in its path, and the session
+   * token is never in a URL (D-50, D-86). It is **not** in the element's
+   * payload: the payload is saved with the document, and the capability dies
+   * with the connection.
+   */
+  streamUrl: string;
 }
 
 /**
@@ -47,14 +62,12 @@ export interface PanelCaptureUnavailable {
   status: "unavailable";
   /** why there is no live view. Never empty. */
   reason: string;
-  /** the frame's number: the last one that arrived, or 0 */
-  seq: number;
 }
 
 /** What a panel knows about the live view. */
-export type PanelCapture = PanelLiveFrame | PanelCaptureUnavailable;
+export type PanelCapture = PanelCaptureLive | PanelCaptureUnavailable;
 
-/** The frames, by the panel element's id. */
+/** The live views, by the panel element's id. */
 const captures = new Map<string, PanelCapture>();
 
 /** The panels that are watching. */
@@ -68,10 +81,10 @@ const notify = () => {
 };
 
 /**
- * Publish the capture of a panel.
+ * Publish the live view of a panel.
  *
- * The app calls this for every frame that arrives, and for the state that says
- * the capture cannot run.
+ * The app calls this when the capture's **state** changes - not per frame,
+ * because there are no frames in the app any more (D-85).
  */
 export const setPanelCapture = (
   panelId: string,
@@ -82,16 +95,16 @@ export const setPanelCapture = (
 };
 
 /**
- * The capture of a panel, or `null` when it has none.
+ * The live view of a panel, or `null` when it has none.
  *
  * The object is the one that was published, so it keeps its identity until
- * the next frame - which is what `useSyncExternalStore` needs to tell "the
- * same frame" from "a new one".
+ * the state changes - which is what `useSyncExternalStore` needs to tell
+ * "the same state" from "a new one".
  */
 export const getPanelCapture = (panelId: string): PanelCapture | null =>
   captures.get(panelId) ?? null;
 
-/** Forget the capture of one panel. */
+/** Forget the live view of one panel. */
 export const clearPanelCapture = (panelId: string): void => {
   if (captures.delete(panelId)) {
     notify();
@@ -99,10 +112,11 @@ export const clearPanelCapture = (panelId: string): void => {
 };
 
 /**
- * Forget every capture.
+ * Forget every live view.
  *
- * The bridge session's end is the moment the frames stop being true: the
- * editor they came from may be a different one now.
+ * The bridge session's end is the moment the stream stops being true: the
+ * editor it came from may be a different one now, and the capability in its
+ * URL is dead anyway (D-82, D-86).
  */
 export const clearAllPanelCaptures = (): void => {
   if (!captures.size) {
