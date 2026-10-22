@@ -169,6 +169,27 @@ const captionTrackDataUrl = (
  * The editor wears the **VS Code dark theme** whatever the app's theme is
  * (D-80): the teacher is looking at VS Code while they teach, and the panel
  * has to look like the editor they are looking at.
+ *
+ * **This panel renders the editor ITSELF, and that is deliberate.**
+ *
+ * It is a RECONSTRUCTION of the teacher's editor, drawn in the app, in the
+ * browser — not a picture of it, and not the editor's own DOM. There is no
+ * other way to do it: **no extension API can hand the editor over.** Not the
+ * stable API, not the proposed ones, not the internal ones:
+ *
+ * - the extension host is a **DOM-less Node process** — there is no document,
+ *   no window and no element to hand over;
+ * - the message bridge is **JSON-only** — the extension can send the
+ *   document's text and its selection, never rendered pixels;
+ * - there is **no registered command that snapshots the editor**: a
+ *   repo-wide sweep of the extension API for `copyImage`, `saveImage`,
+ *   `exportImage`, `captureScreenshot` and `getEditorDomNode` finds **zero**
+ *   matches.
+ *
+ * So the panel paints the editor's **look** from the palette in
+ * `./vscodeTheme` (the colours VS Code actually paints) and the editor's
+ * **text** from the bridge. Do not go looking for a screenshot API: there
+ * isn't one.
  */
 const CodePanelEditor = ({ value }: { value: string }) => {
   const [Editor, setEditor] =

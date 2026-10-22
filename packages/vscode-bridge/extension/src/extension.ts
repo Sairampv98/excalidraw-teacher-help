@@ -22,6 +22,7 @@ import { createTesseractEngine, engineSearchPaths } from "./ocrEngine";
 import { portConflictMessage } from "./portConflict";
 import { createRunPseudoterminal } from "./pseudoterminal";
 import { createRunner, type Runner } from "./runner";
+import { createBridgeTask } from "./taskPresentation";
 
 import type { OcrRequest, OcrResult } from "../../bridge/src/ocr";
 
@@ -131,20 +132,25 @@ export function activate(context: vscode.ExtensionContext): void {
     if (!runner) {
       return;
     }
-    const definition: vscode.TaskDefinition = {
-      type: BRIDGE_TASK_TYPE,
-      command: request.command,
-      args: request.args,
-      cwd: request.cwd,
-    };
-    const task = new vscode.Task(
-      definition,
-      vscode.TaskScope.Workspace,
-      `Excalidraw Bridge: ${request.command}`,
-      BRIDGE_TASK_TYPE,
-      new vscode.CustomExecution(async () =>
-        createRunPseudoterminal({ runner: runner as Runner, request }),
-      ),
+    // The task carries the presentation options that keep the EDITOR's focus:
+    // the terminal is revealed, and it never asks for the focus - whatever
+    // `terminal.integrated.defaultLocation` says (D-81).
+    const task = createBridgeTask<vscode.Task>(
+      {
+        TaskRevealKind: vscode.TaskRevealKind,
+        TaskPanelKind: vscode.TaskPanelKind,
+        createTask: (definition, name) =>
+          new vscode.Task(
+            definition,
+            vscode.TaskScope.Workspace,
+            name,
+            BRIDGE_TASK_TYPE,
+            new vscode.CustomExecution(async () =>
+              createRunPseudoterminal({ runner: runner as Runner, request }),
+            ),
+          ),
+      },
+      request,
     );
     await vscode.tasks.executeTask(task);
   };
