@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CaptureUpdateAction } from "@excalidraw/element";
+import { clearAllPanelCaptures, setPanelCapture } from "@excalidraw/excalidraw";
 
 import type { PanelBridgeControls } from "@excalidraw/excalidraw";
 import type { CodePanelState } from "@excalidraw/excalidraw";
@@ -10,8 +11,10 @@ import { OCR_NEEDS_BRIDGE } from "../../packages/vscode-bridge/bridge/src/ocrCli
 
 import {
   applyCodePanelState,
+  bridgeCodePanelIds,
   initialCodePanelState,
   reduceCodePanelState,
+  toPanelCapture,
 } from "./codePanel";
 import {
   createBridgeSession,
@@ -20,6 +23,7 @@ import {
 
 import type { BridgeSession, BridgeSessionState } from "./bridgeSession";
 import type { OcrRequest } from "../../packages/vscode-bridge/bridge/src/ocr";
+import type { BridgeMessage } from "../../packages/vscode-bridge/bridge/src/protocol";
 
 /**
  * The app's wiring for the **code panel**.
@@ -68,6 +72,31 @@ export const useBridgePanel = (api: ExcalidrawImperativeAPI | null) => {
     });
   }, []);
 
+  /**
+   * Publish the editor's window into the library's frame registry (D-82).
+   *
+   * The frame does **not** go through `publish`: the element's payload is
+   * saved with the document, and a frame in it would put the teacher's screen
+   * into the `.excalidraw` file. The registry is the library's own in-memory
+   * store, keyed by the panel element's id.
+   */
+  const publishCapture = useCallback(
+    (message: Extract<BridgeMessage, { type: "editor:frame" }>) => {
+      const current = apiRef.current;
+
+      if (!current) {
+        return;
+      }
+
+      const capture = toPanelCapture(message);
+
+      for (const id of bridgeCodePanelIds(current.getSceneElements())) {
+        setPanelCapture(id, capture);
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     const session = createBridgeSession({
       onStateChange: (next) => {
@@ -100,6 +129,13 @@ export const useBridgePanel = (api: ExcalidrawImperativeAPI | null) => {
           }));
         }
 
+        if (message.type === "editor:frame") {
+          // The live view of the editor's own window. It rides the registry,
+          // never the payload (D-82).
+          publishCapture(message);
+          return;
+        }
+
         publish(reduceCodePanelState(panelStateRef.current, message));
       },
     });
@@ -109,8 +145,12 @@ export const useBridgePanel = (api: ExcalidrawImperativeAPI | null) => {
     return () => {
       session.disconnect();
       sessionRef.current = null;
+
+      // The frames were the editor's window as it was: when the session ends,
+      // they are not true any more (D-82).
+      clearAllPanelCaptures();
     };
-  }, [publish]);
+  }, [publish, publishCapture]);
 
   const onTokenChange = useCallback((next: string) => {
     setToken(next);

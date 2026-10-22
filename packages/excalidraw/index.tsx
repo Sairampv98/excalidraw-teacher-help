@@ -481,6 +481,21 @@ export type {
   PanelBridgeStatus,
 } from "./scene/panelContent";
 
+// the live frames of the code panels: the registry that holds them, and the
+// reason it is NOT the element's payload (D-82)
+export {
+  clearAllPanelCaptures,
+  clearPanelCapture,
+  getPanelCapture,
+  setPanelCapture,
+  subscribePanelCaptures,
+} from "./scene/panelFrames";
+export type {
+  PanelCapture,
+  PanelCaptureUnavailable,
+  PanelLiveFrame,
+} from "./scene/panelFrames";
+
 // the video panel: the payload's video kind, the caption binding, and the
 // caption logic (the cues, the cue that is on screen, the caption element)
 export {

@@ -71,6 +71,11 @@
           "type": "string",
           "default": "",
           "description": "The token the Excalidraw page must present. Leave it empty and one is generated for the session."
+        },
+        "excalidraw-bridge.captureFps": {
+          "type": "number",
+          "default": 6,
+          "description": "How many frames a second the panel's live view of this editor's window takes. Six a second is enough to read by. Without the capture the panel falls back to the mirrored text and says why."
         }
       }
     }

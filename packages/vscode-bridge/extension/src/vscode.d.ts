@@ -194,6 +194,13 @@ declare module "vscode" {
   export interface ExtensionContext {
     readonly subscriptions: { dispose(): any }[];
     readonly extension: { id: string; packageJSON: any };
+    /**
+     * The extension's own folder, as it is installed.
+     *
+     * The capture helper SHIPS with the extension, and the extension finds it
+     * relative to this path (D-82).
+     */
+    readonly extensionPath: string;
   }
 
   export namespace window {

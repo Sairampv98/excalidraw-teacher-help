@@ -22,9 +22,14 @@ import {
   emptyCodePanelState,
   readCodePanelState,
 } from "../scene/panelContent";
+import {
+  clearAllPanelCaptures,
+  getPanelCapture,
+  setPanelCapture,
+} from "../scene/panelFrames";
 
 import { API } from "./helpers/api";
-import { render, waitFor } from "./test-utils";
+import { act, render, waitFor } from "./test-utils";
 
 import type { CodePanelState } from "../scene/panelContent";
 
@@ -449,5 +454,150 @@ describe("the code panel", () => {
     // and the line is NOT tinted
     expect(panelRule).toContain("background-color: transparent");
     expect(panelRule).not.toContain("#2a2a2a");
+  });
+
+  it("AC-101 the panel draws the live frame at the frame's own aspect ratio", async () => {
+    const panel = codePanel(connectedState());
+
+    await render(<Excalidraw />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    // the frame arrives on the library's own registry - the second channel
+    // that keeps the picture OUT of the element's payload (D-82). It arrives
+    // while the panel is on the screen, so the panel has to be told about it.
+    act(() => {
+      setPanelCapture(panel.id, {
+        status: "live",
+        data: "a-frame-in-base64",
+        width: 1280,
+        height: 720,
+        seq: 1,
+      });
+    });
+
+    const image = (await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="code-panel-live-frame"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found as HTMLImageElement;
+    })) as HTMLImageElement;
+
+    // the picture IS the frame ...
+    expect(image.getAttribute("src")).toBe(
+      "data:image/png;base64,a-frame-in-base64",
+    );
+
+    // ... and it keeps the aspect ratio it has in the editor: the width and
+    // the height are the FRAME's own - not the panel's size on the canvas -
+    // and the picture is fitted into the panel, not stretched (D-82)
+    expect(image.getAttribute("width")).toBe("1280");
+    expect(image.getAttribute("height")).toBe("720");
+    expect(image.style.objectFit).toBe("contain");
+
+    // the tab strip is still there: the live view replaces the TEXT, not the
+    // panel's chrome
+    expect(
+      document.querySelector('[data-testid="code-panel-file"]')!.textContent,
+    ).toBe("main.py");
+    expect(
+      document.querySelector('[data-testid="code-panel-language"]')!
+        .textContent,
+    ).toBe("python");
+
+    // and the mirrored text is not drawn under the picture
+    expect(
+      document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
+    ).toBeNull();
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
+  });
+
+  it("AC-102 a frame never reaches the element payload", async () => {
+    const panel = codePanel(connectedState());
+
+    setPanelCapture(panel.id, {
+      status: "live",
+      data: "a-frame-in-base64",
+      width: 1280,
+      height: 720,
+      seq: 1,
+    });
+
+    await render(<Excalidraw />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    // the panel really does draw the frame ...
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-live-frame"]'),
+      ).not.toBeNull(),
+    );
+
+    // ... and the payload carries NO frame at all. The payload is saved with
+    // the document, so a frame in it would put the teacher's screen into the
+    // .excalidraw file (D-82).
+    const state = readCodePanelState(panel.panel);
+
+    expect(JSON.stringify(state)).not.toContain("a-frame-in-base64");
+    expect(JSON.stringify(panel)).not.toContain("a-frame-in-base64");
+    expect(Object.keys(state!)).not.toContain("frame");
+    expect(Object.keys(state!)).not.toContain("data");
+
+    // the frame is in the registry, and the registry is NOT in the element
+    expect(getPanelCapture(panel.id)?.status).toBe("live");
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
+  });
+
+  it("AC-103 with no capture the panel falls back to the text and says why", async () => {
+    const panel = codePanel(connectedState());
+
+    // there is no ffmpeg, or the capture stopped: the extension says so
+    setPanelCapture(panel.id, {
+      status: "unavailable",
+      reason: "ffmpeg could not be started: spawn ffmpeg ENOENT",
+      seq: 0,
+    });
+
+    await render(<Excalidraw />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    // the TEXT is the fallback: the mirrored code is still there ...
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
+      ).not.toBeNull(),
+    );
+
+    // ... and the panel SAYS why there is no live view. A fallback the
+    // teacher cannot explain is a broken panel (D-75).
+    const status = document.querySelector(
+      '[data-testid="code-panel-live-status"]',
+    );
+
+    expect(status).not.toBeNull();
+    expect(status!.textContent).toContain("ffmpeg");
+
+    // and there is no picture pretending to be the editor
+    expect(
+      document.querySelector('[data-testid="code-panel-live-frame"]'),
+    ).toBeNull();
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
   });
 });

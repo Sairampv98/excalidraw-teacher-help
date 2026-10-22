@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 
 import * as vscode from "vscode";
 
@@ -10,7 +10,7 @@ import {
 import { createOcrService } from "../../bridge/src/ocr";
 
 import { createBridgeServer, type BridgeConnection } from "./bridge";
-import { resolvePort, resolveToken } from "./config";
+import { resolveCaptureFps, resolvePort, resolveToken } from "./config";
 import {
   documentForTabUri,
   editorContentMessage,
@@ -23,6 +23,12 @@ import { portConflictMessage } from "./portConflict";
 import { createRunPseudoterminal } from "./pseudoterminal";
 import { createRunner, type Runner } from "./runner";
 import { createBridgeTask } from "./taskPresentation";
+import {
+  CAPTURE_SCRIPT_RELATIVE_PATH,
+  createWindowCapture,
+  editorProcessName,
+  type WindowCapture,
+} from "./windowCapture";
 
 import type { OcrRequest, OcrResult } from "../../bridge/src/ocr";
 
@@ -45,6 +51,8 @@ const CONFIG_SECTION = "excalidraw-bridge";
 let extensionVersion = "0.0.0";
 
 let bridgeServer: ReturnType<typeof createBridgeServer> | null = null;
+
+let windowCapture: WindowCapture | null = null;
 
 export function activate(context: vscode.ExtensionContext): void {
   extensionVersion = context.extension?.packageJSON?.version ?? "0.0.0";
@@ -116,12 +124,94 @@ export function activate(context: vscode.ExtensionContext): void {
     return mirroredEditor;
   };
 
+  /**
+   * The live view of the editor's **own window** (D-82).
+   *
+   * The picture rides the websocket as an `editor:frame` message - it never
+   * rides in the panel's payload, because the payload is saved with the
+   * document.
+   *
+   * The capture is **one** helper for the whole session: a helper per frame
+   * would spawn a process every frame for the whole lesson, and each of them
+   * would capture a different moment.
+   */
+  let lastCaptureMessage: BridgeMessage | null = null;
+
+  const broadcastCapture = (message: BridgeMessage) => {
+    lastCaptureMessage = message;
+    bridgeServer?.broadcast(message);
+  };
+
+  /**
+   * The capture cannot run, and this is why.
+   *
+   * A failure is a **message**, not a silence: the panel has to be able to
+   * say why there is no live view, and fall back to the text (D-75).
+   */
+  const captureUnavailable = (reason: string): BridgeMessage => ({
+    v: 1,
+    type: "editor:frame",
+    state: "unavailable",
+    data: "",
+    width: 0,
+    height: 0,
+    seq: 0,
+    reason,
+  });
+
+  const startWindowCapture = () => {
+    if (process.platform !== "win32") {
+      // the capture is a Windows program: `PrintWindow` is a Windows API
+      broadcastCapture(
+        captureUnavailable("the live view of the editor needs Windows"),
+      );
+      return;
+    }
+
+    // The helper ships INSIDE the extension, so there is nothing to install
+    // and no dependency to add - PowerShell is on every Windows machine.
+    const scriptPath = join(
+      context.extensionPath,
+      CAPTURE_SCRIPT_RELATIVE_PATH,
+    );
+
+    windowCapture = createWindowCapture({
+      scriptPath,
+      // the OS process name is not the editor's name: VS Code runs as `Code`
+      processName: editorProcessName(appName),
+      // the window's title holds the workspace folder's name
+      titleLike: workspace,
+      fps: resolveCaptureFps(configuration.get<number>("captureFps")),
+      onFrame: (frame) => {
+        broadcastCapture({
+          v: 1,
+          type: "editor:frame",
+          state: "live",
+          data: frame.data,
+          width: frame.width,
+          height: frame.height,
+          seq: frame.seq,
+        });
+      },
+      onUnavailable: (reason) => {
+        broadcastCapture(captureUnavailable(reason));
+      },
+    });
+  };
+
   const publishEditorContent = () => {
     bridgeServer?.broadcast(editorContentMessage(currentEditor()));
   };
 
   const sendEditorContentTo = (connection: BridgeConnection) => {
     connection.send(editorContentMessage(currentEditor()));
+
+    // The capture state, so that a panel which connects **later** learns why
+    // there is no live view: the reason would otherwise have been broadcast
+    // into a room with nobody in it (D-75).
+    if (lastCaptureMessage) {
+      connection.send(lastCaptureMessage);
+    }
   };
 
   const runCommand = async (request: {
@@ -248,6 +338,10 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.showErrorMessage(portConflictMessage(port, error));
   });
 
+  // The live view of the editor's own window (D-82). It is started once, and
+  // it is stopped when the extension goes away.
+  startWindowCapture();
+
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(publishEditorContent),
     // NOT on every selection change: a cursor move fires it, and the panel
@@ -329,6 +423,10 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {
+  // the capture is a process of its own: it goes away with the extension
+  windowCapture?.stop();
+  windowCapture = null;
+
   void bridgeServer?.close();
   bridgeServer = null;
 }

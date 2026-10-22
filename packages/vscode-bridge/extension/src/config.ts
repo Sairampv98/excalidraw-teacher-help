@@ -117,3 +117,30 @@ export function resolveToken(configured?: string): {
   }
   return { token: randomBytes(24).toString("hex"), generated: true };
 }
+
+/**
+ * How many frames a second the window capture takes.
+ *
+ * The frame rate is a **setting** (`excalidraw-bridge.captureFps`), because
+ * the right number depends on the machine and on the lesson: six a second is
+ * enough to read by, and it is what the capture was measured at (5.8 frames
+ * a second end to end through the helper, the raw capture itself costing
+ * about 12 ms a frame).
+ *
+ * A number that is not a number, or one outside the range, falls back to the
+ * default rather than to something that would hammer the machine.
+ */
+export const DEFAULT_CAPTURE_FPS = 6;
+
+export function resolveCaptureFps(configured?: number): number {
+  if (
+    typeof configured === "number" &&
+    Number.isFinite(configured) &&
+    configured >= 1 &&
+    configured <= 30
+  ) {
+    return Math.floor(configured);
+  }
+
+  return DEFAULT_CAPTURE_FPS;
+}

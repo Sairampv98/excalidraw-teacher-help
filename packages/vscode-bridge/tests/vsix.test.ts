@@ -57,6 +57,9 @@ describe("the .vsix", () => {
     expect(names).toContain("extension.vsixmanifest");
     expect(names).toContain("extension/package.json");
     expect(names).toContain("extension/out/extension.js");
+    // the capture helper SHIPS with the extension: the panel's live view of
+    // the editor's own window is drawn by it (D-82)
+    expect(names).toContain("extension/media/capture.ps1");
 
     // everything that belongs to the extension is under extension/ at the root
     for (const name of names) {

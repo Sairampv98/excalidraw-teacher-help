@@ -6,7 +6,7 @@ import {
 } from "@excalidraw/excalidraw";
 
 import type { ExcalidrawElement } from "@excalidraw/element/types";
-import type { CodePanelState } from "@excalidraw/excalidraw";
+import type { CodePanelState, PanelCapture } from "@excalidraw/excalidraw";
 
 import type { BridgeMessage } from "../../packages/vscode-bridge/bridge/src/protocol";
 
@@ -148,8 +148,7 @@ export const reduceCodePanelState = (
  * The **same array** comes back when nothing changed, so the caller can tell
  * "there is nothing to do" from "the scene changed" without comparing the
  * elements one by one.
- */
-export const applyCodePanelState = (
+ */ export const applyCodePanelState = (
   elements: readonly ExcalidrawElement[],
   state: CodePanelState,
 ): readonly ExcalidrawElement[] => {
@@ -177,3 +176,48 @@ export const applyCodePanelState = (
 
   return changed ? next : elements;
 };
+
+/**
+ * The capture of the editor's window, as the panel's registry holds it.
+ *
+ * The frame does **not** go into the element's payload: the payload is saved
+ * with the document, so a frame in it would put the teacher's screen into the
+ * `.excalidraw` file (D-82). The frame travels on the library's own
+ * in-memory registry instead, and this is the shape it has there.
+ */
+export const toPanelCapture = (
+  message: Extract<BridgeMessage, { type: "editor:frame" }>,
+): PanelCapture =>
+  message.state === "live"
+    ? {
+        status: "live",
+        data: message.data,
+        width: message.width,
+        height: message.height,
+        seq: message.seq,
+      }
+    : {
+        status: "unavailable",
+        // the reason is never empty - the panel has to say why there is no
+        // live view (D-75)
+        reason: message.reason ?? "the live view is not available",
+        seq: message.seq,
+      };
+
+/**
+ * The ids of the panels that show the editor's window.
+ *
+ * The registry is keyed by the panel element's id, so two panels cannot show
+ * each other's frames.
+ */
+export const bridgeCodePanelIds = (
+  elements: readonly ExcalidrawElement[],
+): string[] =>
+  elements
+    .filter(
+      (element) =>
+        isPanelElement(element) &&
+        element.panelKind === "code" &&
+        element.panel.source.type === "bridge",
+    )
+    .map((element) => element.id);

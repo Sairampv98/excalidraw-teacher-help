@@ -128,6 +128,15 @@ describe("the bridge protocol", () => {
     },
     {
       v: 1,
+      type: "editor:frame",
+      state: "live",
+      data: "QUJD",
+      width: 1295,
+      height: 687,
+      seq: 1,
+    },
+    {
+      v: 1,
       type: "run:started",
       runId: "run-1",
       command: "python",

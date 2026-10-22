@@ -4,6 +4,7 @@ import React, {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 
 import {
@@ -31,6 +32,7 @@ import {
 } from "../scene/panelContent";
 import { readVideoPanelState } from "../scene/panelContent";
 import { readPanelPlayback } from "../scene/panelContent";
+import { getPanelCapture, subscribePanelCaptures } from "../scene/panelFrames";
 import {
   appliedPlaybackState,
   INITIAL_PLAYBACK_SYNC_STATE,
@@ -267,6 +269,17 @@ const VS_CODE_HAIRLINE: React.CSSProperties = {
 const CodePanelSurface = ({ panel }: { panel: ExcalidrawPanelElement }) => {
   const state = readCodePanelState(panel.panel);
 
+  /**
+   * The live view of the editor's **own window** (D-82).
+   *
+   * The frames do NOT ride in the element's payload - the payload is saved
+   * with the document - so they live in the library's own in-memory registry,
+   * and this panel reads the entry that belongs to **its** element id.
+   */
+  const capture = useSyncExternalStore(subscribePanelCaptures, () =>
+    getPanelCapture(panel.id),
+  );
+
   if (!state || state.connection !== "connected") {
     return (
       <div
@@ -344,7 +357,26 @@ const CodePanelSurface = ({ panel }: { panel: ExcalidrawPanelElement }) => {
           className="excalidraw__panel-code-source"
           data-testid="code-panel-source"
         >
-          {hasFile ? (
+          {capture?.status === "live" ? (
+            // The live view of the editor's window. The picture keeps the
+            // aspect ratio it has in the editor: the width and the height are
+            // the FRAME's own, and `contain` fits it into the panel without
+            // stretching it (D-82).
+            <img
+              className="excalidraw__panel-code-live"
+              data-testid="code-panel-live-frame"
+              src={`data:image/png;base64,${capture.data}`}
+              width={capture.width}
+              height={capture.height}
+              alt=""
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "contain",
+                display: "block",
+              }}
+            />
+          ) : hasFile ? (
             <CodePanelEditor value={state.editor.text} />
           ) : (
             // The bridge is connected, but it has not sent an editor yet. That
@@ -361,6 +393,19 @@ const CodePanelSurface = ({ panel }: { panel: ExcalidrawPanelElement }) => {
               {t("labels.panel.code.noFile")}
             </div>
           )}
+
+          {capture?.status === "unavailable" ? (
+            // There is no live view, and the panel says **why**: the text
+            // mirror above is the fallback, and a fallback the teacher cannot
+            // explain is a broken panel (D-75).
+            <div
+              className="excalidraw__panel-code-status"
+              data-testid="code-panel-live-status"
+              style={{ color: VS_CODE_DARK.muted }}
+            >
+              {capture.reason}
+            </div>
+          ) : null}
         </div>
       </div>
       <div
