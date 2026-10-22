@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  documentForTabUri,
   editorContentMessage,
   editorToMirror,
   type EditorLike,
@@ -125,5 +126,50 @@ describe("which editor the panel mirrors", () => {
     const mirrored = editorToMirror(last, undefined, () => true, undefined);
 
     expect(mirrored).toBe(last);
+  });
+});
+
+/**
+ * The tab API does NOT carry the document: `TabInputText` has only a `uri`
+ * (verified against the installed API declaration, VSCodium 1.135.06055).
+ * The document is resolved from the editor's list of OPEN documents by that
+ * uri - and a tab that names no text document (a terminal, a notebook, a
+ * webview) resolves to nothing.
+ */
+describe("the document a tab names", () => {
+  const program2 = {
+    uri: { toString: () => "file:///c:/work/Program2.java" },
+    languageId: "java",
+    getText: () => "// Program2",
+    version: 3,
+    offsetAt: () => 0,
+  };
+
+  const other = {
+    uri: { toString: () => "file:///c:/work/Other.java" },
+    languageId: "java",
+    getText: () => "// Other",
+    version: 1,
+    offsetAt: () => 0,
+  };
+
+  it("AC-97 the open document with the tabs uri is the document the tab names", () => {
+    const document = documentForTabUri("file:///c:/work/Program2.java", [
+      other,
+      program2,
+    ]);
+
+    expect(document).toBe(program2);
+  });
+
+  it("AC-97 a tab that names no open document resolves to nothing", () => {
+    expect(
+      documentForTabUri("file:///c:/work/Closed.java", [other, program2]),
+    ).toBeUndefined();
+  });
+
+  it("AC-97 a tab that names no text document at all - a terminal, a notebook - resolves to nothing", () => {
+    expect(documentForTabUri(undefined, [other, program2])).toBeUndefined();
+    expect(documentForTabUri("", [other, program2])).toBeUndefined();
   });
 });

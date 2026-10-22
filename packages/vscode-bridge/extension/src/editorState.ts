@@ -70,6 +70,29 @@ export const editorContentMessage = (
 };
 
 /**
+ * The open document a tab names, if any.
+ *
+ * The tab API does **not** carry the document: `TabInputText` has only a
+ * `uri` (verified against the installed API declaration, VSCodium
+ * 1.135.06055). So the document is resolved from the open documents by that
+ * uri. A tab can also be a diff, a terminal, a notebook or a webview, in
+ * which case it names no text document at all and the answer is undefined.
+ *
+ * `documents` is the editor's list of open documents - the same list the
+ * extension already had to ask whether a document was still open.
+ */
+export const documentForTabUri = (
+  tabUri: string | undefined | null,
+  documents: readonly EditorDocumentLike[],
+): EditorDocumentLike | undefined => {
+  if (!tabUri) {
+    return undefined;
+  }
+
+  return documents.find((document) => document.uri.toString() === tabUri);
+};
+
+/**
  * Which editor the panel should mirror.
  *
  * `active` is the editor the teacher is looking at. It is `undefined` far

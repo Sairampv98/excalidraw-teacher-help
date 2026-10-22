@@ -194,13 +194,29 @@ declare module "vscode" {
      * focus - which is exactly when the teacher needs the mirror: they are
      * teaching from the editor and have switched to the browser to show the
      * canvas (D-79).
+     *
+     * The shape is taken from the INSTALLED API declaration (VSCodium
+     * 1.135.06055): `TabInputText` carries only a **uri**, and the tab's
+     * input is a union that can also be a diff, a terminal, a notebook or a
+     * webview. There is NO `document` on a tab input - an earlier version of
+     * this stub had one, and the mirror silently fell through to the
+     * remembered editor instead.
      */
     export const tabGroups: {
       readonly activeTabGroup:
         | {
             readonly activeTab:
               | {
-                  readonly input: { readonly document?: TextDocument };
+                  readonly input:
+                    | { readonly uri?: { toString(): string } }
+                    | {
+                        readonly original?: { toString(): string };
+                        readonly modified?: { toString(): string };
+                      }
+                    | {
+                        readonly uri?: undefined;
+                        readonly original?: undefined;
+                      };
                 }
               | undefined;
           }

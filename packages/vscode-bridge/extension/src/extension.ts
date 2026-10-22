@@ -12,6 +12,7 @@ import { createOcrService } from "../../bridge/src/ocr";
 import { createBridgeServer, type BridgeConnection } from "./bridge";
 import { resolvePort, resolveToken } from "./config";
 import {
+  documentForTabUri,
   editorContentMessage,
   editorToMirror,
   type EditorDocumentLike,
@@ -83,12 +84,21 @@ export function activate(context: vscode.ExtensionContext): void {
    * editor any more. The tab is still the file they are teaching, and the
    * tab is always known. Without this, the panel goes blank exactly when the
    * teacher needs it (D-79).
+   *
+   * The tab API does NOT carry the document - `TabInputText` has only a
+   * `uri` (verified against the installed API declaration, VSCodium
+   * 1.135.06055) - so the document is resolved from the open documents by
+   * that uri. The tab can also be a diff, a terminal, a notebook or a
+   * webview, in which case it names no text document at all.
    */
   const activeTabDocument = (): EditorDocumentLike | undefined => {
     const tab = vscode.window.tabGroups.activeTabGroup?.activeTab;
-    const input = tab?.input as { document?: EditorDocumentLike } | undefined;
+    const input = tab?.input as { uri?: { toString(): string } } | undefined;
 
-    return input?.document;
+    return documentForTabUri(
+      input?.uri?.toString(),
+      vscode.workspace.textDocuments,
+    );
   };
 
   const currentEditor = (): EditorLike | undefined => {
