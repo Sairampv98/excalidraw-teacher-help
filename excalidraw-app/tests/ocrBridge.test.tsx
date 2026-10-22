@@ -19,7 +19,7 @@ import type { ExcalidrawElement } from "@excalidraw/element/types";
 
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
-import { useOcr } from "../bridge/useOcr";
+import { useOcr, ocrEngineMessage, ocrReadMessage } from "../bridge/useOcr";
 import { dataUrlToBase64, ocrTextElements } from "../bridge/ocrPlacement";
 
 import { createOcrClient } from "../../packages/vscode-bridge/bridge/src/ocrClient";
@@ -181,6 +181,36 @@ describe("the app's OCR", () => {
     expect(first.y).toBeCloseTo(920 * (PLACEMENT.height / IMAGE.height));
     expect(second.x).toBeCloseTo(60 * (PLACEMENT.width / IMAGE.width));
     expect(second.y).toBeCloseTo(960 * (PLACEMENT.height / IMAGE.height));
+  });
+
+  it("AC-122 the panel says which engine is in use, and says why when there is none", () => {
+    // the engine that is in use: the teacher can SEE the choice (D-90)
+    expect(ocrEngineMessage({ state: "ready", engine: "indra" })).toContain(
+      "indra",
+    );
+
+    // and an engine that is not there: the REASON, with the command that
+    // installs it - a teacher who cannot read the reason cannot fix it (D-91)
+    const missing = ocrEngineMessage({
+      state: "unavailable",
+      engine: "paddle",
+      reason:
+        "paddleocr is not installed - pip install paddleocr paddlepaddle. PaddlePaddle has no build for Python 3.14; it needs Python 3.12 or 3.13",
+    });
+
+    expect(missing).toContain("pip install paddleocr paddlepaddle");
+    expect(missing).toContain("PaddlePaddle has no build for Python 3.14");
+
+    // and the read says which engine ran, and how long it took
+    const read = ocrReadMessage({
+      lines: 3,
+      engine: "indra",
+      durationMs: 228,
+    });
+
+    expect(read).toContain("3 lines");
+    expect(read).toContain("indra");
+    expect(read).toContain("228 ms");
   });
 
   it("AC-73 the placement of a line is the line's own box, scaled to the canvas", () => {

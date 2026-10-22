@@ -412,7 +412,7 @@ const ExcalidrawWrapper = () => {
 
   // the VS Code bridge: the app's side of the connection, and the code panel
   // it feeds (D-51)
-  const { bridge, requestOcr } = useBridgePanel(excalidrawAPI);
+  const { bridge, requestOcr, ocrState } = useBridgePanel(excalidrawAPI);
 
   // the OCR capability: the read happens in the bridge's Node process, and the
   // app puts the text back on the canvas (D-59)
@@ -421,7 +421,7 @@ const ExcalidrawWrapper = () => {
     imageOfPanel,
     message: ocrMessage,
     busy: ocrBusy,
-  } = useOcr({ api: excalidrawAPI, requestOcr });
+  } = useOcr({ api: excalidrawAPI, requestOcr, engineState: ocrState });
 
   /**
    * Reads the **panel** the teacher picked: its poster, or the frame the

@@ -22,7 +22,7 @@
 
 import type { BridgeMessage } from "./protocol";
 
-import type { OcrRequest, OcrResult } from "./ocr";
+import type { OcrEngineState, OcrRequest, OcrResult } from "./ocr";
 
 /**
  * The sentence the app shows when there is no bridge to do the reading.
@@ -67,6 +67,15 @@ export type OcrClient = {
   fail: (id: string, message: string) => void;
   /** whether a read is in flight */
   isPending: () => boolean;
+  /**
+   * The engine's **state** arrived (D-90, D-91).
+   *
+   * The client only holds it: the panel shows it, and the reason an engine is
+   * not there is a thing the teacher has to be told.
+   */
+  setState: (state: OcrEngineState) => void;
+  /** the engine's state, as the extension last said it */
+  getState: () => OcrEngineState | null;
 };
 
 let counter = 0;
@@ -90,6 +99,14 @@ export const createOcrClient = ({
       timer: ReturnType<typeof setTimeout> | null;
     }
   >();
+
+  /**
+   * The engine's state, as the extension last said it (D-90, D-91).
+   *
+   * It is held here so that the app can show it: which engine is in use, and
+   * - when it is not there - the reason and what to install.
+   */
+  let engineState: OcrEngineState | null = null;
 
   const settleWith = (
     id: string,
@@ -121,6 +138,8 @@ export const createOcrClient = ({
         imageBase64: request.imageBase64,
         ...(request.region ? { region: request.region } : {}),
         ...(request.language ? { language: request.language } : {}),
+        // the engine is optional: the extension falls back to its own setting
+        ...(request.engine ? { engine: request.engine } : {}),
       });
 
       if (!sent) {
@@ -153,6 +172,11 @@ export const createOcrClient = ({
           ...(result.confidence === undefined
             ? {}
             : { confidence: result.confidence }),
+          // which engine ran, and how long it took (D-90)
+          ...(result.engine === undefined ? {} : { engine: result.engine }),
+          ...(result.durationMs === undefined
+            ? {}
+            : { durationMs: result.durationMs }),
         }),
       );
     },
@@ -162,5 +186,11 @@ export const createOcrClient = ({
     },
 
     isPending: () => pending.size > 0,
+
+    setState: (next) => {
+      engineState = next;
+    },
+
+    getState: () => engineState,
   };
 };

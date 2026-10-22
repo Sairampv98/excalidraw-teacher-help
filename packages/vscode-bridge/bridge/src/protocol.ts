@@ -1,8 +1,8 @@
 import type { FileId } from "@excalidraw/element/types";
 
-import { isOcrLine, isOcrRegion } from "./ocr";
+import { isOcrEngineName, isOcrLine, isOcrRegion } from "./ocr";
 
-import type { OcrLine, OcrRegion } from "./ocr";
+import type { OcrEngineName, OcrLine, OcrRegion } from "./ocr";
 
 /**
  * The bridge protocol - the ONE definition of the message types.
@@ -60,6 +60,7 @@ export const BRIDGE_MESSAGE_TYPES = [
   "ocr:request",
   "ocr:result",
   "ocr:error",
+  "ocr:state",
   "ping",
   "pong",
 ] as const;
@@ -191,6 +192,13 @@ export type BridgeMessage =
        */
       region?: OcrRegion;
       language?: string;
+      /**
+       * The engine the caller wants (D-90).
+       *
+       * It is **optional**: when it is absent the extension falls back to its
+       * own setting, and an extension that predates the field still reads.
+       */
+      engine?: OcrEngineName;
     }
   /** extension -> panel. The text that was read out of an image. */
   | {
@@ -203,6 +211,32 @@ export type BridgeMessage =
       /** the per-line boxes, so the text can be placed as individual elements */
       lines?: OcrLine[];
       confidence?: number;
+      /** which engine actually read it (D-90) */
+      engine?: OcrEngineName;
+      /** how long the read took, in milliseconds (D-90) */
+      durationMs?: number;
+    }
+  /**
+   * extension -> panel. The state of the OCR engine (D-90, D-91).
+   *
+   * It is a **state**, not a silence: the panel has to be able to say which
+   * engine is in use, and - when the engine is not there - **why** it is not
+   * there and what to install (D-75, D-91).
+   *
+   * A ready state carries the engine's name; an unavailable one carries the
+   * reason and nothing else.
+   */
+  | {
+      v: 1;
+      type: "ocr:state";
+      state: "ready" | "unavailable";
+      /** the engine that is in use */
+      engine?: OcrEngineName;
+      /**
+       * Why the engine is not there. Never empty when the state is
+       * "unavailable", and never set when the state is "ready".
+       */
+      reason?: string;
     }
   /**
    * extension -> panel. The read **failed**.
@@ -312,7 +346,9 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
         (value.fileId === undefined || typeof value.fileId === "string") &&
         typeof value.imageBase64 === "string" &&
         (value.region === undefined || isOcrRegion(value.region)) &&
-        (value.language === undefined || typeof value.language === "string")
+        (value.language === undefined || typeof value.language === "string") &&
+        // the engine is optional: an extension that predates it still reads
+        (value.engine === undefined || isOcrEngineName(value.engine))
       );
     case "ocr:result":
       return (
@@ -321,7 +357,21 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
         typeof value.text === "string" &&
         (value.lines === undefined ||
           (Array.isArray(value.lines) && value.lines.every(isOcrLine))) &&
-        (value.confidence === undefined || typeof value.confidence === "number")
+        (value.confidence === undefined ||
+          typeof value.confidence === "number") &&
+        // the engine and the time are optional (D-90)
+        (value.engine === undefined || isOcrEngineName(value.engine)) &&
+        (value.durationMs === undefined || typeof value.durationMs === "number")
+      );
+    case "ocr:state":
+      return (
+        (value.state === "ready" || value.state === "unavailable") &&
+        (value.engine === undefined || isOcrEngineName(value.engine)) &&
+        // a ready state carries no reason; an unavailable one carries the
+        // reason and nothing else - the panel has to be able to SAY it (D-91)
+        (value.state === "ready"
+          ? value.reason === undefined
+          : typeof value.reason === "string" && value.reason.length > 0)
       );
     case "ocr:error":
       return typeof value.id === "string" && typeof value.message === "string";

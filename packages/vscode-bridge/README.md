@@ -48,6 +48,28 @@ The panel (the Excalidraw half, landing next) asks for that token once. If you w
 }
 ```
 
+## The OCR engine
+
+The panel can read the text out of an image. The engine is a **choice**:
+
+```jsonc
+// settings.json
+{
+  "excalidraw-bridge.ocrEngine": "tesseract",
+  "excalidraw-bridge.pythonPath": "python"
+}
+```
+
+- **`tesseract`** (the default) runs in the extension's own Node process. It is a **declared dependency** and it ships **inside the `.vsix`**, so the teacher installs nothing to get OCR.
+- **`indra`** and **`paddle`** are Python, so they run in a **sidecar**: one process, spawned once, that the extension talks to over stdio. Point `excalidraw-bridge.pythonPath` at a virtual environment that has them:
+
+  ```powershell
+  pip install indra-ocr
+  pip install paddleocr paddlepaddle   # needs Python 3.12 or 3.13
+  ```
+
+An engine that is not there is **said**, not swallowed: the panel shows the reason and the command that installs it. PaddleOCR needs Python 3.12 or 3.13 - PaddlePaddle has no build for Python 3.14.
+
 ## Running the program
 
 The extension contributes the task type **`excalidraw-bridge.run`**. A task that uses it is run by the extension itself, in a pseudoterminal:
@@ -104,6 +126,8 @@ node packages/vscode-bridge/scripts/build-vsix.mjs
 
 The script bundles the TypeScript with esbuild (already in the repository) and writes the zip **itself** - the STORE method, no compression, no packaging dependency. The result is `packages/vscode-bridge/excalidraw-bridge-<version>.vsix`.
 
+It also **ships the OCR engine**: `tesseract.js` and `tesseract.js-core` (with the `.wasm` cores) are copied into the `.vsix` as files, because the engine loads its worker and its core from paths at run time. The build **fails loudly** when a file it needs is missing - a `.vsix` that installs but cannot read is worse than one that does not install.
+
 ## The layout
 
 ```
@@ -122,5 +146,4 @@ packages/vscode-bridge/
 
 ## Not in this build
 
-- **OCR.** The protocol carries `ocr:request` / `ocr:result` (with the repository's real `FileId` type), but the service that does the reading needs a sidecar the extension does not ship yet. The panel's OCR button will say so rather than hang.
 - **The Excalidraw panel itself.** That is the next task.

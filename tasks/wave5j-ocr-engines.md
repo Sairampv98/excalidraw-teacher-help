@@ -3,7 +3,7 @@ id: wave5j-ocr-engines
 paths: packages/vscode-bridge,packages/excalidraw,excalidraw-app,package.json,yarn.lock,SPEC.md
 read: SPEC.md,packages/vscode-bridge/extension/src/ocrEngine.ts,packages/vscode-bridge/extension/src/config.ts,packages/vscode-bridge/scripts/build-vsix.mjs,packages/vscode-bridge/bridge/src/protocol.ts,packages/vscode-bridge/bridge/src/ocr.ts,excalidraw-app/bridge/useOcr.ts,excalidraw-app/ocr/benchmark.mjs
 base: main
-status: open
+status: merged
 ---
 
 Wave 5j: the OCR engine is pluggable. tesseract.js becomes a DECLARED dependency, and PaddleOCR and IndraOCR join as options.

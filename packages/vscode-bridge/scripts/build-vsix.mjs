@@ -19,11 +19,12 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -138,6 +139,284 @@ const writeZip = (entries) => {
 };
 
 // ---------------------------------------------------------------------------
+// the engine's runtime tree (D-89)
+// ---------------------------------------------------------------------------
+
+/**
+ * The package whose runtime tree the `.vsix` carries.
+ *
+ * `tesseract.js` loads its worker and its core from PATHS at run time, so
+ * bundling the extension's TypeScript with esbuild is **not enough**: the
+ * files have to travel with the extension.
+ */
+const ENGINE_PACKAGE = "tesseract.js";
+
+/**
+ * What each package of the tree contributes.
+ *
+ * `include` is the list of things to take (null means the whole package), and
+ * `exclude` is the list of file names to leave out. The core's `.wasm.js`
+ * files are the single-file builds of the wasm, and the loader never asks for
+ * them, so they would be 24 MB of nothing.
+ */
+const PACKAGE_CONTENTS = {
+  "tesseract.js": {
+    include: ["package.json", "LICENSE.md", "src"],
+    exclude: [],
+  },
+  "tesseract.js-core": {
+    include: null,
+    exclude: ["*.wasm.js", "README.md"],
+  },
+};
+
+/**
+ * What no package of the tree needs: the tests, the manual, the editor's
+ * droppings.
+ */
+const DEFAULT_EXCLUDES = [
+  "test",
+  "tests",
+  "docs",
+  "examples",
+  "coverage",
+  "*.iml",
+  ".npmignore",
+  ".DS_Store",
+];
+
+/**
+ * The files the engine needs, whatever else is copied.
+ *
+ * The build FAILS when one of them is missing: a `.vsix` that installs but
+ * cannot read is worse than one that does not install (D-89).
+ */
+const REQUIRED_ENGINE_FILES = [
+  "tesseract.js/package.json",
+  "tesseract.js/src/index.js",
+  "tesseract.js/src/createWorker.js",
+  "tesseract.js/src/worker-script/node/index.js",
+  "tesseract.js/src/worker-script/node/getCore.js",
+  "tesseract.js/src/worker/node/spawnWorker.js",
+  "tesseract.js-core/package.json",
+  "tesseract.js-core/index.js",
+  "tesseract.js-core/tesseract-core.js",
+  "tesseract.js-core/tesseract-core.wasm",
+  "tesseract.js-core/tesseract-core-lstm.js",
+  "tesseract.js-core/tesseract-core-lstm.wasm",
+  "tesseract.js-core/tesseract-core-simd.js",
+  "tesseract.js-core/tesseract-core-simd.wasm",
+  "tesseract.js-core/tesseract-core-simd-lstm.js",
+  "tesseract.js-core/tesseract-core-simd-lstm.wasm",
+  "tesseract.js-core/tesseract-core-relaxedsimd.js",
+  "tesseract.js-core/tesseract-core-relaxedsimd.wasm",
+  "tesseract.js-core/tesseract-core-relaxedsimd-lstm.js",
+  "tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm",
+];
+
+/** The node_modules directory the engine's tree is taken from. */
+const depsFlagIndex = process.argv.indexOf("--deps");
+const depsRoot =
+  depsFlagIndex !== -1 && process.argv[depsFlagIndex + 1]
+    ? resolve(process.argv[depsFlagIndex + 1])
+    : join(resolve(packageRoot, "..", ".."), "node_modules");
+
+/**
+ * Where the engine's tree is READ from.
+ *
+ * Without `--deps` it is found the way Node finds a package: the package's own
+ * `node_modules` first, then the one above it, and so on - NOT a fixed
+ * directory. That matters for a worktree with no `node_modules` of its own
+ * (the kit's throwaway worktree, for one): it walks up and finds the
+ * repository's, which is where the engine is installed.
+ */
+const engineDir = () =>
+  depsFlagIndex !== -1 && process.argv[depsFlagIndex + 1]
+    ? join(resolve(process.argv[depsFlagIndex + 1]), ENGINE_PACKAGE)
+    : resolvePackageDir(ENGINE_PACKAGE, packageRoot);
+
+/**
+ * Where a package is, when Node would find it there.
+ *
+ * It is Node's own algorithm: the package's own `node_modules` first, then the
+ * one above it, and so on.
+ */
+const resolvePackageDir = (name, fromDir) => {
+  let dir = fromDir;
+
+  for (;;) {
+    const candidate = join(dir, "node_modules", name);
+
+    if (existsSync(join(candidate, "package.json"))) {
+      return candidate;
+    }
+
+    const parent = dirname(dir);
+
+    if (parent === dir) {
+      return null;
+    }
+
+    dir = parent;
+  }
+};
+
+/**
+ * The engine's runtime tree: every package it needs at run time.
+ *
+ * It is walked the way Node walks it, so the tree that ships is the tree the
+ * engine would have found on this machine.
+ */
+const collectEngineTree = () => {
+  const packages = new Map();
+
+  const visit = (dir) => {
+    const manifest = JSON.parse(
+      readFileSync(join(dir, "package.json"), "utf8"),
+    );
+    const existing = packages.get(manifest.name);
+
+    if (existing) {
+      if (existing.version !== manifest.version) {
+        throw new Error(
+          `the engine's runtime tree needs two versions of ${manifest.name} (${existing.version} and ${manifest.version}); the .vsix carries one`,
+        );
+      }
+      return;
+    }
+
+    packages.set(manifest.name, { dir, version: manifest.version });
+
+    for (const dependency of Object.keys(manifest.dependencies ?? {})) {
+      const dependencyDir = resolvePackageDir(dependency, dir);
+
+      if (!dependencyDir) {
+        throw new Error(
+          `the engine's runtime tree is incomplete: ${dependency} is not installed next to ${manifest.name} (looked in ${dir}) - the .vsix would ship an extension that cannot read`,
+        );
+      }
+
+      visit(dependencyDir);
+    }
+  };
+
+  const root = engineDir();
+
+  if (!root || !existsSync(join(root, "package.json"))) {
+    throw new Error(
+      `the engine (${ENGINE_PACKAGE}) is not installed (looked in ${depsRoot} and above it) - the .vsix would ship an extension that cannot read`,
+    );
+  }
+
+  visit(root);
+
+  return packages;
+};
+
+/** The files of a package, relative to it. */
+const packageFiles = (dir) => {
+  const files = [];
+
+  const walk = (current) => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      if (entry.name === "node_modules") {
+        // the nested ones are packages of their own: they are copied on their own
+        continue;
+      }
+
+      const path = join(current, entry.name);
+
+      if (entry.isDirectory()) {
+        walk(path);
+      } else {
+        files.push(relative(dir, path).split(sep).join("/"));
+      }
+    }
+  };
+
+  walk(dir);
+
+  return files;
+};
+
+/** Whether a file name matches a pattern like `*.wasm.js`. */
+const matches = (name, pattern) =>
+  pattern.startsWith("*.") ? name.endsWith(pattern.slice(1)) : name === pattern;
+
+/** Whether a file is one of the package's `include` list. */
+const isIncluded = (relativePath, include) => {
+  if (!include) {
+    return true;
+  }
+
+  return include.some(
+    (entry) => relativePath === entry || relativePath.startsWith(`${entry}/`),
+  );
+};
+
+/**
+ * Whether a file is one of the package's `exclude` list.
+ *
+ * A plain name excludes a whole folder of that name, and a pattern like
+ * `*.wasm.js` excludes the files whose name it matches.
+ */
+const isExcluded = (relativePath, patterns) => {
+  const segments = relativePath.split("/");
+
+  return patterns.some((pattern) =>
+    segments.some((segment, index) =>
+      pattern.startsWith("*.")
+        ? index === segments.length - 1 && matches(segment, pattern)
+        : segment === pattern,
+    ),
+  );
+};
+
+/**
+ * Copies the engine's runtime tree into the staged extension.
+ *
+ * It is copied as FILES: the engine loads its worker and its core from paths
+ * at run time, so a bundled extension would have nothing to load (D-89).
+ */
+const shipEngineTree = () => {
+  const tree = collectEngineTree();
+  const target = join(stageDir, "extension", "node_modules");
+
+  for (const [name, entry] of tree) {
+    const contents = PACKAGE_CONTENTS[name] ?? { include: null, exclude: [] };
+    const excludes = [...DEFAULT_EXCLUDES, ...contents.exclude];
+
+    for (const relativePath of packageFiles(entry.dir)) {
+      if (!isIncluded(relativePath, contents.include)) {
+        continue;
+      }
+
+      if (isExcluded(relativePath, excludes)) {
+        continue;
+      }
+
+      const from = join(entry.dir, relativePath);
+      const to = join(target, name, relativePath);
+
+      mkdirSync(dirname(to), { recursive: true });
+      copyFileSync(from, to);
+    }
+  }
+
+  // The files the engine needs are CHECKED, not hoped for: a `.vsix` that
+  // installs but cannot read is worse than one that does not install.
+  for (const required of REQUIRED_ENGINE_FILES) {
+    if (!existsSync(join(target, required.split("/").join(sep)))) {
+      throw new Error(
+        `the .vsix would ship without ${required} - the engine cannot read without it`,
+      );
+    }
+  }
+
+  return tree;
+};
+
+// ---------------------------------------------------------------------------
 // the manifest files the installer needs
 // ---------------------------------------------------------------------------
 const contentTypes = `<?xml version="1.0" encoding="utf-8"?>
@@ -152,17 +431,23 @@ const contentTypes = `<?xml version="1.0" encoding="utf-8"?>
 const vsixManifest = `<?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
-    <Identity Language="en-US" Id="${manifest.name}" Version="${manifest.version}" Publisher="${manifest.publisher}" />
+    <Identity Language="en-US" Id="${manifest.name}" Version="${
+  manifest.version
+}" Publisher="${manifest.publisher}" />
     <DisplayName>${manifest.displayName}</DisplayName>
     <Description xml:space="preserve">${manifest.description}</Description>
     <Tags>${(manifest.keywords ?? []).join(",")}</Tags>
     <Categories>${(manifest.categories ?? ["Other"]).join(",")}</Categories>
     <GalleryFlags>Public</GalleryFlags>
     <Properties>
-      <Property Id="Microsoft.VisualStudio.Code.Engine" Value="${manifest.engines.vscode}" />
+      <Property Id="Microsoft.VisualStudio.Code.Engine" Value="${
+        manifest.engines.vscode
+      }" />
       <Property Id="Microsoft.VisualStudio.Code.ExtensionDependencies" Value="" />
       <Property Id="Microsoft.VisualStudio.Code.ExtensionPack" Value="" />
-      <Property Id="Microsoft.VisualStudio.Code.ExtensionKind" Value="${(manifest.extensionKind ?? ["workspace"]).join(",")}" />
+      <Property Id="Microsoft.VisualStudio.Code.ExtensionKind" Value="${(
+        manifest.extensionKind ?? ["workspace"]
+      ).join(",")}" />
       <Property Id="Microsoft.VisualStudio.Services.Links.Source" Value="" />
       <Property Id="Microsoft.VisualStudio.Services.Content.Pricing" Value="Free" />
     </Properties>
@@ -218,20 +503,62 @@ copyFileSync(
   join(stageDir, "extension", "media", "capture.ps1"),
 );
 
+// The OCR sidecar SHIPS with the extension too: the Python engines are Python,
+// so they run in a process of their own, and that process runs THIS (D-90).
+copyFileSync(
+  join(extensionDir, "media", "ocr_sidecar.py"),
+  join(stageDir, "extension", "media", "ocr_sidecar.py"),
+);
+
+// The OCR engine SHIPS with the extension as FILES: it loads its worker and
+// its core from paths at run time, so bundling the extension's TypeScript is
+// not enough (D-89).
+const engineTree = shipEngineTree();
+
 const readme = join(packageRoot, "README.md");
 if (existsSync(readme)) {
   copyFileSync(readme, join(stageDir, "extension", "README.md"));
 }
 
 const entries = [
-  { name: "extension/package.json", data: readFileSync(join(stageDir, "extension", "package.json")) },
-  { name: "extension/out/extension.js", data: readFileSync(join(stageDir, "extension", "out", "extension.js")) },
-  { name: "extension/media/capture.ps1", data: readFileSync(join(stageDir, "extension", "media", "capture.ps1")) },
+  {
+    name: "extension/package.json",
+    data: readFileSync(join(stageDir, "extension", "package.json")),
+  },
+  {
+    name: "extension/out/extension.js",
+    data: readFileSync(join(stageDir, "extension", "out", "extension.js")),
+  },
+  {
+    name: "extension/media/capture.ps1",
+    data: readFileSync(join(stageDir, "extension", "media", "capture.ps1")),
+  },
+  {
+    name: "extension/media/ocr_sidecar.py",
+    data: readFileSync(join(stageDir, "extension", "media", "ocr_sidecar.py")),
+  },
 ];
 if (existsSync(join(stageDir, "extension", "README.md"))) {
   entries.push({
     name: "extension/README.md",
     data: readFileSync(join(stageDir, "extension", "README.md")),
+  });
+}
+
+// the engine's runtime tree, file by file
+for (const relativePath of packageFiles(
+  join(stageDir, "extension", "node_modules"),
+)) {
+  entries.push({
+    name: `extension/node_modules/${relativePath}`,
+    data: readFileSync(
+      join(
+        stageDir,
+        "extension",
+        "node_modules",
+        relativePath.split("/").join(sep),
+      ),
+    ),
   });
 }
 entries.push({
@@ -261,6 +588,7 @@ for (const entry of entries) {
 const size = statSync(outPath).size;
 process.stdout.write(`vsix: ${outPath}\n`);
 process.stdout.write(`size: ${size} bytes\n`);
+process.stdout.write(`engine tree: ${[...engineTree.keys()].join(", ")}\n`);
 process.stdout.write("entries:\n");
 for (const entry of entries) {
   process.stdout.write(`  ${entry.name} (${entry.data.length} bytes)\n`);

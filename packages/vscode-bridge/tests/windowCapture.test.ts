@@ -435,8 +435,9 @@ describe("the capture of the editor's own window", () => {
       ],
     ).toBeTruthy();
 
-    // ... and the extension still has no dependency of its own (AC-64)
-    expect(manifest.dependencies).toBeUndefined();
+    // ... and the extension's only dependency is the OCR engine, which ships
+    // inside the .vsix (D-89, AC-64): the capture itself still needs nothing
+    expect(Object.keys(manifest.dependencies ?? {})).toEqual(["tesseract.js"]);
   });
 
   it("AC-116 the capture is the client area, a JPEG, and scaled", () => {

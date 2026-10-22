@@ -7,11 +7,15 @@ import {
   DEFAULT_BRIDGE_HOST,
   type BridgeMessage,
 } from "../../bridge/src/protocol";
-import { createOcrService } from "../../bridge/src/ocr";
 
 import { createBridgeServer, type BridgeConnection } from "./bridge";
 import { createCaptureStatePublisher } from "./captureState";
-import { resolveCaptureFps, resolvePort, resolveToken } from "./config";
+import {
+  resolveCaptureFps,
+  resolvePort,
+  resolvePythonPath,
+  resolveToken,
+} from "./config";
 import {
   documentForTabUri,
   editorContentMessage,
@@ -19,7 +23,14 @@ import {
   type EditorDocumentLike,
   type EditorLike,
 } from "./editorState";
-import { createTesseractEngine, engineSearchPaths } from "./ocrEngine";
+import { engineSearchPaths, resolveOcrEngine } from "./ocrEngine";
+import {
+  engineForRequest,
+  ocrSidecar,
+  readWithEngine,
+  resolveEngineState,
+  stopOcrSidecar,
+} from "./ocrEngines";
 import { portConflictMessage } from "./portConflict";
 import { createRunPseudoterminal } from "./pseudoterminal";
 import { createRunner, type Runner } from "./runner";
@@ -32,7 +43,7 @@ import {
 } from "./windowCapture";
 import { createCoalescedPublisher } from "./publish";
 
-import type { OcrRequest, OcrResult } from "../../bridge/src/ocr";
+import type { OcrEngineState, OcrRequest } from "../../bridge/src/ocr";
 import type { CaptureStateMessage } from "./captureState";
 import type { CoalescedPublisher } from "./publish";
 
@@ -219,6 +230,15 @@ export function activate(context: vscode.ExtensionContext): void {
     textPublisher?.request();
   };
 
+  /**
+   * The engine's **state**, published to the panel (D-90, D-91).
+   *
+   * The panel has to be able to say which engine is in use, and - when the
+   * engine is not there - **why**, and what to install (D-75). It is a state,
+   * not a silence.
+   */
+  let ocrState: OcrEngineState | null = null;
+
   const sendEditorContentTo = (connection: BridgeConnection) => {
     connection.send(editorContentMessage(currentEditor()));
 
@@ -227,6 +247,18 @@ export function activate(context: vscode.ExtensionContext): void {
     // into a room with nobody in it (D-75).
     if (lastCaptureMessage) {
       connection.send(lastCaptureMessage);
+    }
+
+    // The same for the OCR engine's state: a panel which connects later has to
+    // learn which engine is in use, and why there is none (D-90, D-91).
+    if (ocrState) {
+      connection.send({
+        v: 1,
+        type: "ocr:state",
+        state: ocrState.state,
+        ...(ocrState.engine ? { engine: ocrState.engine } : {}),
+        ...(ocrState.reason ? { reason: ocrState.reason } : {}),
+      });
     }
   };
 
@@ -264,36 +296,88 @@ export function activate(context: vscode.ExtensionContext): void {
   /**
    * The **OCR service** of the bridge.
    *
-   * The engine is `tesseract.js` and it runs **here**, in the extension's Node
-   * process — never in the browser (D-59). It is loaded on the first request
-   * and kept afterwards, so the worker is created once and survives every
-   * read.
+   * The engine is **chosen** (`excalidraw-bridge.ocrEngine`, D-90):
+   * `tesseract` runs here, in the extension's Node process, and `indra` and
+   * `paddle` run in the Python sidecar - never in the browser (D-59).
    *
    * A failure is a **message**: the app has to be able to say why the text did
    * not arrive, so the answer is an `ocr:error` and never a silence.
    */
-  let ocrService: {
-    recognize: (request: OcrRequest) => Promise<OcrResult>;
-  } | null = null;
+  const configuredEngine = resolveOcrEngine(
+    configuration.get<string>("ocrEngine"),
+  );
+  const pythonPath = resolvePythonPath(configuration.get<string>("pythonPath"));
+
+  /**
+   * The engine's **state**, published to the panel (D-90, D-91).
+   *
+   * The panel has to be able to say which engine is in use, and - when the
+   * engine is not there - **why**, and what to install (D-75). It is a state,
+   * not a silence.
+   */
+  const publishOcrState = (state: OcrEngineState) => {
+    ocrState = state;
+    bridgeServer?.broadcast({
+      v: 1,
+      type: "ocr:state",
+      state: state.state,
+      ...(state.engine ? { engine: state.engine } : {}),
+      ...(state.reason ? { reason: state.reason } : {}),
+    });
+  };
+
+  /**
+   * The engine is resolved **once**, at activation: the panel is told which
+   * engine is in use without waiting for a read (D-90).
+   */
+  const resolveTheEngine = async () => {
+    const state = await resolveEngineState({
+      engine: configuredEngine,
+      sidecar: ocrSidecar({
+        pythonPath,
+        extensionDir: context.extensionPath,
+      }),
+      searchPaths: engineSearchPaths(workspaceRoot),
+    });
+
+    publishOcrState(state);
+  };
 
   const readText = async (request: OcrRequest) => {
     try {
-      if (!ocrService) {
-        ocrService = createOcrService(
-          await createTesseractEngine({
-            searchPaths: engineSearchPaths(workspaceRoot),
-          }),
-        );
-      }
+      // the request may name an engine; when it does not, the setting decides
+      const engine = engineForRequest(request.engine, configuredEngine);
 
-      const result = await ocrService.recognize({
-        id: request.id,
-        imageBase64: request.imageBase64,
-        ...(request.region ? { region: request.region } : {}),
-        ...(request.language ? { language: request.language } : {}),
+      const result = await readWithEngine({
+        engine,
+        request: {
+          id: request.id,
+          imageBase64: request.imageBase64,
+          ...(request.region ? { region: request.region } : {}),
+          ...(request.language ? { language: request.language } : {}),
+        },
+        sidecar: ocrSidecar({
+          pythonPath,
+          extensionDir: context.extensionPath,
+        }),
+        searchPaths: engineSearchPaths(workspaceRoot),
       });
 
-      bridgeServer?.broadcast({ v: 1, type: "ocr:result", ...result });
+      bridgeServer?.broadcast({
+        v: 1,
+        type: "ocr:result",
+        id: request.id,
+        text: result.text,
+        lines: result.lines,
+        ...(result.confidence === undefined
+          ? {}
+          : { confidence: result.confidence }),
+        // which engine ran, and how long it took (D-90)
+        ...(result.engine ? { engine: result.engine } : {}),
+        ...(result.durationMs === undefined
+          ? {}
+          : { durationMs: result.durationMs }),
+      });
     } catch (error) {
       const message = (error as Error).message;
 
@@ -357,6 +441,10 @@ export function activate(context: vscode.ExtensionContext): void {
   // The live view of the editor's own window (D-82). It is started once, and
   // it is stopped when the extension goes away.
   startWindowCapture();
+
+  // The OCR engine is resolved ONCE, here: the panel is told which engine is
+  // in use, and - when it is not there - why, and what to install (D-90, D-91).
+  void resolveTheEngine();
 
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(publishEditorContent),
@@ -442,6 +530,9 @@ export function deactivate(): void {
   // the capture is a process of its own: it goes away with the extension
   windowCapture?.stop();
   windowCapture = null;
+
+  // the OCR sidecar is a process of its own too (D-90)
+  stopOcrSidecar();
 
   // The trailing publish carries the LAST state, so it is flushed before the
   // extension goes away - the final text is never lost (D-88).
