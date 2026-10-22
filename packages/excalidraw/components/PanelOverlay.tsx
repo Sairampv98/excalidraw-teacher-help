@@ -29,6 +29,7 @@ import {
   CODE_PANEL_REGION_STYLE,
   isBridgeCodePanel,
   readCodePanelState,
+  readPanelView,
 } from "../scene/panelContent";
 import { readVideoPanelState } from "../scene/panelContent";
 import { readPanelPlayback } from "../scene/panelContent";
@@ -117,6 +118,13 @@ type PanelOverlayProps = {
    */
   onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
   /**
+   * The teacher flips the code panel's view (D-83).
+   *
+   * The host owns the write - the same shape as the lock button's
+   * `onToggleLock(panelId)` - so the panel asks and the host decides.
+   */
+  onToggleView?: (panelId: string) => void;
+  /**
    * The host is a **read-only mirror** — the presenter.
    *
    * A mirror applies the playback position the editor published and it never
@@ -193,7 +201,13 @@ const captionTrackDataUrl = (
  * **text** from the bridge. Do not go looking for a screenshot API: there
  * isn't one.
  */
-const CodePanelEditor = ({ value }: { value: string }) => {
+const CodePanelEditor = ({
+  value,
+  language,
+}: {
+  value: string;
+  language?: string;
+}) => {
   const [Editor, setEditor] =
     useState<React.ComponentType<CodeMirrorEditorProps> | null>(null);
 
@@ -237,6 +251,9 @@ const CodePanelEditor = ({ value }: { value: string }) => {
       readOnly={true}
       theme="vscode"
       placeholder={t("labels.panel.code.noFile")}
+      // the file's own language, so the editor wears the file's grammar and
+      // not the mermaid one (D-84)
+      language={language}
     />
   );
 };
@@ -265,8 +282,24 @@ const VS_CODE_HAIRLINE: React.CSSProperties = {
  * When there is no bridge, the panel says so. It never shows a blank editor:
  * a blank editor looks like a broken panel, and the teacher cannot tell it
  * apart from a program that produced nothing (D-52).
+ *
+ * ## The VIEW decides what is drawn (D-83)
+ *
+ * The native editor is the DEFAULT and the live picture of the editor's own
+ * window is the opt-in alternative. The teacher turns the live view on from
+ * the panel's own header, and the choice is the panel's own - it is persisted
+ * in the payload, so it survives the bridge's own writes.
  */
-const CodePanelSurface = ({ panel }: { panel: ExcalidrawPanelElement }) => {
+const CodePanelSurface = ({
+  panel,
+  onToggleView,
+  mirror,
+}: {
+  panel: ExcalidrawPanelElement;
+  onToggleView?: (panelId: string) => void;
+  /** the host is a read-only mirror - the presenter (D-57) */
+  mirror?: boolean;
+}) => {
   const state = readCodePanelState(panel.panel);
 
   /**
@@ -279,6 +312,9 @@ const CodePanelSurface = ({ panel }: { panel: ExcalidrawPanelElement }) => {
   const capture = useSyncExternalStore(subscribePanelCaptures, () =>
     getPanelCapture(panel.id),
   );
+
+  /** which view the teacher chose (D-83) */
+  const view = readPanelView(panel.panel);
 
   if (!state || state.connection !== "connected") {
     return (
@@ -298,6 +334,20 @@ const CodePanelSurface = ({ panel }: { panel: ExcalidrawPanelElement }) => {
 
   const hasFile = Boolean(state.editor.uri);
   const fileName = codePanelFileName(state.editor.uri);
+
+  /**
+   * The teacher turns the live view on and off from the panel's own header
+   * (D-83).
+   *
+   * The button is NOT in the panel's chrome: the chrome is only rendered for
+   * SELECTED panels, so a button there would be invisible until the panel is
+   * selected - and the teacher must be able to flip the view mid-class without
+   * selecting anything. This header is always mounted.
+   *
+   * A MIRROR does not get the button: the presenter shows the host's view, it
+   * does not change it (D-57).
+   */
+  const canToggleView = Boolean(onToggleView) && !mirror;
 
   return (
     <div
@@ -351,13 +401,47 @@ const CodePanelSurface = ({ panel }: { panel: ExcalidrawPanelElement }) => {
               {t("labels.panel.code.noFile")}
             </span>
           )}
+          {canToggleView ? (
+            <button
+              type="button"
+              className="excalidraw__panel-code-view"
+              data-testid="code-panel-view-toggle"
+              data-panel-id={panel.id}
+              data-view={view}
+              onClick={() => onToggleView?.(panel.id)}
+              title={
+                view === "live"
+                  ? t("labels.panel.code.showEditor")
+                  : t("labels.panel.code.showLive")
+              }
+              aria-label={
+                view === "live"
+                  ? t("labels.panel.code.showEditor")
+                  : t("labels.panel.code.showLive")
+              }
+              style={{
+                background: "transparent",
+                border: `1px solid ${VS_CODE_DARK.border}`,
+                borderRadius: 2,
+                color: VS_CODE_DARK.foreground,
+                cursor: "pointer",
+                font: "inherit",
+                marginLeft: 8,
+                padding: "0 6px",
+              }}
+            >
+              {view === "live"
+                ? t("labels.panel.code.viewLive")
+                : t("labels.panel.code.viewEditor")}
+            </button>
+          ) : null}
         </div>
 
         <div
           className="excalidraw__panel-code-source"
           data-testid="code-panel-source"
         >
-          {capture?.status === "live" ? (
+          {view === "live" && capture?.status === "live" ? (
             // The live view of the editor's window. The picture keeps the
             // aspect ratio it has in the editor: the width and the height are
             // the FRAME's own, and `contain` fits it into the panel without
@@ -377,7 +461,12 @@ const CodePanelSurface = ({ panel }: { panel: ExcalidrawPanelElement }) => {
               }}
             />
           ) : hasFile ? (
-            <CodePanelEditor value={state.editor.text} />
+            // The editor is the DEFAULT view (D-83), and in the live view it
+            // is the fallback when there is no picture.
+            <CodePanelEditor
+              value={state.editor.text}
+              language={state.editor.language}
+            />
           ) : (
             // The bridge is connected, but it has not sent an editor yet. That
             // is either because no file is open in the editor, or because the
@@ -394,10 +483,13 @@ const CodePanelSurface = ({ panel }: { panel: ExcalidrawPanelElement }) => {
             </div>
           )}
 
-          {capture?.status === "unavailable" ? (
+          {view === "live" && capture?.status === "unavailable" ? (
             // There is no live view, and the panel says **why**: the text
             // mirror above is the fallback, and a fallback the teacher cannot
-            // explain is a broken panel (D-75).
+            // explain is a broken panel (D-75). The reason is shown ONLY in
+            // the live view - in the default view there is nothing to
+            // explain, because the teacher did not ask for the live view
+            // (D-83).
             <div
               className="excalidraw__panel-code-status"
               data-testid="code-panel-live-status"
@@ -888,18 +980,27 @@ const PanelSurface = ({
   panel,
   files,
   onVideoEvent,
+  onToggleView,
   mirror,
 }: {
   panel: ExcalidrawPanelElement;
   files: BinaryFiles;
   onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
-  /** the host is a read-only mirror — the presenter (D-57) */
+  /** the teacher flips the code panel's view (D-83) */
+  onToggleView?: (panelId: string) => void;
+  /** the host is a read-only mirror - the presenter (D-57) */
   mirror?: boolean;
 }) => {
   const { source } = panel.panel;
 
   if (panel.panelKind === "code" && isBridgeCodePanel(panel)) {
-    return <CodePanelSurface panel={panel} />;
+    return (
+      <CodePanelSurface
+        panel={panel}
+        onToggleView={onToggleView}
+        mirror={mirror}
+      />
+    );
   }
 
   if (source.type === "file") {
@@ -959,6 +1060,7 @@ const Panel = ({
   camera,
   viewport,
   onVideoEvent,
+  onToggleView,
   mirror,
 }: {
   panel: ExcalidrawPanelElement;
@@ -967,6 +1069,8 @@ const Panel = ({
   camera: PanelCamera;
   viewport: { width: number; height: number };
   onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
+  /** the teacher flips the code panel's view (D-83) */
+  onToggleView?: (panelId: string) => void;
   /** the host is a read-only mirror — the presenter (D-57) */
   mirror?: boolean;
 }) => {
@@ -1032,6 +1136,7 @@ const Panel = ({
           panel={panel}
           files={files}
           onVideoEvent={onVideoEvent}
+          onToggleView={onToggleView}
           mirror={mirror}
         />
       </div>
@@ -1057,6 +1162,7 @@ const PanelOverlayImpl = ({
   camera,
   viewport,
   onVideoEvent,
+  onToggleView,
   mirror,
 }: PanelOverlayProps) => {
   if (panels.length === 0) {
@@ -1080,6 +1186,7 @@ const PanelOverlayImpl = ({
           camera={camera}
           viewport={viewport}
           onVideoEvent={onVideoEvent}
+          onToggleView={onToggleView}
           mirror={mirror}
         />
       ))}
@@ -1105,7 +1212,8 @@ const areEqual = (prev: PanelOverlayProps, next: PanelOverlayProps) =>
   prev.viewport.width === next.viewport.width &&
   prev.viewport.height === next.viewport.height &&
   prev.mirror === next.mirror &&
-  prev.onVideoEvent === next.onVideoEvent;
+  prev.onVideoEvent === next.onVideoEvent &&
+  prev.onToggleView === next.onToggleView;
 
 export const PanelOverlay = React.memo(PanelOverlayImpl, areEqual);
 

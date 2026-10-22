@@ -306,9 +306,40 @@ export interface CodePanelState {
 export type CodePanelContent = PanelContent & {
   /** the code panel's live state, or null when the panel has none yet */
   code: CodePanelState | null;
+  /**
+   * Which view the panel shows (D-83).
+   *
+   * `"editor"` is the **default**: the panel draws the mirrored text in the
+   * editor, with the file's own grammar. `"live"` is the opt-in alternative:
+   * the live picture of the teacher's editor window.
+   *
+   * It is the panel's OWN property and it is persisted with the document, so
+   * the teacher's choice survives a reload. It is optional, so a document
+   * written before it still loads - and it reads as the default.
+   */
+  view?: CodePanelView;
 };
 
-/** The state of a code panel that has not heard from the bridge yet. */
+/**
+ * The view a code panel shows.
+ *
+ * - `"editor"` — the mirrored text, in the editor, with the file's grammar.
+ * - `"live"` — the live picture of the editor's own window.
+ */
+export type CodePanelView = "editor" | "live";
+
+/**
+ * The view a code panel shows when it says nothing.
+ *
+ * The native editor is the DEFAULT and the live window is the opt-in
+ * alternative (D-83): a panel that was created before this wave - or one
+ * whose payload says nothing at all - shows the editor.
+ */
+export const DEFAULT_CODE_PANEL_VIEW: CodePanelView = "editor";
+
+/**
+ * The live state of a code panel that has not heard from the bridge yet.
+ */
 export const emptyCodePanelState = (): CodePanelState => ({
   connection: "not-connected",
   statusMessage: "Not connected to the Excalidraw Bridge.",
@@ -331,6 +362,9 @@ export const codePanelContent = (
     source: { type: "bridge", sessionId },
     options: { naturalWidth: null, naturalHeight: null, captions: null },
     code: state,
+    // a new panel shows the EDITOR: the live window is the opt-in
+    // alternative (D-83)
+    view: DEFAULT_CODE_PANEL_VIEW,
   };
 
   return content;
@@ -362,6 +396,57 @@ export const withCodePanelState = (
 
   return widened;
 };
+
+/**
+ * The view a code panel shows.
+ *
+ * The only way to READ the view — and a payload that says nothing reads as the
+ * DEFAULT: the native editor (D-83).
+ */
+export const readPanelView = (content: PanelContent): CodePanelView => {
+  const widened: Partial<CodePanelContent> = content;
+
+  return widened.view ?? DEFAULT_CODE_PANEL_VIEW;
+};
+
+/**
+ * The same payload with a new view in it.
+ *
+ * The only way to WRITE the view — the widening stays in here.
+ *
+ * The spread keeps everything else, and that is the point: the bridge writes
+ * the panel's payload on **every keystroke** in the teacher's editor, and the
+ * teacher's choice of view must survive that (D-83).
+ */
+export const withPanelView = (
+  content: PanelContent,
+  view: CodePanelView,
+): PanelContent => {
+  const widened: PanelContent & { view?: CodePanelView } = {
+    ...content,
+    view,
+  };
+
+  return widened;
+};
+
+/**
+ * The element update that changes a panel's view.
+ *
+ * In the same style as `panelLockUpdate` / `panelUnlockUpdate`
+ * (`./lockPanel`): the update is the payload with the new view in it, and it
+ * goes through `mutateElement`, so it is undoable like every other change.
+ */
+export type PanelViewUpdate = {
+  panel: PanelContent;
+};
+
+export const panelViewUpdate = (
+  content: PanelContent,
+  view: CodePanelView,
+): PanelViewUpdate => ({
+  panel: withPanelView(content, view),
+});
 
 /**
  * Whether a panel is a code panel backed by a bridge session.

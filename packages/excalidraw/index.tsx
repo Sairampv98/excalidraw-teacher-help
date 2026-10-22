@@ -467,10 +467,14 @@ export {
   codePanelContent,
   codePanelFileName,
   codePanelSize,
+  DEFAULT_CODE_PANEL_VIEW,
   emptyCodePanelState,
   isBridgeCodePanel,
+  panelViewUpdate,
   readCodePanelState,
+  readPanelView,
   withCodePanelState,
+  withPanelView,
 } from "./scene/panelContent";
 export type {
   CodePanelContent,
@@ -478,8 +482,19 @@ export type {
   CodePanelOutputLine,
   CodePanelRunState,
   CodePanelState,
+  CodePanelView,
   PanelBridgeStatus,
+  PanelViewUpdate,
 } from "./scene/panelContent";
+
+// the language registry: the library owns it and the HOST fills it, so the
+// published package never grows a grammar dependency (D-84)
+export {
+  codeMirrorLanguageIds,
+  loadCodeMirrorLanguage,
+  registerCodeMirrorLanguage,
+} from "./components/codeLanguages";
+export type { CodeMirrorLanguageLoader } from "./components/codeLanguages";
 
 // the live frames of the code panels: the registry that holds them, and the
 // reason it is NOT the element's payload (D-82)
