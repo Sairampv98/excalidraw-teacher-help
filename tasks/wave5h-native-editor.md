@@ -1,6 +1,6 @@
 ---
 id: wave5h-native-editor
-paths: packages/excalidraw,excalidraw-app,SPEC.md
+paths: packages/excalidraw,excalidraw-app,SPEC.md,yarn.lock
 read: SPEC.md,packages/excalidraw/scene/panelContent.ts,packages/excalidraw/components/PanelOverlay.tsx,packages/excalidraw/components/TTDDialog/CodeMirrorEditor.tsx,packages/excalidraw/components/PanelChrome.tsx,packages/excalidraw/scene/panelFrames.ts,excalidraw-app/sidebar/codeCard.ts
 base: main
 status: open
