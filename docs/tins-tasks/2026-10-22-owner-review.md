@@ -78,6 +78,28 @@ oneDNN/PIR bug on Windows (`ConvertPirAttribute2RuntimeAttribute not support`), 
 working configuration — `enable_mkldnn=False` — is the slow path. That is a fact to report
 (D-91), and wave 5o makes the engine work and says so.
 
+### The settings the owner has to set, exactly
+
+These are the extension's own settings (VS Code → Settings → search `excalidraw-bridge`).
+Paste them into `settings.json`; the token is the one the bridge panel shows, and it is the
+**session** token, so it changes when the extension generates a new one.
+
+```json
+{
+  "excalidraw-bridge.token": "<the token the bridge panel shows>",
+  "excalidraw-bridge.ocrEngine": "paddle",
+  "excalidraw-bridge.pythonPath": "C:\\Users\\user\\.pyenv\\pyenv-win\\versions\\3.12.10\\python.exe"
+}
+```
+
+- `excalidraw-bridge.port` — leave it **unset**. The port then comes from
+  `VITE_APP_BRIDGE_URL` in the workspace's `.env`, which is the same variable the
+  Excalidraw page is built with, and falls back to the shared default (47511). Setting it
+  by hand is how the page and the bridge end up on different ports.
+- `excalidraw-bridge.captureFps` — 6 a second by default. Six is enough to read by.
+- The **engine**: `tesseract` runs inside the extension itself; `indra` and `paddle` run in
+  a Python sidecar, which is why `pythonPath` matters for them.
+
 ---
 
 ## Where each wave's design lives
