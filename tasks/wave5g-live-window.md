@@ -3,7 +3,7 @@ id: wave5g-live-window
 paths: packages/excalidraw,packages/vscode-bridge,excalidraw-app,SPEC.md
 read: SPEC.md,packages/vscode-bridge/bridge/src/protocol.ts,packages/vscode-bridge/bridge/src/ws-frame.ts,packages/excalidraw/scene/panelContent.ts,packages/excalidraw/components/PanelOverlay.tsx,excalidraw-app/bridge/useBridgePanel.ts
 base: main
-status: open
+status: merged
 ---
 
 Wave 5g: the code panel shows the teacher ACTUAL editor window, streamed live from the extension.
@@ -77,4 +77,3 @@ REPORT BACK
 7. Anything you could not do and why, and anything in the brief you found to be wrong.
 8. The final git status of the worktree, with the changes unstaged.
 Do not summarise the design back. Report evidence: command output, test names, file paths.
-

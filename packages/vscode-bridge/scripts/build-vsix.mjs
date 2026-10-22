@@ -189,6 +189,7 @@ const outPath =
 
 rmSync(stageDir, { recursive: true, force: true });
 mkdirSync(join(stageDir, "extension", "out"), { recursive: true });
+mkdirSync(join(stageDir, "extension", "media"), { recursive: true });
 
 await build({
   entryPoints: [join(extensionDir, "src", "extension.ts")],
@@ -209,6 +210,14 @@ copyFileSync(
   join(stageDir, "extension", "package.json"),
 );
 
+// The capture helper SHIPS with the extension: the panel's live view of the
+// editor's own window is drawn by it, and the extension finds it relative to
+// its own installed path. Without it the extension would have nothing to run.
+copyFileSync(
+  join(extensionDir, "media", "capture.ps1"),
+  join(stageDir, "extension", "media", "capture.ps1"),
+);
+
 const readme = join(packageRoot, "README.md");
 if (existsSync(readme)) {
   copyFileSync(readme, join(stageDir, "extension", "README.md"));
@@ -217,6 +226,7 @@ if (existsSync(readme)) {
 const entries = [
   { name: "extension/package.json", data: readFileSync(join(stageDir, "extension", "package.json")) },
   { name: "extension/out/extension.js", data: readFileSync(join(stageDir, "extension", "out", "extension.js")) },
+  { name: "extension/media/capture.ps1", data: readFileSync(join(stageDir, "extension", "media", "capture.ps1")) },
 ];
 if (existsSync(join(stageDir, "extension", "README.md"))) {
   entries.push({

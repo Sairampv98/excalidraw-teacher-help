@@ -51,6 +51,7 @@ export const BRIDGE_MESSAGE_TYPES = [
   "bridge:auth",
   "bridge:hello",
   "editor:content",
+  "editor:frame",
   "run:started",
   "run:output",
   "run:exit",
@@ -108,6 +109,41 @@ export type BridgeMessage =
       text: string;
       selection?: BridgeSelection;
       version: number;
+    }
+  /**
+   * extension -> panel. One frame of the editor's own window (D-82).
+   *
+   * The frame is a PNG, base64-encoded, and it travels in **one** message:
+   * the transport's frame length is 64-bit and has no size cap, so a frame is
+   * never chunked and never split.
+   *
+   * The frame does NOT ride in the panel's element payload - the payload is
+   * saved with the document - so it reaches the panel over the app's own
+   * in-memory registry instead.
+   */
+  | {
+      v: 1;
+      type: "editor:frame";
+      /**
+       * "live" - a frame arrived. "unavailable" - the capture cannot run.
+       *
+       * The second state is a **message**, not a silence: the panel has to be
+       * able to say why there is no live view (D-75).
+       */
+      state: "live" | "unavailable";
+      /** the PNG, base64-encoded. Empty when the state is "unavailable". */
+      data: string;
+      /** the captured region's width, in the frame's own pixels. */
+      width: number;
+      /** the captured region's height, in the frame's own pixels. */
+      height: number;
+      /** the frame's number: 1, 2, 3 ... */
+      seq: number;
+      /**
+       * Why the capture is not running. Never empty when the state is
+       * "unavailable".
+       */
+      reason?: string;
     }
   /** extension -> panel. The program started. */
   | { v: 1; type: "run:started"; runId: string; command: string; cwd: string }
@@ -217,6 +253,25 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
         typeof value.text === "string" &&
         typeof value.version === "number" &&
         (value.selection === undefined || isSelection(value.selection))
+      );
+    case "editor:frame":
+      return (
+        (value.state === "live" || value.state === "unavailable") &&
+        typeof value.data === "string" &&
+        typeof value.width === "number" &&
+        typeof value.height === "number" &&
+        typeof value.seq === "number" &&
+        (value.reason === undefined || typeof value.reason === "string") &&
+        // a live frame carries a picture and its own size; an unavailable
+        // capture carries the reason and nothing else
+        (value.state === "live"
+          ? value.data.length > 0 &&
+            value.width > 0 &&
+            value.height > 0 &&
+            value.reason === undefined
+          : value.data.length === 0 &&
+            typeof value.reason === "string" &&
+            value.reason.length > 0)
       );
     case "run:started":
       return (

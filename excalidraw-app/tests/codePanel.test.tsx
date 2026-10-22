@@ -125,13 +125,41 @@ const codePanelElement = () =>
   });
 
 /**
+ * A code panel that is already **connected**, the way it is after the bridge
+ * has said hello.
+ *
+ * The harness's API is a stand-in: it holds the elements in a variable, so
+ * what the app writes into them is not what the rendered Excalidraw shows.
+ * A panel that draws its editor region therefore has to start connected.
+ */
+const connectedCodePanelElement = () =>
+  newPanelElement({
+    type: "panel",
+    x: 100,
+    y: 100,
+    width: 400,
+    height: 300,
+    panelKind: "code",
+    panel: codePanelContent(
+      {
+        ...emptyCodePanelState(),
+        connection: "connected",
+        statusMessage: "Connected to the Excalidraw Bridge.",
+      },
+      "session-1",
+    ),
+    posterMode: false,
+    posterFileId: null,
+  });
+
+/**
  * The app's scene, and the API the hook writes into.
  *
  * The hook needs an API; this one keeps the elements in a variable, so the
  * test can look at what the app wrote into the document.
  */
-const scene = () => {
-  const panel = codePanelElement() as unknown as ExcalidrawElement;
+const scene = (element?: ExcalidrawElement) => {
+  const panel = (element ?? codePanelElement()) as unknown as ExcalidrawElement;
 
   const state: { elements: ExcalidrawElement[] } = { elements: [panel] };
 
@@ -602,5 +630,68 @@ describe("the app's side of the bridge", () => {
 
     expect(state.elements[0].width).toBe(280);
     expect(state.elements[0].height).toBe(200);
+  });
+
+  it("AC-102 the app's frame handler writes nothing into the document", async () => {
+    mockClipboard(TEST_TOKEN);
+
+    // the panel is already connected, so it draws its editor region
+    const { api, state, panel } = scene(connectedCodePanelElement());
+
+    await render(<Harness api={api} panel={panel} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    fireEvent.click(
+      document.querySelector('[data-testid="panel-bridge-paste"]')!,
+    );
+
+    await waitFor(() => expect(FakeSocket.instances.length).toBe(1));
+
+    const socket = lastSocket();
+
+    socket.open();
+
+    await waitFor(() => expect(socket.sent.length).toBe(1));
+
+    // the extension says hello ...
+    act(() => {
+      socket.receive({
+        v: 1,
+        type: "bridge:hello",
+        version: "0.1.0",
+        workspace: "demo",
+        appName: "VSCodium",
+      });
+    });
+
+    // ... and then it streams a frame of the editor's own window
+    act(() => {
+      socket.receive({
+        v: 1,
+        type: "editor:frame",
+        state: "live",
+        data: "a-frame-in-base64",
+        width: 1295,
+        height: 687,
+        seq: 1,
+      });
+    });
+
+    // the panel DRAWS it ...
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-live-frame"]'),
+      ).not.toBeNull(),
+    );
+
+    // ... and the DOCUMENT carries no frame at all. The payload is saved with
+    // the document, so a frame in it would put the teacher's screen into the
+    // .excalidraw file (D-82).
+    expect(JSON.stringify(state.elements)).not.toContain("a-frame-in-base64");
+    expect(JSON.stringify(panelState(state))).not.toContain(
+      "a-frame-in-base64",
+    );
+    expect(JSON.stringify(state.elements)).not.toContain("editor:frame");
   });
 });
