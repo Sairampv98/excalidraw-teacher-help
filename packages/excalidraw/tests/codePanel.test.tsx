@@ -237,6 +237,58 @@ describe("the code panel", () => {
     expect(noEditor!.textContent).toContain("No file is open");
   });
 
+  it("AC-130 the code panel's source region is never blank", async () => {
+    await render(<Excalidraw />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    // The bridge is not connected. The panel says WHY it has nothing to show,
+    // and it never renders an empty editor - a blank editor is a black box
+    // with no explanation, which is exactly what the owner saw on 2026-10-22
+    // (D-93).
+    API.setElements([asElement(codePanel(emptyCodePanelState()))]);
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-status"]'),
+      ).not.toBeNull(),
+    );
+
+    const status = document.querySelector('[data-testid="code-panel-status"]')!;
+
+    expect(status.textContent).not.toBe("");
+    expect(status.textContent).toContain("Not connected");
+
+    // and there is no empty editor pretending to be the source
+    expect(
+      document.querySelector('[data-testid="code-panel-editor"]'),
+    ).toBeNull();
+
+    // The bridge is connected and a file IS open, but the file has no content.
+    // The source region says that, instead of showing an empty editor.
+    const state = connectedState();
+
+    API.setElements([
+      asElement(
+        codePanel({
+          ...state,
+          editor: { ...state.editor, text: "" },
+        }),
+      ),
+    ]);
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-empty-file"]'),
+      ).not.toBeNull(),
+    );
+
+    const source = document.querySelector('[data-testid="code-panel-source"]')!;
+
+    expect(source.textContent).toContain("This file is empty.");
+    expect(source.querySelector(".cm-editor")).toBeNull();
+  });
+
   it("AC-82 the panel chrome shows the three connection states", async () => {
     const onPasteToken = vi.fn();
 
