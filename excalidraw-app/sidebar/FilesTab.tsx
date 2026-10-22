@@ -1,22 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useExcalidrawAPI } from "@excalidraw/excalidraw";
+import { videoFormatName } from "@excalidraw/excalidraw";
+import { t } from "@excalidraw/excalidraw/i18n";
 
 import { findCaptionSidecar } from "../components/videoCaptions";
 
 import { browserState, setBrowserCwd, setBrowserRoot } from "./browserState";
+import { hideVideoWireframe, showVideoWireframe } from "./dragWireframe";
 import { DocumentViewer } from "./DocumentViewer";
 import {
   DRAG_MIME,
+  armFileDragOnCanvas,
   armImageDragOnCanvas,
   armInsert,
   cancelImageDrag,
   cancelImagePaste,
   copyImageToClipboard,
   insertImageIntoScene,
-  pendingImageDrag,
+  pendingFileDrag,
 } from "./insertIntoScene";
-import { insertVideoPanel } from "./videoPanel";
+import {
+  VIDEO_PANEL_FALLBACK_HEIGHT,
+  VIDEO_PANEL_FALLBACK_WIDTH,
+  browserCanPlayVideo,
+  insertVideoPanel,
+} from "./videoPanel";
 import {
   FILE_ACCEPT,
   directoriesAt,
@@ -365,11 +374,26 @@ export const FilesTab = () => {
   /**
    * Picking a video does not arm a canvas click: a video is a **panel**, and a
    * panel is placed by the insert, not dropped on a click.
+   *
+   * It does say one thing first: whether this browser can play the container
+   * at all. The insert is never refused (D-97) — the teacher is never told
+   * "no" — but they are told **before** the insert, so they can convert the
+   * file first if they would rather.
    */
   const onPickVideo = useCallback((entry: ScannedFile) => {
     setSelected(entry.path);
     // a fresh gesture supersedes whatever the last one complained about
     setNotice(null);
+
+    const mimeType = entry.file.type;
+
+    if (mimeType && !browserCanPlayVideo(mimeType)) {
+      setNotice(
+        `${t("labels.panel.video.cannotPlay", {
+          format: videoFormatName(mimeType),
+        })} ${t("labels.panel.video.convertCommand")}`,
+      );
+    }
   }, []);
 
   /**
@@ -377,6 +401,11 @@ export const FilesTab = () => {
    * draggable and the release point becomes the drop point. Nothing is put on
    * the dataTransfer but a private marker — the file travels through our own
    * stash, exactly like the click flow, so both paths share one insert.
+   *
+   * A **video** takes the same path as an image (D-98) — it is the same stash
+   * and the same release point. The difference is the wait: a big video takes a
+   * moment to be read and stored, so a loading wireframe stands where the
+   * player will land until the insert finishes.
    */
   const startDrag = useCallback(
     (entry: ScannedFile, event: React.DragEvent<HTMLButtonElement>) => {
@@ -388,10 +417,51 @@ export const FilesTab = () => {
       event.dataTransfer.effectAllowed = "copy";
       event.dataTransfer.setData(DRAG_MIME, "1");
 
+      if (entry.kind === "video") {
+        // the captions of a video come from the sidecar next to it
+        const sidecar = findCaptionSidecar(entry, scan.files);
+
+        armFileDragOnCanvas(
+          api,
+          {
+            kind: "video",
+            file: entry.file,
+            sidecarFile: sidecar?.file ?? null,
+          },
+          () => setArmed(null),
+          async (dragged, at, client) => {
+            const zoom = api.getAppState().zoom.value;
+
+            // the wireframe stands where the player will land: the panel's own
+            // fallback size, at the canvas's zoom (D-98)
+            showVideoWireframe({
+              clientX: client.clientX,
+              clientY: client.clientY,
+              width: VIDEO_PANEL_FALLBACK_WIDTH * zoom,
+              height: VIDEO_PANEL_FALLBACK_HEIGHT * zoom,
+            });
+
+            try {
+              await insertVideoPanel(api, {
+                videoFile: dragged.file,
+                sidecarFile:
+                  dragged.kind === "video" ? dragged.sidecarFile ?? null : null,
+                at,
+              });
+            } finally {
+              hideVideoWireframe();
+            }
+          },
+        );
+
+        setArmed({ name: entry.name, mode: "drag" });
+        return;
+      }
+
       armImageDragOnCanvas(api, entry.file, () => setArmed(null));
       setArmed({ name: entry.name, mode: "drag" });
     },
-    [api],
+    [api, scan.files],
   );
 
   // the drag is over either way: a drop on the canvas already spent the stash,
@@ -401,7 +471,7 @@ export const FilesTab = () => {
     // fires, so a stash that is *still* armed here means the release was
     // rejected — over the sidebar, or off the canvas. Say so, rather than
     // letting the hint disappear and leaving the user to guess.
-    const rejected = !!pendingImageDrag();
+    const rejected = !!pendingFileDrag();
 
     cancelImageDrag();
     setArmed((current) => (current?.mode === "drag" ? null : current));
@@ -606,9 +676,13 @@ export const FilesTab = () => {
             ? onPickVideo(file)
             : setReading(file.path)
         }
-        draggable={image}
-        onDragStart={image ? (event) => startDrag(file, event) : undefined}
-        onDragEnd={image ? endDrag : undefined}
+        // a video drags too — it takes the image's path and lands as a panel
+        // (D-98)
+        draggable={image || video}
+        onDragStart={
+          image || video ? (event) => startDrag(file, event) : undefined
+        }
+        onDragEnd={image || video ? endDrag : undefined}
         title={file.path}
       >
         {image ? (

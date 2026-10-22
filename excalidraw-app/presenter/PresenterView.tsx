@@ -18,6 +18,7 @@ import type {
 } from "@excalidraw/element/types";
 
 import { STORAGE_KEYS } from "../app_constants";
+import { registerMediaStore } from "../data/mediaStore";
 import { useHandleAppTheme } from "../useHandleAppTheme";
 
 import {
@@ -332,6 +333,17 @@ export const PresenterView = () => {
     },
     [applyPointer, applyScene, requestMissingFiles],
   );
+
+  // ---------------------------------------------------------------------------
+  // the media store (D-96)
+  //
+  // The presenter is a **second window of the same origin**, so it has the
+  // same IndexedDB as the editor: a media-backed panel is resolved **here**,
+  // from the same store, and its bytes never travel the channel at all.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    registerMediaStore();
+  }, []);
 
   // ---------------------------------------------------------------------------
   // channel lifecycle

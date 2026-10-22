@@ -10,7 +10,16 @@ import ExcalidrawApp from "./App";
 // (D-84). The import registers them, so it happens before any editor mounts.
 import "./codeLanguages";
 
+import { registerMediaStore } from "./data/mediaStore";
+
 window.__EXCALIDRAW_SHA__ = import.meta.env.VITE_APP_GIT_SHA;
+
+// The app's resolver for a **media-backed** panel (D-95): the library owns the
+// shape and the app owns the bytes. It is registered here, before anything
+// mounts, because the presenter window is the **same origin** and reads the
+// same store (D-96) — so one registration serves both windows.
+registerMediaStore();
+
 const rootElement = document.getElementById("root")!;
 const root = createRoot(rootElement);
 registerSW();

@@ -46,6 +46,8 @@ import type {
 
 import type { NormalizedZoomValue } from "../types";
 
+import type { PanelSource } from "./mediaRegistry";
+
 export type PanelCamera = {
   zoom: { value: NormalizedZoomValue };
   scrollX: number;
@@ -576,8 +578,24 @@ export const CODE_PANEL_REGION_STYLE = {
  * bridge fetches it and the app stores it, so the panel is the same panel
  * either way, and the only thing that differs is where the **captions** come
  * from: a sidecar next to the file, or the bridge.
+ *
+ * And a video too big to travel in the document names **media** instead (D-95):
+ * the bytes stay in the host's media store and the payload carries a short id.
  */
-export type VideoPanelSource = PanelContent["source"];
+export type VideoPanelSource = PanelSource;
+
+/**
+ * The video's format, in the words a teacher would use.
+ *
+ * `video/x-matroska` is "matroska", `video/mp4` is "mp4". It is read off the
+ * media type and not off a list of "good" extensions: the browser's own
+ * verdict is the oracle (D-97), and this only names what it rejected.
+ */
+export const videoFormatName = (mimeType: string) => {
+  const subtype = mimeType.split("/")[1] ?? mimeType;
+
+  return subtype.replace(/^x-/, "");
+};
 
 /**
  * The live state of a **video panel**.
@@ -610,6 +628,12 @@ export type VideoPanelState = {
  * and `options`; the video panel's own live state is a third thing, and the
  * element type lives outside this wave's scope, so the widening happens here,
  * in one place — the same rule the code panel follows.
+ *
+ * The `source` of a **media-backed** panel names the media variant (D-95),
+ * which `PanelContent` cannot: the element type lives in `@excalidraw/element`,
+ * outside this wave's scope, so that widening happens here too.
+ * `panelSource()` is the only way to **read** a panel's source back, and it
+ * returns the widened union.
  */
 export type VideoPanelContent = PanelContent & {
   /** the video panel's live state, or null when the panel has none yet */
@@ -644,7 +668,11 @@ export const videoPanelContent = ({
     tracks.find((track) => track.language === language) ?? tracks[0] ?? null;
 
   return {
-    source,
+    // The payload's `source` type is declared by `@excalidraw/element`, and it
+    // cannot name the **media** variant (D-95) — the element type is outside
+    // this wave's scope. So the widening is paid for HERE, in one place, and
+    // `panelSource()` is the only way to read the source back.
+    source: source as PanelContent["source"],
     options: {
       naturalWidth,
       naturalHeight,

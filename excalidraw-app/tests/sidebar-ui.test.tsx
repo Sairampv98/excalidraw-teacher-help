@@ -7,6 +7,7 @@ import { ExcalidrawAPIContext } from "@excalidraw/excalidraw/components/App";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
 import { resetBrowserState } from "../sidebar/browserState";
+import { hideVideoWireframe } from "../sidebar/dragWireframe";
 import { FilesTab } from "../sidebar/FilesTab";
 import {
   cancelCodePaste,
@@ -14,6 +15,38 @@ import {
   handleCodePaste,
   pendingCodePaste,
 } from "../sidebar/insertIntoScene";
+
+/**
+ * The video's own size.
+ *
+ * The browser's job, not the sidebar's — and jsdom cannot read a video's
+ * metadata at all, so it is stood in for here. The gate lets a test hold the
+ * read open, so the loading wireframe can be seen while the insert is still
+ * in flight (D-98).
+ */
+const videoSize = vi.hoisted(() => ({
+  hold: false,
+  release: null as null | (() => void),
+}));
+
+vi.mock("../components/videoCaptions", async (importOriginal) => {
+  const mod = await importOriginal<
+    typeof import("../components/videoCaptions")
+  >();
+
+  return {
+    ...mod,
+    readVideoSize: async () => {
+      if (videoSize.hold) {
+        await new Promise<void>((resolve) => {
+          videoSize.release = resolve;
+        });
+      }
+
+      return { width: 1920, height: 1080 };
+    },
+  };
+});
 
 /** jsdom's File/Blob has no text(), which the code path for md/code needs */
 const makeFile = (name: string, type = "", body = "const a = 1;") => {
@@ -66,6 +99,8 @@ const fakeApi = () => {
     height: 800,
     zoom: { value: 1 },
     selectedElementIds: {} as Record<string, boolean>,
+    currentPageId: "page-1",
+    currentItemStrokeColor: "#1e1e1e",
   };
 
   const calls: { elements?: readonly unknown[] }[] = [];
@@ -538,6 +573,173 @@ describe("FilesTab rejected drags", () => {
     fireEvent.click(container.querySelector(".app-file-list__row")!);
 
     expect(container.querySelector(".app-sidebar-note--warn")).toBeNull();
+  });
+});
+
+/**
+ * A **video** takes the image's drag path (D-98): the row is draggable, the
+ * canvas accepts the release, and the video lands under the pointer — as a
+ * panel, with a loading wireframe standing where the player will be while the
+ * bytes are read.
+ */
+describe("FilesTab video drags", () => {
+  const canvases: HTMLCanvasElement[] = [];
+
+  afterEach(() => {
+    for (const canvas of canvases.splice(0)) {
+      canvas.remove();
+    }
+    cancelImageDrag();
+    hideVideoWireframe();
+    videoSize.hold = false;
+    videoSize.release = null;
+  });
+
+  const stubDataTransfer = () => ({
+    effectAllowed: "",
+    dropEffect: "",
+    setData: vi.fn(),
+    types: [] as string[],
+  });
+
+  const fireDragStart = (row: Element, dataTransfer: object) => {
+    const event = new Event("dragstart", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "dataTransfer", { value: dataTransfer });
+    fireEvent(row, event);
+  };
+
+  const stubCanvas = () => {
+    const canvas = document.createElement("canvas");
+    canvas.className = "excalidraw__canvas interactive";
+    canvas.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 600,
+        width: 800,
+        height: 600,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect);
+    document.body.appendChild(canvas);
+    canvases.push(canvas);
+    return canvas;
+  };
+
+  const renderWithVideo = () => {
+    mockObjectUrls();
+    mockClipboard(vi.fn().mockRejectedValue(new Error("denied")), class {});
+    stubCanvas();
+
+    const { api, calls } = fakeApi();
+    const { container } = render(
+      <ExcalidrawAPIContext.Provider value={api}>
+        <FilesTab />
+      </ExcalidrawAPIContext.Provider>,
+    );
+
+    pickFiles(getFilesInput(container), [makeFile("clip.mp4", "video/mp4")]);
+
+    return { container, calls };
+  };
+
+  const dropOnCanvas = (clientX: number, clientY: number) => {
+    window.dispatchEvent(
+      new MouseEvent("drop", {
+        clientX,
+        clientY,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  };
+
+  it("AC-136 a video row drags onto the canvas and the panel lands under the pointer", async () => {
+    const { container, calls } = renderWithVideo();
+
+    const row = Array.from(
+      container.querySelectorAll(".app-file-list__row"),
+    ).find((candidate) => candidate.textContent?.includes("clip.mp4"))!;
+
+    expect(row).toBeTruthy();
+
+    // the video row is draggable — that was the whole of the owner's complaint
+    expect(row.getAttribute("draggable")).toBe("true");
+
+    fireDragStart(row, stubDataTransfer());
+
+    // the drag is armed, and the hint says so
+    await waitFor(() =>
+      expect(container.querySelector(".app-sidebar-note--armed")).toBeTruthy(),
+    );
+
+    dropOnCanvas(400, 300);
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+
+    const panel = (
+      calls[0].elements as Array<{
+        type: string;
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      }>
+    ).find((element) => element.type === "panel");
+
+    expect(panel).toBeTruthy();
+
+    // the panel's own CENTRE is the release point, exactly as it is for an
+    // image
+    expect(panel!.x + panel!.width / 2).toBeCloseTo(400, 0);
+    expect(panel!.y + panel!.height / 2).toBeCloseTo(300, 0);
+  });
+
+  it("AC-136 a loading wireframe stands where the player will land", async () => {
+    // the read of the video's own size is held open, so the insert is still
+    // in flight when the wireframe is looked for
+    videoSize.hold = true;
+
+    const { container } = renderWithVideo();
+
+    const row = Array.from(
+      container.querySelectorAll(".app-file-list__row"),
+    ).find((candidate) => candidate.textContent?.includes("clip.mp4"))!;
+
+    fireDragStart(row, stubDataTransfer());
+    dropOnCanvas(400, 300);
+
+    // the wireframe stands where the player will land
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="video-wireframe"]'),
+      ).not.toBeNull(),
+    );
+
+    const wireframe = document.querySelector(
+      '[data-testid="video-wireframe"]',
+    ) as HTMLElement;
+
+    // the panel is 480 by 270 scene units at a zoom of 1, centred on the
+    // release point
+    expect(wireframe.style.width).toBe("480px");
+    expect(wireframe.style.height).toBe("270px");
+    expect(wireframe.style.left).toBe("160px");
+    expect(wireframe.style.top).toBe("165px");
+
+    // and it is GONE when the insert finishes: a wireframe left behind would
+    // be a second, false panel
+    await waitFor(() => expect(videoSize.release).not.toBeNull());
+
+    videoSize.release!();
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="video-wireframe"]'),
+      ).toBeNull(),
+    );
   });
 });
 

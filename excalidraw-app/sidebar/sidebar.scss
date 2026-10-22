@@ -796,3 +796,24 @@
   color: var(--text-secondary-color);
   line-height: 1.5;
 }
+
+/**
+ * The loading wireframe that stands where a dropped video's player will land
+ * (D-98). It is the app's own overlay, and it is removed when the insert
+ * finishes or fails.
+ */
+.app-video-wireframe {
+  position: fixed;
+  z-index: 999;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 1px dashed var(--color-border, #888);
+  border-radius: 0.5rem;
+  background-color: var(--color-surface-low, rgba(0, 0, 0, 0.06));
+  color: var(--text-secondary-color, #666);
+  font-size: 0.75rem;
+  font-family: inherit;
+}

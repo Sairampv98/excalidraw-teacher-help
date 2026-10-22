@@ -457,13 +457,41 @@ export const armImagePasteOnCanvas = (
 /** private mime type, so the drag starts without advertising a real file */
 export const DRAG_MIME = "application/x-excalidraw-app-sidebar-file";
 
-let pendingDrag: File | null = null;
+/**
+ * What is being dragged onto the canvas (D-98).
+ *
+ * A video takes the **same** path as an image — the row is draggable, the
+ * canvas accepts the release, and the thing lands under the pointer. The only
+ * difference is what the release *inserts*: a picture becomes an image
+ * element, a video becomes a video panel.
+ */
+export type DraggedFile =
+  | { kind: "image"; file: File }
+  | { kind: "video"; file: File; sidecarFile?: File | null };
+
+/**
+ * What the canvas does with a released drag.
+ *
+ * The image path is the default; a video brings its own, because a video
+ * becomes a panel and only the panel's insert knows how to place one.
+ */
+export type DragInserter = (
+  dragged: DraggedFile,
+  at: ScenePoint,
+  client: { clientX: number; clientY: number },
+) => void | Promise<void>;
+
+let pendingDrag: DraggedFile | null = null;
 let detachCanvasDrop: (() => void) | null = null;
 
-/** the image being dragged over the canvas, if any */
-export const pendingImageDrag = () => pendingDrag;
+/** the file being dragged over the canvas, if any */
+export const pendingFileDrag = () => pendingDrag;
 
-/** forgets the dragged image and stops listening for the release */
+/** the IMAGE being dragged over the canvas, if any */
+export const pendingImageDrag = () =>
+  pendingDrag?.kind === "image" ? pendingDrag.file : null;
+
+/** forgets the dragged file and stops listening for the release */
 export const cancelImageDrag = () => {
   pendingDrag = null;
 
@@ -504,21 +532,23 @@ const isOverSidebar = (event: Event) => {
 };
 
 /**
- * Stashes `file` for a single drag. `dragover` is only prevented over the
+ * Stashes `dragged` for a single drag. `dragover` is only prevented over the
  * canvas, which is also what makes the copy cursor appear there and nowhere
  * else; everywhere else the browser ends the drag on its own. Returns the
  * cancel function, which the caller must also run when the drag ends so a
  * release outside the canvas can't leave the stash armed.
  */
-export const armImageDragOnCanvas = (
+export const armFileDragOnCanvas = (
   api: ExcalidrawImperativeAPI,
-  file: File,
+  dragged: DraggedFile,
   /** run once the stash has been consumed, so the caller can drop its hint */
   onConsumed?: () => void,
+  /** what the release inserts; the image path is the default */
+  insert?: DragInserter,
 ) => {
   cancelImageDrag();
 
-  pendingDrag = file;
+  pendingDrag = dragged;
 
   const canvas = findCanvas();
 
@@ -572,14 +602,19 @@ export const armImageDragOnCanvas = (
 
     onConsumed?.();
 
-    insertImageIntoScene(
-      api,
-      stashed,
-      clientPointToScene(api, canvas, event.clientX, event.clientY),
-    ).catch((error) => {
+    const client = { clientX: event.clientX, clientY: event.clientY };
+    const at = clientPointToScene(api, canvas, client.clientX, client.clientY);
+
+    // the image path is the default; a video brings its own inserter, because
+    // a video becomes a panel (D-98)
+    const inserted = insert
+      ? insert(stashed, at, client)
+      : insertImageIntoScene(api, stashed.file, at);
+
+    Promise.resolve(inserted).catch((error) => {
       console.error(error);
       api.setToast?.({
-        message: `Could not add ${stashed.name}`,
+        message: `Could not add ${stashed.file.name}`,
         closable: true,
       });
     });
@@ -595,6 +630,19 @@ export const armImageDragOnCanvas = (
 
   return cancelImageDrag;
 };
+
+/**
+ * Stashes an **image** for a single drag.
+ *
+ * The image path of `armFileDragOnCanvas`, kept as its own name because it is
+ * the one the sidebar has always used.
+ */
+export const armImageDragOnCanvas = (
+  api: ExcalidrawImperativeAPI,
+  file: File,
+  /** run once the stash has been consumed, so the caller can drop its hint */
+  onConsumed?: () => void,
+) => armFileDragOnCanvas(api, { kind: "image", file }, onConsumed);
 
 /**
  * Soft-wraps source so the inserted block stays a sane width. Wrapping happens

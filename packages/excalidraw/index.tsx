@@ -519,6 +519,7 @@ export {
   readCaptionBinding,
   readPanelPlayback,
   readVideoPanelState,
+  videoFormatName,
   videoPanelContent,
   withVideoPanelState,
 } from "./scene/panelContent";
@@ -532,6 +533,21 @@ export type {
   VideoPanelSource,
   VideoPanelState,
 } from "./scene/panelContent";
+
+// the media registry: the library owns the SHAPE and the host owns the BYTES
+// (D-95). The host registers a resolver; the library asks it for a URL.
+export {
+  hasMediaResolver,
+  isMediaPanelSource,
+  panelSource,
+  registerMediaResolver,
+  resolveMediaUrl,
+} from "./scene/mediaRegistry";
+export type {
+  MediaPanelSource,
+  MediaResolver,
+  PanelSource,
+} from "./scene/mediaRegistry";
 
 // the playback sync of a video panel: the rule that keeps the presenter's
 // video in step with the editor's (D-57)

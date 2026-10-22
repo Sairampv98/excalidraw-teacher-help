@@ -1,9 +1,8 @@
 ---
 id: wave5l-big-video
 paths: packages/excalidraw,excalidraw-app,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 5l — the video becomes real: big files, the format the browser cannot play, and the drag path
@@ -96,4 +95,3 @@ Add to the acceptance table, in the shape
 ## The gates
 
 `node scripts/tins-gate.mjs` must pass 4/4 (typecheck, eslint, prettier, vitest) and `node scripts/rowcheck.mjs --all` must exit 0. The kit's own SPEC lint must pass. Report the measured numbers (the bytes that no longer travel, the insert time before and after) in the close note.
-
