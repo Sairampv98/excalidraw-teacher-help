@@ -50,6 +50,23 @@ export interface CodeMirrorEditorProps {
    */
   readOnly?: boolean;
   /**
+   * Whether the editor takes the focus when it mounts.
+   *
+   * A **dialog** wants it: the teacher opened the dialog to type. A **panel**
+   * does not: a panel appears on the canvas, and taking the focus would take
+   * the teacher's keystrokes away from the canvas they are drawing on. The
+   * teacher clicks into the editor when they want to type (D-123).
+   */
+  focusOnMount?: boolean;
+  /**
+   * The `data-testid` of the editor's own host.
+   *
+   * CodeMirror builds its DOM itself, so a test that wants to find the
+   * editable surface has to be given a handle - the class names are
+   * CodeMirror's, not the library's (D-123).
+   */
+  testId?: string;
+  /**
    * The language of the text, as VS Code names it (`python`, `java`,
    * `javascript`, `cpp`, ...).
    *
@@ -259,6 +276,8 @@ const CodeMirrorEditor = ({
   errorLine,
   readOnly = false,
   language,
+  testId,
+  focusOnMount = true,
 }: CodeMirrorEditorProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -319,7 +338,7 @@ const CodeMirrorEditor = ({
 
     viewRef.current = view;
 
-    if (!readOnly) {
+    if (!readOnly && focusOnMount) {
       // a read-only mirror must not steal the keyboard from the canvas
       view.focus();
     }
@@ -411,6 +430,7 @@ const CodeMirrorEditor = ({
     <div
       ref={containerRef}
       className="ttd-dialog-input ttd-dialog-input--codemirror"
+      data-testid={testId}
     />
   );
 };

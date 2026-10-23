@@ -4,9 +4,14 @@ import {
   readCodePanelState,
   withCodePanelState,
 } from "@excalidraw/excalidraw";
+import { readPanelDraft, withPanelDraft } from "@excalidraw/excalidraw";
 
 import type { ExcalidrawElement } from "@excalidraw/element/types";
-import type { CodePanelState, PanelCapture } from "@excalidraw/excalidraw";
+import type {
+  CodePanelDraft,
+  CodePanelState,
+  PanelCapture,
+} from "@excalidraw/excalidraw";
 
 import { NO_WORKSPACE_NAME } from "../../packages/vscode-bridge/bridge/src/protocol";
 
@@ -118,6 +123,22 @@ export const reduceCodePanelState = (
         ]),
       };
 
+    case "run:notice":
+      // A **fact** about a run (D-124): the run was killed at the timeout, the
+      // output was longer than the bound, or the language's runtime is not on
+      // this machine. The panel says it - a fact the teacher cannot see is a
+      // fact the teacher does not have.
+      return {
+        ...state,
+        console: keepTail([
+          ...state.console,
+          {
+            level: message.kind === "truncated" ? "info" : "error",
+            text: message.text,
+          },
+        ]),
+      };
+
     case "run:exit":
       return {
         ...state,
@@ -173,6 +194,50 @@ export const reduceCodePanelState = (
 
     return newElementWith(element, {
       panel: withCodePanelState(element.panel, state),
+    });
+  });
+
+  return changed ? next : elements;
+};
+
+/**
+ * The elements, with one panel carrying the teacher's own **draft** (D-123).
+ *
+ * The draft is the panel's own business: it rides in the payload, so it is
+ * saved with the document, and it is written with `newElementWith` - the same
+ * path every other change takes.
+ *
+ * The **same array** comes back when nothing changed, so the caller can tell
+ * "there is nothing to do" from "the scene changed" without comparing the
+ * elements one by one.
+ */
+export const applyPanelDraft = (
+  elements: readonly ExcalidrawElement[],
+  panelId: string,
+  draft: CodePanelDraft,
+): readonly ExcalidrawElement[] => {
+  let changed = false;
+
+  const next = elements.map((element) => {
+    if (!isPanelElement(element) || element.id !== panelId) {
+      return element;
+    }
+
+    const current = readPanelDraft(element.panel);
+
+    if (
+      current &&
+      current.text === draft.text &&
+      current.language === draft.language &&
+      current.edited === draft.edited
+    ) {
+      return element;
+    }
+
+    changed = true;
+
+    return newElementWith(element, {
+      panel: withPanelDraft(element.panel, draft),
     });
   });
 

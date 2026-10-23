@@ -10,6 +10,7 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 
 import React from "react";
 
+import { EditorView } from "@codemirror/view";
 import { render as renderComponent } from "@testing-library/react";
 
 import type {
@@ -28,6 +29,7 @@ import {
   readCodePanelState,
   readPanelView,
   withCodePanelState,
+  withPanelDraft,
   withPanelView,
 } from "../scene/panelContent";
 import {
@@ -1208,5 +1210,186 @@ describe("the code panel's view", () => {
         '[data-testid="code-panel-source"] .cm-content span',
       ).length,
     ).toBe(0);
+  });
+
+  it("AC-161 the teacher can type in the editor view", async () => {
+    const onChange = vi.fn();
+
+    const panel = codePanelInView(connectedState(), "editor");
+
+    await render(<Excalidraw panelDraft={{ onChange }} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    const overlay = document.querySelector('[data-testid="panel-overlay"]');
+
+    // the editor is there, and CodeMirror says on its own DOM that it is
+    // **editable**: a read-only mirror says `aria-readonly`
+    const host = await waitFor(() => {
+      const found = overlay!.querySelector(
+        '[data-testid="code-panel-draft-editor"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found!;
+    });
+
+    const content = await waitFor(() => {
+      const found = host.querySelector(".cm-content") as HTMLElement | null;
+
+      expect(found).not.toBeNull();
+
+      return found!;
+    });
+
+    expect(content.getAttribute("contenteditable")).toBe("true");
+    expect(content.getAttribute("aria-readonly")).toBeNull();
+
+    // and the teacher's typing is reported to the host, which owns the write
+    const view = EditorView.findFromDOM(host as HTMLElement);
+
+    expect(view).not.toBeNull();
+
+    act(() => {
+      view!.dispatch({
+        changes: {
+          from: 0,
+          to: view!.state.doc.length,
+          insert: "print('bye')",
+        },
+      });
+    });
+
+    expect(onChange).toHaveBeenCalledWith(panel.id, "print('bye')");
+
+    // and the panel says which text it is showing: the mirror, because the
+    // teacher has not touched the draft yet (D-123)
+    expect(
+      overlay!
+        .querySelector('[data-testid="code-panel-editor-source"]')!
+        .getAttribute("data-source"),
+    ).toBe("mirror");
+  });
+
+  it("AC-161 a mirror update does not overwrite a panel the teacher has edited", async () => {
+    const onChange = vi.fn();
+
+    const panel = codePanelInView(connectedState(), "editor");
+
+    // the teacher typed: the draft is theirs
+    const edited = {
+      ...panel,
+      panel: withPanelDraft(panel.panel, {
+        text: "print('mine')",
+        language: "python",
+        edited: true,
+      }),
+    } as unknown as ExcalidrawPanelElement;
+
+    await render(<Excalidraw panelDraft={{ onChange }} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(edited)]);
+
+    const overlay = document.querySelector('[data-testid="panel-overlay"]');
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-source"] .cm-content'),
+      ).not.toBeNull(),
+    );
+
+    // the extension publishes **other** text: the mirror moves on
+    const mirrored = {
+      ...edited,
+      panel: withCodePanelState(edited.panel, {
+        ...connectedState(),
+        editor: {
+          ...connectedState().editor,
+          text: "print('theirs')",
+        },
+      }),
+    } as unknown as ExcalidrawPanelElement;
+
+    act(() => {
+      API.setElements([asElement(mirrored)]);
+    });
+
+    // the teacher's own text is still there
+    const content = document.querySelector(
+      '[data-testid="code-panel-source"] .cm-content',
+    );
+
+    expect(content!.textContent).toContain("print('mine')");
+    expect(content!.textContent).not.toContain("print('theirs')");
+
+    // and the panel says it is showing the draft
+    expect(
+      overlay!
+        .querySelector('[data-testid="code-panel-editor-source"]')!
+        .getAttribute("data-source"),
+    ).toBe("draft");
+  });
+
+  it("AC-164 the editor view works with no bridge and says that running needs one", async () => {
+    const onChange = vi.fn();
+
+    const panel = codePanelInView(emptyCodePanelState(), "editor");
+
+    await render(<Excalidraw panelDraft={{ onChange }} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    const overlay = document.querySelector('[data-testid="panel-overlay"]');
+
+    // the state of the connection is said ...
+    const status = overlay!.querySelector('[data-testid="code-panel-status"]');
+
+    expect(status).not.toBeNull();
+    expect(status!.getAttribute("data-bridge-state")).toBe("not-connected");
+    expect(status!.textContent).not.toBe("");
+
+    // ... and the editor is there anyway, and it is editable: the teacher's
+    // own text does not need a bridge (D-123)
+    const host = await waitFor(() => {
+      const found = overlay!.querySelector(
+        '[data-testid="code-panel-draft-editor"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found!;
+    });
+
+    const content = await waitFor(() => {
+      const found = host.querySelector(".cm-content") as HTMLElement | null;
+
+      expect(found).not.toBeNull();
+
+      return found!;
+    });
+
+    expect(content.getAttribute("contenteditable")).toBe("true");
+    expect(content.getAttribute("aria-readonly")).toBeNull();
+
+    // and the panel says that running needs the bridge (D-124)
+    const note = overlay!.querySelector(
+      '[data-testid="code-panel-run-needs-bridge"]',
+    );
+
+    expect(note).not.toBeNull();
+    expect(note!.textContent).not.toBe("");
+    expect(note!.textContent).toContain("Bridge");
+
+    // the Run control is there, and it is not pretending
+    const run = overlay!.querySelector(
+      '[data-testid="code-panel-run"]',
+    ) as HTMLButtonElement;
+
+    expect(run).not.toBeNull();
+    expect(run.disabled).toBe(true);
   });
 });

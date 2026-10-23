@@ -28,6 +28,7 @@ import {
   codePanelFileName,
   CODE_PANEL_REGION_STYLE,
   isBridgeCodePanel,
+  panelEditorText,
   panelScale,
   readCodePanelState,
   readPanelView,
@@ -65,7 +66,12 @@ import {
   unregisterVideoSurface,
 } from "./videoPanelSurface";
 
-import type { BinaryFiles, PanelScreenshotControls } from "../types";
+import type {
+  BinaryFiles,
+  PanelDraftControls,
+  PanelRunControls,
+  PanelScreenshotControls,
+} from "../types";
 
 import type { CodeMirrorEditorProps } from "./TTDDialog/CodeMirrorEditor";
 
@@ -148,6 +154,20 @@ type PanelOverlayProps = {
    */
   screenshot?: PanelScreenshotControls;
   /**
+   * The host's controls for the code panel's **draft** (D-123).
+   *
+   * The library draws the editor and reports what the teacher typed; the host
+   * writes it into the panel's payload.
+   */
+  draft?: PanelDraftControls;
+  /**
+   * The host's controls for the code panel's **Run** control (D-124).
+   *
+   * The library draws the button and the language picker; the host sends the
+   * request and the extension runs the code.
+   */
+  run?: PanelRunControls;
+  /**
    * The host is a **read-only mirror** — the presenter.
    *
    * A mirror applies the playback position the editor published and it never
@@ -227,9 +247,28 @@ const captionTrackDataUrl = (
 const CodePanelEditor = ({
   value,
   language,
+  onChange,
+  readOnly = true,
+  focusOnMount = false,
 }: {
   value: string;
   language?: string;
+  /** the teacher typed. The panel reports it; the host writes it (D-123). */
+  onChange?: (value: string) => void;
+  /**
+   * A **mirror** is read-only: the text belongs to the editor it mirrors
+   * (D-123).
+   *
+   * The teacher's own **draft** is not: a panel that shows text must let the
+   * teacher change it (D-123).
+   */
+  readOnly?: boolean;
+  /**
+   * A panel does **not** take the focus when it appears: the teacher is
+   * drawing on the canvas, and a panel that swallowed the keyboard would make
+   * the editor unusable (D-123).
+   */
+  focusOnMount?: boolean;
 }) => {
   const [Editor, setEditor] =
     useState<React.ComponentType<CodeMirrorEditorProps> | null>(null);
@@ -270,13 +309,17 @@ const CodePanelEditor = ({
   return (
     <Editor
       value={value}
-      onChange={() => {}}
-      readOnly={true}
+      onChange={onChange ?? (() => {})}
+      readOnly={readOnly}
       theme="vscode"
       placeholder={t("labels.panel.code.noFile")}
       // the file's own language, so the editor wears the file's grammar and
       // not the mermaid one (D-84)
       language={language}
+      // the testid is on the editor's own host, so the test can find the
+      // editable surface without knowing how CodeMirror builds its DOM
+      testId="code-panel-draft-editor"
+      focusOnMount={focusOnMount}
     />
   );
 };
@@ -488,6 +531,8 @@ const CodePanelSurface = ({
   onToggleView,
   screenshot,
   mirror,
+  draft,
+  run,
 }: {
   panel: ExcalidrawPanelElement;
   /** the chrome's geometry, in the panel's own units (D-92) */
@@ -497,6 +542,10 @@ const CodePanelSurface = ({
   screenshot?: PanelScreenshotControls;
   /** the host is a read-only mirror - the presenter (D-57) */
   mirror?: boolean;
+  /** the host's controls for the teacher's own text (D-123) */
+  draft?: PanelDraftControls;
+  /** the host's controls for the Run control (D-124) */
+  run?: PanelRunControls;
 }) => {
   const state = readCodePanelState(panel.panel);
 
@@ -519,26 +568,57 @@ const CodePanelSurface = ({
   /** which view the panel shows: the default, or the teacher's own choice (D-99) */
   const view = readPanelView(panel.panel);
 
-  if (!state || state.connection !== "connected") {
-    return (
-      <div
-        className="excalidraw__panel-code-status"
-        data-testid="code-panel-status"
-        data-bridge-state={state?.connection ?? "not-connected"}
-        style={{
-          background: VS_CODE_DARK.background,
-          color: VS_CODE_DARK.foreground,
-        }}
-      >
-        {/* the panel says WHY it has nothing to show - a region with nothing
-            in it is never an answer (D-93) */}
-        {state?.statusMessage || t("labels.panel.code.notConnected")}
-      </div>
-    );
-  }
+  /** where the bridge connection stands */
+  const connected = state?.connection === "connected";
 
-  const hasFile = Boolean(state.editor.uri);
-  const fileName = codePanelFileName(state.editor.uri);
+  /**
+   * What the editor shows, and where the text came from (D-123).
+   *
+   * The oracle is the library's own `panelEditorText`: the mirror is what a
+   * draft STARTS from, and a draft the teacher has edited is theirs alone.
+   */
+  const editor = panelEditorText(
+    panel.panel,
+    state ? { text: state.editor.text, language: state.editor.language } : null,
+  );
+
+  /**
+   * Whether the panel draws the editor at all.
+   *
+   * The editor is drawn when the panel has **text** to show or to edit, when
+   * the teacher asked for the editor view (D-83), or when there is **no
+   * bridge at all** - that last one is the owner's bypass: the editor has to
+   * work with nothing connected to it (D-123).
+   */
+  const showEditor =
+    view === "editor" ||
+    !connected ||
+    Boolean(editor.text) ||
+    editor.source === "draft";
+
+  /**
+   * The languages the teacher may run.
+   *
+   * They are the ones the **extension** found on this machine (D-124): the
+   * picker never offers a language whose runtime is not there.
+   */
+  const languageOptions = useMemo(() => {
+    const options: string[] = [];
+    if (editor.language) {
+      options.push(editor.language);
+    }
+
+    for (const language of run?.languages ?? []) {
+      if (language && !options.includes(language)) {
+        options.push(language);
+      }
+    }
+
+    return options;
+  }, [editor.language, run?.languages]);
+
+  const hasFile = Boolean(state?.editor.uri);
+  const fileName = codePanelFileName(state?.editor.uri ?? "");
 
   /**
    * The teacher turns the live view on and off from the panel's own header
@@ -552,7 +632,198 @@ const CodePanelSurface = ({
    * A MIRROR does not get the button: the presenter shows the host's view, it
    * does not change it (D-57).
    */
-  const canToggleView = Boolean(onToggleView) && !mirror;
+  const canToggleView = Boolean(onToggleView) && !mirror && connected;
+
+  /**
+   * The **run bar**: the language to run, the Run control, and which text the
+   * editor is showing (D-123, D-124).
+   *
+   * The library draws the controls and says which it is showing; the **host**
+   * sends the request and the **extension** runs the code. The library never
+   * runs anything itself.
+   */
+  const runBar = (
+    <div
+      className="excalidraw__panel-code-runbar"
+      data-testid="code-panel-runbar"
+    >
+      {languageOptions.length ? (
+        <select
+          className="excalidraw__panel-code-language-picker"
+          data-testid="code-panel-language-picker"
+          aria-label={t("labels.panel.code.runLanguage")}
+          value={editor.language}
+          onChange={(event) =>
+            draft?.onLanguageChange?.(panel.id, event.target.value)
+          }
+          style={{
+            background: "transparent",
+            color: VS_CODE_DARK.foreground,
+            border: `1px solid ${VS_CODE_DARK.border}`,
+            borderRadius: 2,
+            font: "inherit",
+          }}
+        >
+          {/* The draft has no language yet: the picker says so instead of
+              pretending one is chosen (D-122's rule - say what is missing). */}
+          {editor.language ? null : (
+            <option value="">{t("labels.panel.code.runLanguageNone")}</option>
+          )}
+          {languageOptions.map((language) => (
+            <option key={language} value={language}>
+              {language}
+            </option>
+          ))}
+        </select>
+      ) : null}
+      <button
+        type="button"
+        className="excalidraw__panel-code-run"
+        data-testid="code-panel-run"
+        data-panel-id={panel.id}
+        disabled={!connected}
+        onClick={() => run?.onRun?.(panel.id)}
+        title={t("labels.panel.code.runTitle")}
+        aria-label={t("labels.panel.code.runTitle")}
+        style={{
+          background: "transparent",
+          border: `1px solid ${VS_CODE_DARK.border}`,
+          borderRadius: 2,
+          color: VS_CODE_DARK.foreground,
+          cursor: connected ? "pointer" : "not-allowed",
+          font: "inherit",
+          opacity: connected ? 1 : 0.6,
+        }}
+      >
+        {t("labels.panel.code.run")}
+      </button>
+      {/* Which text the editor is showing: the teacher's own draft, or the
+          mirror it started from (D-123). */}
+      <span
+        className="excalidraw__panel-code-editor-source"
+        data-testid="code-panel-editor-source"
+        data-source={editor.source}
+        style={{ color: VS_CODE_DARK.muted }}
+      >
+        {editor.source === "draft"
+          ? t("labels.panel.code.yourDraft")
+          : t("labels.panel.code.theMirror")}
+      </span>
+      {!connected ? (
+        // Running needs the extension, and the extension is not there: the
+        // panel says so instead of pretending (D-124).
+        <span
+          className="excalidraw__panel-code-run-note"
+          data-testid="code-panel-run-needs-bridge"
+          style={{ color: VS_CODE_DARK.muted }}
+        >
+          {t("labels.panel.code.runNeedsBridge")}
+        </span>
+      ) : null}
+    </div>
+  );
+
+  /**
+   * The panel's **source**: the live picture, the editor, or the reason there
+   * is neither.
+   */
+  const source = (
+    <div
+      className="excalidraw__panel-code-source"
+      data-testid="code-panel-source"
+    >
+      {view === "live" && capture?.status === "live" ? (
+        // The live view of the editor's window: a **plain `<img>`**
+        // pointed at the extension's MJPEG stream (D-85). The browser
+        // decodes the JPEG natively, so the app does nothing per frame.
+        // The picture keeps the aspect ratio it has in the editor:
+        // `contain` fits it into the panel without stretching it, and
+        // the frame's own size comes from the stream itself - the app is
+        // never told it (D-82).
+        <img
+          className="excalidraw__panel-code-live"
+          data-testid="code-panel-live-frame"
+          src={capture.streamUrl}
+          alt=""
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "contain",
+            display: "block",
+          }}
+        />
+      ) : showEditor ? (
+        // The editor is the FALLBACK of the live view (D-99), and it is what
+        // the teacher sees when the panel is in the editor view. It is
+        // **editable**: the panel shows the teacher's own text, and the
+        // mirror is only what that text started from (D-123).
+        <>
+          <CodePanelEditor
+            value={editor.text}
+            language={editor.language}
+            // the presenter's copy is a mirror: it is read-only (D-57)
+            readOnly={Boolean(mirror)}
+            onChange={(text) => draft?.onChange?.(panel.id, text)}
+          />
+          {/* The run bar is at the **bottom** of the source region: the
+              panel's own chrome - the bridge field - hangs over the panel's
+              top-left corner, and a control under it is a control the
+              teacher cannot press. */}
+          {runBar}
+        </>
+      ) : hasFile ? (
+        // The file IS open, but it has no content. An empty editor
+        // would look like a broken panel, and the teacher could not
+        // tell it apart from a program that produced nothing - so the
+        // region says what it knows (D-93).
+        <div
+          className="excalidraw__panel-code-status"
+          data-testid="code-panel-empty-file"
+          style={{ color: VS_CODE_DARK.foreground }}
+        >
+          {t("labels.panel.code.emptyFile")}
+        </div>
+      ) : (
+        // The bridge is connected, but it has not sent an editor yet. That
+        // is either because no file is open in the editor, or because the
+        // extension has not told us yet. A blank region would look like a
+        // broken panel, and the teacher could not tell it apart from a
+        // program that produced nothing (D-52) - so the panel says what it
+        // knows (D-75).
+        <div
+          className="excalidraw__panel-code-status"
+          data-testid="code-panel-no-editor"
+          style={{ color: VS_CODE_DARK.foreground }}
+        >
+          {t("labels.panel.code.noFile")}
+        </div>
+      )}
+
+      {view === "live" && capture?.status !== "live" ? (
+        // There is no live view, and the panel says **why**: the text
+        // mirror above is the fallback, and a fallback the teacher cannot
+        // explain is a broken panel (D-75). The reason is shown ONLY in
+        // the live view - in the editor view there is nothing to explain,
+        // because the teacher did not ask for the live view (D-83).
+        //
+        // Two reasons, and both of them are the panel's own knowledge: the
+        // capture said it cannot run (and it says why), or there is no
+        // descriptor AT ALL - the editor has not published the live view
+        // yet, or the presenter has not heard it. A presenter that has
+        // heard nothing says so, and never shows a black rectangle
+        // (D-101).
+        <div
+          className="excalidraw__panel-code-status excalidraw__panel-code-notice"
+          data-testid="code-panel-live-status"
+          style={{ color: VS_CODE_DARK.muted }}
+        >
+          {capture?.status === "unavailable"
+            ? capture.reason
+            : t("labels.panel.code.liveNotArrived")}
+        </div>
+      ) : null}
+    </div>
+  );
 
   return (
     <div
@@ -563,181 +834,117 @@ const CodePanelSurface = ({
         color: VS_CODE_DARK.foreground,
       }}
     >
-      <div
-        className="excalidraw__panel-code-editor"
-        data-testid="code-panel-editor"
-        style={CODE_PANEL_REGION_STYLE.editor}
-      >
-        {/* the tab strip: WHICH file this is, the way a VS Code tab says it */}
+      {connected ? (
         <div
-          className="excalidraw__panel-code-header"
-          data-testid="code-panel-header"
-          style={{
-            borderBottomWidth: 1,
-            borderBottomStyle: "solid",
-            borderBottomColor: VS_CODE_DARK.accent,
-            // The chrome is sized for the SCREEN and the content for the
-            // PANEL (D-92): the header keeps its size on screen at any zoom,
-            // and it is tall enough for its own text.
-            minHeight: chrome.headerHeight,
-            fontSize: chrome.headerFontSize,
-            // The camera hangs on the panel's own corner (D-115), so the
-            // header keeps the room it needs and the view toggle is never
-            // hidden under the camera.
-            ...(screenshot ? { paddingRight: chrome.cameraReserve } : {}),
-          }}
+          className="excalidraw__panel-code-editor"
+          data-testid="code-panel-editor"
+          style={CODE_PANEL_REGION_STYLE.editor}
         >
-          {hasFile ? (
-            <>
+          {/* the tab strip: WHICH file this is, the way a VS Code tab says it */}
+          <div
+            className="excalidraw__panel-code-header"
+            data-testid="code-panel-header"
+            style={{
+              borderBottomWidth: 1,
+              borderBottomStyle: "solid",
+              borderBottomColor: VS_CODE_DARK.accent,
+              // The chrome is sized for the SCREEN and the content for the
+              // PANEL (D-92): the header keeps its size on screen at any zoom,
+              // and it is tall enough for its own text.
+              minHeight: chrome.headerHeight,
+              fontSize: chrome.headerFontSize,
+              // The camera hangs on the panel's own corner (D-115), so the
+              // header keeps the room it needs and the view toggle is never
+              // hidden under the camera.
+              ...(screenshot ? { paddingRight: chrome.cameraReserve } : {}),
+            }}
+          >
+            {hasFile ? (
+              <>
+                <span
+                  className="excalidraw__panel-code-file"
+                  data-testid="code-panel-file"
+                >
+                  {fileName || state?.editor.uri}
+                </span>
+                {state?.editor.language ? (
+                  <span
+                    className="excalidraw__panel-code-language"
+                    data-testid="code-panel-language"
+                    style={{
+                      color: VS_CODE_DARK.muted,
+                      fontSize: chrome.languageFontSize,
+                    }}
+                  >
+                    {state.editor.language}
+                  </span>
+                ) : null}
+              </>
+            ) : (
+              // no file is open: the panel says so, with the same wording it
+              // uses everywhere else for that case (D-80)
               <span
                 className="excalidraw__panel-code-file"
-                data-testid="code-panel-file"
+                data-testid="code-panel-no-file"
               >
-                {fileName || state.editor.uri}
+                {t("labels.panel.code.noFile")}
               </span>
-              {state.editor.language ? (
-                <span
-                  className="excalidraw__panel-code-language"
-                  data-testid="code-panel-language"
-                  style={{
-                    color: VS_CODE_DARK.muted,
-                    fontSize: chrome.languageFontSize,
-                  }}
-                >
-                  {state.editor.language}
-                </span>
-              ) : null}
-            </>
-          ) : (
-            // no file is open: the panel says so, with the same wording it
-            // uses everywhere else for that case (D-80)
-            <span
-              className="excalidraw__panel-code-file"
-              data-testid="code-panel-no-file"
-            >
-              {t("labels.panel.code.noFile")}
-            </span>
-          )}
-          {canToggleView ? (
-            <button
-              type="button"
-              className="excalidraw__panel-code-view"
-              data-testid="code-panel-view-toggle"
-              data-panel-id={panel.id}
-              data-view={view}
-              onClick={() => onToggleView?.(panel.id)}
-              title={
-                view === "live"
-                  ? t("labels.panel.code.showEditor")
-                  : t("labels.panel.code.showLive")
-              }
-              aria-label={
-                view === "live"
-                  ? t("labels.panel.code.showEditor")
-                  : t("labels.panel.code.showLive")
-              }
-              style={{
-                background: "transparent",
-                border: `1px solid ${VS_CODE_DARK.border}`,
-                borderRadius: 2,
-                color: VS_CODE_DARK.foreground,
-                cursor: "pointer",
-                font: "inherit",
-              }}
-            >
-              {view === "live"
-                ? t("labels.panel.code.viewLive")
-                : t("labels.panel.code.viewEditor")}
-            </button>
-          ) : null}
-        </div>
-
-        <div
-          className="excalidraw__panel-code-source"
-          data-testid="code-panel-source"
-        >
-          {view === "live" && capture?.status === "live" ? (
-            // The live view of the editor's window: a **plain `<img>`**
-            // pointed at the extension's MJPEG stream (D-85). The browser
-            // decodes the JPEG natively, so the app does nothing per frame.
-            // The picture keeps the aspect ratio it has in the editor:
-            // `contain` fits it into the panel without stretching it, and
-            // the frame's own size comes from the stream itself - the app is
-            // never told it (D-82).
-            <img
-              className="excalidraw__panel-code-live"
-              data-testid="code-panel-live-frame"
-              src={capture.streamUrl}
-              alt=""
-              style={{
-                width: "100%",
-                height: "100%",
-                objectFit: "contain",
-                display: "block",
-              }}
-            />
-          ) : hasFile ? (
-            // The editor is the FALLBACK of the live view (D-99), and it is
-            // what the teacher sees when the panel is in the editor view.
-            state.editor.text ? (
-              <CodePanelEditor
-                value={state.editor.text}
-                language={state.editor.language}
-              />
-            ) : (
-              // The file IS open, but it has no content. An empty editor
-              // would look like a broken panel, and the teacher could not
-              // tell it apart from a program that produced nothing - so the
-              // region says what it knows (D-93).
-              <div
-                className="excalidraw__panel-code-status"
-                data-testid="code-panel-empty-file"
-                style={{ color: VS_CODE_DARK.foreground }}
+            )}
+            {canToggleView ? (
+              <button
+                type="button"
+                className="excalidraw__panel-code-view"
+                data-testid="code-panel-view-toggle"
+                data-panel-id={panel.id}
+                data-view={view}
+                onClick={() => onToggleView?.(panel.id)}
+                title={
+                  view === "live"
+                    ? t("labels.panel.code.showEditor")
+                    : t("labels.panel.code.showLive")
+                }
+                aria-label={
+                  view === "live"
+                    ? t("labels.panel.code.showEditor")
+                    : t("labels.panel.code.showLive")
+                }
+                style={{
+                  background: "transparent",
+                  border: `1px solid ${VS_CODE_DARK.border}`,
+                  borderRadius: 2,
+                  color: VS_CODE_DARK.foreground,
+                  cursor: "pointer",
+                  font: "inherit",
+                }}
               >
-                {t("labels.panel.code.emptyFile")}
-              </div>
-            )
-          ) : (
-            // The bridge is connected, but it has not sent an editor yet. That
-            // is either because no file is open in the editor, or because the
-            // extension has not told us yet. A blank region would look like a
-            // broken panel, and the teacher could not tell it apart from a
-            // program that produced nothing (D-52) - so the panel says what it
-            // knows (D-75).
-            <div
-              className="excalidraw__panel-code-status"
-              data-testid="code-panel-no-editor"
-              style={{ color: VS_CODE_DARK.foreground }}
-            >
-              {t("labels.panel.code.noFile")}
-            </div>
-          )}
+                {view === "live"
+                  ? t("labels.panel.code.viewLive")
+                  : t("labels.panel.code.viewEditor")}
+              </button>
+            ) : null}
+          </div>
 
-          {view === "live" && capture?.status !== "live" ? (
-            // There is no live view, and the panel says **why**: the text
-            // mirror above is the fallback, and a fallback the teacher cannot
-            // explain is a broken panel (D-75). The reason is shown ONLY in
-            // the live view - in the editor view there is nothing to explain,
-            // because the teacher did not ask for the live view (D-83).
-            //
-            // Two reasons, and both of them are the panel's own knowledge: the
-            // capture said it cannot run (and it says why), or there is no
-            // descriptor AT ALL - the editor has not published the live view
-            // yet, or the presenter has not heard it. A presenter that has
-            // heard nothing says so, and never shows a black rectangle
-            // (D-101).
-            <div
-              className="excalidraw__panel-code-status"
-              data-testid="code-panel-live-status"
-              style={{ color: VS_CODE_DARK.muted }}
-            >
-              {capture?.status === "unavailable"
-                ? capture.reason
-                : t("labels.panel.code.liveNotArrived")}
-            </div>
-          ) : null}
+          {source}
         </div>
-      </div>
+      ) : (
+        <>
+          {/* The panel says WHY it has nothing to show - a region with nothing
+              in it is never an answer (D-93). And the editor is STILL there:
+              the teacher's own text does not need a bridge (D-123). */}
+          <div
+            className="excalidraw__panel-code-status excalidraw__panel-code-notice"
+            data-testid="code-panel-status"
+            data-bridge-state={state?.connection ?? "not-connected"}
+            style={{
+              background: VS_CODE_DARK.background,
+              color: VS_CODE_DARK.foreground,
+            }}
+          >
+            {state?.statusMessage || t("labels.panel.code.notConnected")}
+          </div>
+          {source}
+        </>
+      )}
       <div
         className="excalidraw__panel-code-output"
         data-testid="code-panel-output"
@@ -747,7 +954,7 @@ const CodePanelSurface = ({
           color: VS_CODE_DARK.foreground,
         }}
       >
-        {state.output.map((line, index) => (
+        {(state?.output ?? []).map((line, index) => (
           <div
             key={`${index}-${line.text}`}
             className="excalidraw__panel-code-line"
@@ -766,7 +973,7 @@ const CodePanelSurface = ({
           color: VS_CODE_DARK.foreground,
         }}
       >
-        {state.console.map((line, index) => (
+        {(state?.console ?? []).map((line, index) => (
           <div
             key={`${index}-${line.text}`}
             className="excalidraw__panel-code-line"
@@ -1468,6 +1675,8 @@ const PanelSurface = ({
   onToggleView,
   screenshot,
   mirror,
+  draft,
+  run,
 }: {
   panel: ExcalidrawPanelElement;
   files: BinaryFiles;
@@ -1480,6 +1689,10 @@ const PanelSurface = ({
   screenshot?: PanelScreenshotControls;
   /** the host is a read-only mirror - the presenter (D-57) */
   mirror?: boolean;
+  /** the host's controls for the teacher's own text (D-123) */
+  draft?: PanelDraftControls;
+  /** the host's controls for the Run control (D-124) */
+  run?: PanelRunControls;
 }) => {
   // the source, widened: a panel may name media in the host's store (D-95)
   const source = panelSource(panel);
@@ -1492,6 +1705,8 @@ const PanelSurface = ({
         onToggleView={onToggleView}
         screenshot={screenshot}
         mirror={mirror}
+        draft={draft}
+        run={run}
       />
     );
   }
@@ -1585,6 +1800,8 @@ const Panel = ({
   onToggleView,
   screenshot,
   mirror,
+  draft,
+  run,
 }: {
   panel: ExcalidrawPanelElement;
   files: BinaryFiles;
@@ -1598,6 +1815,10 @@ const Panel = ({
   screenshot?: PanelScreenshotControls;
   /** the host is a read-only mirror — the presenter (D-57) */
   mirror?: boolean;
+  /** the host's controls for the teacher's own text (D-123) */
+  draft?: PanelDraftControls;
+  /** the host's controls for the Run control (D-124) */
+  run?: PanelRunControls;
 }) => {
   const { zoom, scrollX, scrollY } = camera;
 
@@ -1714,6 +1935,8 @@ const Panel = ({
           onToggleView={onToggleView}
           screenshot={screenshot}
           mirror={mirror}
+          draft={draft}
+          run={run}
         />
         {pending ? (
           // the editor steps back while its picture is in focus (D-116)
@@ -1769,6 +1992,8 @@ const PanelOverlayImpl = ({
   onToggleView,
   screenshot,
   mirror,
+  draft,
+  run,
 }: PanelOverlayProps) => {
   if (panels.length === 0) {
     return null;
@@ -1794,6 +2019,8 @@ const PanelOverlayImpl = ({
           onToggleView={onToggleView}
           screenshot={screenshot}
           mirror={mirror}
+          draft={draft}
+          run={run}
         />
       ))}
     </div>
@@ -1820,7 +2047,9 @@ const areEqual = (prev: PanelOverlayProps, next: PanelOverlayProps) =>
   prev.mirror === next.mirror &&
   prev.onVideoEvent === next.onVideoEvent &&
   prev.onToggleView === next.onToggleView &&
-  prev.screenshot === next.screenshot;
+  prev.screenshot === next.screenshot &&
+  prev.draft === next.draft &&
+  prev.run === next.run;
 
 export const PanelOverlay = React.memo(PanelOverlayImpl, areEqual);
 

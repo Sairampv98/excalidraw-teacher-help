@@ -2571,6 +2571,10 @@ class App extends React.Component<AppProps, AppState> {
                             // the host takes the screenshot and puts it on the
                             // canvas (D-102)
                             screenshot={this.props.panelScreenshot}
+                            // the host owns the teacher's own text and the Run
+                            // request (D-123, D-124)
+                            draft={this.props.panelDraft}
+                            run={this.props.panelRun}
                           />
                           <PanelChrome
                             panels={this.getSelectedPanelElements(

@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -23,6 +23,7 @@ import {
 } from "../extension/src/bridge";
 
 import { createRunner, type SpawnedProcess } from "../extension/src/runner";
+import { runSnippet } from "../extension/src/snippet";
 import { resolvePort, resolveToken } from "../extension/src/config";
 
 import { RawWsClient } from "./helpers/rawWsClient";
@@ -146,6 +147,21 @@ describe("the bridge protocol", () => {
     { v: 1, type: "run:stop", runId: "run-1" },
     {
       v: 1,
+      type: "code:run",
+      id: "code-run-1",
+      language: "python",
+      text: "print('hello')",
+    },
+    {
+      v: 1,
+      type: "run:notice",
+      runId: "code-run-1",
+      kind: "timed-out",
+      text: "The run timed out after 10 s.",
+    },
+    { v: 1, type: "run:runtimes", languages: ["javascript", "python"] },
+    {
+      v: 1,
       type: "ocr:request",
       id: "ocr-1",
       fileId: "file-1" as FileId,
@@ -195,10 +211,30 @@ describe("the bridge protocol", () => {
     const fromPanel: BridgeMessage[] = [
       { v: 1, type: "run:start", command: "node", args: ["index.js"] },
       { v: 1, type: "run:stop", runId: "run-1" },
+      {
+        v: 1,
+        type: "code:run",
+        id: "code-run-1",
+        language: "python",
+        text: "print('hello')",
+      },
       { v: 1, type: "ping" },
     ];
     for (const message of fromPanel) {
       expect(parseBridgeMessage(encodeBridgeMessage(message))).toEqual(message);
+    }
+
+    // and every kind of notice is understood, with its sentence (D-124)
+    for (const kind of ["timed-out", "truncated", "missing-runtime"] as const) {
+      const notice: BridgeMessage = {
+        v: 1,
+        type: "run:notice",
+        runId: "code-run-1",
+        kind,
+        text: "The run ended.",
+      };
+
+      expect(parseBridgeMessage(encodeBridgeMessage(notice))).toEqual(notice);
     }
   });
 
@@ -521,5 +557,151 @@ describe("the bridge server", () => {
     expect(first.token.length).toBeGreaterThan(16);
     expect(resolveToken("configured").token).toBe("configured");
     expect(resolveToken("configured").generated).toBe(false);
+  });
+});
+
+/**
+ * The **runnable snippet**: the teacher's own text, run in the teacher's
+ * workspace (D-124).
+ *
+ * The extension is the only one of the three that can run anything, so the
+ * run path is proven here - with a real program, a real timeout and a real
+ * file in a real directory.
+ */
+describe("the runnable snippet", () => {
+  it("AC-163 a run that exceeds the timeout is reported as timed out", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "excalidraw-snippet-"));
+    const sent: BridgeMessage[] = [];
+
+    // the program never ends within the timeout: it waits for a second, and
+    // the timeout is a fifth of that
+    const result = await runSnippet(
+      {
+        id: "code-run-1",
+        language: "javascript",
+        text: "setTimeout(() => {}, 1000);",
+      },
+      {
+        bridge: { broadcast: (message) => sent.push(message) },
+        workspaceRoot: workspace,
+        timeoutMs: 200,
+      },
+    );
+
+    expect(result.ran).toBe(true);
+    expect(result.timedOut).toBe(true);
+
+    // the fact is reported, and it says how long the run was given
+    const notice = sent.find((message) => message.type === "run:notice");
+
+    expect(notice).toBeTruthy();
+    expect(notice).toMatchObject({ runId: "code-run-1", kind: "timed-out" });
+    expect((notice as { text: string }).text).toContain("timed out after");
+    expect((notice as { text: string }).text).toContain("0.2 s");
+
+    // the temporary file is gone: the teacher's workspace keeps no litter
+    expect(readdirSync(workspace)).toEqual([]);
+  });
+
+  it("AC-163 a language whose runtime is missing says so instead of running", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "excalidraw-snippet-"));
+    const sent: BridgeMessage[] = [];
+
+    const result = await runSnippet(
+      {
+        id: "code-run-2",
+        language: "python",
+        text: "print('hello')",
+      },
+      {
+        bridge: { broadcast: (message) => sent.push(message) },
+        workspaceRoot: workspace,
+        // python is not on this machine
+        hasProgram: async () => false,
+      },
+    );
+
+    // nothing ran, and the panel is told that nothing ran
+    expect(result.ran).toBe(false);
+    expect(sent.some((message) => message.type === "run:started")).toBe(false);
+    expect(sent.some((message) => message.type === "run:exit")).toBe(false);
+
+    const notice = sent.find((message) => message.type === "run:notice");
+
+    expect(notice).toBeTruthy();
+    expect(notice).toMatchObject({
+      runId: "code-run-2",
+      kind: "missing-runtime",
+    });
+    expect((notice as { text: string }).text).toContain("Python");
+    expect((notice as { text: string }).text).toContain("not installed");
+
+    // and there is no file in the teacher's workspace either
+    expect(readdirSync(workspace)).toEqual([]);
+  });
+
+  it("AC-163 a run that prints too much is reported as truncated", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "excalidraw-snippet-"));
+    const sent: BridgeMessage[] = [];
+
+    const result = await runSnippet(
+      {
+        id: "code-run-3",
+        language: "javascript",
+        text: "for (let i = 0; i < 5000; i++) { console.log('x'.repeat(20)); }",
+      },
+      {
+        bridge: { broadcast: (message) => sent.push(message) },
+        workspaceRoot: workspace,
+        maxOutputChars: 500,
+      },
+    );
+
+    expect(result.ran).toBe(true);
+    expect(result.truncated).toBe(true);
+
+    const notice = sent.find((message) => message.type === "run:notice");
+
+    expect(notice).toBeTruthy();
+    expect(notice).toMatchObject({ runId: "code-run-3", kind: "truncated" });
+    expect((notice as { text: string }).text).toContain(
+      "truncated at 500 characters",
+    );
+
+    // and the output really is bounded
+    const characters = sent
+      .filter((message) => message.type === "run:output")
+      .reduce(
+        (total, message) => total + (message as { text: string }).text.length,
+        0,
+      );
+
+    expect(characters).toBeLessThanOrEqual(500);
+  });
+
+  it("AC-163 the temporary file says what it is, and it is in the workspace", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "excalidraw-snippet-"));
+    const names: string[] = [];
+
+    await runSnippet(
+      {
+        id: "code-run-4",
+        language: "javascript",
+        text: "console.log('hello from the snippet');",
+      },
+      {
+        bridge: {
+          broadcast: (message) => {
+            if (message.type === "run:started") {
+              names.push(message.command);
+            }
+          },
+        },
+        workspaceRoot: workspace,
+      },
+    );
+
+    // the command line says what was run, and the file's name says what it is
+    expect(names[0]).toContain("excalidraw-bridge-snippet-code-run-4.js");
   });
 });

@@ -1,9 +1,8 @@
 ---
 id: wave5w-runnable-editor
 paths: packages/excalidraw,excalidraw-app,packages/vscode-bridge,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 5w — the code panel becomes a real editor you can run
@@ -104,4 +103,3 @@ Add to the acceptance table, in the shape
 **The real proof**: in the real app, type a one-line program into the panel's editor, press Run,
 and see its output in the panel - with the extension running, and with **no** extension, where the
 editor must still be usable and must say that running needs the bridge. Report both.
-

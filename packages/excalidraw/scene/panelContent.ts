@@ -345,6 +345,47 @@ export type CodePanelContent = PanelContent & {
    * this wave still loads.
    */
   viewChosen?: boolean;
+  /**
+   * The teacher's **own** text for this panel (D-123).
+   *
+   * It is the panel's payload, so it is saved with the document and it survives
+   * a reload - and it is **beside** the live state on purpose: the bridge
+   * rewrites `code` on every keystroke in the teacher's editor, and a draft
+   * that lived inside it would be overwritten every time (D-123).
+   *
+   * Optional, so a document written before this wave still loads.
+   */
+  draft?: CodePanelDraft;
+};
+
+/**
+ * The **draft** of a code panel: the teacher's own text (D-123).
+ *
+ * The editor view used to be a **mirror**: it showed what the extension
+ * published and could not be typed into, so with no bridge there was nothing
+ * to show - a black box, which is what the owner reported on 2026-10-23
+ * (D-123).
+ *
+ * So the panel carries the teacher's own text, and the **mirror is only what a
+ * draft starts from**: a panel the teacher has never edited shows the mirrored
+ * text, and the first keystroke makes the draft theirs - after which a mirror
+ * update never overwrites it.
+ */
+export type CodePanelDraft = {
+  /** the teacher's own text */
+  text: string;
+  /**
+   * The language the draft is in - the id the extension's runtime table uses
+   * (`python`, `javascript`, ...).
+   */
+  language: string;
+  /**
+   * Whether the teacher has touched this draft.
+   *
+   * It is the flag that keeps a mirror from overwriting the teacher's text: an
+   * edited draft is the teacher's, and the mirror is only where it started.
+   */
+  edited: boolean;
 };
 
 /**
@@ -491,6 +532,96 @@ export const panelViewUpdate = (
 ): PanelViewUpdate => ({
   panel: withPanelView(content, view),
 });
+
+/**
+ * The **draft** on a panel, or null when the payload carries none.
+ *
+ * The only way to READ the draft - the widening stays in here.
+ */
+export const readPanelDraft = (
+  content: PanelContent,
+): CodePanelDraft | null => {
+  const widened: Partial<CodePanelContent> = content;
+
+  return widened.draft ?? null;
+};
+
+/**
+ * The same payload with a draft in it.
+ *
+ * The only way to WRITE the draft - the widening stays in here.
+ *
+ * The spread keeps everything else, and that is the point: the bridge rewrites
+ * the panel's payload on **every keystroke** in the teacher's editor, and the
+ * teacher's own text must survive that (D-123).
+ */
+export const withPanelDraft = (
+  content: PanelContent,
+  draft: CodePanelDraft | null,
+): PanelContent => {
+  const widened: PanelContent & {
+    draft?: CodePanelDraft;
+  } = {
+    ...content,
+    draft: draft ?? undefined,
+  };
+
+  return widened;
+};
+
+/**
+ * The element update that changes a panel's draft.
+ *
+ * In the same style as `panelViewUpdate`: the update is the payload with the
+ * new draft in it, and it goes through `mutateElement`, so it is undoable like
+ * every other change.
+ */
+export const panelDraftUpdate = (
+  content: PanelContent,
+  draft: CodePanelDraft,
+): PanelViewUpdate => ({
+  panel: withPanelDraft(content, draft),
+});
+
+/**
+ * What the editor view **shows**, and where the text came from (D-123).
+ *
+ * The oracle for the panel's editor: the panel asks this, and the answer says
+ * both the text and **which** it is - the mirror (the draft's starting point)
+ * or the teacher's own draft.
+ *
+ * The rule: **a mirror never overwrites a draft the teacher has edited.**
+ */
+export const panelEditorText = (
+  content: PanelContent,
+  mirror: { text: string; language: string } | null,
+): { text: string; language: string; source: "draft" | "mirror" } => {
+  const draft = readPanelDraft(content);
+
+  if (draft?.edited) {
+    // the teacher's own text: the mirror never overwrites it (D-123)
+    return {
+      text: draft.text,
+      language: draft.language || mirror?.language || "",
+      source: "draft",
+    };
+  }
+
+  if (mirror && mirror.text) {
+    // the draft has not been touched, so the mirror is what it starts from
+    return {
+      text: mirror.text,
+      language: draft?.language || mirror.language,
+      source: "mirror",
+    };
+  }
+
+  if (draft) {
+    return { text: draft.text, language: draft.language, source: "draft" };
+  }
+
+  return { text: "", language: mirror?.language ?? "", source: "mirror" };
+};
 
 /**
  * Whether a panel is a code panel backed by a bridge session.

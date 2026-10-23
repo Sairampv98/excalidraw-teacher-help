@@ -131,6 +131,18 @@ export interface BridgeSession {
   /** ask the extension to run a program */
   startRun: (command: string, args: string[], cwd?: string) => boolean;
   /**
+   * Ask the extension to run the panel's **draft** (D-124).
+   *
+   * The request carries the teacher's own text and the language it is in; the
+   * extension writes it to a temporary file in the teacher's workspace, runs
+   * it with that language's runtime and returns the output.
+   */
+  runSnippet: (request: {
+    id: string;
+    language: string;
+    text: string;
+  }) => boolean;
+  /**
    * Ask the bridge to read the text out of an image (D-59).
    *
    * With no bridge the promise **rejects** with the sentence that says the
@@ -408,6 +420,22 @@ export const createBridgeSession = (
         cwd === undefined
           ? { v: 1, type: "run:start", command, args }
           : { v: 1, type: "run:start", command, args, cwd };
+
+      return client.send(message);
+    },
+
+    runSnippet: (request) => {
+      if (!client) {
+        return false;
+      }
+
+      const message: BridgeMessage = {
+        v: 1,
+        type: "code:run",
+        id: request.id,
+        language: request.language,
+        text: request.text,
+      };
 
       return client.send(message);
     },

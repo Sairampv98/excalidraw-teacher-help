@@ -18,7 +18,7 @@ import { validateFractionalIndices } from "@excalidraw/element";
 import { Excalidraw } from "@excalidraw/excalidraw";
 import { codePanelContent, emptyCodePanelState } from "@excalidraw/excalidraw";
 import { readCodePanelState } from "@excalidraw/excalidraw";
-import { withPanelView } from "@excalidraw/excalidraw";
+import { withPanelDraft, withPanelView } from "@excalidraw/excalidraw";
 import {
   codeMirrorLanguageIds,
   loadCodeMirrorLanguage,
@@ -240,7 +240,7 @@ const Harness = ({
   api: ExcalidrawImperativeAPI;
   panel: ExcalidrawElement;
 }) => {
-  const { bridge } = useBridgePanel(api);
+  const { bridge, panelDraft, panelRun } = useBridgePanel(api);
 
   return (
     <Excalidraw
@@ -251,6 +251,9 @@ const Harness = ({
         appState: { selectedElementIds: { [panel.id]: true } },
       }}
       panelBridge={bridge}
+      // the teacher's own text and the Run control (D-123, D-124)
+      panelDraft={panelDraft}
+      panelRun={panelRun}
     />
   );
 };
@@ -963,5 +966,222 @@ describe("the app's code languages", () => {
       // dependency (D-84).
       expect(libraryDependencies).not.toContain(grammar);
     }
+  });
+});
+
+/**
+ * The **runnable editor**: the teacher's own text, and the Run control that
+ * sends it to the extension (D-123, D-124).
+ */
+describe("the app's runnable editor", () => {
+  /**
+   * A code panel that is connected, is mirroring a **python** file, and
+   * carries the teacher's own **draft**.
+   *
+   * The draft is what the Run control sends, and it is what the mirror does
+   * **not** overwrite (D-123).
+   */
+  const draftedCodePanelElement = () => {
+    const element = pythonCodePanelElement();
+
+    return {
+      ...element,
+      panel: withPanelDraft(element.panel, {
+        text: "print('mine')",
+        language: "python",
+        edited: true,
+      }),
+    } as unknown as ExcalidrawElement;
+  };
+
+  it("AC-162 the run control sends the draft and the language to the bridge", async () => {
+    mockClipboard(TEST_TOKEN);
+
+    const { api, panel } = scene(draftedCodePanelElement());
+
+    await render(<Harness api={api} panel={panel} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    // the teacher pastes the token: the app opens the socket
+    fireEvent.click(
+      document.querySelector('[data-testid="panel-bridge-paste"]')!,
+    );
+
+    await waitFor(() => expect(FakeSocket.instances.length).toBe(1));
+
+    const socket = lastSocket();
+
+    socket.open();
+
+    await waitFor(() => expect(socket.sent.length).toBe(1));
+
+    // the extension says hello, and it says which runtimes it found (D-124)
+    act(() => {
+      socket.receive({
+        v: 1,
+        type: "bridge:hello",
+        version: "1.0.0",
+        workspace: "demo",
+      });
+      socket.receive({
+        v: 1,
+        type: "run:runtimes",
+        languages: ["javascript", "python"],
+      });
+    });
+
+    // the Run control is on the panel, and it is live
+    const run = await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="code-panel-run"]',
+      ) as HTMLButtonElement | null;
+
+      expect(found).not.toBeNull();
+
+      return found!;
+    });
+
+    expect(run.disabled).toBe(false);
+
+    // the teacher presses Run
+    act(() => {
+      fireEvent.click(run);
+    });
+
+    // and the draft and its language go to the bridge (D-124)
+    await waitFor(() => {
+      const sent = socket.sent.map((frame) => JSON.parse(frame));
+      const request = sent.find((message) => message.type === "code:run");
+
+      expect(request).toBeTruthy();
+      expect(request.language).toBe("python");
+      expect(request.text).toBe("print('mine')");
+      expect(typeof request.id).toBe("string");
+      expect(request.id.length).toBeGreaterThan(0);
+    });
+
+    // and the picker offers only the runtimes the extension found
+    const picker = document.querySelector(
+      '[data-testid="code-panel-language-picker"]',
+    ) as HTMLSelectElement;
+
+    expect(picker).not.toBeNull();
+    expect(Array.from(picker.options).map((option) => option.value)).toEqual([
+      "python",
+      "javascript",
+    ]);
+  });
+
+  it("AC-162 the output arrives in the panel's output region", async () => {
+    mockClipboard(TEST_TOKEN);
+
+    const { api, state, panel } = scene(draftedCodePanelElement());
+
+    await render(<Harness api={api} panel={panel} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    fireEvent.click(
+      document.querySelector('[data-testid="panel-bridge-paste"]')!,
+    );
+
+    await waitFor(() => expect(FakeSocket.instances.length).toBe(1));
+
+    const socket = lastSocket();
+
+    socket.open();
+
+    await waitFor(() => expect(socket.sent.length).toBe(1));
+
+    act(() => {
+      socket.receive({
+        v: 1,
+        type: "bridge:hello",
+        version: "1.0.0",
+        workspace: "demo",
+      });
+    });
+
+    // the extension runs the draft and sends the output back (D-124)
+    act(() => {
+      socket.receive({
+        v: 1,
+        type: "run:started",
+        runId: "code-run-1",
+        command: "python excalidraw-bridge-snippet-code-run-1.py",
+        cwd: "/demo",
+      });
+      socket.receive({
+        v: 1,
+        type: "run:output",
+        runId: "code-run-1",
+        stream: "stdout",
+        text: "mine",
+      });
+      socket.receive({ v: 1, type: "run:exit", runId: "code-run-1", code: 0 });
+    });
+
+    // the panel's state carries the output ...
+    await waitFor(() => {
+      const current = panelState(state);
+
+      expect(current?.output).toEqual([{ stream: "stdout", text: "mine" }]);
+      expect(current?.console.map((line) => line.text).join("\n")).toContain(
+        "Run started: python excalidraw-bridge-snippet-code-run-1.py",
+      );
+    });
+
+    // ... and the app writes it into the document
+    expect(JSON.stringify(state.elements)).toContain("mine");
+  });
+
+  it("AC-162 a run that timed out is reported in the panel's console", async () => {
+    mockClipboard(TEST_TOKEN);
+
+    const { api, state, panel } = scene(draftedCodePanelElement());
+
+    await render(<Harness api={api} panel={panel} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    fireEvent.click(
+      document.querySelector('[data-testid="panel-bridge-paste"]')!,
+    );
+
+    await waitFor(() => expect(FakeSocket.instances.length).toBe(1));
+
+    const socket = lastSocket();
+
+    socket.open();
+
+    await waitFor(() => expect(socket.sent.length).toBe(1));
+
+    act(() => {
+      socket.receive({
+        v: 1,
+        type: "bridge:hello",
+        version: "1.0.0",
+        workspace: "demo",
+      });
+      socket.receive({
+        v: 1,
+        type: "run:notice",
+        runId: "code-run-1",
+        kind: "timed-out",
+        text: "The run timed out after 10 s.",
+      });
+    });
+
+    // the fact is in the panel's console, and it is an error (D-124)
+    await waitFor(() => {
+      const current = panelState(state);
+      const line = current?.console.find(
+        (entry) => entry.text.indexOf("timed out") !== -1,
+      );
+
+      expect(line).toBeTruthy();
+      expect(line?.level).toBe("error");
+    });
   });
 });
