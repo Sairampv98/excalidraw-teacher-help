@@ -938,7 +938,55 @@ export interface ExcalidrawProps {
    * takes the picture and puts it on the canvas.
    */
   panelScreenshot?: PanelScreenshotControls;
+
+  /**
+   * The host app's controls for the code panel's **draft** (D-123).
+   *
+   * The library draws the editor and reports what the teacher typed; the host
+   * writes it into the panel's payload, because the payload is the document's
+   * own business and the library does not own the scene.
+   *
+   * Without this prop the editor is **read-only**: the panel shows the mirror
+   * and nothing can be typed into it.
+   */
+  panelDraft?: PanelDraftControls;
+
+  /**
+   * The host app's controls for the code panel's **Run** control (D-124).
+   *
+   * The library draws the button, the language picker and the output; the
+   * **host** sends the request and the **extension** runs the code. The library
+   * never runs anything itself.
+   */
+  panelRun?: PanelRunControls;
 }
+
+/**
+ * What the host tells the library about a code panel's **draft** (D-123).
+ *
+ * The draft is the teacher's own text for the panel, and it lives in the
+ * panel's payload - so it is saved with the document and it survives a reload.
+ */
+export type PanelDraftControls = {
+  /** the teacher typed in the editor */
+  onChange?: (panelId: string, text: string) => void;
+  /** the teacher chose the language the draft is in */
+  onLanguageChange?: (panelId: string, language: string) => void;
+};
+
+/**
+ * What the host tells the library about a code panel's **Run** control (D-124).
+ *
+ * The **languages** are the ones that can actually be run on this machine: the
+ * extension detects the runtimes it finds and offers only those, so the picker
+ * never offers a language that cannot run (D-124).
+ */
+export type PanelRunControls = {
+  /** the language ids that can be run here */
+  languages?: string[];
+  /** the teacher pressed Run */
+  onRun?: (panelId: string) => void;
+};
 
 /**
  * What the host tells the library about a bridge-backed panel.

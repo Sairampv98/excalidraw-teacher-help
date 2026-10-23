@@ -1,16 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { CaptureUpdateAction } from "@excalidraw/element";
+import { CaptureUpdateAction, isPanelElement } from "@excalidraw/element";
 import { clearAllPanelCaptures, setPanelCapture } from "@excalidraw/excalidraw";
 
-import type { PanelBridgeControls } from "@excalidraw/excalidraw";
-import type { CodePanelState, PanelCapture } from "@excalidraw/excalidraw";
+import { readCodePanelState, readPanelDraft } from "@excalidraw/excalidraw";
+
+import type {
+  PanelBridgeControls,
+  PanelDraftControls,
+  PanelRunControls,
+} from "@excalidraw/excalidraw";
+import type {
+  CodePanelDraft,
+  CodePanelState,
+  PanelCapture,
+} from "@excalidraw/excalidraw";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
 import { OCR_NEEDS_BRIDGE } from "../../packages/vscode-bridge/bridge/src/ocrClient";
 
 import {
   applyCodePanelState,
+  applyPanelDraft,
   bridgeCodePanelIds,
   initialCodePanelState,
   reduceCodePanelState,
@@ -52,6 +63,14 @@ const sameCapture = (a: PanelCapture | null, b: PanelCapture): boolean => {
 };
 
 /**
+ * How many runs the app has asked for.
+ *
+ * The id is the request's id, and it is the **run's** id when the run happens:
+ * every message about that run carries it (D-124).
+ */
+let runCounter = 0;
+
+/**
  * The app's wiring for the **code panel**.
  *
  * The library draws the panel and the field; the app owns the bridge. This
@@ -84,6 +103,14 @@ export const useBridgePanel = (
    * install (D-75).
    */
   const [ocrState, setOcrState] = useState<OcrEngineState | null>(null);
+
+  /**
+   * The runtimes that are **actually** on this machine (D-124).
+   *
+   * The extension detects them and offers only those, so the panel's language
+   * picker never offers a language that cannot run here.
+   */
+  const [runtimes, setRuntimes] = useState<string[]>([]);
 
   const sessionRef = useRef<BridgeSession | null>(null);
   const panelStateRef = useRef<CodePanelState>(initialCodePanelState());
@@ -229,6 +256,13 @@ export const useBridgePanel = (
           return;
         }
 
+        if (message.type === "run:runtimes") {
+          // The runtimes that are actually on this machine (D-124). The panel's
+          // language picker offers only these.
+          setRuntimes(message.languages);
+          return;
+        }
+
         if (message.type === "ocr:state") {
           // Which engine is in use, and - when it is not there - why (D-90,
           // D-91).
@@ -295,6 +329,139 @@ export const useBridgePanel = (
   );
 
   /**
+   * The panel whose id this is, and the mirror it is showing.
+   *
+   * The draft's language comes from the mirror until the teacher picks one:
+   * the mirror is what a draft **starts from** (D-123).
+   */
+  const panelAndMirror = useCallback((panelId: string) => {
+    const current = apiRef.current;
+
+    if (!current) {
+      return null;
+    }
+
+    const elements = current.getSceneElements();
+    const element = elements.find((candidate) => candidate.id === panelId);
+
+    if (!element || !isPanelElement(element)) {
+      return null;
+    }
+
+    return {
+      elements,
+      draft: readPanelDraft(element.panel),
+      mirror: readCodePanelState(element.panel),
+    };
+  }, []);
+
+  /**
+   * Write the teacher's own text into the panel's payload (D-123).
+   *
+   * The payload is the document's own business, so the write goes through the
+   * scene - and it is **undoable**, because the teacher typed it.
+   */
+  const writeDraft = useCallback((panelId: string, draft: CodePanelDraft) => {
+    const current = apiRef.current;
+
+    if (!current) {
+      return;
+    }
+
+    const elements = current.getSceneElements();
+    const updated = applyPanelDraft(elements, panelId, draft);
+
+    if (updated === elements) {
+      return;
+    }
+
+    current.updateScene({
+      elements: updated,
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+    });
+  }, []);
+
+  /**
+   * The teacher typed in the editor (D-123).
+   *
+   * The draft becomes **theirs**: a mirror never overwrites it again.
+   */
+  const onDraftChange = useCallback(
+    (panelId: string, text: string) => {
+      const found = panelAndMirror(panelId);
+
+      if (!found) {
+        return;
+      }
+
+      writeDraft(panelId, {
+        text,
+        language: found.draft?.language || found.mirror?.editor.language || "",
+        edited: true,
+      });
+    },
+    [panelAndMirror, writeDraft],
+  );
+
+  /**
+   * The teacher chose the language the draft is in (D-124).
+   */
+  const onLanguageChange = useCallback(
+    (panelId: string, language: string) => {
+      const found = panelAndMirror(panelId);
+
+      if (!found) {
+        return;
+      }
+
+      writeDraft(panelId, {
+        text: found.draft?.text ?? found.mirror?.editor.text ?? "",
+        language,
+        edited: true,
+      });
+    },
+    [panelAndMirror, writeDraft],
+  );
+
+  /**
+   * The teacher pressed Run (D-124).
+   *
+   * The **draft** and its language go to the extension, which runs it in the
+   * teacher's workspace. The app never runs anything itself.
+   */
+  const onRun = useCallback(
+    (panelId: string) => {
+      const session = sessionRef.current;
+      const found = panelAndMirror(panelId);
+
+      if (!session || !found) {
+        return false;
+      }
+
+      const text = found.draft?.text ?? found.mirror?.editor.text ?? "";
+      const language =
+        found.draft?.language || found.mirror?.editor.language || "";
+
+      return session.runSnippet({
+        id: `code-run-${++runCounter}`,
+        language,
+        text,
+      });
+    },
+    [panelAndMirror],
+  );
+
+  const panelDraft: PanelDraftControls = useMemo(
+    () => ({ onChange: onDraftChange, onLanguageChange }),
+    [onDraftChange, onLanguageChange],
+  );
+
+  const panelRun: PanelRunControls = useMemo(
+    () => ({ languages: runtimes, onRun }),
+    [runtimes, onRun],
+  );
+
+  /**
    * Reads the text out of an image, over the bridge (D-59).
    *
    * With no bridge the promise rejects with the sentence that says the bridge
@@ -329,5 +496,13 @@ export const useBridgePanel = (
     ],
   );
 
-  return { bridge, state, startRun, requestOcr, ocrState };
+  return {
+    bridge,
+    state,
+    startRun,
+    requestOcr,
+    ocrState,
+    panelDraft,
+    panelRun,
+  };
 };

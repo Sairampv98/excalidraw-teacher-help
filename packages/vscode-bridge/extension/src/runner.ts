@@ -21,6 +21,8 @@ export interface SpawnedProcess {
   stdout: NodeJS.ReadableStream | null;
   stderr: NodeJS.ReadableStream | null;
   stdin: NodeJS.WritableStream | null;
+  /** the process's id, when the platform has one. Used to kill a whole tree. */
+  pid?: number;
   on(
     event: "exit",
     listener: (code: number | null, signal: string | null) => void,

@@ -34,6 +34,7 @@ import {
 import { portConflictMessage } from "./portConflict";
 import { createRunPseudoterminal } from "./pseudoterminal";
 import { createRunner, type Runner } from "./runner";
+import { createSnippetService, type SnippetService } from "./snippet";
 import { createBridgeTask } from "./taskPresentation";
 import {
   CAPTURE_SCRIPT_RELATIVE_PATH,
@@ -92,6 +93,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const workspace = workspaceRoot ? basename(workspaceRoot) : "";
 
   let runner: Runner | null = null;
+
+  /** The runnable snippet service (D-124). */
+  let snippetService: SnippetService | null = null;
 
   /**
    * Which editor this is: "Visual Studio Code", "VSCodium", ...
@@ -279,6 +283,15 @@ export function activate(context: vscode.ExtensionContext): void {
         ...(ocrState.reason ? { reason: ocrState.reason } : {}),
       });
     }
+
+    // The runtimes that are actually on this machine (D-124). A panel which
+    // connects later has to learn them too, or its language picker would offer
+    // nothing.
+    const runtimes = snippetService?.runtimes() ?? [];
+
+    if (runtimes.length) {
+      connection.send({ v: 1, type: "run:runtimes", languages: runtimes });
+    }
   };
 
   const runCommand = async (request: {
@@ -463,6 +476,11 @@ export function activate(context: vscode.ExtensionContext): void {
       case "run:stop":
         runner?.stop(message.runId);
         break;
+      case "code:run":
+        // The panel's Run control: the teacher's own text, run in the
+        // teacher's workspace (D-124).
+        void snippetService?.run(message);
+        break;
       case "ping":
         bridgeServer?.broadcast({ v: 1, type: "pong" });
         break;
@@ -491,6 +509,23 @@ export function activate(context: vscode.ExtensionContext): void {
       broadcast: (message) => bridgeServer?.broadcast(message),
     },
     defaultCwd: () => workspaceRoot,
+  });
+
+  // The **runnable snippet**: the teacher's own text, run in the teacher's
+  // workspace (D-124). The extension is the only one of the three that can
+  // run anything, and it is the only one that knows what is installed here.
+  snippetService = createSnippetService({
+    bridge: {
+      broadcast: (message) => bridgeServer?.broadcast(message),
+    },
+    workspaceRoot,
+  });
+
+  // The runtimes that are **actually** on this machine. The panel's language
+  // picker offers only these, so it never offers a language that cannot run
+  // here (D-124).
+  void snippetService.detect().then((languages) => {
+    bridgeServer?.broadcast({ v: 1, type: "run:runtimes", languages });
   });
 
   void bridgeServer.listen().catch((error: unknown) => {

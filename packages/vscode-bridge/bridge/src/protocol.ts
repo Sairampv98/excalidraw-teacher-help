@@ -57,6 +57,9 @@ export const BRIDGE_MESSAGE_TYPES = [
   "run:exit",
   "run:start",
   "run:stop",
+  "code:run",
+  "run:notice",
+  "run:runtimes",
   "ocr:request",
   "ocr:result",
   "ocr:error",
@@ -200,6 +203,64 @@ export type BridgeMessage =
   | { v: 1; type: "run:start"; command: string; args: string[]; cwd?: string }
   /** panel -> extension. Stop the run. */
   | { v: 1; type: "run:stop"; runId: string }
+  /**
+   * panel -> extension. Run the **draft** (D-124).
+   *
+   * The panel's Run control sends the teacher's own text and the language it
+   * is in; the extension writes it to a temporary file in the teacher's
+   * workspace, runs it with that language's runtime, and returns the output.
+   */
+  | {
+      v: 1;
+      type: "code:run";
+      /**
+       * The request's id.
+       *
+       * It is the **run's** id when the run happens, so every message about
+       * that run carries it - and when the run does NOT happen (there is no
+       * runtime for the language), the notice carries it too, and the panel
+       * never claims a run happened (D-124).
+       */
+      id: string;
+      /** the language, as the grammar registry names it */
+      language: string;
+      /** the teacher's own text */
+      text: string;
+    }
+  /**
+   * extension -> panel. A **fact** about a run (D-124).
+   *
+   * The facts are the ones the teacher must not be left guessing about: the
+   * run was killed at the timeout, the output was longer than the bound, or
+   * the language's runtime is not on this machine.
+   */
+  | {
+      v: 1;
+      type: "run:notice";
+      runId: string;
+      /**
+       * - "timed-out" - the program ran and was killed at the timeout
+       * - "truncated" - the output was longer than the bound
+       * - "missing-runtime" - the language's runtime is not on this machine,
+       *   and **nothing ran**
+       */
+      kind: "timed-out" | "truncated" | "missing-runtime";
+      /** the sentence the panel shows. Never empty. */
+      text: string;
+    }
+  /**
+   * extension -> panel. The runtimes that are **actually** on this machine
+   * (D-124).
+   *
+   * The panel's language picker offers only these, so it never offers a
+   * language that cannot run here.
+   */
+  | {
+      v: 1;
+      type: "run:runtimes";
+      /** the language ids that can be run here */
+      languages: string[];
+    }
   /** panel -> extension. Read the text out of an image. */
   | {
       v: 1;
@@ -371,6 +432,25 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
       );
     case "run:stop":
       return typeof value.runId === "string";
+    case "code:run":
+      return (
+        typeof value.id === "string" &&
+        typeof value.language === "string" &&
+        typeof value.text === "string"
+      );
+    case "run:notice":
+      return (
+        typeof value.runId === "string" &&
+        (value.kind === "timed-out" ||
+          value.kind === "truncated" ||
+          value.kind === "missing-runtime") &&
+        // the sentence the panel shows is never empty: an empty notice is a
+        // bug, and the rule is to say what is missing (D-122)
+        typeof value.text === "string" &&
+        value.text.length > 0
+      );
+    case "run:runtimes":
+      return Array.isArray(value.languages) && isStringArray(value.languages);
     case "ocr:request":
       return (
         typeof value.id === "string" &&

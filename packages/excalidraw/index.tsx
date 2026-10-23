@@ -109,6 +109,8 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
     panelBridge,
     panelOcr,
     panelScreenshot,
+    panelDraft,
+    panelRun,
   } = props;
 
   const canvasActions = props.UIOptions?.canvasActions;
@@ -234,6 +236,8 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
           panelBridge={panelBridge}
           panelOcr={panelOcr}
           panelScreenshot={panelScreenshot}
+          panelDraft={panelDraft}
+          panelRun={panelRun}
         >
           {children}
         </App>
@@ -475,13 +479,16 @@ export {
   isBridgeCodePanel,
   panelViewUpdate,
   readCodePanelState,
+  readPanelDraft,
   readPanelView,
   withCodePanelState,
+  withPanelDraft,
   withPanelView,
 } from "./scene/panelContent";
 export type {
   CodePanelContent,
   CodePanelConsoleLine,
+  CodePanelDraft,
   CodePanelOutputLine,
   CodePanelRunState,
   CodePanelState,
@@ -605,7 +612,9 @@ export {
 export type { VideoPanelEvent } from "./components/PanelOverlay";
 export type {
   PanelBridgeControls,
+  PanelDraftControls,
   PanelOcrControls,
+  PanelRunControls,
   PanelScreenshotControls,
 } from "./types";
 

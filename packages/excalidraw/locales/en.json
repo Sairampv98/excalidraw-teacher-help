@@ -206,7 +206,14 @@
         "viewLive": "Live window",
         "showEditor": "Show the mirrored editor",
         "showLive": "Show the live editor window",
-        "liveNotArrived": "The live window has not arrived yet."
+        "liveNotArrived": "The live window has not arrived yet.",
+        "run": "Run",
+        "runTitle": "Run the draft in the workspace",
+        "runLanguage": "The language to run",
+        "runLanguageNone": "choose a language",
+        "yourDraft": "your draft",
+        "theMirror": "the mirror",
+        "runNeedsBridge": "Running needs the Excalidraw Bridge."
       },
       "fileGone": "This panel's file is no longer in the document.",
       "mediaLoading": "Loading the video...",
