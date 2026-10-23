@@ -5,6 +5,7 @@
  * lint reads this file and fails if a row id is missing.
  */
 
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -17,7 +18,9 @@ import {
   CAPTURE_SCALE,
   CAPTURE_SCRIPT_RELATIVE_PATH,
   captureArgs,
+  captureReason,
   createWindowCapture,
+  createWindowCaptureSupervisor,
   editorProcessName,
   type CaptureFrame,
   type CaptureProcess,
@@ -122,6 +125,64 @@ const findPackageRoot = (): string => {
 
   throw new Error("the vscode-bridge package was not found");
 };
+
+/** The helper, the way it ships inside the extension. */
+const captureScriptPath = (): string =>
+  join(findPackageRoot(), "extension", "media", "capture.ps1");
+
+/**
+ * A STATUS, the way the helper writes it after the header has arrived: a
+ * frame whose bytes are text.
+ */
+const statusChunk = (code: string): Buffer =>
+  lengthPrefixed(Buffer.from(`STATUS ${code}`, "utf8"));
+
+/**
+ * The REAL helper, run against a process that is not there.
+ *
+ * It is the helper that ships, and the answer it gives is the answer the
+ * extension gets: the helper does not die, it says what is wrong and waits.
+ */
+const runTheRealHelper = (
+  args: string[],
+): Promise<{ code: number | null; output: string }> =>
+  new Promise((resolve) => {
+    const child = spawn(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        captureScriptPath(),
+        ...args,
+      ],
+      { windowsHide: true },
+    );
+
+    let output = "";
+
+    child.stdout?.on("data", (chunk: Buffer) => {
+      output += chunk.toString("utf8");
+    });
+
+    child.on("exit", (code) => {
+      resolve({ code, output });
+    });
+  });
+
+/**
+ * The script WITHOUT its comments.
+ *
+ * The test is about the CODE, and not about the prose: the helper explains
+ * why it does not use the process's main window handle, and that explanation
+ * must not be mistaken for the use of it.
+ */
+const codeOf = (script: string): string =>
+  script
+    .split("\n")
+    .map((line) => line.replace(/#.*$/, "").replace(/\/\/.*$/, ""))
+    .join("\n");
 
 describe("the capture of the editor's own window", () => {
   it("AC-101 the extension reads the frames of its own window from one running helper", async () => {
@@ -521,5 +582,209 @@ describe("the capture of the editor's own window", () => {
     await until(() => reasons.length > 1);
 
     expect(reasons[1]).toContain("capture stopped");
+  });
+
+  it("AC-149 the helper re-resolves the window when a capture comes back empty", async () => {
+    const script = readFileSync(captureScriptPath(), "utf8");
+
+    // The window is re-resolved INSIDE the frame loop: the helper keeps the
+    // RULE and asks for the handle again, instead of holding the one handle
+    // it was given (D-112).
+    const loop = script.slice(script.indexOf("for ($i = 0;"));
+
+    expect(loop).toContain("Find-EditorWindow");
+
+    // and it asks again when the picture came back EMPTY
+    expect(loop).toContain("Test-Empty");
+
+    // An EMPTY picture is never published: the bytes go out only after the
+    // picture has been found to be a picture. A black rectangle is not a live
+    // view, and it is the black rectangle the owner reported.
+    const write = loop.indexOf(
+      "$stream.Write([BitConverter]::GetBytes([int]$bytes.Length), 0, 4)",
+    );
+
+    expect(write).toBeGreaterThan(loop.indexOf("Test-Empty"));
+
+    // And the helper does NOT exit when there is no window: it waits, and it
+    // says what is wrong. The only exit left is the one for a machine with no
+    // JPEG encoder at all.
+    expect(script.match(/exit \d+/g) ?? []).toEqual(["exit 4"]);
+
+    if (process.platform === "win32") {
+      // FOR REAL: the helper that ships, against a process that is not there.
+      // It says so and it keeps looking - it does not die (D-112).
+      const { code, output } = await runTheRealHelper([
+        "-ProcessName",
+        "NoSuchEditorProcessForThisTest",
+        "-TitleLike",
+        "NoSuchEditorProcessForThisTest",
+        "-Fps",
+        "1",
+        "-MaxFrames",
+        "1",
+      ]);
+
+      expect(code).toBe(0);
+      expect(output).toContain("STATUS NO_WINDOW");
+    }
+
+    // And the extension BELIEVES the helper: a capture that came back empty
+    // is a stated fact, and no frame is published in its place.
+    const helper = new FakeHelper();
+    const reasons: string[] = [];
+    const frames: CaptureFrame[] = [];
+
+    createWindowCapture({
+      scriptPath: "C:/ext/media/capture.ps1",
+      processName: "Code",
+      titleLike: "excalidraw",
+      spawn: () => helper,
+      onFrame: (frame) => {
+        frames.push(frame);
+      },
+      onUnavailable: (reason) => {
+        reasons.push(reason);
+      },
+    });
+
+    helper.stream.write(Buffer.from("HEADER 962 506\r\n", "ascii"));
+    helper.stream.write(lengthPrefixed(jpegBytes(962, 506)));
+
+    await until(() => frames.length === 1);
+
+    // the capture comes back empty
+    helper.stream.write(statusChunk("NO_PICTURE"));
+
+    await until(() => reasons.length > 0);
+
+    expect(reasons[0]).toContain("not showing a picture");
+
+    // and NO black frame was published in its place
+    expect(frames).toHaveLength(1);
+  });
+
+  it("AC-149 the extension restarts a helper that exited", async () => {
+    const helpers: FakeHelper[] = [];
+
+    const supervisor = createWindowCaptureSupervisor({
+      scriptPath: "C:/ext/media/capture.ps1",
+      processName: "Code",
+      titleLike: "excalidraw",
+      restartDelayMs: 10,
+      spawn: () => {
+        const helper = new FakeHelper();
+        helpers.push(helper);
+        return helper;
+      },
+      onFrame: () => undefined,
+    });
+
+    supervisor.ensureRunning();
+
+    expect(helpers).toHaveLength(1);
+
+    // the helper DIES ...
+    helpers[0].emit("exit", 2, null);
+
+    // ... and it is started again. One dead helper must not be dead for the
+    // rest of the session - that was the owner's "it works exactly twice and
+    // then stops" (D-112).
+    await until(() => helpers.length === 2);
+
+    expect(supervisor.isRunning()).toBe(true);
+
+    // a client that connects re-arms the capture, and it does NOT start a
+    // second helper while one is running
+    supervisor.ensureRunning();
+    supervisor.ensureRunning();
+
+    expect(helpers).toHaveLength(2);
+
+    // and a capture that is stopped for good does not come back
+    supervisor.stop();
+
+    expect(helpers[1].killed).toBe(true);
+
+    helpers[1].emit("exit", 0, null);
+
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    expect(helpers).toHaveLength(2);
+  });
+
+  it("AC-150 a window that is not the foreground window is still found", () => {
+    const script = readFileSync(captureScriptPath(), "utf8");
+    const code = codeOf(script);
+
+    // The lookup does NOT depend on the focus. `MainWindowHandle` is 0 for a
+    // hidden or a minimised window, so the lookup that finds the editor while
+    // it is in front LOSES it the moment the browser takes the focus - which
+    // is the normal state while the teacher is looking at the whiteboard
+    // (D-113).
+    expect(code).not.toContain("MainWindowHandle");
+    expect(code).not.toContain("GetForegroundWindow");
+
+    // The window is found by ENUMERATING the editor's own top-level windows
+    // and matching the title - the same title rule the project already uses
+    // elsewhere.
+    expect(code).toContain("EnumWindows");
+    expect(code).toContain("GetWindowThreadProcessId");
+    expect(code).toContain("GetWindowTextW");
+    expect(code).toContain("Find-EditorWindow");
+    expect(code).toContain("$TitleLike");
+
+    // and the process the extension named is the one whose windows are
+    // enumerated
+    expect(code).toContain("Get-Process -Name $ProcessName");
+
+    // The editor's own process owns a console window, and it is never on
+    // screen: the fall-back must not pick it, or the panel would say "not
+    // visible" while the editor's window is right there.
+    expect(code).toContain("ConsoleWindowClass");
+  });
+
+  it("AC-150 a window that exists but is not visible is reported as not visible, not as missing", async () => {
+    // The two facts are DIFFERENT, and neither of them is "broken" (D-113)
+    expect(captureReason("STATUS WINDOW_NOT_VISIBLE")).toBe(
+      "VS Code's window is not visible - click on it",
+    );
+    expect(captureReason("STATUS NO_WINDOW")).toBe(
+      "no editor window was found to capture",
+    );
+    expect(captureReason("STATUS WINDOW_NOT_VISIBLE")).not.toBe(
+      captureReason("STATUS NO_WINDOW"),
+    );
+
+    // and the panel is told the first one
+    const helper = new FakeHelper();
+    const reasons: string[] = [];
+
+    createWindowCapture({
+      scriptPath: "C:/ext/media/capture.ps1",
+      processName: "Code",
+      titleLike: "excalidraw",
+      spawn: () => helper,
+      onFrame: () => undefined,
+      onUnavailable: (reason) => {
+        reasons.push(reason);
+      },
+    });
+
+    helper.stream.write(Buffer.from("STATUS WINDOW_NOT_VISIBLE\r\n", "ascii"));
+
+    await until(() => reasons.length > 0);
+
+    expect(reasons[0]).toContain("not visible");
+    expect(reasons[0]).not.toContain("no editor window");
+
+    // and the helper has a state for it: a window that exists and is hidden
+    // or minimised is not on screen, and the helper says so instead of
+    // drawing a black rectangle
+    const script = readFileSync(captureScriptPath(), "utf8");
+
+    expect(script).toContain("WINDOW_NOT_VISIBLE");
+    expect(script).toContain("IsWindowVisible");
+    expect(script).toContain("IsIconic");
   });
 });
