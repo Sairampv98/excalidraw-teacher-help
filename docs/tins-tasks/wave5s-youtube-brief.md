@@ -1,4 +1,4 @@
-# Wave 5s — a YouTube video in the canvas, and its captions
+﻿# Wave 5s — a YouTube video in the canvas, and its captions
 
 ## Why this wave exists
 
@@ -40,18 +40,18 @@ all**, because the panel does not know where the cues came from.
 Add these rows to the Decisions table, in the established shape
 `| D-n | <label> | locked | <detail> |`:
 
-| D-115 | a YouTube video is an **iframe of YouTube's own player**, and the panel never parses YouTube's pages | locked | The panel is a DOM overlay, so it can host an `<iframe>` exactly as it hosts the live view's `<img>`. An iframe is the **supported** way to play a YouTube video in a web page, which means the video half of this feature has **no** YouTube-specific code that can rot: there is no endpoint to call, no markup to parse, no signature to compute. The panel holds a **video id**, not a URL - the id is the only thing YouTube's own player needs - and the embed URL is built from it. The video therefore keeps working when YouTube changes anything, because nothing of ours talks to their pages. |
-| D-116 | the captions have **three tiers**, and the panel says which tier answered | locked | The captions are the fragile half, so they are **best effort with an honest report**. Tier one: the **official Data API v3** with the teacher's own key (`excalidraw-bridge.youtubeApiKey`) - a versioned API, and for the teacher's **own** channel the captions are authorised by the owner, so this tier really works. Tier two: the **public `timedtext` endpoint**, best effort, and often empty for auto-generated captions. Tier three: **`captions:none`**, with the reason. The tier that answered travels with the answer, so the panel can say *"these captions came from the public endpoint, which may be incomplete"* or *"no captions: the API key is not set"* - and the teacher is never left guessing why a video has no text. The rule: **a feature that depends on someone else's page must degrade in tiers, and must say which tier it is on.** |
-| D-117 | an iframe panel takes the **focus** only while the teacher is using it, and gives it back | locked | Every other panel's content is an `<img>` or a `<video>`: they take the focus, and the canvas gets it back. An **iframe** is different - clicking it moves the focus into YouTube's document, and the whiteboard's keyboard (Ctrl+V, the arrow keys, Delete) stops reaching the canvas while it does. So the iframe panel follows the **same rule the sidebar already follows** (D-73): the panel takes the focus **while the teacher is inside it** and gives it back when the pointer leaves - the canvas takes the focus back, and the iframe's focus is blurred. The teacher's typing goes to the video while they are in it, and to the whiteboard the moment they are not. That is the whole rule: **a foreign document may borrow the focus, never keep it.** |
+| D-128 | a YouTube video is an **iframe of YouTube's own player**, and the panel never parses YouTube's pages | locked | The panel is a DOM overlay, so it can host an `<iframe>` exactly as it hosts the live view's `<img>`. An iframe is the **supported** way to play a YouTube video in a web page, which means the video half of this feature has **no** YouTube-specific code that can rot: there is no endpoint to call, no markup to parse, no signature to compute. The panel holds a **video id**, not a URL - the id is the only thing YouTube's own player needs - and the embed URL is built from it. The video therefore keeps working when YouTube changes anything, because nothing of ours talks to their pages. |
+| D-129 | the captions have **three tiers**, and the panel says which tier answered | locked | The captions are the fragile half, so they are **best effort with an honest report**. Tier one: the **official Data API v3** with the teacher's own key (`excalidraw-bridge.youtubeApiKey`) - a versioned API, and for the teacher's **own** channel the captions are authorised by the owner, so this tier really works. Tier two: the **public `timedtext` endpoint**, best effort, and often empty for auto-generated captions. Tier three: **`captions:none`**, with the reason. The tier that answered travels with the answer, so the panel can say *"these captions came from the public endpoint, which may be incomplete"* or *"no captions: the API key is not set"* - and the teacher is never left guessing why a video has no text. The rule: **a feature that depends on someone else's page must degrade in tiers, and must say which tier it is on.** |
+| D-130 | an iframe panel takes the **focus** only while the teacher is using it, and gives it back | locked | Every other panel's content is an `<img>` or a `<video>`: they take the focus, and the canvas gets it back. An **iframe** is different - clicking it moves the focus into YouTube's document, and the whiteboard's keyboard (Ctrl+V, the arrow keys, Delete) stops reaching the canvas while it does. So the iframe panel follows the **same rule the sidebar already follows** (D-73): the panel takes the focus **while the teacher is inside it** and gives it back when the pointer leaves - the canvas takes the focus back, and the iframe's focus is blurred. The teacher's typing goes to the video while they are in it, and to the whiteboard the moment they are not. That is the whole rule: **a foreign document may borrow the focus, never keep it.** |
 
 ### The acceptance rows
 
 Add to the acceptance table, in the shape
 `| AC-n | <label> | \`<check file>\` | <detail> |`:
 
-| AC-152 | a YouTube video plays as an **iframe**, and the panel holds only the video id | `packages/excalidraw/tests/youtubePanel.test.tsx` | The video half cannot rot (D-115). Tests: `AC-152 the panel renders the youtube embed for the video id it holds`, `AC-152 the panel holds no youtube url and no scraped markup`. |
-| AC-153 | the captions answer says **which tier** answered, and "no captions" says why | `packages/vscode-bridge/tests/youtubeCaptions.test.ts` | The captions degrade in tiers and say so (D-116). Tests: `AC-153 a caption answer carries the tier that produced it`, `AC-153 a video with no captions answers with the reason`. |
-| AC-154 | the iframe panel **gives the focus back** when the teacher leaves it | `packages/excalidraw/tests/youtubePanel.test.tsx` | A foreign document borrows the focus, never keeps it (D-117). Tests: `AC-154 the canvas takes the focus back when the pointer leaves the iframe panel`. |
+| AC-168 | a YouTube video plays as an **iframe**, and the panel holds only the video id | `packages/excalidraw/tests/youtubePanel.test.tsx` | The video half cannot rot (D-128). Tests: `AC-168 the panel renders the youtube embed for the video id it holds`, `AC-168 the panel holds no youtube url and no scraped markup`. |
+| AC-169 | the captions answer says **which tier** answered, and "no captions" says why | `packages/vscode-bridge/tests/youtubeCaptions.test.ts` | The captions degrade in tiers and say so (D-129). Tests: `AC-169 a caption answer carries the tier that produced it`, `AC-169 a video with no captions answers with the reason`. |
+| AC-170 | the iframe panel **gives the focus back** when the teacher leaves it | `packages/excalidraw/tests/youtubePanel.test.tsx` | A foreign document borrows the focus, never keeps it (D-130). Tests: `AC-170 the canvas takes the focus back when the pointer leaves the iframe panel`. |
 
 ---
 
@@ -69,7 +69,7 @@ Add to the acceptance table, in the shape
 - `packages/excalidraw/scene/panelContent.ts` - the panel's `source` variants; a
   `{ type: "youtube", videoId }` variant goes beside the existing ones.
 - `packages/excalidraw/components/PanelOverlay.tsx` - the panel surfaces; the iframe surface
-  goes beside the code and video surfaces, and it takes the focus the way D-117 says.
+  goes beside the code and video surfaces, and it takes the focus the way D-130 says.
 - `excalidraw-app/sidebar/FilesTab.tsx` - where a YouTube link is pasted and the panel is
   created (beside "Open files").
 - `packages/excalidraw/locales/en.json` - every new sentence.
@@ -85,10 +85,10 @@ Add to the acceptance table, in the shape
 - **Text in `packages/excalidraw/locales/en.json`**, never in a component.
 - LF line endings, no BOM, `yarn` only.
 - `yarn test:app` is bare `vitest` and never exits - run `npx vitest run <file> --watch=false`.
-- Every acceptance row's check file must **mention the row id in a test name** (`AC-152 ...`),
+- Every acceptance row's check file must **mention the row id in a test name** (`AC-168 ...`),
   or `node scripts/rowcheck.mjs --all` fails.
-- **Teeth**: at minimum, make the caption answer carry no tier and show AC-153 fails; make the
-  iframe panel keep the focus and show AC-154 fails.
+- **Teeth**: at minimum, make the caption answer carry no tier and show AC-169 fails; make the
+  iframe panel keep the focus and show AC-170 fails.
 - The scope is `packages/excalidraw`, `excalidraw-app`, `packages/vscode-bridge` and `SPEC.md`.
   Nothing else may be touched.
 
