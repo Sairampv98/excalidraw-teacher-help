@@ -42,7 +42,7 @@ audio stays on when the volume slider is all the way down.
 | 1d | one theme for everything developed | the panel chrome had no theme of its own: it was sized in canvas units, so it was scaled down with the canvas. | **5k** (chrome) + **5n** (the rest) | `D-92`, `D-102` |
 | 2 | VS Code is visible in the editor but not in the presenter | same cause as 1b — the descriptor never leaves the editor's context. | **5m** | `D-100`, `AC-138` |
 | 3 | the video is not in the presenter | the presenter refuses any file over **32 MB** (`presenterChannel.ts:174`), and the video was never stored in the first place. | **5l** | `D-96`, `AC-134` |
-| 4 | the 600+ MB video does not play | **two** independent causes. (a) The insert reads the whole file into a base64 string (`getDataURL`) and then reads it **again** for a SHA-1 (`generateIdFromFile`) — about 2.5 GB of allocation, so the insert dies and leaves an empty panel. (b) **Matroska is not a container Chrome decodes**: even with the bytes, `<video src="....mkv">` cannot play. | **5l** | `D-94`, `D-97`, `AC-133`, `AC-135` |
+| 4 | the 600+ MB video does not play | **two** independent causes. (a) The insert reads the whole file into a base64 string (`getDataURL`) and then reads it **again** for a SHA-1 (`generateIdFromFile`) — about 2.5 GB of allocation, so the insert dies and leaves an empty panel. (b) **the insert**, again: the file reached the browser as base64, twice. **Correction (measured later, and the owner caught it):** Chrome *does* demux Matroska — `canPlayType("video/x-matroska")` is `"maybe"`, and a blob URL of an H.264 `.mkv` **plays**. Only a data URL with no mime fails. The container was never the enemy; the insert was. | **5l** (the insert) + **5r** (the true message) | `D-94`, `D-97`, `AC-133`, `AC-135` |
 | 5 | the video has no drag path like the GIF and the image | `FilesTab.tsx:609` is `draggable={image}` — an image drags, a video does not. | **5l** | `D-98`, `AC-136` |
 | 6 | a screenshot of VS Code or of the video's paused frame, with three choices and a wireframe | no such feature exists. The nearest things are the video's poster and the picture's OCR. | **5n** | `D-101`, `D-102`, `D-103`, `D-104`, `AC-139`–`AC-142` |
 | 6b | *can an image cut on one page be pasted on another?* | **yes** — a paste is stamped with the **current** page (`App.tsx:4786-4788`), so a picture cut on page 1 and pasted while page 2 is active lands on page 2. That line is itself the fix of an earlier wave: pasted content used to land on the first page and be invisible. | answered now; the same machinery serves "place on a new page" | `D-103` |
@@ -52,7 +52,7 @@ audio stays on when the volume slider is all the way down.
 
 | Asked | Answered |
 | --- | --- |
-| how to insert a YouTube video | **not implemented.** The protocol messages exist (`excalidraw-app/bridge/videoCaptions.ts`), but nothing sends them; only the local sidecar path exists. |
+| how to insert a YouTube video | **not implemented** at the time of the review. The protocol messages exist (`excalidraw-app/bridge/videoCaptions.ts`), but nothing sends them; only the local sidecar path exists. **Wave 5s** makes it real: the video is an iframe of YouTube's own player (a **video id**, not a URL, so nothing of ours can rot) and the captions come in three tiers - the official Data API v3 with the teacher's key, else the public `timedtext` endpoint, else an explicit *"no captions"* with the reason. |
 | how to move the video and the VS Code windows | panels move by **drag** or with the **arrow keys** (`App.tsx:6322-6332`). The OS window itself is only **captured**, never moved. |
 | can those windows be deleted | yes — a panel is an ordinary element; **Delete** removes it. The underlying file stays in the Files list. |
 | the "atrocious ui" of the two | the chrome was fixed-pixel while the panel was zoom-scaled. Fixed in wave 5k and measured. |
@@ -90,8 +90,11 @@ owner's to set, once, in the settings UI (Ctrl+, → `excalidraw-bridge.token`).
 }
 ```
 
-- `excalidraw-bridge.ocrEngine` - **defaults to `indra`**, the fastest measured engine
-  (wave 5v). The panel's own picker changes it per panel; the setting is the fallback.
+- `excalidraw-bridge.ocrEngine` - the **extension's** own setting ships the default `paddle`
+  (wave 5q), but that is only the **fallback for a machine with no picker at all**. The
+  **panel's** picker (wave 5v) is what the teacher actually uses, and it defaults to
+  **`indra`**, the fastest measured engine here - one panel may be read with indra while
+  another is read with paddle.
 - `excalidraw-bridge.pythonPath` - **defaults to**
   `C:\Users\user\.pyenv\pyenv-win\versions\3.12.10\python.exe`.
 - `excalidraw-bridge.port` - leave it **unset**. The port then comes from
@@ -118,8 +121,8 @@ owner's to set, once, in the settings UI (Ctrl+, → `excalidraw-bridge.token`).
 | 3.5 the mute icon at volume 0 | **5v** | the button shows the **effective** state (muted **or** volume 0) | at 0: "Unmute", 🔇, `aria-pressed=true`; a click restores volume **1** |
 | 5.1-5.3 the three choices | **5u** (`fff7723`) | the strip's buttons are sized, and the strip hangs on the panel's own rect | each button **103.99×24 px** (was **0**) |
 | 5.4 the video's camera | **5u** | the camera moved to the **panel**, so every kind has one, selected or not | **24×24 px** on the code panel and on the video panel, present with **0 elements selected** |
-| 3.2c the runnable editor | **5w** | the panel's editor is a **real editor**: the teacher's own **draft**, a **Run** control, a bounded output, and it works with **no bridge** | (building) |
-| 4.7 the small video that would not play | **5r** | the message will name the **file**, not the container, and the panel gets a **fall-back** | (queued) |
+| 3.2c the runnable editor | **5w** (`c4dbc00`) | the panel's editor is a **real editor**: the teacher's own **draft** (a mirror never overwrites an edited draft), a **Run** control that writes `excalidraw-bridge-snippet-<id>.<ext>` into the workspace and runs it, a 10 s timeout, a 20,000-char output bound, and it works with **no bridge** | `print('hello from the panel')` → output `hello from the panel`, exit 0; with no bridge the editor is still typeable (417×800 px) and says *"Running needs the Excalidraw Bridge."* |
+| 4.7 the small video that would not play | **5r** (`7377ce9`) | the message names the **file and its codec** (not the container), and a real **fall-back** runs: the host is asked for a **fresh** URL, the element is replaced, the video plays again | *"This browser could not play this file. The usual cause is a codec this browser does not decode..."*; the panel says *"The fallback was tried as well, and it failed too."*; an error from a **replaced** source is ignored |
 
 **Not done, on purpose:** the **lock is not drawn on a code panel** - a code panel's content
 lives in the editor's process, so there is no picture of it to freeze. Freezing the
@@ -136,7 +139,7 @@ later wave rather than shipped half-working.
 | 5m | items 1, 1b, 2 - the live window by default, and the presenter | `docs/tins-tasks/wave5m-live-default-brief.md` |
 | 5n | items 1c, 1d, 6 - the screenshot, the three choices, the theme | `docs/tins-tasks/wave5n-screenshot-brief.md` |
 | 5o | PaddleOCR's crash, and the truth about its speed | `docs/tins-tasks/wave5o-paddle-fallback-brief.md` |
-| 5p | the chrome's icon-only buttons must not collapse | `docs/tins-tasks/wave5p-playback-fallback-brief.md` |
+| 5p | the chrome's icon-only buttons must not collapse | `tasks/wave5p-chrome-collapse.md` |
 | 5r | the video's failure message must be true, with a fall-back | `docs/tins-tasks/wave5r-playback-fallback-brief.md` |
 | 5s | a YouTube video in the canvas, and its captions | `docs/tins-tasks/wave5s-youtube-brief.md` |
 | 5t | the live view survives a reload, a hidden window and a dead helper | `tasks/wave5t-live-view-survives.md` |
