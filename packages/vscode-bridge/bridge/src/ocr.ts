@@ -117,6 +117,19 @@ export type OcrLine = {
 };
 
 /**
+ * How an engine's **model** was built.
+ *
+ * `mkldnn` is PaddleOCR's oneDNN switch: `false` means the engine ran
+ * **without** oneDNN, which is the slow path the sidecar falls back to when
+ * the fast one crashes (D-106). It is optional, so an extension that predates
+ * it still connects (D-50).
+ */
+export type OcrModel = {
+  /** whether the model runs with oneDNN - the FAST path */
+  mkldnn?: boolean;
+};
+
+/**
  * The answer: the text that was read, and where each line is.
  */
 export type OcrResult = {
@@ -136,6 +149,13 @@ export type OcrResult = {
   engine?: OcrEngineName;
   /** how long the read took, in milliseconds */
   durationMs?: number;
+  /**
+   * How the engine's model was built (D-106).
+   *
+   * It says whether the engine ran **without** oneDNN, which is the truth
+   * about a slow read: the teacher has to be able to see it (D-91).
+   */
+  model?: OcrModel;
 };
 
 /**
@@ -149,6 +169,8 @@ export type OcrEngineResult = {
   engine?: OcrEngineName;
   /** how long the read took, in milliseconds */
   durationMs?: number;
+  /** how the engine's model was built (D-106) */
+  model?: OcrModel;
 };
 
 /**
@@ -185,6 +207,8 @@ export const createOcrService = (
       ...(result.durationMs === undefined
         ? {}
         : { durationMs: result.durationMs }),
+      // how the engine's model was built - the truth about a slow read (D-106)
+      ...(result.model === undefined ? {} : { model: result.model }),
     };
   },
 });
@@ -237,3 +261,8 @@ export const isOcrLine = (value: unknown): value is OcrLine =>
   typeof value.y === "number" &&
   typeof value.width === "number" &&
   typeof value.height === "number";
+
+/** Whether a value says how an engine's model was built (D-106). */
+export const isOcrModel = (value: unknown): value is OcrModel =>
+  isRecord(value) &&
+  (value.mkldnn === undefined || typeof value.mkldnn === "boolean");

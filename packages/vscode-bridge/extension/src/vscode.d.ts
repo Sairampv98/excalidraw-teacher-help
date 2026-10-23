@@ -254,6 +254,10 @@ declare module "vscode" {
       message: string,
       ...items: string[]
     ): Thenable<string | undefined>;
+    export function showWarningMessage(
+      message: string,
+      ...items: string[]
+    ): Thenable<string | undefined>;
     export function createStatusBarItem(
       alignment?: StatusBarAlignment,
       priority?: number,

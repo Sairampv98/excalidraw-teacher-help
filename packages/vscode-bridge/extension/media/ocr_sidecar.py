@@ -32,6 +32,15 @@ and every answer is one line on stdout, with the request's id on it::
 
     {"id": "1", "text": "...", "lines": [...], "durationMs": 228}
     {"id": "1", "error": "ModuleNotFoundError: no module named 'paddleocr'"}
+
+An answer also says **which engine** read the text and **how its model was
+built**::
+
+    {"id": "1", "text": "...", "engine": "paddle", "model": {"mkldnn": false}}
+
+so the teacher can see why a Paddle read took 28 seconds instead of 300
+milliseconds (D-106). The report is written AGAIN when a model is rebuilt,
+because "how the model was built" is part of the report (D-107).
 """
 
 import base64
@@ -69,6 +78,17 @@ PADDLE_LAST_SUPPORTED_PYTHON = (3, 13)
 
 # The models, loaded on the first request and kept for every later one.
 _MODELS = {}
+
+# How each engine's model was built - the switches it was built with, and the
+# switches it will be built with if it is built again.
+#
+# The fall-back belongs to the MODEL, not to the request that happened to
+# arrive first (D-107): the model that works is kept, so the slow path is paid
+# for once and never again.
+_MODEL_BUILD = {
+    "indra": {},
+    "paddle": {"mkldnn": True},
+}
 
 
 def python_version():
@@ -127,10 +147,25 @@ def engine_report():
     for name in sorted(ENGINE_SPECS):
         reason = engine_reason(name)
         if reason is None:
-            report[name] = {"available": True}
+            entry = {"available": True}
+            build = model_build(name)
+            if build:
+                # HOW the model is built - or how it was built, when the
+                # fall-back has already changed it (D-107)
+                entry["model"] = build
+            report[name] = entry
         else:
             report[name] = {"available": False, "reason": reason}
     return report
+
+
+def ready_report():
+    """The line that says which engines are ready, and how they are built."""
+    return {
+        "type": "ready",
+        "python": python_version(),
+        "engines": engine_report(),
+    }
 
 
 def write(payload):
@@ -201,29 +236,88 @@ def crop(image, region):
     return cropped, x, y
 
 
+def model_build(name):
+    """How the engine's model was built - the switches it was built with."""
+    return dict(_MODEL_BUILD.get(name, {}))
+
+
+def model_builds():
+    """How EVERY engine's model was built - what tells the report to change."""
+    return {name: model_build(name) for name in sorted(ENGINE_SPECS)}
+
+
+def build_model(name, build):
+    """The engine's model, built the way the build says."""
+    if name == "indra":
+        import indra_ocr
+
+        return indra_ocr.load()
+
+    if name == "paddle":
+        from paddleocr import PaddleOCR
+
+        options = {
+            "use_doc_orientation_classify": False,
+            "use_doc_unwarping": False,
+            "use_textline_orientation": False,
+            "lang": "en",
+        }
+
+        if not build.get("mkldnn", True):
+            # oneDNN is the FAST path, and it is the one that crashes on this
+            # machine: PaddlePaddle 3.x with the PIR API hits an unimplemented
+            # conversion in the oneDNN instruction of the new executor, and
+            # `enable_mkldnn=False` is the ONLY switch that works around it
+            # (D-106).
+            options["enable_mkldnn"] = False
+
+        return PaddleOCR(**options)
+
+    raise ValueError("unknown engine: %s" % name)
+
+
 def load_model(name):
     """The engine's model - loaded ONCE, on the first request (D-90)."""
     if name in _MODELS:
         return _MODELS[name]
 
-    if name == "indra":
-        import indra_ocr
-
-        model = indra_ocr.load()
-    elif name == "paddle":
-        from paddleocr import PaddleOCR
-
-        model = PaddleOCR(
-            use_doc_orientation_classify=False,
-            use_doc_unwarping=False,
-            use_textline_orientation=False,
-            lang="en",
-        )
-    else:
-        raise ValueError("unknown engine: %s" % name)
-
+    model = build_model(name, _MODEL_BUILD.get(name, {}))
     _MODELS[name] = model
     return model
+
+
+def rebuild_model(name, build):
+    """The engine's model, built again - and how it was built is remembered.
+
+    The rebuilt model replaces the broken one, so the load is paid once more
+    and never again (D-90, D-107).
+    """
+    _MODEL_BUILD[name] = dict(build)
+    _MODELS.pop(name, None)
+    return load_model(name)
+
+
+def is_onednn_failure(error):
+    """Whether the error is the oneDNN/PIR one - the only error that earns the
+    fall-back.
+
+    The error the owner hit (2026-10-23) is::
+
+        NotImplementedError: (Unimplemented) ConvertPirAttribute2RuntimeAttribute
+        not support [pir::ArrayAttribute<pir::DoubleAttribute>]
+
+    Every other failure is an error and not a fall-back: the slow path is
+    slower, and it would fail the same way (D-106).
+    """
+    message = str(error).lower()
+    unimplemented = "unimplemented" in message or isinstance(
+        error, NotImplementedError
+    )
+
+    if not unimplemented:
+        return False
+
+    return "onednn" in message or "pir::" in message
 
 
 def read_indra(image_bytes, region):
@@ -262,7 +356,15 @@ def read_indra(image_bytes, region):
         confidences.append(float(line.conf))
 
     confidence = sum(confidences) / len(confidences) if confidences else None
-    return page.text, lines, confidence
+    return page.text, lines, confidence, model_build("indra")
+
+
+def predict(ocr, image):
+    """The engine's answer for one image - the new API or the old one."""
+    predict = getattr(ocr, "predict", None)
+    if predict is not None:
+        return list(predict(image))
+    return list(ocr.ocr(image, cls=True))
 
 
 def read_paddle(image_bytes, region):
@@ -277,12 +379,20 @@ def read_paddle(image_bytes, region):
     confidences = []
     polygons = []
 
-    results = []
-    predict = getattr(ocr, "predict", None)
-    if predict is not None:
-        results = list(predict(image))
-    else:
-        results = list(ocr.ocr(image, cls=True))
+    try:
+        results = predict(ocr, image)
+    except Exception as error:  # noqa: BLE001 - the fall-back is the point
+        # The FAST path crashed: on this machine oneDNN is broken, and the
+        # model built with `enable_mkldnn=False` is the one that works. So the
+        # model is rebuilt and the read is done AGAIN - once. A second failure
+        # is an error, not a third try: the sidecar does not loop (D-106).
+        if not is_onednn_failure(error) or not _MODEL_BUILD["paddle"].get(
+            "mkldnn", True
+        ):
+            raise
+
+        ocr = rebuild_model("paddle", {"mkldnn": False})
+        results = predict(ocr, image)
 
     for result in results:
         if isinstance(result, dict):
@@ -331,11 +441,11 @@ def read_paddle(image_bytes, region):
         )
 
     confidence = sum(confidences) / len(confidences) if confidences else None
-    return "\n".join(texts), lines, confidence
+    return "\n".join(texts), lines, confidence, model_build("paddle")
 
 
 def read(name, image_bytes, region):
-    """The engine's answer: the text, the lines, the confidence."""
+    """The engine's answer: the text, the lines, the confidence, the model."""
     if name == "indra":
         return read_indra(image_bytes, region)
     if name == "paddle":
@@ -363,7 +473,9 @@ def handle(request):
         image_bytes = base64.b64decode(request.get("imageBase64", ""))
         # the libraries print things; the protocol owns stdout
         with contextlib.redirect_stdout(sys.stderr):
-            text, lines, confidence = read(name, image_bytes, request.get("region"))
+            text, lines, confidence, model = read(
+                name, image_bytes, request.get("region")
+            )
     except Exception as error:  # noqa: BLE001 - one bad read must not end the sidecar
         return {
             "id": request_id,
@@ -375,20 +487,20 @@ def handle(request):
         "text": text,
         "lines": lines,
         "durationMs": int(round((time.perf_counter() - started) * 1000)),
+        # which engine read it, and how its model was built: the teacher has to
+        # be able to tell a slow read from a broken one (D-106)
+        "engine": name,
     }
     if confidence is not None:
         answer["confidence"] = confidence
+    if model:
+        answer["model"] = model
     return answer
 
 
 def main():
-    write(
-        {
-            "type": "ready",
-            "python": python_version(),
-            "engines": engine_report(),
-        }
-    )
+    last_build = model_builds()
+    write(ready_report())
 
     for line in sys.stdin:
         line = line.strip()
@@ -400,7 +512,18 @@ def main():
             continue
         if not isinstance(request, dict):
             continue
-        write(handle(request))
+
+        answer = handle(request)
+
+        # The model was rebuilt - the fall-back happened - so the report is
+        # written AGAIN: "how the model was built" is part of the report, and
+        # the extension has to be able to say how the engine ran (D-107).
+        build = model_builds()
+        if build != last_build:
+            last_build = build
+            write(ready_report())
+
+        write(answer)
 
 
 if __name__ == "__main__":

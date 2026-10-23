@@ -136,7 +136,9 @@ export const resolveEngineState = async ({
  * Reads the text out of an image, with the engine that was asked for.
  *
  * The answer carries the **engine** and the **time**: the panel shows both,
- * so a teacher can tell a fast engine from a slow one (D-90).
+ * so a teacher can tell a fast engine from a slow one (D-90). It carries how
+ * the engine's model was built as well, so a slow read can be EXPLAINED
+ * instead of merely timed (D-106).
  */
 export const readWithEngine = async ({
   engine,
@@ -194,6 +196,8 @@ export const readWithEngine = async ({
     ...(answer.durationMs === undefined
       ? {}
       : { durationMs: answer.durationMs }),
+    // how the engine's model was built: the truth about a slow read (D-106)
+    ...(answer.model === undefined ? {} : { model: answer.model }),
   };
 };
 

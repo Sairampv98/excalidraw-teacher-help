@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 
-import type { OcrEngineName, OcrLine } from "../../bridge/src/ocr";
+import { isOcrModel } from "../../bridge/src/ocr";
+
+import type { OcrEngineName, OcrLine, OcrModel } from "../../bridge/src/ocr";
 
 /**
  * The **sidecar**: the Python OCR engines, in a process of their own.
@@ -53,8 +55,17 @@ export type OcrSidecarSpawn = (
 export type OcrSidecarReport = {
   /** the interpreter's version, e.g. "3.14.7" */
   python: string;
-  /** what it can reach, engine by engine */
-  engines: Record<string, { available: boolean; reason?: string }>;
+  /**
+   * What it can reach, engine by engine.
+   *
+   * The `model` says **how** the engine's model was built - the sidecar
+   * falls back to the slow path when the fast one crashes, and the report
+   * says so (D-107).
+   */
+  engines: Record<
+    string,
+    { available: boolean; reason?: string; model?: OcrModel }
+  >;
 };
 
 /** The answer of one read. */
@@ -63,6 +74,15 @@ export type OcrSidecarAnswer = {
   lines: OcrLine[];
   confidence?: number;
   durationMs?: number;
+  /** which engine read it */
+  engine?: string;
+  /**
+   * How the engine's model was built (D-106).
+   *
+   * `mkldnn: false` means the engine ran **without** oneDNN: the sidecar
+   * fell back to the configuration that works, and the read is slow.
+   */
+  model?: OcrModel;
 };
 
 export type OcrSidecar = {
@@ -184,6 +204,9 @@ export const createOcrSidecar = ({
       ...(typeof message.durationMs === "number"
         ? { durationMs: message.durationMs }
         : {}),
+      // which engine read it, and how its model was built (D-106)
+      ...(typeof message.engine === "string" ? { engine: message.engine } : {}),
+      ...(isOcrModel(message.model) ? { model: message.model } : {}),
     });
   };
 
