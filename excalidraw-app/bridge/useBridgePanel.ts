@@ -59,8 +59,9 @@ const sameCapture = (a: PanelCapture | null, b: PanelCapture): boolean => {
  * panel's plain state, and writes that state back into the element, so the
  * panel shows what the teacher is doing (D-51).
  *
- * The token never leaves this hook's session: it is in memory for the session
- * only, and it is never written into the document (D-50).
+ * The token never leaves this hook's session: it is in memory for the
+ * session only, it lives in the **tab's** session memory (D-111) and it is
+ * never written into the document (D-50).
  *
  * `publishLiveView` hands the live view's **descriptor** to the presenter
  * window (D-101): the presenter is a second JavaScript context, so the
@@ -244,6 +245,21 @@ export const useBridgePanel = (
     });
 
     sessionRef.current = session;
+
+    /**
+     * The tab remembers the token (D-111).
+     *
+     * After a reload the teacher does not paste it again: the field shows
+     * the token the tab remembers and the session connects by itself. With
+     * no remembered token nothing happens here - the teacher pastes it,
+     * exactly as before.
+     */
+    const remembered = session.getToken();
+
+    if (remembered) {
+      setToken(remembered);
+      session.connect();
+    }
 
     return () => {
       session.disconnect();

@@ -33,6 +33,15 @@ const findPackageRoot = (): string => {
 const packageRoot = findPackageRoot();
 const buildScript = join(packageRoot, "scripts", "build-vsix.mjs");
 
+/**
+ * The interpreter the owner's paddle install lives in.
+ *
+ * It is a **default**, not a secret: the extension ships it, so the teacher
+ * installs the extension and OCR works (D-110).
+ */
+const OWNER_PYTHON_PATH =
+  "C:\\Users\\user\\.pyenv\\pyenv-win\\versions\\3.12.10\\python.exe";
+
 const buildVsix = (outPath: string) => {
   execFileSync(process.execPath, [buildScript, "--out", outPath], {
     cwd: packageRoot,
@@ -359,4 +368,100 @@ describe("the .vsix", () => {
     expect(paths[0]).toContain(join("extension", "src"));
     expect(paths[1]).toBe(join(workspace, "package.json"));
   });
+
+  it(
+    "AC-147 the manifest's default engine is paddle and the default Python path is the owner's interpreter",
+    () => {
+      const manifest = JSON.parse(
+        readFileSync(join(packageRoot, "extension", "package.json"), "utf8"),
+      );
+
+      const properties = manifest.contributes.configuration.properties;
+
+      // The engine and the interpreter name THIS MACHINE's tools, so they
+      // ship with the extension: the teacher installs it and OCR already
+      // works (D-110).
+      expect(properties["excalidraw-bridge.ocrEngine"].default).toBe("paddle");
+      expect(properties["excalidraw-bridge.pythonPath"].default).toBe(
+        OWNER_PYTHON_PATH,
+      );
+
+      // and the same values are contributed as DEFAULTS, so the value applies
+      // whichever mechanism the editor uses
+      const defaults = manifest.contributes.configurationDefaults[""];
+      expect(defaults["excalidraw-bridge.ocrEngine"]).toBe("paddle");
+      expect(defaults["excalidraw-bridge.pythonPath"]).toBe(OWNER_PYTHON_PATH);
+
+      // The BUILT package carries them too - that is the file the teacher
+      // installs, and the source tree is not what ships.
+      const { entries } = buildOnce();
+      const built = JSON.parse(
+        entries
+          .find((entry) => entry.name === "extension/package.json")!
+          .data.toString("utf8"),
+      );
+
+      const builtProperties = built.contributes.configuration.properties;
+
+      expect(builtProperties["excalidraw-bridge.ocrEngine"].default).toBe(
+        "paddle",
+      );
+      expect(builtProperties["excalidraw-bridge.pythonPath"].default).toBe(
+        OWNER_PYTHON_PATH,
+      );
+      expect(
+        built.contributes.configurationDefaults[""][
+          "excalidraw-bridge.ocrEngine"
+        ],
+      ).toBe("paddle");
+      expect(
+        built.contributes.configurationDefaults[""][
+          "excalidraw-bridge.pythonPath"
+        ],
+      ).toBe(OWNER_PYTHON_PATH);
+    },
+    BUILD_TIMEOUT_MS,
+  );
+
+  it(
+    "AC-147 the manifest ships no token value",
+    () => {
+      const manifest = JSON.parse(
+        readFileSync(join(packageRoot, "extension", "package.json"), "utf8"),
+      );
+
+      const properties = manifest.contributes.configuration.properties;
+
+      // The token's default is EMPTY: the extension generates one for the
+      // session (D-50) ...
+      expect(properties["excalidraw-bridge.token"].default).toBe("");
+
+      // ... and no default is contributed for it either
+      const defaults = manifest.contributes.configurationDefaults?.[""] ?? {};
+      expect(Object.keys(defaults)).not.toContain("excalidraw-bridge.token");
+
+      // Nothing in the manifest looks like a token: the .vsix is a PUBLISHED
+      // artifact, and a secret in it is a published secret (D-110).
+      expect(JSON.stringify(manifest)).not.toMatch(/[0-9a-f]{32,}/i);
+
+      // and the BUILT package is the one that ships, so it is the one that
+      // is checked
+      const { entries } = buildOnce();
+      const built = JSON.parse(
+        entries
+          .find((entry) => entry.name === "extension/package.json")!
+          .data.toString("utf8"),
+      );
+
+      expect(
+        built.contributes.configuration.properties["excalidraw-bridge.token"]
+          .default,
+      ).toBe("");
+      expect(
+        Object.keys(built.contributes.configurationDefaults?.[""] ?? {}),
+      ).not.toContain("excalidraw-bridge.token");
+      expect(JSON.stringify(built)).not.toMatch(/[0-9a-f]{32,}/i);
+    },
+    BUILD_TIMEOUT_MS,
+  );
 });

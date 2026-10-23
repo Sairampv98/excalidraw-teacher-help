@@ -1,9 +1,8 @@
 ---
 id: wave5q-settings-in
 paths: packages/vscode-bridge,excalidraw-app,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 5q — the settings come with the extension, and the token survives a reload
@@ -113,4 +112,3 @@ and report in the close note:
   `package.json` and the extension's `out/extension.js` for a token value).
 
 Do NOT install the `.vsix` into the owner's editors and do NOT push - the parent does that.
-
