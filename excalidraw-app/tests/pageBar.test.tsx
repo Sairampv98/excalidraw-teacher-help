@@ -26,10 +26,16 @@
 
 import {
   Excalidraw,
+  clampCameraToPage,
   getCameraForPage,
+  getFitPageZoom,
   getPageRect,
 } from "@excalidraw/excalidraw";
-import { MAX_ZOOM, sceneCoordsToViewportCoords } from "@excalidraw/common";
+import {
+  MAX_ZOOM,
+  MIN_ZOOM,
+  sceneCoordsToViewportCoords,
+} from "@excalidraw/common";
 import { newElementWith } from "@excalidraw/element";
 import { PAGE_HEIGHT, PAGE_WIDTH } from "@excalidraw/excalidraw/types";
 import { API } from "@excalidraw/excalidraw/tests/helpers/api";
@@ -588,5 +594,66 @@ describe("page bar", () => {
     // the inserted image belongs to the page the user is on — it used to land
     // on the first page, which made it invisible on every later page
     expect(h.elements[0].pageId).toBe("page-2");
+  });
+});
+
+describe("the zoom's floor (AC-155)", () => {
+  const pageRect: PageRect = {
+    x: 0,
+    y: 0,
+    width: PAGE_WIDTH,
+    height: PAGE_HEIGHT,
+  };
+
+  const clamp = (zoom: number) =>
+    clampCameraToPage({
+      scrollX: -pageRect.x,
+      scrollY: -pageRect.y,
+      zoom: zoom as NormalizedZoomValue,
+      viewportWidth: VIEWPORT_WIDTH,
+      viewportHeight: VIEWPORT_HEIGHT,
+      pageRect,
+      maxZoom: MAX_ZOOM,
+    });
+
+  it("AC-155 the zoom can go below the page fit zoom", () => {
+    const fit = getFitPageZoom(
+      VIEWPORT_WIDTH,
+      VIEWPORT_HEIGHT,
+      pageRect.width,
+      pageRect.height,
+    );
+
+    // the zoom the page is framed at
+    expect(fit).toBeLessThan(1);
+
+    // a zoom below it is KEPT: the page is the bound for **panning**, not for
+    // **zooming out** (D-117). The − button used to be a no-op at exactly the
+    // fit zoom, because the clamp pinned the zoom back to it.
+    const camera = clamp(fit * 0.5);
+
+    expect(camera.zoom).toBeLessThan(fit);
+    expect(camera.zoom).toBeCloseTo(fit * 0.5, 5);
+
+    // and further out, too - as far as the floor allows
+    const further = Math.max(MIN_ZOOM * 2, fit * 0.2);
+
+    expect(further).toBeLessThan(fit);
+    expect(clamp(further).zoom).toBeCloseTo(further, 5);
+  });
+
+  it("AC-155 the zoom stops at the fixed floor", () => {
+    // the floor is a fixed small value, and it is the **same** number the
+    // zoom-out button's disabled state uses (D-117)
+    const camera = clamp(0.0001);
+
+    expect(camera.zoom).toBe(MIN_ZOOM);
+    expect(camera.zoom).toBeGreaterThan(0);
+
+    // and the floor is the same whatever the page's fit zoom is
+    const wide = getFitPageZoom(4000, 3000, pageRect.width, pageRect.height);
+
+    expect(clamp(0.0001).zoom).toBe(MIN_ZOOM);
+    expect(wide).toBeGreaterThan(0);
   });
 });

@@ -9,13 +9,22 @@
  */
 .excalidraw-page-bar {
   position: fixed;
-  left: 50%;
+  /**
+   * The bar is centred in the space the **sidebar leaves**, never under it
+   * (D-121): the sidebar is overlaid on the editor container, so a bar centred
+   * on the whole window slid under it and could only be reached by closing the
+   * sidebar (the owner's exact report).
+   *
+   * `--canvas-reserved-width` is the sidebar's actual width while it is open,
+   * and 0 while it is closed - so the bar tracks the sidebar.
+   */
+  left: calc(50% - var(--canvas-reserved-width, 0px) / 2);
   bottom: 12px;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 8px;
-  max-width: calc(100vw - 32px);
+  max-width: calc(100vw - var(--canvas-reserved-width, 0px) - 32px);
   padding: 6px;
   pointer-events: auto;
   z-index: 70;
@@ -279,7 +288,8 @@
  */
 .excalidraw-page-bar-hidden {
   position: fixed;
-  left: 50%;
+  // the same reservation the bar itself takes (D-121)
+  left: calc(50% - var(--canvas-reserved-width, 0px) / 2);
   bottom: 0;
   transform: translateX(-50%);
   z-index: 70;

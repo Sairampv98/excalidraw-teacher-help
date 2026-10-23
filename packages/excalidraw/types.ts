@@ -963,6 +963,23 @@ export type PanelBridgeControls = {
 };
 
 /**
+ * One engine in a panel's **engine picker** (D-118).
+ *
+ * The library draws the picker; the **host** owns the engines, their names and
+ * their measured speed - the engine itself never runs in the browser (D-59).
+ */
+export type PanelOcrEngine = {
+  /** the engine's id, as the bridge knows it */
+  id: string;
+  /** the name the teacher reads */
+  label: string;
+  /** the measured read, in milliseconds - the project's own record */
+  measuredMs: number;
+  /** the colour the engine's speed is shown in: the traffic light (D-118) */
+  color: string;
+};
+
+/**
  * What the host tells the library about the **OCR option** of a panel (D-59).
  *
  * The library draws the button and shows the message; the **host** owns the
@@ -979,6 +996,17 @@ export type PanelOcrControls = {
   onOcr?: (panelId: string) => void;
   /** whether a read is running right now */
   busy?: boolean;
+  /**
+   * The engines the picker offers, each with its **measured** speed (D-118).
+   *
+   * Without them the panel has no picker, and the read falls back to the
+   * engine the bridge's own setting names (D-118).
+   */
+  engines?: readonly PanelOcrEngine[];
+  /** the engine chosen for **this** panel */
+  engineFor?: (panelId: string) => string | undefined;
+  /** the teacher chose an engine for this panel */
+  onSelectEngine?: (panelId: string, engineId: string) => void;
 };
 
 /**

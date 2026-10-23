@@ -9,6 +9,7 @@ import {
 import {
   BRIDGE_PROTOCOL_VERSION,
   parseBridgeMessage,
+  workspaceName,
   type BridgeMessage,
 } from "../../bridge/src/protocol";
 import {
@@ -185,7 +186,7 @@ const closePayload = (code: number, reason: string): Buffer => {
 export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
   const host = options.host ?? "127.0.0.1";
   const token = options.token;
-  const workspace = options.workspace ?? "";
+  const workspace = workspaceName(options.workspace);
   const version = options.version ?? "0.0.0";
   const appName = options.appName ?? "";
   const allowedOrigins = options.allowedOrigins ?? [];

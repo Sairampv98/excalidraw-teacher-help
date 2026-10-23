@@ -29,10 +29,14 @@ import type {
 
 import { Excalidraw, videoPanelContent } from "../index";
 import { codePanelContent, emptyCodePanelState } from "../scene/panelContent";
-import { PANEL_CHROME, PANEL_SCALE_PROPERTY } from "../scene/panelChrome";
+import {
+  PANEL_CHROME,
+  PANEL_CHROME_LOCK_OFFSET,
+  PANEL_SCALE_PROPERTY,
+} from "../scene/panelChrome";
 
 import { API } from "./helpers/api";
-import { render } from "./test-utils";
+import { act, fireEvent, render, waitFor } from "./test-utils";
 
 import type { BinaryFileData, NormalizedZoomValue } from "../types";
 
@@ -90,6 +94,38 @@ const codePanel = () =>
       },
       "session-1",
     ),
+    posterMode: false,
+    posterFileId: null,
+  }) as unknown as ExcalidrawPanelElement;
+
+const IMAGE_FILE_ID = "image-file-1" as FileId;
+
+const imageFile = () => ({
+  id: IMAGE_FILE_ID,
+  mimeType: "image/png" as BinaryFileData["mimeType"],
+  dataURL: "data:image/png;base64,AAAA" as BinaryFileData["dataURL"],
+  created: 1,
+  lastRetrieved: 1,
+  version: 1,
+});
+
+/**
+ * A panel whose content is a **file in the document's own store**.
+ *
+ * Such a panel can be frozen into a poster, so it can be locked (D-120).
+ */
+const imagePanel = () =>
+  API.createElement({
+    type: "panel",
+    x: 200,
+    y: 80,
+    width: 320,
+    height: 240,
+    panelKind: "image",
+    panel: {
+      source: { type: "file", fileId: IMAGE_FILE_ID, mimeType: "image/png" },
+      options: { naturalWidth: 320, naturalHeight: 240, captions: null },
+    },
     posterMode: false,
     posterFileId: null,
   }) as unknown as ExcalidrawPanelElement;
@@ -223,5 +259,210 @@ describe("the panel's chrome", () => {
     expect(measured[1].controlHeight).toBeCloseTo(measured[0].controlHeight, 3);
     expect(measured[1].buttonSize).toBeCloseTo(measured[0].buttonSize, 3);
     expect(measured[1].volumeWidth).toBeCloseTo(measured[0].volumeWidth, 3);
+  });
+});
+
+describe("the chrome that has to work (AC-158)", () => {
+  it("AC-158 the panel's lock control toggles the panel's lock", async () => {
+    const panel = imagePanel();
+
+    const { container } = await render(
+      <Excalidraw
+        initialData={{
+          elements: [panel] as unknown as ExcalidrawElement[],
+          files: { [IMAGE_FILE_ID]: imageFile() },
+        }}
+      />,
+    );
+
+    // the chrome is drawn for the SELECTED panel
+    API.setAppState({
+      width: 1000,
+      height: 1000,
+      selectedElementIds: { [panel.id]: true },
+    });
+
+    const lock = container.querySelector(
+      '[data-testid="panel-lock-button"]',
+    ) as HTMLButtonElement | null;
+
+    expect(lock).not.toBeNull();
+
+    // the button says what it does
+    expect(lock!.getAttribute("aria-label")).toBe("Lock panel");
+
+    await act(async () => {
+      fireEvent.click(lock!);
+    });
+
+    // and it DID something: the panel is locked, which means it is a poster
+    // now
+    await waitFor(() => {
+      expect(API.getElement(panel).posterMode).toBe(true);
+    });
+
+    expect(API.getElement(panel).posterFileId).not.toBeNull();
+  });
+
+  it("AC-158 the lock control is not drawn on a panel that cannot be locked", async () => {
+    // a code panel's content lives in the editor's own process, so it has no
+    // picture to freeze: a lock that cannot act must not be drawn (D-120)
+    const panel = codePanel();
+
+    const { container } = await render(
+      <Excalidraw
+        initialData={{
+          elements: [panel] as unknown as ExcalidrawElement[],
+        }}
+      />,
+    );
+
+    API.setAppState({
+      width: 1000,
+      height: 1000,
+      selectedElementIds: { [panel.id]: true },
+    });
+
+    expect(
+      container.querySelector('[data-testid="panel-lock-button"]'),
+    ).toBeNull();
+  });
+
+  it("AC-158 the lock control keeps the panel's resize corner free", async () => {
+    const panel = imagePanel();
+
+    const { container } = await render(
+      <Excalidraw
+        initialData={{
+          elements: [panel] as unknown as ExcalidrawElement[],
+          files: { [IMAGE_FILE_ID]: imageFile() },
+        }}
+      />,
+    );
+
+    API.setAppState({
+      width: 1000,
+      height: 1000,
+      selectedElementIds: { [panel.id]: true },
+    });
+
+    const lock = container.querySelector(
+      '[data-testid="panel-lock-button"]',
+    ) as HTMLButtonElement | null;
+
+    expect(lock).not.toBeNull();
+
+    // the panel publishes the scale its own transform carries, and the lock
+    // is inside the panel's box, so its distance from the corner is a panel
+    // distance that has to be read on screen
+    const panelElement = container.querySelector(
+      '[data-testid="panel"]',
+    ) as HTMLElement | null;
+
+    expect(panelElement).not.toBeNull();
+
+    const scale = parseFloat(
+      getComputedStyle(panelElement!).getPropertyValue(PANEL_SCALE_PROPERTY),
+    );
+
+    // the lock hangs clear of the corner: the corner is where the canvas
+    // draws the resize handle, and a control that sits on the handle is a
+    // control that costs the teacher the handle (D-120)
+    const fromCorner = parseFloat(lock!.style.right) * scale;
+
+    expect(fromCorner).toBeCloseTo(PANEL_CHROME_LOCK_OFFSET, 3);
+    expect(fromCorner).toBeGreaterThan(0);
+
+    // and it clears the corner **vertically** too
+    expect(parseFloat(lock!.style.top) * scale).toBeCloseTo(
+      PANEL_CHROME.panelCornerInset,
+      3,
+    );
+  });
+
+  it("AC-158 the canvas's controls are laid out beside the sidebar and not under it", async () => {
+    const { container } = await render(
+      <Excalidraw initialData={{ appState: { openSidebar: null } }} />,
+    );
+
+    const wrapper = container.querySelector(
+      ".layer-ui__wrapper",
+    ) as HTMLElement | null;
+    const topRight = container.querySelector(
+      ".layer-ui__wrapper__top-right",
+    ) as HTMLElement | null;
+
+    expect(wrapper).not.toBeNull();
+    expect(topRight).not.toBeNull();
+
+    // with the sidebar closed there is nothing to reserve
+    expect(wrapper!.style.width).toBe("");
+
+    // the sidebar is open: the canvas's own layout is given the sidebar's
+    // width as a **reserved** space, so its controls sit beside the sidebar
+    // and never under it (D-121)
+    API.setAppState({ openSidebar: { name: "default" } });
+
+    expect(window.h.state.openSidebar).toEqual({ name: "default" });
+
+    expect(wrapper!.style.width).toBe("calc(100% - 302px)");
+
+    // the top-right slot is a sibling of the wrapper, so it makes the room
+    // for itself too
+    expect(topRight!.style.width).toBe("calc(100% - 302px)");
+
+    // and with the sidebar closed again, the reservation goes with it
+    API.setAppState({ openSidebar: null });
+
+    expect(wrapper!.style.width).toBe("");
+    expect(topRight!.style.width).toBe("");
+  });
+
+  it("AC-158 the bridge box's field and buttons are sized by the chrome", async () => {
+    const panel = codePanel();
+
+    const { container } = await render(
+      <Excalidraw
+        initialData={{
+          elements: [panel] as unknown as ExcalidrawElement[],
+        }}
+        panelBridge={{
+          token: "a-token",
+          status: "not-connected",
+          message: "Not connected.",
+          onTokenChange: () => undefined,
+          onConnect: () => undefined,
+        }}
+      />,
+    );
+
+    API.setAppState({
+      width: 1000,
+      height: 1000,
+      selectedElementIds: { [panel.id]: true },
+    });
+
+    const field = container.querySelector(
+      '[data-testid="panel-bridge-token"]',
+    ) as HTMLInputElement | null;
+    const connect = container.querySelector(
+      '[data-testid="panel-bridge-connect"]',
+    ) as HTMLButtonElement | null;
+
+    expect(field).not.toBeNull();
+    expect(connect).not.toBeNull();
+
+    // the chrome's sizes come from `scene/panelChrome.ts`, and a control
+    // that measures nothing is a control that does not exist (D-114)
+    expect(parseFloat(field!.style.height)).toBeCloseTo(
+      PANEL_CHROME.bridgeFieldHeight,
+      3,
+    );
+    expect(parseFloat(field!.style.width)).toBeGreaterThan(0);
+    expect(parseFloat(connect!.style.height)).toBeCloseTo(
+      PANEL_CHROME.bridgeButtonHeight,
+      3,
+    );
+    expect(parseFloat(connect!.style.width)).toBeGreaterThan(0);
   });
 });

@@ -8,6 +8,7 @@ import type { FileId } from "@excalidraw/element/types";
 import {
   BRIDGE_MESSAGE_TYPES,
   DEFAULT_BRIDGE_PORT,
+  NO_WORKSPACE_NAME,
   encodeBridgeMessage,
   parseBridgeMessage,
   type BridgeMessage,
@@ -299,6 +300,59 @@ describe("the bridge server", () => {
     const parsed = parseBridgeMessage(hello.payload.toString("utf8"));
     expect(parsed?.type).toBe("bridge:hello");
     expect(server.clientCount).toBe(1);
+  });
+
+  it("AC-159 the hello carries the workspace name when there is one", async () => {
+    const server = await startServer({ workspace: "excalidraw" });
+    const client = await connect(server);
+    auth(client);
+
+    const hello = await client.waitForMessage((frame) =>
+      frame.payload.toString("utf8").includes("bridge:hello"),
+    );
+    const parsed = parseBridgeMessage(hello.payload.toString("utf8"));
+
+    expect(parsed?.type).toBe("bridge:hello");
+    expect(parsed?.type === "bridge:hello" ? parsed.workspace : null).toBe(
+      "excalidraw",
+    );
+  });
+
+  it("AC-159 the hello says there is no folder open rather than carrying an empty name", async () => {
+    // The owner's panel said *"Connected to Visual Studio Code ()"* - an empty
+    // pair of brackets, which says nothing (D-122).
+    const server = await startServer({ workspace: "" });
+    const client = await connect(server);
+    auth(client);
+
+    const hello = await client.waitForMessage((frame) =>
+      frame.payload.toString("utf8").includes("bridge:hello"),
+    );
+    const parsed = parseBridgeMessage(hello.payload.toString("utf8"));
+
+    expect(parsed?.type).toBe("bridge:hello");
+
+    const workspace = parsed?.type === "bridge:hello" ? parsed.workspace : "";
+
+    // the name is NEVER blank: it says what is missing
+    expect(workspace).not.toBe("");
+    expect(workspace).toBe(NO_WORKSPACE_NAME);
+
+    // and the same is true when the extension had no workspace to name at all
+    const unnamed = await startServer({ workspace: undefined });
+    const unnamedClient = await connect(unnamed);
+    auth(unnamedClient);
+
+    const unnamedHello = await unnamedClient.waitForMessage((frame) =>
+      frame.payload.toString("utf8").includes("bridge:hello"),
+    );
+    const unnamedParsed = parseBridgeMessage(
+      unnamedHello.payload.toString("utf8"),
+    );
+
+    expect(
+      unnamedParsed?.type === "bridge:hello" ? unnamedParsed.workspace : "",
+    ).toBe(NO_WORKSPACE_NAME);
   });
 
   it("AC-59 a connection with a non-localhost origin is rejected", async () => {

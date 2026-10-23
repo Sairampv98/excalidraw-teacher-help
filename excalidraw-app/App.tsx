@@ -5,6 +5,7 @@ import {
   reconcileElements,
   ExcalidrawAPIProvider,
   useExcalidrawAPI,
+  useExcalidrawStateValue,
 } from "@excalidraw/excalidraw";
 import { trackEvent } from "@excalidraw/excalidraw/analytics";
 import { getDefaultAppState } from "@excalidraw/excalidraw/appState";
@@ -439,6 +440,9 @@ const ExcalidrawWrapper = () => {
     imageOfPanel,
     message: ocrMessage,
     busy: ocrBusy,
+    engines: ocrEngines,
+    engineFor,
+    selectEngine,
   } = useOcr({ api: excalidrawAPI, requestOcr, engineState: ocrState });
 
   // the screenshot of a panel: the app takes the picture and puts it on the
@@ -533,9 +537,11 @@ const ExcalidrawWrapper = () => {
         },
         pageId: panel.pageId,
         strokeColor: current.getAppState().currentItemStrokeColor,
+        // the engine the teacher chose **for this panel** (D-118)
+        engine: engineFor(panelId),
       });
     },
-    [excalidrawAPI, imageOfPanel, readOcr],
+    [excalidrawAPI, engineFor, imageOfPanel, readOcr],
   );
 
   /**
@@ -629,6 +635,21 @@ const ExcalidrawWrapper = () => {
     resetWidth: resetSidebarWidth,
   } = useSidebarWidth();
   const pageAutoFit = usePageAutoFit();
+
+  /**
+   * The room the **sidebar** takes away from the canvas (D-121).
+   *
+   * The sidebar is overlaid on the editor container, so the canvas's own
+   * controls - the page bar, the toolbar's right end - used to land
+   * **underneath** it (the owner's exact report). The library reserves the
+   * sidebar's width inside its own layer; this is the same reservation, said
+   * to the app's own chrome, which lives outside the library's container.
+   *
+   * It tracks the sidebar being opened and closed, because the reservation is
+   * the sidebar's **actual** width.
+   */
+  const openSidebar = useExcalidrawStateValue("openSidebar");
+  const canvasReservedWidth = openSidebar ? sidebarWidth : 0;
 
   // initial state
   // ---------------------------------------------------------------------------
@@ -1221,7 +1242,13 @@ const ExcalidrawWrapper = () => {
 
   return (
     <div
-      style={{ height: "100%" }}
+      style={{
+        height: "100%",
+        // the room the sidebar takes away from the canvas (D-121): the app's
+        // own chrome - the page bar - is laid out beside the sidebar, never
+        // under it
+        ["--canvas-reserved-width" as any]: `${canvasReservedWidth}px`,
+      }}
       className={clsx("excalidraw-app", {
         "is-collaborating": isCollaborating,
       })}
@@ -1299,6 +1326,11 @@ const ExcalidrawWrapper = () => {
           onOcr: (panelId) => {
             void readPanel(panelId);
           },
+          // the engine picker: the teacher chooses the engine **in the
+          // panel**, and the choice is per panel (D-118)
+          engines: ocrEngines,
+          engineFor,
+          onSelectEngine: selectEngine,
         }}
         // the screenshot of a panel: the button, the choice strip and the
         // wireframe are the library's, and the picture is the app's (D-102)

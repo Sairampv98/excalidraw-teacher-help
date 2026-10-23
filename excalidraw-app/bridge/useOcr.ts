@@ -7,11 +7,14 @@ import { captureVideoFrame, getVideoSurface } from "@excalidraw/excalidraw";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import type { ExcalidrawPanelElement } from "@excalidraw/element/types";
 
+import { DEFAULT_PANEL_OCR_ENGINE, OCR_ENGINE_CHOICES } from "../ocr/engines";
+
 import { dataUrlToBase64, ocrTextElements } from "./ocrPlacement";
 
 import type { OcrRegion } from "../../packages/vscode-bridge/bridge/src/ocr";
 
 import type {
+  OcrEngineName,
   OcrEngineState,
   OcrRequest,
   OcrResult,
@@ -139,6 +142,35 @@ export const useOcr = ({
   const [busy, setBusy] = useState(false);
 
   /**
+   * The engine the teacher chose, **per panel** (D-118).
+   *
+   * The picker belongs to the panel, so the choice belongs to the panel too:
+   * one panel may be read with indra while another is read with paddle.
+   *
+   * A panel with no choice reads with the **fastest measured** engine
+   * (`DEFAULT_PANEL_OCR_ENGINE`), and the bridge's own setting stays the
+   * fallback for a machine with no picker at all.
+   */
+  const [enginesByPanel, setEnginesByPanel] = useState<
+    Record<string, OcrEngineName>
+  >({});
+
+  const selectEngine = useCallback((panelId: string, engineId: string) => {
+    setEnginesByPanel((current) => {
+      if (current[panelId] === engineId) {
+        return current;
+      }
+
+      return { ...current, [panelId]: engineId as OcrEngineName };
+    });
+  }, []);
+
+  const engineFor = useCallback(
+    (panelId: string) => enginesByPanel[panelId] ?? DEFAULT_PANEL_OCR_ENGINE,
+    [enginesByPanel],
+  );
+
+  /**
    * The sentence the panel shows.
    *
    * It is the read's own sentence when there was one, and otherwise the
@@ -162,6 +194,7 @@ export const useOcr = ({
       placement,
       pageId,
       strokeColor = "#000000",
+      engine,
     }: {
       /** the picture to read */
       image: OcrImage;
@@ -173,6 +206,14 @@ export const useOcr = ({
       pageId: string;
       /** the colour of the text */
       strokeColor?: string;
+      /**
+       * Which engine to read with (D-118).
+       *
+       * The engine travels with the request, so the extension reads with the
+       * one the teacher picked in the panel. Without it the extension falls
+       * back to its own setting (D-90).
+       */
+      engine?: OcrEngineName;
     }) => {
       setBusy(true);
       setReadMessage(null);
@@ -181,6 +222,7 @@ export const useOcr = ({
         const result = await requestOcr({
           imageBase64: dataUrlToBase64(image.dataURL),
           ...(region ? { region } : {}),
+          ...(engine ? { engine } : {}),
         });
 
         const elements = ocrTextElements({
@@ -282,5 +324,16 @@ export const useOcr = ({
     [api],
   );
 
-  return { read, imageOfPanel, message, busy };
+  return {
+    read,
+    imageOfPanel,
+    message,
+    busy,
+    /** the engines the picker offers, with their measured speed (D-118) */
+    engines: OCR_ENGINE_CHOICES,
+    /** the engine chosen for a panel */
+    engineFor,
+    /** the teacher chose an engine for a panel */
+    selectEngine,
+  };
 };

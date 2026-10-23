@@ -67,6 +67,30 @@ export const BRIDGE_MESSAGE_TYPES = [
 
 export type BridgeMessageType = typeof BRIDGE_MESSAGE_TYPES[number];
 
+/**
+ * What the hello says when the teacher has **no folder open** (D-122).
+ *
+ * The workspace's name was sent as the empty string when there was no folder,
+ * and the panel then said *"Connected to Visual Studio Code ()"* - an empty pair
+ * of brackets, which says nothing. So the name is **never blank**: the bridge
+ * says this instead, and the teacher knows the difference between "no folder" and
+ * "a folder called nothing".
+ */
+export const NO_WORKSPACE_NAME = "no folder open";
+
+/**
+ * The workspace's name for the hello: the name when there is one, and
+ * {@link NO_WORKSPACE_NAME} when there is not (D-122).
+ *
+ * One place, so the bridge and the panel cannot disagree about what a blank
+ * workspace means.
+ */
+export const workspaceName = (workspace: string | undefined | null): string => {
+  const name = (workspace ?? "").trim();
+
+  return name === "" ? NO_WORKSPACE_NAME : name;
+};
+
 /** The selection the teacher's editor has, as offsets into the text. */
 export interface BridgeSelection {
   start: number;

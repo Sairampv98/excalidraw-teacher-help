@@ -1,9 +1,8 @@
 ---
 id: wave5v-chrome-and-shell
 paths: packages/excalidraw,excalidraw-app,packages/vscode-bridge,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 5v — the chrome and the shell: the things the owner could not reach
@@ -98,4 +97,3 @@ Add to the acceptance table, in the shape
 button's state at volume 0, the engine picker's colours, the token field's and Connect button's
 size, and the canvas's right-hand controls **beside** the sidebar rather than under it. Report the
 numbers.
-
