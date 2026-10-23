@@ -129,8 +129,11 @@ export const getCurrentPageRect = (
 ): PageRect => getPageRect(pages, currentPageId);
 
 /**
- * Zoom at which the whole page fits inside the viewport. This is the minimum
- * zoom — you can always see the entire page, and zooming in just crops into it.
+ * Zoom at which the whole page fits inside the viewport.
+ *
+ * This is the zoom the page is **framed** at - it is not the zoom's **floor**
+ * (D-117): the page is the bound for **panning**, not for **zooming out**, so
+ * the camera may go below this and the page is simply smaller on the screen.
  */
 export const getFitPageZoom = (
   viewportWidth: number,
@@ -229,12 +232,19 @@ export const clampCameraToPage = ({
   pageRect: PageRect;
   maxZoom: number;
 }) => {
-  const minZoom = getFitPageZoom(
-    viewportWidth,
-    viewportHeight,
-    pageRect.width,
-    pageRect.height,
-  );
+  // The zoom's **floor** is a fixed small value, not the page's fit zoom
+  // (D-117). The page is the bound for **panning** - the teacher may scroll to
+  // the page and no further - but it is not a bound on how far **out** the view
+  // may zoom: below the fit zoom the page is simply smaller on the screen, with
+  // more of it visible, and the chrome can be inspected at a small zoom. The
+  // − button used to be a no-op at exactly the fit zoom, because the clamp
+  // pinned the zoom back to it (the owner measured 56 %, 36 % and 73 % in the
+  // three window sizes).
+  //
+  // The floor is `MIN_ZOOM` - the **one** number it is written in, and the same
+  // number the zoom-out button's disabled state uses, so the button and the
+  // camera can never disagree about where the floor is.
+  const minZoom = MIN_ZOOM;
   const nextZoom = clamp(zoom, minZoom, Math.max(minZoom, maxZoom));
 
   // visible scene-space extent at this zoom

@@ -95,7 +95,62 @@ export const PANEL_CHROME = {
   /** the wireframe that stands where a screenshot will land */
   wireframeBorderWidth: 1,
   wireframeFontSize: 11,
+  /**
+   * The gap between two of the chrome's own controls.
+   *
+   * It is a **screen** gap: the chrome is the teacher's instrument panel and
+   * its controls have to be apart from each other at every zoom.
+   */
+  chromeGap: 4,
+  /**
+   * The **bridge box**: the token field, the buttons and the state line.
+   *
+   * The box is chrome **outside** the panel (D-92), so these are SCREEN pixels
+   * and the panel's transform does not touch them. They were missing before -
+   * the field and the Connect button had no size of their own, which is why
+   * they were "almost invisible" (D-114: nothing the chrome draws may size
+   * itself).
+   */
+  bridgeBoxPadding: 6,
+  bridgeFieldHeight: 24,
+  bridgeFieldWidth: 180,
+  bridgeButtonHeight: 24,
+  bridgeButtonWidth: 68,
+  bridgeFontSize: 11,
+  /** the state line under the field: the connection, said in one sentence */
+  bridgeMessageMaxWidth: 280,
+  /**
+   * The OCR button ("Read the text") and the **engine picker** beside it
+   * (D-118).
+   *
+   * The picker is chrome outside the panel too, so these are SCREEN pixels.
+   */
+  ocrButtonHeight: 24,
+  ocrButtonWidth: 92,
+  ocrPickerHeight: 24,
+  ocrPickerWidth: 108,
+  /** one entry of the picker's list: the engine, its speed and its colour */
+  ocrPickerRowHeight: 22,
+  ocrPickerFontSize: 11,
+  /** the traffic light beside an engine's name */
+  ocrPickerDotSize: 8,
 } as const;
+
+/**
+ * The room the panel's own chrome takes along its **top-right edge**.
+ *
+ * The camera's slot (D-115) and the lock's own slot, side by side, so the two
+ * can never overlap and the **corner** itself stays free for the canvas's
+ * resize handle (D-120).
+ *
+ * It is a SCREEN distance, because the chrome's sizes are screen sizes
+ * (D-92).
+ */
+export const PANEL_CHROME_LOCK_OFFSET =
+  PANEL_CHROME.panelCornerInset +
+  PANEL_CHROME.buttonSize +
+  PANEL_CHROME.chromeGap +
+  PANEL_CHROME.buttonSize;
 
 /**
  * A SCREEN size, in the panel's own units.
@@ -166,10 +221,39 @@ export const panelChrome = (scale: number) => {
      * - the code panel's header - has to keep clear of it.
      */
     cameraReserve: px(PANEL_CHROME.panelCornerInset + PANEL_CHROME.buttonSize),
+    /**
+     * The room the panel's chrome takes along its **top-right edge** (D-120).
+     *
+     * The camera's slot and the lock's own slot, side by side, so the two can
+     * never overlap and the **corner** itself stays free for the canvas's
+     * resize handle.
+     */
+    lockOffset: px(PANEL_CHROME_LOCK_OFFSET),
 
     /** the wireframe that stands where a screenshot will land */
     wireframeBorderWidth: px(PANEL_CHROME.wireframeBorderWidth),
     wireframeFontSize: px(PANEL_CHROME.wireframeFontSize),
+
+    /** the gap between two of the chrome's own controls */
+    chromeGap: px(PANEL_CHROME.chromeGap),
+
+    /** the bridge box: the token field, the buttons and the state line */
+    bridgeBoxPadding: px(PANEL_CHROME.bridgeBoxPadding),
+    bridgeFieldHeight: px(PANEL_CHROME.bridgeFieldHeight),
+    bridgeFieldWidth: px(PANEL_CHROME.bridgeFieldWidth),
+    bridgeButtonHeight: px(PANEL_CHROME.bridgeButtonHeight),
+    bridgeButtonWidth: px(PANEL_CHROME.bridgeButtonWidth),
+    bridgeFontSize: px(PANEL_CHROME.bridgeFontSize),
+    bridgeMessageMaxWidth: px(PANEL_CHROME.bridgeMessageMaxWidth),
+
+    /** the OCR button and the engine picker beside it (D-118) */
+    ocrButtonHeight: px(PANEL_CHROME.ocrButtonHeight),
+    ocrButtonWidth: px(PANEL_CHROME.ocrButtonWidth),
+    ocrPickerHeight: px(PANEL_CHROME.ocrPickerHeight),
+    ocrPickerWidth: px(PANEL_CHROME.ocrPickerWidth),
+    ocrPickerRowHeight: px(PANEL_CHROME.ocrPickerRowHeight),
+    ocrPickerFontSize: px(PANEL_CHROME.ocrPickerFontSize),
+    ocrPickerDotSize: px(PANEL_CHROME.ocrPickerDotSize),
   };
 };
 
@@ -177,6 +261,19 @@ export const panelChrome = (scale: number) => {
  * The chrome's geometry, as the type the surfaces take.
  */
 export type PanelChrome = ReturnType<typeof panelChrome>;
+
+/**
+ * The chrome's geometry in **SCREEN** pixels.
+ *
+ * The chrome that lives **outside** the panel - the lock button, the bridge
+ * box, the OCR button and its engine picker - is drawn in viewport
+ * coordinates, so the panel's transform never touches it: it is already
+ * screen sized, and it is **not** divided by the scale (D-92).
+ *
+ * This is the very same table at scale 1, so the two halves of the chrome
+ * cannot drift apart.
+ */
+export const panelScreenChrome: PanelChrome = panelChrome(1);
 
 /**
  * Where the screenshot's **choice strip** hangs, in the panel's own units

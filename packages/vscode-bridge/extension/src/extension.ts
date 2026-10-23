@@ -85,6 +85,10 @@ export function activate(context: vscode.ExtensionContext): void {
   const configuration = vscode.workspace.getConfiguration(CONFIG_SECTION);
   const port = resolvePort(workspaceRoot, configuration.get<number>("port"));
   const { token, generated } = resolveToken(configuration.get<string>("token"));
+  // The folder's name, as it appears in the window's title. It is empty when the
+  // teacher has no folder open - and the **bridge** is what turns that into a
+  // name the panel can show ("no folder open", D-122). The capture keeps the
+  // raw name, because that is what the window's title really carries.
   const workspace = workspaceRoot ? basename(workspaceRoot) : "";
 
   let runner: Runner | null = null;

@@ -25,6 +25,8 @@ import type { ExcalidrawPanelElement } from "@excalidraw/element/types";
 
 import { panelNativeSize } from "./panelContent";
 
+import type { BinaryFiles } from "../types";
+
 /**
  * What a poster image must be: its pixel size and its media type.
  *
@@ -69,6 +71,41 @@ export const panelPosterSpec = (
   const { width, height } = panelNativeSize(panel);
 
   return { width, height, mimeType };
+};
+
+/**
+ * Whether a panel can be **frozen** into a poster (D-120).
+ *
+ * A poster is a **picture** of the panel's content, so the content has to be
+ * something that can become a picture: a file in the document's own store (an
+ * image) or a video the panel is showing - a video's poster is the frame the
+ * teacher is looking at.
+ *
+ * A panel whose content lives in **another process** - a code panel, whose
+ * content is the editor's own window - has no picture of its own to freeze, so
+ * it cannot be locked.
+ *
+ * This is the rule the chrome asks **before** it draws the lock: a control
+ * that cannot act must not be drawn, because a control that does nothing costs
+ * the teacher a click and teaches them nothing (D-120).
+ */
+export const canLockPanel = (
+  panel: ExcalidrawPanelElement,
+  files: BinaryFiles,
+): boolean => {
+  const source = panel.panel.source;
+
+  if (source.type !== "file") {
+    return false;
+  }
+
+  if (!files[source.fileId]) {
+    return false;
+  }
+
+  return (
+    source.mimeType.startsWith("image/") || source.mimeType.startsWith("video/")
+  );
 };
 
 /**

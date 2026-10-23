@@ -8,6 +8,8 @@ import {
 import type { ExcalidrawElement } from "@excalidraw/element/types";
 import type { CodePanelState, PanelCapture } from "@excalidraw/excalidraw";
 
+import { NO_WORKSPACE_NAME } from "../../packages/vscode-bridge/bridge/src/protocol";
+
 import type { BridgeMessage } from "../../packages/vscode-bridge/bridge/src/protocol";
 
 /**
@@ -83,11 +85,11 @@ export const reduceCodePanelState = (
             // where the teacher sees which one that is.
             text: message.appName
               ? `Connected to ${message.appName} (${
-                  message.workspace || "the workspace"
+                  message.workspace || NO_WORKSPACE_NAME
                 }, bridge ${message.version}).`
-              : `Connected to ${message.workspace || "the editor"} (bridge ${
-                  message.version
-                }).`,
+              : `Connected to ${
+                  message.workspace || NO_WORKSPACE_NAME
+                } (bridge ${message.version}).`,
           },
         ]),
       };

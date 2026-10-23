@@ -791,6 +791,15 @@ const CodePanelSurface = ({
 const CANNOT_PLAY_CODES = [3, 4];
 
 /**
+ * The volume a **muted** video gets back when the teacher unmutes it (D-119).
+ *
+ * A slider at 0 is muted, and unmuting a silent video has to give it a volume
+ * again - otherwise the button says "unmuted" and the video stays silent, which
+ * is the same lie in the other direction.
+ */
+const UNMUTED_VOLUME = 1;
+
+/**
  * The live surface of a **video panel**.
  *
  * The video is a real `<video>` element — a panel is interactive, so it cannot
@@ -856,6 +865,18 @@ const VideoPanelSurface = ({
   const [durationMs, setDurationMs] = useState(0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
+  /**
+   * The video's **effective** state (D-119).
+   *
+   * The control used to show `video.muted` alone, so a slider at 0 left it
+   * saying "unmuted" while the video was silent - the owner's exact report
+   * ("sliding the volume slider completely down does not show the mute icon").
+   * The state the teacher **experiences** is "muted" when the video is muted
+   * **or** its volume is 0, and that is what the button shows and what clicking
+   * it acts on. The rule: the control shows the state the user experiences, not
+   * the field it happens to be bound to.
+   */
+  const effectiveMuted = muted || volume === 0;
   /**
    * The browser's own verdict on the video (D-97).
    *
@@ -1122,8 +1143,19 @@ const VideoPanelSurface = ({
       return;
     }
 
-    // the element's own value is the truth; the state only mirrors it
-    video.muted = !video.muted;
+    if (effectiveMuted) {
+      // a slider at 0 is muted too (D-119): unmuting has to bring a volume
+      // back, or the video stays silent and the button has just lied again
+      if (volume === 0) {
+        setVolumeTo(UNMUTED_VOLUME);
+      }
+
+      video.muted = false;
+    } else {
+      // the element's own value is the truth; the state only mirrors it
+      video.muted = true;
+    }
+
     setMuted(video.muted);
   };
 
@@ -1254,12 +1286,13 @@ const VideoPanelSurface = ({
           className="excalidraw__panel-video-button"
           data-testid="panel-video-mute"
           // the muted state is VISIBLE: the button says it, and the volume
-          // slider is dimmed while the panel is muted (AC-129)
-          data-muted={muted ? "true" : "false"}
-          aria-pressed={muted}
+          // slider is dimmed while the panel is muted (AC-129). The state it
+          // shows is the **effective** one - a slider at 0 is muted (D-119).
+          data-muted={effectiveMuted ? "true" : "false"}
+          aria-pressed={effectiveMuted}
           onClick={toggleMute}
-          title={muted ? "Unmute" : "Mute"}
-          aria-label={muted ? "Unmute" : "Mute"}
+          title={effectiveMuted ? "Unmute" : "Mute"}
+          aria-label={effectiveMuted ? "Unmute" : "Mute"}
           style={{
             width: chrome.buttonSize,
             height: chrome.buttonSize,
@@ -1268,14 +1301,14 @@ const VideoPanelSurface = ({
             flexShrink: 0,
           }}
         >
-          {muted ? "🔇" : "🔊"}
+          {effectiveMuted ? "🔇" : "🔊"}
         </button>
 
         <input
           type="range"
           className="excalidraw__panel-video-volume"
           data-testid="panel-video-volume"
-          data-muted={muted ? "true" : "false"}
+          data-muted={effectiveMuted ? "true" : "false"}
           min={0}
           max={1}
           step={0.05}

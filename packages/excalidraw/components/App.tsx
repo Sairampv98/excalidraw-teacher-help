@@ -2361,6 +2361,9 @@ class App extends React.Component<AppProps, AppState> {
                                 "undefined" && this.state.zenModeEnabled
                             }
                             UIOptions={this.props.UIOptions}
+                            sidebarWidth={
+                              this.props.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH
+                            }
                             onExportImage={this.onExportImage}
                             renderWelcomeScreen={
                               !this.state.isLoading &&
@@ -2582,6 +2585,7 @@ class App extends React.Component<AppProps, AppState> {
                               offsetTop: this.state.offsetTop,
                             }}
                             onToggleLock={this.togglePanelLock}
+                            files={this.files}
                             bridge={this.props.panelBridge}
                             ocr={this.props.panelOcr}
                           />

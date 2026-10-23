@@ -101,6 +101,13 @@ interface LayerUIProps {
   app: AppClassProperties;
   isCollaborating: boolean;
   generateLinkForSelection?: AppProps["generateLinkForSelection"];
+  /**
+   * The sidebar's own width, in css px (D-121).
+   *
+   * The canvas's own layout reserves it, so the canvas's controls sit beside
+   * the sidebar and never under it.
+   */
+  sidebarWidth: number;
 }
 
 const DefaultMainMenu: React.FC<{
@@ -160,6 +167,7 @@ const LayerUI = ({
   app,
   isCollaborating,
   generateLinkForSelection,
+  sidebarWidth,
 }: LayerUIProps) => {
   const editorInterface = useEditorInterface();
   const stylesPanelMode = useStylesPanelMode();
@@ -402,6 +410,14 @@ const LayerUI = ({
                 "layer-ui__wrapper__top-right--compact": isCompactStylesPanel,
               },
             )}
+            style={
+              // the same reservation the canvas's own wrapper takes (D-121):
+              // the top-right slot is a sibling of it, so it has to make the
+              // room for itself
+              appState.openSidebar
+                ? { width: `calc(100% - ${sidebarWidth}px)` }
+                : {}
+            }
           >
             {appState.collaborators.size > 0 && (
               <UserList
@@ -595,14 +611,26 @@ const LayerUI = ({
           <div
             className="layer-ui__wrapper"
             style={
-              appState.openSidebar &&
-              isSidebarDocked &&
-              editorInterface.canFitSidebar
-                ? { width: `calc(100% - var(--right-sidebar-width))` }
+              /**
+               * The canvas's own controls are laid out in the space the
+               * **sidebar leaves**, never under it (D-121).
+               *
+               * The sidebar is **overlaid** on the editor container, so the
+               * canvas used to be sized to the whole container and its
+               * right-hand controls - the toolbar's right end, the zoom
+               * actions - landed **underneath** the sidebar, where they could
+               * only be reached by closing it (the owner's exact report).
+               *
+               * The reservation is the sidebar's own width, so it tracks the
+               * sidebar being opened and closed. It used to be given only when
+               * the sidebar was **docked**, which this fork's sidebar never is.
+               */
+              appState.openSidebar
+                ? { width: `calc(100% - ${sidebarWidth}px)` }
                 : {}
             }
           >
-            {renderWelcomeScreen && <tunnels.WelcomeScreenCenterTunnel.Out />}
+            {renderWelcomeScreen && <tunnels.WelcomeScreenCenterTunnel.Out />}{" "}
             {renderFixedSideContainer()}
             <Footer
               appState={appState}

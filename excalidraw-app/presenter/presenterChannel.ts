@@ -331,6 +331,11 @@ export const resolvePresenterCamera = (
   // a page that is bigger than the default (a legacy file's page, grown to
   // hold the whole board) has a much smaller fit zoom, and the default's floor
   // would force the mirrored window to zoom *in* past the editor's own (D-30)
+  //
+  // The editor's own camera may zoom out **below** the page's fit zoom now
+  // (D-117), and the projector still shows the **whole page** rather than
+  // empty canvas around it: that is D-30's rule and it is the presenter's own
+  // decision, not a copy of the editor's floor.
   const minZoom = getFitPageZoom(
     width,
     height,

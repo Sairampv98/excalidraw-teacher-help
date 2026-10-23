@@ -435,6 +435,97 @@ describe("the video panel", () => {
     expect(parseFloat(volume!.style.height) * scale).toBeGreaterThanOrEqual(16);
   });
 
+  it("AC-157 a volume of zero shows the muted state", async () => {
+    const panel = videoPanel();
+
+    await render(
+      <Excalidraw
+        initialData={{
+          elements: [panel] as unknown as ExcalidrawElement[],
+          files: { [VIDEO_FILE_ID]: videoFile() },
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    const volume = document.querySelector(
+      '[data-testid="panel-video-volume"]',
+    ) as HTMLInputElement | null;
+    const mute = document.querySelector(
+      '[data-testid="panel-video-mute"]',
+    ) as HTMLButtonElement | null;
+
+    expect(volume).not.toBeNull();
+    expect(mute).not.toBeNull();
+
+    // the slider goes to zero: the video is silent
+    await act(async () => {
+      fireEvent.change(volume!, { target: { value: "0" } });
+    });
+
+    // and the control SAYS the panel is muted - the state the teacher
+    // experiences, not the field the control happens to be bound to (D-119).
+    // The owner's report: "sliding the volume slider completely down does not
+    // show the mute icon".
+    expect(mute!.getAttribute("aria-pressed")).toBe("true");
+    expect(mute!.getAttribute("aria-label")).toBe("Unmute");
+    expect(mute!.textContent).toBe("🔇");
+    expect(volume!.getAttribute("data-muted")).toBe("true");
+  });
+
+  it("AC-157 the mute button restores a usable volume", async () => {
+    const panel = videoPanel();
+
+    await render(
+      <Excalidraw
+        initialData={{
+          elements: [panel] as unknown as ExcalidrawElement[],
+          files: { [VIDEO_FILE_ID]: videoFile() },
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    const video = document.querySelector(
+      '[data-testid="panel-video"]',
+    ) as HTMLVideoElement | null;
+    const volume = document.querySelector(
+      '[data-testid="panel-video-volume"]',
+    ) as HTMLInputElement | null;
+    const mute = document.querySelector(
+      '[data-testid="panel-video-mute"]',
+    ) as HTMLButtonElement | null;
+
+    expect(video).not.toBeNull();
+    expect(volume).not.toBeNull();
+    expect(mute).not.toBeNull();
+
+    // the slider goes to zero
+    await act(async () => {
+      fireEvent.change(volume!, { target: { value: "0" } });
+    });
+
+    expect(video!.volume).toBe(0);
+
+    // clicking the button unmutes - and gives the video a volume back, or it
+    // would stay silent while the button says "unmuted" (D-119)
+    await act(async () => {
+      fireEvent.click(mute!);
+    });
+
+    expect(video!.muted).toBe(false);
+    expect(video!.volume).toBeGreaterThan(0);
+
+    // and the control says so
+    expect(mute!.getAttribute("aria-pressed")).toBe("false");
+    expect(mute!.getAttribute("aria-label")).toBe("Mute");
+    expect(mute!.textContent).toBe("🔊");
+    expect(volume!.getAttribute("data-muted")).toBe("false");
+    expect(volume!.value).not.toBe("0");
+  });
+
   it("AC-131 the video panel says so when its file is gone", async () => {
     const panel = videoPanel();
 

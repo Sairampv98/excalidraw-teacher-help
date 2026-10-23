@@ -33,9 +33,19 @@ import {
 } from "@excalidraw/excalidraw/tests/test-utils";
 
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
+import type {
+  ExcalidrawElement,
+  ExcalidrawPanelElement,
+  NonDeletedExcalidrawElement,
+} from "@excalidraw/element/types";
 
 import { useOcr } from "../bridge/useOcr";
 import { useScreenshot } from "../bridge/useScreenshot";
+import {
+  DEFAULT_PANEL_OCR_ENGINE,
+  OCR_ENGINE_CHOICES,
+  OCR_SPEED_COLORS,
+} from "../ocr/engines";
 
 import ExcalidrawApp from "../App";
 
@@ -227,5 +237,147 @@ describe("reading the text out of a picture", () => {
 
     expect(menu).not.toBeNull();
     expect(menu!.querySelector(OCR_IMAGE_ENTRY)).toBeNull();
+  });
+});
+
+describe("the OCR engine picker (AC-156)", () => {
+  /** a panel on the canvas - the chrome is drawn for the SELECTED panel */
+  const panel = () =>
+    API.createElement({
+      type: "panel",
+      x: 100,
+      y: 100,
+      width: 400,
+      height: 300,
+      panelKind: "image",
+      panel: {
+        source: { type: "inline", payload: null },
+        options: { naturalWidth: 400, naturalHeight: 300, captions: null },
+      },
+      posterMode: false,
+      posterFileId: null,
+    }) as unknown as ExcalidrawPanelElement;
+
+  /** the editor, with the panel selected and the picker's engines offered */
+  const renderWithPicker = async () => {
+    const element = panel();
+
+    const { container } = await render(
+      <Excalidraw
+        initialData={{ elements: [element] as unknown as ExcalidrawElement[] }}
+        panelOcr={{
+          message: "Read the text with the bridge.",
+          onOcr: () => undefined,
+          engines: OCR_ENGINE_CHOICES,
+          engineFor: () => DEFAULT_PANEL_OCR_ENGINE,
+          onSelectEngine: () => undefined,
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setSelectedElements([
+      element as unknown as NonDeletedExcalidrawElement,
+    ]);
+
+    return container;
+  };
+
+  it("AC-156 the read button carries a picker with the three engines", async () => {
+    const container = await renderWithPicker();
+
+    // the read button is there, and the picker is beside it
+    expect(
+      container.querySelector('[data-testid="panel-ocr-button"]'),
+    ).not.toBeNull();
+
+    const picker = container.querySelector(
+      '[data-testid="panel-ocr-engine-button"]',
+    ) as HTMLButtonElement | null;
+
+    expect(picker).not.toBeNull();
+
+    // the list is closed to begin with
+    expect(
+      container.querySelector('[data-testid="panel-ocr-engine-list"]'),
+    ).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(picker!);
+    });
+
+    const entries = container.querySelectorAll(
+      '[data-testid="panel-ocr-engine"]',
+    );
+
+    expect(entries.length).toBe(3);
+
+    // and they are the three engines
+    expect(
+      Array.from(entries).map((entry) => entry.getAttribute("data-engine")),
+    ).toEqual(["indra", "tesseract", "paddle"]);
+  });
+
+  it("AC-156 the picker marks each engine with its measured speed colour", async () => {
+    const container = await renderWithPicker();
+
+    await act(async () => {
+      fireEvent.click(
+        container.querySelector('[data-testid="panel-ocr-engine-button"]')!,
+      );
+    });
+
+    const entries = Array.from(
+      container.querySelectorAll('[data-testid="panel-ocr-engine"]'),
+    );
+
+    expect(entries.length).toBe(3);
+
+    // the traffic lights the owner asked for: green for the fastest, amber
+    // for the one in the middle, red for the slowest (D-118)
+    const colours = entries.map((entry) => {
+      const dot = entry.querySelector(
+        '[data-testid="panel-ocr-engine-dot"]',
+      ) as HTMLElement | null;
+
+      expect(dot).not.toBeNull();
+
+      return dot!.style.backgroundColor;
+    });
+
+    expect(colours).toEqual([
+      OCR_SPEED_COLORS.fast,
+      OCR_SPEED_COLORS.middle,
+      OCR_SPEED_COLORS.slow,
+    ]);
+
+    // and the number beside the name is the project's own measurement
+    expect(entries[0].textContent).toContain(
+      `${OCR_ENGINE_CHOICES[0].measuredMs} ms`,
+    );
+  });
+
+  it("AC-156 the default engine is indra", async () => {
+    // the default is the **fastest measured** engine, derived from the
+    // project's own record - not a claim (D-118)
+    expect(DEFAULT_PANEL_OCR_ENGINE).toBe("indra");
+
+    const fastest = OCR_ENGINE_CHOICES.reduce((a, b) =>
+      a.measuredMs <= b.measuredMs ? a : b,
+    );
+
+    expect(fastest.id).toBe("indra");
+    expect(DEFAULT_PANEL_OCR_ENGINE).toBe(fastest.id);
+
+    // and the picker shows it, so the teacher can see what a read will use
+    const container = await renderWithPicker();
+
+    const picker = container.querySelector(
+      '[data-testid="panel-ocr-engine-button"]',
+    ) as HTMLButtonElement | null;
+
+    expect(picker).not.toBeNull();
+    expect(picker!.getAttribute("data-engine")).toBe("indra");
+    expect(picker!.textContent).toContain("indra");
   });
 });
