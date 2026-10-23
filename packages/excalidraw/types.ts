@@ -406,6 +406,14 @@ export interface AppState {
     items: ContextMenuItems;
     top: number;
     left: number;
+    /**
+     * The element the context menu is **about** (AC-154).
+     *
+     * It is the element under the pointer when the menu opened, and it is
+     * recorded whether or not that element ended up selected: a picture inside
+     * a frame selects the **frame**, and the menu is still about the picture.
+     */
+    elementId?: string;
   } | null;
   showWelcomeScreen: boolean;
   isLoading: boolean;

@@ -35,7 +35,11 @@ import {
 } from "../scene/panelContent";
 import { readVideoPanelState } from "../scene/panelContent";
 import { readPanelPlayback } from "../scene/panelContent";
-import { PANEL_SCALE_PROPERTY, panelChrome } from "../scene/panelChrome";
+import {
+  PANEL_SCALE_PROPERTY,
+  choiceStripPlacement,
+  panelChrome,
+} from "../scene/panelChrome";
 import { getPanelCapture, subscribePanelCaptures } from "../scene/panelFrames";
 import {
   getPendingScreenshot,
@@ -328,6 +332,48 @@ const PanelScreenshotButton = ({
 );
 
 /**
+ * The **camera** of a panel (D-115).
+ *
+ * The camera is a control that acts on a **panel**, so it lives on the panel:
+ * it is drawn for every panel, whatever its kind, and whether or not the
+ * panel is selected - the teacher must be able to take the picture of a panel
+ * without selecting it first (D-115).
+ *
+ * It hangs on the panel's **top-right corner**, clear of the corner itself:
+ * the corner is where the canvas draws the panel's resize handle, and a
+ * control that sits on the handle is a control that costs the teacher the
+ * handle.
+ */
+const PanelScreenshotCamera = ({
+  panel,
+  chrome,
+  screenshot,
+}: {
+  panel: ExcalidrawPanelElement;
+  chrome: PanelChrome;
+  screenshot: PanelScreenshotControls;
+}) => (
+  <div
+    className="excalidraw__panel-screenshot-camera"
+    data-testid="panel-screenshot-camera"
+    style={{
+      position: "absolute",
+      top: chrome.panelCornerInset,
+      right: chrome.panelCornerInset,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+    }}
+  >
+    <PanelScreenshotButton
+      panel={panel}
+      chrome={chrome}
+      screenshot={screenshot}
+    />
+  </div>
+);
+
+/**
  * The **choice strip** of a screenshot (D-103).
  *
  * Exactly three entries, and they exist **only** after the capture: before it
@@ -372,8 +418,14 @@ const PanelScreenshotChoices = ({
       data-panel-id={panel.id}
       onClick={() => screenshot.onChoice?.(panel.id, value)}
       style={{
+        // Every size of the chrome comes from `panelChrome.ts` (D-114): the
+        // buttons had a height and no width, so their width was decided by
+        // their label - and a button the flexbox may shrink is a choice the
+        // teacher cannot read.
+        width: chrome.choiceStripButtonWidth,
         height: chrome.choiceStripHeight,
         fontSize: chrome.choiceStripFontSize,
+        flexShrink: 0,
       }}
     >
       {label}
@@ -391,9 +443,13 @@ const PanelScreenshotChoices = ({
         right: 0,
         display: "flex",
         alignItems: "center",
+        // the strip never leaves the panel: it wraps rather than hang over
+        // the panel's own edge
+        flexWrap: "wrap",
+        maxWidth: "100%",
         gap: chrome.choiceStripGap,
         padding: chrome.choiceStripPadding,
-        height: chrome.choiceStripHeight,
+        minHeight: chrome.choiceStripBoxHeight,
       }}
     >
       {choice("ocr", "ocr", t("labels.panel.screenshot.ocr"))}
@@ -525,6 +581,10 @@ const CodePanelSurface = ({
             // and it is tall enough for its own text.
             minHeight: chrome.headerHeight,
             fontSize: chrome.headerFontSize,
+            // The camera hangs on the panel's own corner (D-115), so the
+            // header keeps the room it needs and the view toggle is never
+            // hidden under the camera.
+            ...(screenshot ? { paddingRight: chrome.cameraReserve } : {}),
           }}
         >
           {hasFile ? (
@@ -589,14 +649,6 @@ const CodePanelSurface = ({
                 ? t("labels.panel.code.viewLive")
                 : t("labels.panel.code.viewEditor")}
             </button>
-          ) : null}
-          {screenshot ? (
-            // the one new button on the chrome: the screenshot (D-102, D-103)
-            <PanelScreenshotButton
-              panel={panel}
-              chrome={chrome}
-              screenshot={screenshot}
-            />
           ) : null}
         </div>
 
@@ -773,7 +825,6 @@ const VideoPanelSurface = ({
   mimeType,
   chrome,
   onVideoEvent,
-  screenshot,
   mirror,
 }: {
   panel: ExcalidrawPanelElement;
@@ -789,8 +840,6 @@ const VideoPanelSurface = ({
   /** the chrome's geometry, in the panel's own units (D-92) */
   chrome: PanelChrome;
   onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
-  /** the host's screenshot controls (D-102) */
-  screenshot?: PanelScreenshotControls;
   /**
    * The host is a **read-only mirror** — the presenter (D-57).
    *
@@ -1264,17 +1313,6 @@ const VideoPanelSurface = ({
             ))}
           </select>
         )}
-
-        {screenshot ? (
-          // the one new button on the chrome: the screenshot (D-102, D-103).
-          // The video's frame is the video's own - the host pauses it first
-          // (D-102).
-          <PanelScreenshotButton
-            panel={panel}
-            chrome={chrome}
-            screenshot={screenshot}
-          />
-        ) : null}
       </div>
     </div>
   );
@@ -1474,7 +1512,6 @@ const PanelSurface = ({
           mimeType={source.mimeType}
           chrome={chrome}
           onVideoEvent={onVideoEvent}
-          screenshot={screenshot}
           mirror={mirror}
         />
       );
@@ -1542,6 +1579,38 @@ const Panel = ({
   const scale = panelScale(camera);
 
   const chrome = useMemo(() => panelChrome(scale), [scale]);
+
+  /**
+   * Whether this panel's picture is waiting to be placed (D-116).
+   *
+   * The focus state dims the panel's **content** while the picture is in
+   * front: the editor steps back, and the panel's own chrome - the camera and
+   * the three choices - does not, so the teacher can still act on the picture
+   * the focus state shows.
+   */
+  const pending = useSyncExternalStore(
+    subscribePendingScreenshots,
+    () => getPendingScreenshot(panel.id),
+    () => getPendingScreenshot(panel.id),
+  );
+
+  /**
+   * Where the screenshot's choice strip hangs, in the panel's own units
+   * (D-114).
+   *
+   * It is computed from the panel's **own rect** - how tall the panel is and
+   * whether it wears a header - and from the chrome's own sizes. Nothing here
+   * is a number typed in at the call site.
+   */
+  const placement = useMemo(
+    () =>
+      choiceStripPlacement({
+        scale,
+        panelHeight: panel.height,
+        hasHeader: panel.panelKind === "code",
+      }),
+    [scale, panel.height, panel.panelKind],
+  );
 
   const transform = useMemo(
     () => panelTransform(panel, elementsMap, camera),
@@ -1613,16 +1682,33 @@ const Panel = ({
           screenshot={screenshot}
           mirror={mirror}
         />
-        {screenshot ? (
-          // The choice strip hangs off the panel's own chrome, and it exists
-          // only after the capture (D-103). The code panel's header is above
-          // it, so the strip hangs below the header.
-          <PanelScreenshotChoices
-            panel={panel}
-            chrome={chrome}
-            screenshot={screenshot}
-            top={panel.panelKind === "code" ? chrome.headerHeight : "0px"}
+        {pending ? (
+          // the editor steps back while its picture is in focus (D-116)
+          <div
+            className="excalidraw__panel-focus-scrim"
+            data-testid="panel-focus-scrim"
           />
+        ) : null}
+        {screenshot ? (
+          <>
+            {/* The camera is a control that acts on the PANEL, so it lives on
+                the panel - for every kind of panel, and whether or not the
+                panel is selected (D-115). */}
+            <PanelScreenshotCamera
+              panel={panel}
+              chrome={chrome}
+              screenshot={screenshot}
+            />
+            {/* The choice strip hangs off the panel's own chrome, and it exists
+                only after the capture (D-103). Its position is computed from
+                the panel's own rect (D-114), never guessed. */}
+            <PanelScreenshotChoices
+              panel={panel}
+              chrome={chrome}
+              screenshot={screenshot}
+              top={placement.top}
+            />
+          </>
         ) : null}
       </div>
     </div>

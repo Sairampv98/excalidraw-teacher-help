@@ -494,6 +494,7 @@ import { activeConfirmDialogAtom } from "./ActiveConfirmDialog";
 import { AnimatedImageOverlay } from "./AnimatedImageOverlay";
 import { PanelChrome } from "./PanelChrome";
 import { PanelOverlay } from "./PanelOverlay";
+import { PanelScreenshotFocus } from "./PanelScreenshotFocus";
 import { PanelScreenshotWireframe } from "./PanelScreenshotWireframe";
 
 import { FlowAnimationOverlay } from "./FlowAnimationOverlay";
@@ -2594,6 +2595,19 @@ class App extends React.Component<AppProps, AppState> {
                               offsetTop: this.state.offsetTop,
                             }}
                             onPlace={this.props.panelScreenshot?.onPlace}
+                          />
+                          {/*
+                            The **focus state** of a screenshot (D-116): the
+                            canvas behind steps back and the picture comes
+                            forward, with the crop on it. It is mounted last, so
+                            it is in front of everything the canvas draws.
+                          */}
+                          <PanelScreenshotFocus
+                            panels={getAllPanelElements(visibleElements)}
+                            viewport={{
+                              width: this.state.width,
+                              height: this.state.height,
+                            }}
                           />
                           <FlowAnimationOverlay
                             elementsMap={allElementsMap}
@@ -13639,7 +13653,16 @@ class App extends React.Component<AppProps, AppState> {
       },
       () => {
         this.setState({
-          contextMenu: { top, left, items: this.getContextMenuItems(type) },
+          contextMenu: {
+            top,
+            left,
+            items: this.getContextMenuItems(type),
+            // The element the menu is **about** (AC-154): the one under the
+            // pointer when the menu opened. It is here even when that element
+            // is not the selected one - a picture inside a frame selects the
+            // frame, and the menu is still about the picture.
+            elementId: element?.id,
+          },
         });
       },
     );

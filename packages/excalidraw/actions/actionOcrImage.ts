@@ -39,7 +39,23 @@ export const actionOcrImage: Action = {
       return false;
     }
 
-    // only an image can be read
+    // The element the menu is **about**: the one under the pointer when the
+    // menu opened (AC-154). The entry belongs to **that** element and not to
+    // the selection, so it is still there when the selection is something
+    // else - and a picture the teacher did not select first is a picture the
+    // teacher still wants read.
+    const contextElementId = appState.contextMenu?.elementId;
+
+    if (contextElementId) {
+      const context = elements.find(
+        (element) => element.id === contextElementId,
+      );
+
+      // only a picture can be read
+      return context?.type === "image";
+    }
+
+    // no menu is open: the choice is about the selection
     return elements.some(
       (element) =>
         element.type === "image" && !!appState.selectedElementIds[element.id],

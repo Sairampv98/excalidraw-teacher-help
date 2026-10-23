@@ -73,6 +73,25 @@ export const PANEL_CHROME = {
   choiceStripFontSize: 11,
   choiceStripPadding: 6,
   choiceStripGap: 4,
+  /**
+   * The width of **one** of the strip's three buttons (D-114).
+   *
+   * The buttons had a height and no width, so their width was decided by their
+   * content - and their content is a word. A button whose width comes from its
+   * label is a button the flexbox may shrink, and a button that is shrunk to
+   * nothing is a choice the teacher cannot read and cannot hit. So the width is
+   * **decided here**, like every other size of the chrome, and it is wide
+   * enough for the longest of the three labels.
+   */
+  choiceStripButtonWidth: 104,
+  /**
+   * How far the camera sits from the panel's own corner (D-115).
+   *
+   * The camera is a chrome control of the panel (D-115), so it lives on the
+   * panel - and it is kept clear of the panel's corner, because the corner is
+   * where the canvas draws the resize handle.
+   */
+  panelCornerInset: 8,
   /** the wireframe that stands where a screenshot will land */
   wireframeBorderWidth: 1,
   wireframeFontSize: 11,
@@ -127,6 +146,26 @@ export const panelChrome = (scale: number) => {
     choiceStripFontSize: px(PANEL_CHROME.choiceStripFontSize),
     choiceStripPadding: px(PANEL_CHROME.choiceStripPadding),
     choiceStripGap: px(PANEL_CHROME.choiceStripGap),
+    choiceStripButtonWidth: px(PANEL_CHROME.choiceStripButtonWidth),
+    /**
+     * The strip's own box: one row of buttons and the padding around them.
+     *
+     * The strip is drawn with `box-sizing: border-box`, so a strip that is as
+     * tall as its buttons has no room for its own padding - and the buttons
+     * hang out of it. The box is therefore decided here as well.
+     */
+    choiceStripBoxHeight: px(
+      PANEL_CHROME.choiceStripHeight + 2 * PANEL_CHROME.choiceStripPadding,
+    ),
+    /** the camera's distance from the panel's own corner */
+    panelCornerInset: px(PANEL_CHROME.panelCornerInset),
+    /**
+     * The room the panel's own chrome leaves for the camera (D-115).
+     *
+     * The camera hangs on the panel's corner, so whatever sits along that edge
+     * - the code panel's header - has to keep clear of it.
+     */
+    cameraReserve: px(PANEL_CHROME.panelCornerInset + PANEL_CHROME.buttonSize),
 
     /** the wireframe that stands where a screenshot will land */
     wireframeBorderWidth: px(PANEL_CHROME.wireframeBorderWidth),
@@ -138,3 +177,54 @@ export const panelChrome = (scale: number) => {
  * The chrome's geometry, as the type the surfaces take.
  */
 export type PanelChrome = ReturnType<typeof panelChrome>;
+
+/**
+ * Where the screenshot's **choice strip** hangs, in the panel's own units
+ * (D-114).
+ *
+ * The strip hangs **on the panel**: its right edge is the panel's own right
+ * edge, and its top is the panel's own header - the chrome's header height -
+ * when the panel wears one. A panel too short to hold the strip there takes it
+ * lower, so the strip is never drawn below the panel's own bottom edge.
+ *
+ * The position is **computed from the panel's own rect**: the caller says how
+ * tall the panel is and whether it wears a header, and the numbers come from
+ * the chrome. Nothing here is guessed, and nothing is written twice.
+ */
+export const choiceStripPlacement = ({
+  scale,
+  panelHeight,
+  hasHeader,
+}: {
+  /** the scale the panel is drawn at (`panelScale`) */
+  scale: number;
+  /** the panel's own height, in scene units */
+  panelHeight: number;
+  /** whether the panel wears a header the strip has to sit below */
+  hasHeader: boolean;
+}): { top: string; right: string } => {
+  // the strip's box, in the panel's own units
+  const box =
+    (PANEL_CHROME.choiceStripHeight + 2 * PANEL_CHROME.choiceStripPadding) /
+    scale;
+
+  // the header the strip sits below, in the panel's own units
+  const header = hasHeader ? PANEL_CHROME.headerHeight / scale : 0;
+
+  // the camera hangs on the panel's own top-right corner (D-115), and the strip
+  // hangs on that same edge - so the strip sits below the camera and the two
+  // never cover each other
+  const cameraBottom =
+    (PANEL_CHROME.panelCornerInset + PANEL_CHROME.buttonSize) / scale;
+
+  // the strip never hangs below the panel's own bottom edge
+  const top = Math.min(
+    Math.max(header, cameraBottom),
+    Math.max(0, panelHeight - box),
+  );
+
+  return {
+    top: `${Number(top.toFixed(4))}px`,
+    right: "0px",
+  };
+};

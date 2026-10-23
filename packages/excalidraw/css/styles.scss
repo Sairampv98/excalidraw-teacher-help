@@ -13,6 +13,10 @@
   --zIndex-svgLayer: 3;
   --zIndex-wysiwyg: 3;
   --zIndex-canvasButtons: 3;
+  // the **focus state** of a screenshot (D-116): the picture comes forward over
+  // the canvas, and the panel's own chrome - the camera and the three choices
+  // - stays above it, so the teacher can still act on the picture it shows
+  --zIndex-panelFocus: 2;
   --zIndex-layerUI: 4;
   --zIndex-eyeDropperBackdrop: 5;
   --zIndex-eyeDropperPreview: 6;
@@ -524,6 +528,31 @@ body.excalidraw-cursor-resize * {
     color: var(--color-text);
     font-size: 12px;
     text-align: center;
+    // The wireframe stands **on the canvas**, and the canvas paints an opaque
+    // background: without a z-index of its own the wireframe is behind it, and
+    // a wireframe nobody can see is a wireframe nobody can drag or click
+    // (D-104).
+    z-index: var(--zIndex-panels);
+  }
+
+  // The **focus state** of a screenshot (D-116): the dimming and the picture
+  // in front of the canvas. The panel's own chrome stays above them, so the
+  // three choices are still the teacher's to press.
+  &__panel-screenshot-focus {
+    z-index: var(--zIndex-panelFocus);
+  }
+
+  // The dimming of a panel's **own content**, while a picture is in focus: the
+  // editor steps back, and the panel's chrome - the camera and the three
+  // choices - does not (D-116).
+  &__panel-focus-scrim {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.55);
+    pointer-events: none;
   }
 
   &__panel-screenshot-wireframe-label {
