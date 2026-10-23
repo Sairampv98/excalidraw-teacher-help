@@ -37,9 +37,9 @@ import { createRunner, type Runner } from "./runner";
 import { createBridgeTask } from "./taskPresentation";
 import {
   CAPTURE_SCRIPT_RELATIVE_PATH,
-  createWindowCapture,
+  createWindowCaptureSupervisor,
   editorProcessName,
-  type WindowCapture,
+  type WindowCaptureSupervisor,
 } from "./windowCapture";
 import { createCoalescedPublisher } from "./publish";
 
@@ -67,7 +67,7 @@ let extensionVersion = "0.0.0";
 
 let bridgeServer: ReturnType<typeof createBridgeServer> | null = null;
 
-let windowCapture: WindowCapture | null = null;
+let captureSupervisor: WindowCaptureSupervisor | null = null;
 
 /**
  * The editor's text, published **at most every 100 ms** (D-88).
@@ -189,7 +189,7 @@ export function activate(context: vscode.ExtensionContext): void {
       CAPTURE_SCRIPT_RELATIVE_PATH,
     );
 
-    windowCapture = createWindowCapture({
+    captureSupervisor = createWindowCaptureSupervisor({
       scriptPath,
       // the OS process name is not the editor's name: VS Code runs as `Code`
       processName: editorProcessName(appName),
@@ -212,9 +212,13 @@ export function activate(context: vscode.ExtensionContext): void {
       onUnavailable: (reason) => {
         // A failure is a **message**, not a silence: the panel has to be able
         // to say why there is no live view, and fall back to the text (D-75).
+        // "The editor's window is not visible" is such a message, and it is a
+        // different fact from "there is no window" (D-113).
         captureState.unavailable(reason);
       },
     });
+
+    captureSupervisor.ensureRunning();
   };
 
   /**
@@ -246,6 +250,11 @@ export function activate(context: vscode.ExtensionContext): void {
   let ocrState: OcrEngineState | null = null;
 
   const sendEditorContentTo = (connection: BridgeConnection) => {
+    // A client that connects into a session whose helper had died gets a
+    // capture again: the live view recovers BY ITSELF, without anybody
+    // having to refocus the editor (D-112).
+    captureSupervisor?.ensureRunning();
+
     connection.send(editorContentMessage(currentEditor()));
 
     // The capture state, so that a panel which connects **later** learns why
@@ -489,7 +498,9 @@ export function activate(context: vscode.ExtensionContext): void {
   });
 
   // The live view of the editor's own window (D-82). It is started once, and
-  // it is stopped when the extension goes away.
+  // it is stopped when the extension goes away. A helper that DIES is started
+  // again (D-112): one dead helper must not be dead for the rest of the
+  // session.
   startWindowCapture();
 
   // The OCR engine is resolved ONCE, here: the panel is told which engine is
@@ -578,8 +589,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {
   // the capture is a process of its own: it goes away with the extension
-  windowCapture?.stop();
-  windowCapture = null;
+  captureSupervisor?.stop();
+  captureSupervisor = null;
 
   // the OCR sidecar is a process of its own too (D-90)
   stopOcrSidecar();

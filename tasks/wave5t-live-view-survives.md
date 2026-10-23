@@ -1,9 +1,8 @@
 ---
 id: wave5t-live-view-survives
 paths: packages/vscode-bridge,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 5t — the live view survives a reload, a hidden window and a dead helper
@@ -118,4 +117,3 @@ Add to the acceptance table, in the shape
 5. **Reload Window** in VS Code (Ctrl+Shift+P) -> the live view must recover.
 
 Report what you measured in the close note, including whether step 4's message is the right one.
-

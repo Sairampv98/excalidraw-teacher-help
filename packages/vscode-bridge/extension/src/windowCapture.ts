@@ -48,6 +48,16 @@ import { DEFAULT_CAPTURE_FPS } from "./config";
  *    a queue of older frames would show the editor as it was - and an
  *    unchanged picture costs no traffic and no app work.
  *
+ * And two rules this wave added (D-112, D-113):
+ *
+ *  - the window is found **by rule** - the editor's process and the title -
+ *    and never by a remembered handle: `MainWindowHandle` is 0 for a hidden
+ *    window, and the handle changes when the editor recreates its window. The
+ *    helper re-resolves it whenever the picture stops coming, and it says
+ *    what is wrong instead of exiting.
+ *  - a helper that has **died** is started again. One dead helper must not be
+ *    dead for the rest of the lesson.
+ *
  * This module imports nothing from `vscode`, so it can be driven by a test
  * without an editor - the same reason `config.ts` and `editorState.ts` keep
  * their rules out of the editor's API.
@@ -178,6 +188,61 @@ export interface CaptureSize {
   height: number;
 }
 
+/**
+ * The text a STATUS carries.
+ *
+ * The helper's stdout is a LINE until the header has arrived, and FRAMES
+ * after it. A status that comes later therefore travels as a frame whose
+ * bytes are text - and a JPEG never begins with "STATUS " or with "HEADER ",
+ * so the reader can always tell a picture from a message.
+ */
+const STATUS_PREFIX = "STATUS ";
+
+/** The text a HEADER carries. */
+const HEADER_PREFIX = "HEADER ";
+
+/**
+ * The reason the panel is told, for each thing the helper can say.
+ *
+ * Every one of them is a **fact about this moment**, and the panel has to be
+ * able to SAY it (D-75). "The window is not visible" and "there is no window"
+ * are different facts, and neither of them is "broken" (D-113).
+ */
+export const captureReason = (line: string): string | null => {
+  const text = line.replace(/^STATUS\s+/i, "").trim();
+
+  if (!text) {
+    return null;
+  }
+
+  if (text.startsWith("NO_WINDOW")) {
+    return "no editor window was found to capture";
+  }
+
+  if (text.startsWith("WINDOW_NOT_VISIBLE")) {
+    // the window is THERE, but it is not on screen: the teacher can bring it
+    // back, and the panel says so (D-113)
+    return "VS Code's window is not visible - click on it";
+  }
+
+  if (text.startsWith("BAD_RECT")) {
+    return "the editor window has no size to capture";
+  }
+
+  if (text.startsWith("NO_PICTURE")) {
+    // the window is on screen, but it draws nothing: a black rectangle is
+    // not a live view, so the helper says this instead of publishing it
+    return "VS Code's window is not showing a picture - click on it";
+  }
+
+  if (text.startsWith("SHOT_FAILED")) {
+    return "the editor window could not be drawn";
+  }
+
+  // anything else is said as it is
+  return text;
+};
+
 export interface CaptureReaderOptions {
   /** a frame arrived */
   onFrame: (bytes: Buffer) => void;
@@ -194,17 +259,58 @@ export interface CaptureReaderOptions {
  * window), and then the frames - each one prefixed with its length as four
  * little-endian bytes. The bytes are a **JPEG** (D-87); the prefix is
  * exactly as it was.
+ *
+ * And after the header, a **status** may travel as a frame whose bytes are
+ * text (D-112, D-113): the helper has to be able to say "the window is not
+ * visible" in the middle of the session, and a picture is the only thing the
+ * stream carries otherwise.
  */
 export const createCaptureReader = (options: CaptureReaderOptions) => {
   let buffer: Buffer = Buffer.alloc(0);
   let headerRead = false;
   let size: CaptureSize | null = null;
 
+  /**
+   * The lines, before the header has arrived.
+   *
+   * The helper says what is wrong as a line while it waits for the window,
+   * and the header ends the line phase: after it, the stream is frames.
+   */
+  const readLines = () => {
+    for (;;) {
+      const newline = buffer.indexOf(0x0a);
+
+      if (newline === -1) {
+        return;
+      }
+
+      const line = buffer.subarray(0, newline).toString("utf8").trim();
+      buffer = buffer.subarray(newline + 1);
+
+      const match = line.match(/^HEADER\s+(\d+)\s+(\d+)$/);
+
+      if (!match) {
+        if (line) {
+          options.onLine?.(line);
+        }
+        continue;
+      }
+
+      headerRead = true;
+      size = { width: Number(match[1]), height: Number(match[2]) };
+      options.onHeader?.(size);
+
+      // the rest of the buffer is frames
+      return;
+    }
+  };
+
   const readFrames = () => {
     // Only the NEWEST frame is handed over. The panel wants the editor as it
     // is NOW, and a queue of older frames would show the editor as it was -
     // so the frames that arrive together are dropped rather than queued.
     let newest: Buffer | null = null;
+    const lines: string[] = [];
 
     for (;;) {
       if (buffer.length < 4) {
@@ -217,8 +323,38 @@ export const createCaptureReader = (options: CaptureReaderOptions) => {
         break;
       }
 
-      newest = buffer.subarray(4, 4 + length);
+      const payload = buffer.subarray(4, 4 + length);
       buffer = buffer.subarray(4 + length);
+
+      // a picture starts with 0xFF, and text starts with a byte below 0x80
+      const text =
+        payload.length > 0 && payload[0] < 0x80
+          ? payload.toString("utf8")
+          : null;
+
+      if (text !== null && text.startsWith(STATUS_PREFIX)) {
+        // the helper is saying what is wrong, in the middle of the session
+        lines.push(text);
+        continue;
+      }
+
+      if (text !== null && text.startsWith(HEADER_PREFIX)) {
+        // the window was recreated and it is another size: the reader is told
+        // again, in the shape it already knows
+        const match = text.match(/^HEADER\s+(\d+)\s+(\d+)$/);
+
+        if (match) {
+          size = { width: Number(match[1]), height: Number(match[2]) };
+          options.onHeader?.(size);
+        }
+        continue;
+      }
+
+      newest = payload;
+    }
+
+    for (const line of lines) {
+      options.onLine?.(line);
     }
 
     if (newest) {
@@ -231,27 +367,12 @@ export const createCaptureReader = (options: CaptureReaderOptions) => {
       buffer = buffer.length ? Buffer.concat([buffer, chunk]) : chunk;
 
       if (!headerRead) {
-        const newline = buffer.indexOf(0x0a);
-
-        if (newline === -1) {
-          return;
-        }
-
-        const line = buffer.subarray(0, newline).toString("utf8").trim();
-        buffer = buffer.subarray(newline + 1);
-        headerRead = true;
-
-        const match = line.match(/^HEADER\s+(\d+)\s+(\d+)$/);
-
-        if (match) {
-          size = { width: Number(match[1]), height: Number(match[2]) };
-          options.onHeader?.(size);
-        } else {
-          options.onLine?.(line);
-        }
+        readLines();
       }
 
-      readFrames();
+      if (headerRead) {
+        readFrames();
+      }
     },
     /** the size the helper's header line carried, once it has arrived */
     get size(): CaptureSize | null {
@@ -296,6 +417,14 @@ export interface WindowCaptureOptions {
   onFrame: (frame: CaptureFrame) => void;
   /** the capture cannot run, and this is why */
   onUnavailable?: (reason: string) => void;
+  /**
+   * The helper has EXITED.
+   *
+   * The exit is an **event**, not the end of the capture: a helper that died
+   * is started again, because one dead helper must not be dead for the rest
+   * of the session (D-112).
+   */
+  onExit?: (code: number | null) => void;
 }
 
 export interface WindowCapture {
@@ -303,6 +432,8 @@ export interface WindowCapture {
   stop: () => void;
   /** how many frames the capture has read */
   frameCount: () => number;
+  /** is the helper still running? */
+  isRunning: () => boolean;
 }
 
 /**
@@ -320,15 +451,17 @@ export const createWindowCapture = (
 
   let seq = 0;
   let stopped = false;
+  let exited = false;
   /** the CRC of the last PUBLISHED frame: an unchanged picture is skipped */
   let lastChecksum: number | null = null;
-  let reported = false;
+  /** the reason that was last reported: a NEW reason is always reported */
+  let reported: string | null = null;
 
   const reportUnavailable = (reason: string) => {
-    if (stopped || reported) {
+    if (stopped || reported === reason) {
       return;
     }
-    reported = true;
+    reported = reason;
     options.onUnavailable?.(reason);
   };
 
@@ -348,7 +481,11 @@ export const createWindowCapture = (
   } catch (error) {
     const text = error instanceof Error ? error.message : String(error);
     reportUnavailable(`the capture helper could not be started: ${text}`);
-    return { stop: () => undefined, frameCount: () => 0 };
+    return {
+      stop: () => undefined,
+      frameCount: () => 0,
+      isRunning: () => false,
+    };
   }
 
   let width = 0;
@@ -360,25 +497,18 @@ export const createWindowCapture = (
       height = size.height;
     },
     onLine: (line) => {
-      if (line.startsWith("NO_WINDOW")) {
-        reportUnavailable("no editor window was found to capture");
-        return;
-      }
-      if (line === "BAD_RECT") {
-        reportUnavailable("the editor window has no size to capture");
-        return;
-      }
-      if (line.startsWith("SHOT_FAILED")) {
-        reportUnavailable("the editor window could not be drawn");
-        return;
-      }
-      if (line) {
-        reportUnavailable(line);
+      // every line the helper says is a FACT, and the panel has to be able
+      // to say it (D-75): "the window is not visible" is not "there is no
+      // window", and neither of them is "broken" (D-113)
+      const reason = captureReason(line);
+
+      if (reason) {
+        reportUnavailable(reason);
       }
     },
     onFrame: (bytes) => {
       // a frame means the capture IS working: a later failure may be reported
-      reported = false;
+      reported = null;
 
       // The change detection is HERE, in the extension, and not in the helper
       // (D-88). The helper's JPEG encoding is deterministic, so an unchanged
@@ -418,6 +548,13 @@ export const createWindowCapture = (
     if (stopped) {
       return;
     }
+
+    exited = true;
+
+    // The exit is an EVENT the extension acts on: a helper that died is
+    // started again (D-112). It is not the end of the capture.
+    options.onExit?.(code);
+
     reportUnavailable(
       `the capture stopped: the helper exited with code ${code ?? "unknown"}`,
     );
@@ -433,5 +570,112 @@ export const createWindowCapture = (
       }
     },
     frameCount: () => seq,
+    isRunning: () => !stopped && !exited,
+  };
+};
+
+/**
+ * How long the extension waits before it starts a helper that died again.
+ *
+ * Long enough that a helper which dies at once (a script that cannot run, a
+ * machine that is busy) does not become a loop, and short enough that the
+ * teacher does not notice the gap.
+ */
+export const CAPTURE_RESTART_DELAY_MS = 1000;
+
+export interface WindowCaptureSupervisorOptions extends WindowCaptureOptions {
+  /** how long to wait before a helper that died is started again */
+  restartDelayMs?: number;
+}
+
+export interface WindowCaptureSupervisor {
+  /** make sure a helper is running */
+  ensureRunning: () => void;
+  /** stop the capture, for good */
+  stop: () => void;
+  /** is a helper running right now? */
+  isRunning: () => boolean;
+  /** how many helpers have been started */
+  startCount: () => number;
+}
+
+/**
+ * The capture, and the rule that keeps it alive (D-112).
+ *
+ * The capture is still **ONE helper** for the session (D-73): a helper per
+ * frame would spawn a process every frame for the whole lesson. But a helper
+ * that has **died** is not the session - it is one process that stopped - so
+ * it is started again, and the gap is a moment rather than the rest of the
+ * lesson. That is what the owner's "it works exactly twice and then stops"
+ * was: one dead helper, dead for the rest of the session.
+ *
+ * `ensureRunning` is what the extension calls when a client connects: a
+ * client that arrives into a session whose helper had died gets a capture
+ * again, without anybody having to refocus anything.
+ *
+ * This module imports nothing from `vscode`, so the rule can be driven by a
+ * test without an editor.
+ */
+export const createWindowCaptureSupervisor = (
+  options: WindowCaptureSupervisorOptions,
+): WindowCaptureSupervisor => {
+  const restartDelayMs = options.restartDelayMs ?? CAPTURE_RESTART_DELAY_MS;
+
+  let capture: WindowCapture | null = null;
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let starts = 0;
+
+  const start = () => {
+    if (stopped) {
+      return;
+    }
+
+    if (capture && capture.isRunning()) {
+      return;
+    }
+
+    capture = createWindowCapture({
+      ...options,
+      onExit: (code) => {
+        // the helper is gone: the capture is not over
+        capture = null;
+        options.onExit?.(code);
+
+        if (stopped || timer) {
+          return;
+        }
+
+        // a helper that died is started again - ONE dead helper must not be
+        // dead for the rest of the session (D-112)
+        timer = setTimeout(() => {
+          timer = null;
+          start();
+        }, restartDelayMs);
+
+        timer.unref?.();
+      },
+    });
+
+    starts += 1;
+  };
+
+  return {
+    ensureRunning: () => {
+      start();
+    },
+    stop: () => {
+      stopped = true;
+
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+
+      capture?.stop();
+      capture = null;
+    },
+    isRunning: () => Boolean(capture?.isRunning()),
+    startCount: () => starts,
   };
 };
