@@ -258,6 +258,9 @@ const Harness = ({
 beforeEach(() => {
   FakeSocket.instances = [];
   vi.stubGlobal("WebSocket", FakeSocket);
+  // every test starts with a tab that remembers no token, so the app does
+  // not connect by itself (D-111)
+  sessionStorage.clear();
 });
 
 afterEach(() => {
@@ -427,7 +430,7 @@ describe("the app's side of the bridge", () => {
     expect(clipboard.readText).toHaveBeenCalled();
   });
 
-  it("AC-81 the token is never persisted", async () => {
+  it("AC-81 the token is never persisted beyond the tab", async () => {
     mockClipboard(TEST_TOKEN);
 
     const { api, state, panel } = scene();
@@ -444,9 +447,8 @@ describe("the app's side of the bridge", () => {
 
     await waitFor(() => expect(FakeSocket.instances.length).toBe(1));
 
-    // not in the browser's storage ...
+    // not in the browser's LONG-LIVED storage ...
     expect(storageHolds(localStorage, TEST_TOKEN)).toBe(false);
-    expect(storageHolds(sessionStorage, TEST_TOKEN)).toBe(false);
     expect(document.cookie).not.toContain(TEST_TOKEN);
 
     // ... not in the URL ...
@@ -454,6 +456,9 @@ describe("the app's side of the bridge", () => {
 
     // ... and not in the document: the panel's payload is saved with it
     expect(JSON.stringify(state.elements)).not.toContain(TEST_TOKEN);
+
+    // it IS in the tab's own session memory, which dies with the tab (D-111)
+    expect(storageHolds(sessionStorage, TEST_TOKEN)).toBe(true);
   });
 
   it("AC-82 the three connection states are the states the panel can show", () => {

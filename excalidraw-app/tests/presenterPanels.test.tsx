@@ -288,6 +288,9 @@ beforeEach(() => {
   FakeSocket.instances = [];
   vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel);
   vi.stubGlobal("WebSocket", FakeSocket);
+  // every test starts with a tab that remembers no token, so the app does
+  // not connect by itself (D-111)
+  sessionStorage.clear();
 });
 
 afterEach(() => {

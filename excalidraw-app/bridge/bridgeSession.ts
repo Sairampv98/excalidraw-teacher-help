@@ -112,7 +112,13 @@ export interface BridgeSessionOptions {
 }
 
 export interface BridgeSession {
-  /** the token held in memory. Never persisted, never in a URL. */
+  /**
+   * The token held in memory.
+   *
+   * It is never in `localStorage`, never in a URL and never in the document;
+   * it lives in the **tab's** session memory, so it dies with the tab
+   * (D-111).
+   */
   getToken: () => string;
   /** hold a token in memory. Does not connect. */
   setToken: (token: string) => void;
@@ -141,18 +147,98 @@ export const CLIPBOARD_ERROR =
   "The clipboard could not be read - paste the token into the field instead.";
 
 /**
+ * The key the token lives under in the tab's **session memory**.
+ *
+ * It is namespaced, so it cannot collide with anything else the app keeps
+ * there.
+ */
+export const BRIDGE_SESSION_KEY = "excalidraw-bridge.token";
+
+/**
+ * The tab's own memory, when the browser has one.
+ *
+ * `sessionStorage` belongs to the **tab**: it survives a reload and is
+ * dropped when the tab closes (D-111). It may be **absent** - a private
+ * window, a blocked storage API - and even asking for it can throw, so it
+ * is asked for carefully and every failure is an ordinary "no memory",
+ * never an exception.
+ */
+const sessionMemory = (): Storage | null => {
+  try {
+    const storage: Storage | undefined = globalThis.sessionStorage;
+
+    return storage ?? null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * The token the tab remembers, or "" when it remembers none.
+ *
+ * It is never in `localStorage` (that would outlive the tab), never in a URL
+ * and never in the document (D-50, D-111).
+ */
+export const readSessionToken = (): string => {
+  try {
+    return sessionMemory()?.getItem(BRIDGE_SESSION_KEY)?.trim() ?? "";
+  } catch {
+    return "";
+  }
+};
+
+/**
+ * The tab remembers the token.
+ *
+ * It reports whether it could: with no session memory the app behaves
+ * exactly as it always has - the teacher pastes the token and it works.
+ */
+export const writeSessionToken = (token: string): boolean => {
+  try {
+    const storage = sessionMemory();
+
+    if (!storage) {
+      return false;
+    }
+
+    if (token) {
+      storage.setItem(BRIDGE_SESSION_KEY, token);
+    } else {
+      storage.removeItem(BRIDGE_SESSION_KEY);
+    }
+
+    return true;
+  } catch {
+    // a storage that refuses the write (it is full, or it is blocked) is no
+    // reason to lose the token: the app still holds it in memory
+    return false;
+  }
+};
+
+/**
  * The app's bridge session.
  *
- * The token lives in this closure and nowhere else: it is never written to
- * `localStorage`, never put in the URL and never put in the document (the
- * panel's payload is saved with the document, so the token must not be in it).
+ * The token lives in this closure and in the **tab's** session memory and
+ * nowhere else: it is never written to `localStorage`, never put in the URL
+ * and never put in the document (the panel's payload is saved with the
+ * document, so the token must not be in it).
+ *
+ * The tab's session memory is what makes the paste **once per tab** instead
+ * of once per reload (D-111): it belongs to the tab, so it survives a
+ * reload and dies with the tab.
  */
 export const createBridgeSession = (
   options: BridgeSessionOptions = {},
 ): BridgeSession => {
   const url = options.url ?? bridgeUrl();
 
-  let token = "";
+  /**
+   * The token, in memory.
+   *
+   * It starts as the token the **tab remembers** (D-111): after a reload the
+   * teacher does not paste it again.
+   */
+  let token = readSessionToken();
   let client: BridgeClient | null = null;
   let error: string | null = null;
 
@@ -273,6 +359,8 @@ export const createBridgeSession = (
 
     setToken: (next: string) => {
       token = next;
+      // the tab remembers it, so a reload does not ask for it again (D-111)
+      writeSessionToken(next);
       error = null;
       publish();
     },
@@ -300,6 +388,8 @@ export const createBridgeSession = (
       }
 
       token = pasted;
+      // the tab remembers it, so a reload does not ask for it again (D-111)
+      writeSessionToken(pasted);
       error = null;
       open();
       publish();

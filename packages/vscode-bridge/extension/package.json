@@ -73,7 +73,7 @@
         "excalidraw-bridge.token": {
           "type": "string",
           "default": "",
-          "description": "The token the Excalidraw page must present. Leave it empty and one is generated for the session."
+          "description": "The token the Excalidraw page must present. Leave it empty and one is generated for the session. The extension NEVER ships a token: it is a secret, and the .vsix is a published artifact (D-110)."
         },
         "excalidraw-bridge.captureFps": {
           "type": "number",
@@ -87,14 +87,20 @@
             "indra",
             "paddle"
           ],
-          "default": "tesseract",
+          "default": "paddle",
           "description": "The OCR engine the bridge reads with. tesseract runs in this extension's own process; indra and paddle run in a Python sidecar (see excalidraw-bridge.pythonPath)."
         },
         "excalidraw-bridge.pythonPath": {
           "type": "string",
-          "default": "python",
+          "default": "C:\\Users\\user\\.pyenv\\pyenv-win\\versions\\3.12.10\\python.exe",
           "description": "The Python interpreter the indra and paddle OCR engines run in. Point it at a virtual environment that has them installed."
         }
+      }
+    },
+    "configurationDefaults": {
+      "": {
+        "excalidraw-bridge.ocrEngine": "paddle",
+        "excalidraw-bridge.pythonPath": "C:\\Users\\user\\.pyenv\\pyenv-win\\versions\\3.12.10\\python.exe"
       }
     }
   }
