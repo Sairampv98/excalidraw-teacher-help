@@ -12,6 +12,18 @@
  * engine, gives the **median** and the **p95** for both cases, and - for an
  * engine that cannot run here - says **why** (D-126).
  *
+ * ## Where each engine's numbers come from (D-109)
+ *
+ * A record that says "paddle is unavailable" reads as a fact about paddle,
+ * and it is not one: it is a fact about the machine the record was written
+ * on. So every engine carries a **`measured`** block that says **where** the
+ * numbers were taken and **what** they were taken with, and an engine that
+ * was measured **elsewhere** carries its numbers, its Python and its date.
+ *
+ * A measurement taken on another machine is still a number, so this script
+ * does not lose one: a measurement that was taken elsewhere is carried into
+ * the new record, with its provenance.
+ *
  * The levers, in order: the **ROI crop** (free, and the biggest one), then the
  * SIMD core, then the fast language data. This script measures the first one
  * and keeps the other two in reach:
@@ -174,6 +186,37 @@ const summarise = (samples) => ({
   maxMs: Math.max(...samples),
   samplesMs: samples,
 });
+
+/**
+ * The record this run is about to replace, if there is one.
+ *
+ * A measurement taken on ANOTHER machine is still a number (D-109), so the
+ * previous record's elsewhere-measurements are carried into the new one: a
+ * re-run on a machine that cannot reach an engine must not throw away the
+ * measurement that another machine took.
+ */
+const readPreviousRecord = (path) => {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * The measurement of an engine that was taken somewhere ELSE, if there is
+ * one (D-109). A measurement taken on this machine is not carried: this run
+ * takes its own.
+ */
+const carriedMeasurement = (previous, engine) => {
+  const measured = previous?.engines?.[engine]?.measured;
+
+  if (!measured || measured.where === "this machine") {
+    return null;
+  }
+
+  return measured;
+};
 
 /**
  * The sidecar, spoken to over stdio.
@@ -362,6 +405,9 @@ const measureSidecarEngine = async (engine, sidecar) => {
 const run = async () => {
   const engines = {};
 
+  const recordedAt = new Date().toISOString();
+  const previous = readPreviousRecord(outPath);
+
   // tesseract: the engine that ships inside the .vsix (D-89)
   const tesseract = await measureTesseract();
 
@@ -369,6 +415,12 @@ const run = async () => {
     name: "tesseract",
     available: true,
     version: engineVersion,
+    // where these numbers come from (D-109)
+    measured: {
+      where: "this machine",
+      with: `tesseract.js ${engineVersion}, in the benchmark process`,
+      at: recordedAt,
+    },
     ...tesseract,
   };
 
@@ -392,6 +444,15 @@ const run = async () => {
           reason:
             entry?.reason ??
             `the OCR sidecar (Python ${report.python}) cannot reach ${engine}`,
+          // and the measurement that WAS taken, wherever it was taken: an
+          // engine that could not run HERE is not a verdict on the engine
+          // (D-109)
+          measured:
+            carriedMeasurement(previous, engine) ?? {
+              where: "not measured here",
+              with: `no ${engine} on this machine's Python ${report.python}`,
+              at: null,
+            },
         };
         continue;
       }
@@ -400,6 +461,12 @@ const run = async () => {
         name: engine,
         available: true,
         python: report.python,
+        // where these numbers come from (D-109)
+        measured: {
+          where: "this machine",
+          with: `${engine}, through the OCR sidecar on Python ${report.python}`,
+          at: recordedAt,
+        },
         ...(await measureSidecarEngine(engine, sidecar)),
       };
     }
@@ -414,6 +481,12 @@ const run = async () => {
         name: engine,
         available: false,
         reason: `the OCR sidecar could not be started (${pythonPath}): ${error.message}`,
+        // a measurement taken elsewhere is still a number (D-109)
+        measured: carriedMeasurement(previous, engine) ?? {
+          where: "not measured here",
+          with: `the OCR sidecar could not be started (${pythonPath})`,
+          at: null,
+        },
       };
     }
   } finally {
@@ -421,7 +494,7 @@ const run = async () => {
   }
 
   const record = {
-    recordedAt: new Date().toISOString(),
+    recordedAt,
     engine: {
       name: "tesseract.js",
       version: engineVersion,
@@ -451,7 +524,8 @@ const run = async () => {
     // below carries them again
     cases: tesseract,
     // EVERY engine, with its median and p95 for both cases - and, for an
-    // engine that could not run, the reason why (D-126)
+    // engine that could not run, the reason why (D-126). Every engine also
+    // says WHERE its numbers come from (D-109).
     engines,
   };
 

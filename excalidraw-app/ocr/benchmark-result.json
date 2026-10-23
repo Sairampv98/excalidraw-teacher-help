@@ -55,6 +55,11 @@
       "name": "tesseract",
       "available": true,
       "version": "7.0.0",
+      "measured": {
+        "where": "this machine",
+        "with": "tesseract.js 7.0.0, in the benchmark process",
+        "at": "2026-10-22T16:27:42.950Z"
+      },
       "fullFrame": {
         "image": "frame-1080p.png",
         "region": null,
@@ -85,6 +90,11 @@
       "name": "indra",
       "available": true,
       "python": "3.14.7",
+      "measured": {
+        "where": "this machine",
+        "with": "indra, through the OCR sidecar on Python 3.14.7",
+        "at": "2026-10-22T16:27:42.950Z"
+      },
       "fullFrame": {
         "image": "frame-1080p.png",
         "region": null,
@@ -114,7 +124,21 @@
     "paddle": {
       "name": "paddle",
       "available": false,
-      "reason": "paddleocr is not installed - pip install paddleocr paddlepaddle. PaddlePaddle has no build for Python 3.14; it needs Python 3.12 or 3.13"
+      "reason": "paddleocr is not installed on THIS machine's Python 3.14 - pip install paddleocr paddlepaddle. PaddlePaddle has no build for Python 3.14; it needs Python 3.12 or 3.13. It WAS measured, on another Python: see `measured`.",
+      "measured": {
+        "where": "the owner's machine - the one this record was written on, but with the owner's Python 3.12.10 instead of this benchmark's Python 3.14, which has no paddle wheel",
+        "with": "paddleocr 3.7.0 / paddlepaddle 3.3.1, through the shipped OCR sidecar inside the built .vsix",
+        "at": "2026-10-23",
+        "python": "3.12.10",
+        "image": "stream-frame.jpg (962x506) - not the 1080p frame the other engines were measured on",
+        "firstReadMs": 36086,
+        "secondReadMs": 30601,
+        "shippedSidecarMs": 34668,
+        "lines": 54,
+        "chars": 658,
+        "mkldnn": false,
+        "note": "the first read is the one that fell back - the fast path crashed, the model was rebuilt without oneDNN, and the read SUCCEEDED; the second read reuses that model; the third is the shipped sidecar, inside the built .vsix"
+      }
     }
   },
   "verdict": {

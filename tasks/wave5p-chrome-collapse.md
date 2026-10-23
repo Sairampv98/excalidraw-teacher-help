@@ -1,9 +1,8 @@
 ---
 id: wave5p-chrome-collapse
 paths: packages/excalidraw,excalidraw-app,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 5p — the chrome's icon-only buttons must not collapse
@@ -154,4 +153,3 @@ b.getBoundingClientRect();   // width must be 24 (the chrome's size), NOT 0
 ```
 
 Report the measured width at **two** zooms. If the width is still 0, the wave is not done.
-
