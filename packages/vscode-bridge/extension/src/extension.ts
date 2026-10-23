@@ -315,6 +315,42 @@ export function activate(context: vscode.ExtensionContext): void {
   const pythonPath = resolvePythonPath(configuration.get<string>("pythonPath"));
 
   /**
+   * Whether the teacher has already been told about the fall-back.
+   *
+   * The sidecar falls back to the slow path when the fast one crashes
+   * (D-106), and the slow path is MUCH slower. The teacher is told **once**:
+   * the fact is in every answer, but a message per read would be noise.
+   */
+  let toldAboutTheFallback = false;
+
+  /**
+   * The extension's own message about the fall-back.
+   *
+   * It says why the read was slow, in the extension's own words - not the
+   * engine's, and not the library's (D-91, D-106).
+   */
+  const tellAboutTheFallback = (
+    engine: string,
+    durationMs: number | undefined,
+  ) => {
+    if (toldAboutTheFallback) {
+      return;
+    }
+
+    toldAboutTheFallback = true;
+
+    const seconds =
+      durationMs === undefined
+        ? ""
+        : ` (this read took ${(durationMs / 1000).toFixed(1)} s)`;
+
+    void vscode.window.showWarningMessage(
+      `Excalidraw Bridge: ${engine} ran WITHOUT oneDNN, so it is on its slow path${seconds}. ` +
+        "oneDNN is broken on this machine, so this is the only configuration that works here.",
+    );
+  };
+
+  /**
    * The engine's **state**, published to the panel (D-90, D-91).
    *
    * The panel has to be able to say which engine is in use, and - when the
@@ -383,7 +419,15 @@ export function activate(context: vscode.ExtensionContext): void {
         ...(result.durationMs === undefined
           ? {}
           : { durationMs: result.durationMs }),
+        // how the engine's model was built: the truth about a slow read (D-106)
+        ...(result.model ? { model: result.model } : {}),
       });
+
+      // the engine fell back to the slow path: the teacher is told why the
+      // read took so long, in the extension's own words (D-91, D-106)
+      if (result.model?.mkldnn === false) {
+        tellAboutTheFallback(result.engine ?? engine, result.durationMs);
+      }
     } catch (error) {
       const message = (error as Error).message;
 

@@ -1,8 +1,8 @@
 import type { FileId } from "@excalidraw/element/types";
 
-import { isOcrEngineName, isOcrLine, isOcrRegion } from "./ocr";
+import { isOcrEngineName, isOcrLine, isOcrModel, isOcrRegion } from "./ocr";
 
-import type { OcrEngineName, OcrLine, OcrRegion } from "./ocr";
+import type { OcrEngineName, OcrLine, OcrModel, OcrRegion } from "./ocr";
 
 /**
  * The bridge protocol - the ONE definition of the message types.
@@ -215,6 +215,13 @@ export type BridgeMessage =
       engine?: OcrEngineName;
       /** how long the read took, in milliseconds (D-90) */
       durationMs?: number;
+      /**
+       * How the engine's model was built (D-106).
+       *
+       * It says whether the engine ran **without** oneDNN, so the panel can
+       * tell the teacher why a read was slow (D-91).
+       */
+      model?: OcrModel;
     }
   /**
    * extension -> panel. The state of the OCR engine (D-90, D-91).
@@ -361,7 +368,10 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
           typeof value.confidence === "number") &&
         // the engine and the time are optional (D-90)
         (value.engine === undefined || isOcrEngineName(value.engine)) &&
-        (value.durationMs === undefined || typeof value.durationMs === "number")
+        (value.durationMs === undefined ||
+          typeof value.durationMs === "number") &&
+        // how the model was built is optional (D-106)
+        (value.model === undefined || isOcrModel(value.model))
       );
     case "ocr:state":
       return (

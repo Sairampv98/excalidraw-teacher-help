@@ -1,6 +1,12 @@
 import { EventEmitter } from "node:events";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -10,6 +16,8 @@ import {
   type OcrSidecarReport,
   type OcrSidecarSpawn,
 } from "../extension/src/ocrSidecar";
+
+import type { ChildProcess } from "node:child_process";
 
 /** The package root, found by walking up from the working directory. */
 const findPackageRoot = (): string => {
@@ -101,6 +109,186 @@ const fakeEnginePackage = (marker: string, name: string) => {
   );
 
   return { root, marker };
+};
+
+/**
+ * The fake **paddleocr** package.
+ *
+ * It stands in for PaddleOCR on a machine where PaddlePaddle cannot be
+ * installed. The model writes down how it was built, and it crashes the way
+ * PaddlePaddle 3.x crashes on Windows when oneDNN is on (D-106).
+ *
+ * The `numpy` and `cv2` beside it are there for the same reason: the sidecar
+ * decodes the image before it reads it, and the test must not need a real
+ * image library - only a real Python.
+ */
+const fakePaddleEngine = () => {
+  const root = mkdtempSync(join(tmpdir(), "excalidraw-ocr-paddle-"));
+  const log = join(root, "built.jsonl");
+
+  const write_ = (folder: string, source: string) => {
+    mkdirSync(join(root, folder), { recursive: true });
+    writeFileSync(join(root, folder, "__init__.py"), source, "utf8");
+  };
+
+  write_("paddle", "");
+
+  write_(
+    "numpy",
+    [
+      "uint8 = 'uint8'",
+      "",
+      "",
+      "def frombuffer(buffer, dtype=None):",
+      "    return buffer",
+      "",
+    ].join("\n"),
+  );
+
+  write_(
+    "cv2",
+    [
+      "IMREAD_COLOR = 1",
+      "IMREAD_GRAYSCALE = 0",
+      "COLOR_BGR2RGB = 4",
+      "",
+      "",
+      "def imdecode(buffer, flags=0):",
+      "    return buffer",
+      "",
+      "",
+      "def cvtColor(image, code):",
+      "    return image",
+      "",
+    ].join("\n"),
+  );
+
+  write_(
+    "paddleocr",
+    [
+      "import json",
+      "import os",
+      "",
+      "LOG = os.environ['OCR_FAKE_ENGINE_LOG']",
+      "CRASH = os.environ.get('OCR_FAKE_ENGINE_CRASH') == '1'",
+      "",
+      "ONE_DNN_ERROR = (",
+      "    '(Unimplemented) ConvertPirAttribute2RuntimeAttribute not support '",
+      "    '[pir::ArrayAttribute<pir::DoubleAttribute>]'",
+      ")",
+      "",
+      "",
+      "class PaddleOCR:",
+      "    def __init__(self, **kwargs):",
+      "        with open(LOG, 'a', encoding='utf-8') as handle:",
+      "            handle.write(json.dumps(kwargs) + '\\n')",
+      "        self.kwargs = kwargs",
+      "",
+      "    def predict(self, image):",
+      "        if CRASH and self.kwargs.get('enable_mkldnn', True):",
+      "            raise NotImplementedError(ONE_DNN_ERROR)",
+      "        return [{'rec_texts': ['hello from paddle'], 'rec_scores': [0.97]}]",
+      "",
+    ].join("\n"),
+  );
+
+  return { root, log };
+};
+
+/**
+ * The sidecar, running as if it were on a Python that HAS a PaddlePaddle wheel.
+ *
+ * PaddlePaddle has no cp314 wheel, so on a Python 3.14 the sidecar says
+ * "paddle is unavailable" - the truth here, and the wrong thing to test
+ * against. The version is patched so the Paddle path can be exercised on any
+ * machine (D-91).
+ */
+const spawnPaddleSidecar = (python: string, root: string, log: string) =>
+  spawn(
+    python,
+    [
+      "-c",
+      "import sys, runpy; sys.version_info = (3, 12, 10, 'final', 0); runpy.run_path(sys.argv[1], run_name='__main__')",
+      sidecarScript,
+    ],
+    {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        PYTHONPATH: root,
+        OCR_FAKE_ENGINE_LOG: log,
+        OCR_FAKE_ENGINE_CRASH: "1",
+      },
+    },
+  );
+
+/**
+ * The lines the sidecar wrote, in order.
+ *
+ * The sidecar answers on stdout, one JSON object per line, so the lines are
+ * taken as they come and the test waits for the one it needs.
+ */
+const sidecarLines = (child: ChildProcess) => {
+  const lines: Record<string, unknown>[] = [];
+  const waiting: {
+    match: (line: Record<string, unknown>) => boolean;
+    resolve: (line: Record<string, unknown>) => void;
+  }[] = [];
+  let buffer = "";
+
+  const deliver = (line: Record<string, unknown>) => {
+    lines.push(line);
+
+    for (let index = 0; index < waiting.length; index++) {
+      if (waiting[index].match(line)) {
+        waiting.splice(index, 1)[0].resolve(line);
+        return;
+      }
+    }
+  };
+
+  child.stdout?.on("data", (chunk) => {
+    buffer += String(chunk);
+    let newline = buffer.indexOf("\n");
+
+    while (newline !== -1) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      newline = buffer.indexOf("\n");
+
+      if (!line) {
+        continue;
+      }
+
+      deliver(JSON.parse(line) as Record<string, unknown>);
+    }
+  });
+
+  return {
+    lines,
+    /** the next line that matches - the ones that do not are kept */
+    waitFor: (match: (line: Record<string, unknown>) => boolean) =>
+      new Promise<Record<string, unknown>>((resolve) => {
+        const found = lines.find(match);
+        if (found) {
+          resolve(found);
+          return;
+        }
+        waiting.push({ match, resolve });
+      }),
+  };
+};
+
+/** Every model the fake engine was asked to build, and how it was built. */
+const readBuilds = (log: string): Record<string, unknown>[] => {
+  if (!existsSync(log)) {
+    return [];
+  }
+
+  return readFileSync(log, "utf8")
+    .split(/\r?\n/)
+    .filter((line) => line.trim())
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
 };
 
 /** The report the sidecar writes when it starts. */
@@ -354,5 +542,147 @@ describe("the OCR sidecar", () => {
 
     expect(on312.paddle).not.toContain("no build");
     expect(on312.paddle).toContain("pip install paddleocr paddlepaddle");
+  });
+
+  it("AC-143 a paddle read that raises the oneDNN error is retried with mkldnn disabled and then succeeds", async () => {
+    const python = findPython();
+    const { root, log } = fakePaddleEngine();
+    const child = spawnPaddleSidecar(python, root, log);
+    const output = sidecarLines(child);
+
+    const report = await output.waitFor((line) => line.type === "ready");
+
+    // the FAST path is what the sidecar tries first: oneDNN is faster when it
+    // works, so the fall-back is not unconditional (D-106)
+    expect(report.engines).toMatchObject({
+      paddle: { available: true, model: { mkldnn: true } },
+    });
+
+    child.stdin?.write(
+      `${JSON.stringify({
+        id: "1",
+        engine: "paddle",
+        imageBase64: "QUJD",
+      })}\n`,
+    );
+
+    const answer = await output.waitFor((line) => line.id === "1");
+
+    // the crash became a WORKING answer, not a dead engine
+    expect(answer.error).toBeUndefined();
+    expect(answer.text).toBe("hello from paddle");
+
+    // and the model was rebuilt with oneDNN OFF - the only switch that works
+    // around the crash (D-106)
+    const built = readBuilds(log);
+    expect(built).toHaveLength(2);
+    expect(built[1].enable_mkldnn).toBe(false);
+
+    child.kill();
+  });
+
+  it("AC-143 the answer says that the engine ran without oneDNN", async () => {
+    const python = findPython();
+    const { root, log } = fakePaddleEngine();
+    const child = spawnPaddleSidecar(python, root, log);
+    const output = sidecarLines(child);
+
+    await output.waitFor((line) => line.type === "ready");
+
+    child.stdin?.write(
+      `${JSON.stringify({
+        id: "1",
+        engine: "paddle",
+        imageBase64: "QUJD",
+      })}\n`,
+    );
+
+    const answer = await output.waitFor((line) => line.id === "1");
+
+    // the answer says WHICH engine read the text, and HOW its model was built:
+    // the teacher has to be able to see why the read took 28 seconds instead
+    // of 300 milliseconds (D-106, D-91)
+    expect(answer.engine).toBe("paddle");
+    expect(answer.model).toEqual({ mkldnn: false });
+
+    child.kill();
+  });
+
+  it("AC-144 the model is built once and every later read reuses it", async () => {
+    const python = findPython();
+    const { root, log } = fakePaddleEngine();
+    const child = spawnPaddleSidecar(python, root, log);
+    const output = sidecarLines(child);
+
+    await output.waitFor((line) => line.type === "ready");
+
+    child.stdin?.write(
+      `${JSON.stringify({
+        id: "1",
+        engine: "paddle",
+        imageBase64: "QUJD",
+      })}\n`,
+    );
+
+    const first = await output.waitFor((line) => line.id === "1");
+
+    expect(first.error).toBeUndefined();
+
+    // the fast model, and the model that works: two builds, and no more
+    expect(readBuilds(log)).toHaveLength(2);
+
+    child.stdin?.write(
+      `${JSON.stringify({
+        id: "2",
+        engine: "paddle",
+        imageBase64: "REVG",
+      })}\n`,
+    );
+
+    const second = await output.waitFor((line) => line.id === "2");
+
+    // the later read reuses the model that works: nothing is built again, and
+    // the fall-back is remembered (D-107)
+    expect(second.error).toBeUndefined();
+    expect(second.text).toBe("hello from paddle");
+    expect(readBuilds(log)).toHaveLength(2);
+
+    child.kill();
+  });
+
+  it("AC-144 the ready line says how the paddle model was built", async () => {
+    const python = findPython();
+    const { root, log } = fakePaddleEngine();
+    const child = spawnPaddleSidecar(python, root, log);
+    const output = sidecarLines(child);
+
+    const first = await output.waitFor((line) => line.type === "ready");
+
+    // how the model WILL be built: the fast path, until it has failed
+    expect(first.engines).toMatchObject({
+      paddle: { model: { mkldnn: true } },
+    });
+
+    child.stdin?.write(
+      `${JSON.stringify({
+        id: "1",
+        engine: "paddle",
+        imageBase64: "QUJD",
+      })}\n`,
+    );
+
+    await output.waitFor((line) => line.id === "1");
+
+    // the fall-back changed how the model was built, so the report is written
+    // AGAIN - and now it says how the model WAS built (D-107)
+    const updated = await output.waitFor(
+      (line) => line.type === "ready" && line !== first,
+    );
+
+    expect(updated.engines).toMatchObject({
+      paddle: { model: { mkldnn: false } },
+    });
+
+    child.kill();
   });
 });

@@ -176,4 +176,38 @@ describe("the OCR benchmark", () => {
     );
     expect(paddle.reason).toContain("3.12 or 3.13");
   });
+
+  it("AC-126 the benchmark records that an engine fell back to the slow path", () => {
+    const fallback = JSON.parse(
+      readFileSync(
+        join(
+          repoRoot,
+          "packages",
+          "vscode-bridge",
+          "tests",
+          "fixtures",
+          "paddle-fallback.json",
+        ),
+        "utf8",
+      ),
+    );
+
+    // the engine ANSWERED: the crash the owner hit became a working read,
+    // not a dead engine (D-106)
+    expect(fallback.lines).toBeGreaterThan(0);
+    expect(fallback.textLength).toBeGreaterThan(0);
+
+    // and the record says that it fell back - the truth about the speed is
+    // REPORTED, not hidden (D-91, D-106)
+    expect(fallback.engine).toBe("paddle");
+    expect(fallback.fellBack).toBe(true);
+    expect(fallback.oneDNN).toBe(false);
+    expect(fallback.reportModel).toEqual({ mkldnn: false });
+
+    // the slow path is slow, and the record says so too: about half a minute a
+    // read on this CPU-only box, against 278 ms for tesseract and 147 ms for
+    // indra. The model load is paid once, so the later read is the plain one.
+    expect(fallback.durationMs).toBeGreaterThan(1000);
+    expect(fallback.reusedDurationMs).toBeGreaterThan(1000);
+  });
 });

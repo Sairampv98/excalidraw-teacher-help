@@ -1,9 +1,8 @@
 ---
 id: wave5o-paddle-fallback
 paths: packages/vscode-bridge,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 5o — PaddleOCR actually runs on this machine
@@ -99,4 +98,3 @@ Add to the acceptance table, in the shape
 `node scripts/tins-gate.mjs` must pass 4/4 and `node scripts/rowcheck.mjs --all` must exit 0. The kit's own SPEC lint must pass.
 
 **The real proof, beyond the tests**: rebuild the `.vsix` (`node packages/vscode-bridge/scripts/build-vsix.mjs`), install it into the owner's two editors, and run the sidecar **for real** with the owner's Python 3.12.10 against a real frame. Report the numbers in the close note: the read time with the fall-back, and the fact that the engine answers at all.
-

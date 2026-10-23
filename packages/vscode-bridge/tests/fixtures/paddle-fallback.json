@@ -1,0 +1,14 @@
+{
+  "engine": "paddle",
+  "python": "3.12.10",
+  "image": "C:/Users/user/projects/stream-frame.jpg",
+  "fellBack": true,
+  "oneDNN": false,
+  "durationMs": 36086,
+  "reusedDurationMs": 30601,
+  "lines": 54,
+  "textLength": 658,
+  "reportModel": {
+    "mkldnn": false
+  }
+}

@@ -70,6 +70,8 @@ The panel can read the text out of an image. The engine is a **choice**:
 
 An engine that is not there is **said**, not swallowed: the panel shows the reason and the command that installs it. PaddleOCR needs Python 3.12 or 3.13 - PaddlePaddle has no build for Python 3.14.
 
+An engine that **crashes** on its first read is said as well. PaddlePaddle 3.x on Windows hits an unimplemented conversion in the oneDNN instruction of its new executor, so the sidecar falls back to the model built **without** oneDNN - once, and it keeps that model for every later read. The fall-back is not unconditional (oneDNN is faster when it works), and it is reported: the answer carries the engine's name and how its model was built, and the extension tells the teacher why the read took so long.
+
 ## Running the program
 
 The extension contributes the task type **`excalidraw-bridge.run`**. A task that uses it is run by the extension itself, in a pseudoterminal:
