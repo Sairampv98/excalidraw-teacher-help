@@ -237,6 +237,9 @@ body.excalidraw-cursor-resize * {
     color: var(--color-text);
     line-height: 1;
     cursor: pointer;
+    // the chrome's size is decided, and the flexbox may not take it away
+    // (D-108) - the same rule the screenshot button carries
+    flex-shrink: 0;
 
     // the muted state is visible at a glance, not only in the DOM (AC-129)
     &[data-muted="true"] {
@@ -456,6 +459,9 @@ body.excalidraw-cursor-resize * {
   // One button on the chrome, and nothing else: the three choices come AFTER
   // the capture, not before it (D-103). Its SIZE is applied inline, from
   // `scene/panelChrome.ts`, because the chrome is sized for the screen (D-92).
+  //
+  // The button may NOT be shrunk (D-108): its size is decided, and the
+  // flexbox of the header may not take that size away.
   &__panel-screenshot-button {
     display: flex;
     align-items: center;
@@ -466,10 +472,16 @@ body.excalidraw-cursor-resize * {
     color: inherit;
     border: 1px solid currentColor;
     cursor: pointer;
+    flex-shrink: 0;
 
+    // The icon has an ABSOLUTE size, never a percentage of the button
+    // (D-108): a percentage makes the icon's width depend on the button's
+    // width, and the button's width depends on its content - a circle the
+    // browser resolves to zero. The icon is a SCREEN size (D-92), so it is
+    // divided by the panel's own scale, like the chrome's other sizes.
     svg {
-      width: 60%;
-      height: 60%;
+      width: calc(14px / var(--panel-scale));
+      height: calc(14px / var(--panel-scale));
       pointer-events: none;
     }
   }

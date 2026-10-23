@@ -316,6 +316,11 @@ const PanelScreenshotButton = ({
       width: chrome.buttonSize,
       height: chrome.buttonSize,
       fontSize: chrome.buttonFontSize,
+      // The chrome's size is DECIDED (D-92), and the flexbox may not take it
+      // away (D-108): the header is tight, and a button that may shrink can
+      // be shrunk away entirely - which is what happened on 2026-10-22, when
+      // this button measured zero pixels wide in the owner's app.
+      flexShrink: 0,
     }}
   >
     {ScreenshotIcon}
@@ -1170,6 +1175,10 @@ const VideoPanelSurface = ({
             width: chrome.buttonSize,
             height: chrome.buttonSize,
             fontSize: chrome.buttonFontSize,
+            // the same rule as the screenshot button (D-108): this glyph is
+            // the control's content, so without the rule the flexbox could
+            // take the chrome's size away from it too
+            flexShrink: 0,
           }}
         >
           {playing ? "❚❚" : "▶"}
@@ -1206,6 +1215,8 @@ const VideoPanelSurface = ({
             width: chrome.buttonSize,
             height: chrome.buttonSize,
             fontSize: chrome.buttonFontSize,
+            // the same rule as the play button (D-108)
+            flexShrink: 0,
           }}
         >
           {muted ? "🔇" : "🔊"}

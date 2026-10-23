@@ -6,16 +6,21 @@
  * lint reads this file and fails if a row id is missing.
  */
 
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import React from "react";
 
 import type {
   ExcalidrawPanelElement,
+  FileId,
   NonDeletedExcalidrawElement,
 } from "@excalidraw/element/types";
 
-import { Excalidraw } from "../index";
+import { Excalidraw, videoPanelContent } from "../index";
 import { capturePausedVideoFrame } from "../components/videoPanelSurface";
 import {
   clearAllPendingScreenshots,
@@ -24,11 +29,32 @@ import {
   snapshotUrl,
 } from "../scene/panelScreenshot";
 import { codePanelContent, emptyCodePanelState } from "../scene/panelContent";
+import { PANEL_CHROME, PANEL_SCALE_PROPERTY } from "../scene/panelChrome";
 
 import { API } from "./helpers/api";
 import { act, render, waitFor } from "./test-utils";
 
+import type { BinaryFileData } from "../types";
 import type { CodePanelState } from "../scene/panelContent";
+
+/** the stylesheet the chrome's rules live in (D-108) */
+const stylesheet = () =>
+  readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "..", "css", "styles.scss"),
+    "utf8",
+  );
+
+/** the video file the video panel plays */
+const VIDEO_FILE_ID = "video-file-1" as FileId;
+
+const videoFile = () => ({
+  id: VIDEO_FILE_ID,
+  mimeType: "video/mp4" as unknown as BinaryFileData["mimeType"],
+  dataURL: "data:video/mp4;base64,AAAA" as BinaryFileData["dataURL"],
+  created: 1,
+  lastRetrieved: 1,
+  version: 1,
+});
 
 /** A code panel that is connected and has something to show. */
 const connectedState = (): CodePanelState => ({
@@ -55,6 +81,30 @@ const codePanel = (): ExcalidrawPanelElement =>
     height: 300,
     panelKind: "code",
     panel: codePanelContent(connectedState(), "session-1"),
+    posterMode: false,
+    posterFileId: null,
+  }) as unknown as ExcalidrawPanelElement;
+
+/**
+ * A video panel: the **control group** of the chrome's buttons (D-108).
+ *
+ * Its play and mute buttons are the same size as the screenshot button, but
+ * they carry a glyph as text - so their min-content width is the glyph and
+ * they do not collapse the way an icon-only button did.
+ */
+const videoPanel = (): ExcalidrawPanelElement =>
+  API.createElement({
+    type: "panel",
+    x: 600,
+    y: 80,
+    width: 400,
+    height: 300,
+    panelKind: "video",
+    panel: videoPanelContent({
+      source: { type: "file", fileId: VIDEO_FILE_ID, mimeType: "video/mp4" },
+      naturalWidth: 1920,
+      naturalHeight: 1080,
+    }),
     posterMode: false,
     posterFileId: null,
   }) as unknown as ExcalidrawPanelElement;
@@ -247,5 +297,96 @@ describe("the screenshot of a panel", () => {
     expect(
       document.querySelector('[data-testid="panel-screenshot-choice-newPage"]'),
     ).not.toBeNull();
+  });
+
+  it("AC-145 the screenshot button's inline style keeps its width and cannot be shrunk", async () => {
+    // The button collapsed on the owner's screen on 2026-10-22: it measured
+    // ZERO pixels wide, because it is a flex item of a tight header, its
+    // content is an `<svg>` with no intrinsic width, and the stylesheet sized
+    // that svg in percentages of the button (D-108).
+    //
+    // jsdom cannot lay out a flexbox, so the test asserts the STYLE that
+    // makes the collapse impossible: the size is the chrome's size, in the
+    // panel's own units (D-92), and the flexbox may not shrink it.
+    const { container } = await render(
+      <Excalidraw
+        initialData={{ files: { [VIDEO_FILE_ID]: videoFile() } }}
+        panelScreenshot={{ onCapture: () => {} }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(codePanel()), asElement(videoPanel())]);
+
+    // the panels are drawn by the overlay, which renders after the scene is
+    // restored
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="panel-screenshot-button"]'),
+      ).not.toBeNull(),
+    );
+
+    const button = container.querySelector(
+      '[data-testid="panel-screenshot-button"]',
+    ) as HTMLElement | null;
+
+    expect(button).not.toBeNull();
+
+    // the panel publishes the scale its own transform carries
+    const scale = parseFloat(
+      getComputedStyle(
+        container.querySelector('[data-testid="panel"]')!,
+      ).getPropertyValue(PANEL_SCALE_PROPERTY),
+    );
+
+    // the width is the chrome's width: 24 screen pixels, whatever the zoom
+    expect(parseFloat(button!.style.width) * scale).toBeCloseTo(
+      PANEL_CHROME.buttonSize,
+      3,
+    );
+
+    // and the flexbox may not take it away. The rule is INLINE, so it holds
+    // in a page whose stylesheet has not loaded - which is the case jsdom is.
+    expect(button!.style.flexShrink).toBe("0");
+
+    // The control group: the video's play and mute buttons carry a glyph as
+    // text, so their min-content width is the glyph and they never collapsed
+    // - but their size is decided as well, so they carry the same rule.
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="panel-video-mute"]'),
+      ).not.toBeNull(),
+    );
+
+    for (const testId of ["panel-video-play", "panel-video-mute"]) {
+      const control = container.querySelector(
+        `[data-testid="${testId}"]`,
+      ) as HTMLElement | null;
+
+      expect(control).not.toBeNull();
+      expect(control!.style.flexShrink).toBe("0");
+    }
+  });
+
+  it("AC-145 the stylesheet gives the chrome's icon an absolute size, not a percentage", () => {
+    // The rule has to be visible to a reader as well as in the inline style
+    // (D-108), and it has to break the circle: a percentage makes the icon's
+    // width depend on the button's width, and the button's width depends on
+    // its content.
+    const css = stylesheet();
+
+    const button = css.slice(css.indexOf("&__panel-screenshot-button"));
+    const svg = button.slice(
+      button.indexOf("svg {"),
+      button.indexOf("}", button.indexOf("svg {")),
+    );
+
+    expect(svg).toContain("svg {");
+
+    // the icon's size is ABSOLUTE: a screen size, divided by the panel's own
+    // scale, like the chrome's other sizes (D-92)
+    expect(svg).not.toContain("%");
+    expect(svg).toMatch(/width:\s*calc\(\d+px\s*\/\s*var\(--panel-scale\)\)/);
+    expect(svg).toMatch(/height:\s*calc\(\d+px\s*\/\s*var\(--panel-scale\)\)/);
   });
 });
