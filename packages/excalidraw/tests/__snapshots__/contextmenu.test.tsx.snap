@@ -17,6 +17,7 @@ exports[`contextMenu element > right-clicking on a group should select whole gro
   "canvasBackgroundPattern": "plain",
   "collaborators": Map {},
   "contextMenu": {
+    "elementId": "id1",
     "items": [
       "separator",
       {
@@ -4795,6 +4796,7 @@ exports[`contextMenu element > shows 'Group selection' in context menu for multi
   "canvasBackgroundPattern": "plain",
   "collaborators": Map {},
   "contextMenu": {
+    "elementId": undefined,
     "items": [
       "separator",
       {
@@ -6042,6 +6044,7 @@ exports[`contextMenu element > shows 'Ungroup selection' in context menu for gro
   "canvasBackgroundPattern": "plain",
   "collaborators": Map {},
   "contextMenu": {
+    "elementId": undefined,
     "items": [
       "separator",
       {
@@ -7340,6 +7343,7 @@ exports[`contextMenu element > shows context menu for canvas > [end of test] app
   "canvasBackgroundPattern": "plain",
   "collaborators": Map {},
   "contextMenu": {
+    "elementId": undefined,
     "items": [
       {
         "keyTest": undefined,
@@ -8037,6 +8041,7 @@ exports[`contextMenu element > shows context menu for element > [end of test] ap
   "canvasBackgroundPattern": "plain",
   "collaborators": Map {},
   "contextMenu": {
+    "elementId": "id0",
     "items": [
       "separator",
       {
@@ -9054,6 +9059,7 @@ exports[`contextMenu element > shows context menu for element > [end of test] ap
   "canvasBackgroundPattern": "plain",
   "collaborators": Map {},
   "contextMenu": {
+    "elementId": "id1",
     "items": [
       "separator",
       {

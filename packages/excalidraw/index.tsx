@@ -523,13 +523,17 @@ export {
   getAnyPendingScreenshot,
   getPendingScreenshot,
   movePendingScreenshot,
+  revertPendingScreenshotCrop,
   setPendingScreenshot,
+  setPendingScreenshotCrop,
   snapshotUrl,
   subscribePendingScreenshots,
+  WHOLE_PICTURE,
 } from "./scene/panelScreenshot";
 export type {
   PanelScreenshot,
   PanelScreenshotChoice,
+  PanelScreenshotCrop,
   PanelScreenshotPicture,
   PanelScreenshotSource,
 } from "./scene/panelScreenshot";

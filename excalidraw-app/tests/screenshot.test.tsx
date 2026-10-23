@@ -183,4 +183,56 @@ describe("placing a screenshot", () => {
       Object.values(files).some((file) => file.dataURL.includes("QUJD")),
     ).toBe(true);
   });
+
+  it("AC-153 the cropped picture is the cropped part of the capture", async () => {
+    // The crop belongs to the **picture**, so the picture that lands is the
+    // cropped part of it - and it stands where that part stood (D-116).
+    const api = await renderEditor();
+
+    const { result } = renderHook(() =>
+      useScreenshot({ api, readOcr: vi.fn() }),
+    );
+
+    act(() => {
+      setPendingScreenshot({
+        panelId: "panel-1",
+        source: "editor",
+        dataURL: "data:image/jpeg;base64,QUJD",
+        width: 1000,
+        height: 500,
+        x: 100,
+        y: 200,
+        canvasWidth: 500,
+        canvasHeight: 250,
+        crop: { x: 0.25, y: 0.5, width: 0.5, height: 0.5 },
+      });
+    });
+
+    await act(async () => {
+      await result.current.choose("panel-1", "page");
+    });
+
+    const image = api
+      .getSceneElements()
+      .find((element) => element.type === "image");
+
+    expect(image).toBeTruthy();
+
+    // the placed picture is the cropped part: its size is the crop's share of
+    // the picture's size on the canvas, and it stands where that part stood
+    expect(image!.x).toBe(225);
+    expect(image!.y).toBe(325);
+    expect(image!.width).toBe(250);
+    expect(image!.height).toBe(125);
+
+    // and the crop is the picture's own, in the picture's own pixels
+    expect(image!.crop).toEqual({
+      x: 250,
+      y: 250,
+      width: 500,
+      height: 250,
+      naturalWidth: 1000,
+      naturalHeight: 500,
+    });
+  });
 });

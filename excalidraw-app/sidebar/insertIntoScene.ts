@@ -368,6 +368,22 @@ export type ScreenshotPlacement = {
   /** the picture's top-left, in scene coordinates */
   x: number;
   y: number;
+  /**
+   * The crop of the picture, in the picture's **own pixels** (D-116).
+   *
+   * An ordinary image element carries its own crop, so a cropped screenshot is
+   * an ordinary image element with a crop - and the teacher can crop it again
+   * on the canvas, like any other picture. The bytes are the picture's own:
+   * the crop is a **view** of them, not a second picture.
+   */
+  crop?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    naturalWidth: number;
+    naturalHeight: number;
+  };
 };
 
 /**
@@ -389,6 +405,8 @@ const screenshotImage = (
     width: screenshot.canvasWidth,
     height: screenshot.canvasHeight,
     fileId,
+    // the crop the teacher took before the picture was placed (D-116)
+    ...(screenshot.crop ? { crop: screenshot.crop } : {}),
   });
 
   const now = Date.now();

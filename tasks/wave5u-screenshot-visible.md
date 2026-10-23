@@ -1,9 +1,8 @@
 ---
 id: wave5u-screenshot-visible
 paths: packages/excalidraw,excalidraw-app,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 5u — the screenshot must be *visible* and must work on every panel
@@ -99,4 +98,3 @@ Add to the acceptance table, in the shape
 **The real proof**: measure the rendered sizes - the three buttons' width and height, the camera's
 width and height - and report the numbers. A control that measures **0 px** has not been fixed,
 however green the tests are.
-

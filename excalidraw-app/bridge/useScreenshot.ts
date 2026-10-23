@@ -9,7 +9,9 @@ import {
   getVideoSurface,
   setPendingScreenshot,
   snapshotUrl,
+  WHOLE_PICTURE,
 } from "@excalidraw/excalidraw";
+import { t } from "@excalidraw/excalidraw/i18n";
 
 import type {
   PanelScreenshot,
@@ -25,6 +27,7 @@ import {
   screenshotCanvasSize,
 } from "../sidebar/insertIntoScene";
 
+import type { ScreenshotPlacement } from "../sidebar/insertIntoScene";
 import type { OcrImage, OcrPlacement } from "./useOcr";
 
 /**
@@ -51,6 +54,8 @@ export const useScreenshot = ({
     image: OcrImage;
     placement: OcrPlacement;
     pageId: string;
+    /** the part of the picture to read, in the picture's own pixels (D-116) */
+    region?: { x: number; y: number; width: number; height: number };
   }) => Promise<unknown>;
 }) => {
   /**
@@ -105,6 +110,7 @@ export const useScreenshot = ({
    */
   const capture = useCallback(
     async (panelId: string) => {
+      const current = api;
       const video = getVideoSurface(panelId);
 
       if (video) {
@@ -112,7 +118,14 @@ export const useScreenshot = ({
 
         if (frame) {
           publish(panelId, "video", frame);
+          return;
         }
+
+        // the failure is **said**, never swallowed (D-75): a button that does
+        // nothing looks like a button that is broken
+        current?.setToast({
+          message: t("labels.panel.screenshot.captureFailed"),
+        });
 
         return;
       }
@@ -120,29 +133,89 @@ export const useScreenshot = ({
       const live = getPanelCapture(panelId);
 
       if (!live || live.status !== "live") {
-        // there is no live window to take a picture of
+        // there is no live window to take a picture of - and the teacher is
+        // told so (D-75)
+        current?.setToast({
+          message: t("labels.panel.screenshot.nothingToCapture"),
+        });
+
         return;
       }
 
       const picture = await fetchEditorSnapshot(snapshotUrl(live.streamUrl));
 
       if (!picture) {
+        current?.setToast({
+          message: t("labels.panel.screenshot.captureFailed"),
+        });
+
         return;
       }
 
       publish(panelId, "editor", picture);
     },
-    [publish],
+    [api, publish],
   );
 
-  /** the picture, as the canvas needs it */
-  const placement = (screenshot: PanelScreenshot) => ({
-    dataURL: screenshot.dataURL,
-    canvasWidth: screenshot.canvasWidth,
-    canvasHeight: screenshot.canvasHeight,
-    x: screenshot.x,
-    y: screenshot.y,
-  });
+  /**
+   * The picture, as the canvas needs it.
+   *
+   * The crop the teacher took in the focus state is the **picture's own**
+   * (D-116), so the placed picture is the cropped part of it: it is the size
+   * the crop leaves of the picture, and it stands where that part of the
+   * picture stood. The bytes are the picture's own - the crop is a view of
+   * them, so the picture stays the picture the teacher took.
+   */
+  const placement = (screenshot: PanelScreenshot): ScreenshotPlacement => {
+    const crop = screenshot.crop ?? WHOLE_PICTURE;
+
+    const isWhole =
+      crop.x === 0 && crop.y === 0 && crop.width === 1 && crop.height === 1;
+
+    if (isWhole) {
+      return {
+        dataURL: screenshot.dataURL,
+        canvasWidth: screenshot.canvasWidth,
+        canvasHeight: screenshot.canvasHeight,
+        x: screenshot.x,
+        y: screenshot.y,
+      };
+    }
+
+    return {
+      dataURL: screenshot.dataURL,
+      canvasWidth: screenshot.canvasWidth * crop.width,
+      canvasHeight: screenshot.canvasHeight * crop.height,
+      x: screenshot.x + screenshot.canvasWidth * crop.x,
+      y: screenshot.y + screenshot.canvasHeight * crop.y,
+      crop: {
+        x: Math.round(crop.x * screenshot.width),
+        y: Math.round(crop.y * screenshot.height),
+        width: Math.round(crop.width * screenshot.width),
+        height: Math.round(crop.height * screenshot.height),
+        naturalWidth: screenshot.width,
+        naturalHeight: screenshot.height,
+      },
+    };
+  };
+
+  /**
+   * The part of the picture the OCR reads, in the picture's own pixels.
+   *
+   * The crop the teacher took is the region of interest (D-116): the teacher
+   * cropped the picture because they wanted that part, and the read is about
+   * the same part.
+   */
+  const ocrRegion = (screenshot: PanelScreenshot) => {
+    const crop = screenshot.crop ?? WHOLE_PICTURE;
+
+    return {
+      x: Math.round(crop.x * screenshot.width),
+      y: Math.round(crop.y * screenshot.height),
+      width: Math.round(crop.width * screenshot.width),
+      height: Math.round(crop.height * screenshot.height),
+    };
+  };
 
   /**
    * The teacher chose one of the three (D-103).
@@ -176,6 +249,8 @@ export const useScreenshot = ({
       insertScreenshotIntoScene(current, placement(screenshot));
 
       if (choice === "ocr") {
+        const at = placement(screenshot);
+
         await readOcr({
           image: {
             dataURL: screenshot.dataURL,
@@ -183,11 +258,13 @@ export const useScreenshot = ({
             height: screenshot.height,
           },
           placement: {
-            x: screenshot.x,
-            y: screenshot.y,
-            width: screenshot.canvasWidth,
-            height: screenshot.canvasHeight,
+            x: at.x,
+            y: at.y,
+            width: at.canvasWidth,
+            height: at.canvasHeight,
           },
+          // the crop the teacher took is the part to read (D-116)
+          region: ocrRegion(screenshot),
           pageId: current.getAppState().currentPageId,
         });
       }

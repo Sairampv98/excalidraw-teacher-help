@@ -186,7 +186,11 @@
         "ocr": "Read the text",
         "page": "Place on this page",
         "newPage": "Place on a new page",
-        "wireframe": "The screenshot goes here"
+        "wireframe": "The screenshot goes here",
+        "cropHandle": "Crop the picture",
+        "revertCrop": "Revert the crop",
+        "nothingToCapture": "There is nothing to capture on this panel yet.",
+        "captureFailed": "The picture could not be taken."
       },
       "bridge": {
         "label": "Bridge",

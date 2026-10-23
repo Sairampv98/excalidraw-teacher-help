@@ -151,4 +151,81 @@ describe("reading the text out of a picture", () => {
     expect(entry).not.toBeNull();
     expect(entry!.textContent).toBe("Read the text");
   });
+
+  it("AC-154 the context menu of an image offers the ocr entry even when the image was not selected", async () => {
+    // The owner's item 5.5: "normal image doesnot get this option".
+    //
+    // The entry belongs to the **picture the menu is about** - the one under
+    // the pointer - and not to the selection. It used to ask for a picture
+    // that was **already selected**, so it hid itself as soon as the
+    // selection was not the picture itself.
+    await render(<ExcalidrawApp />);
+
+    const image = API.createElement({
+      type: "image",
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 150,
+      fileId: "file-1",
+    });
+
+    API.setElements([image]);
+
+    // the picture is on the canvas, and it is NOT selected
+    await waitFor(() => expect(API.getSelectedElements()).toHaveLength(0));
+
+    fireEvent.contextMenu(GlobalTestState.interactiveCanvas, {
+      button: 2,
+      clientX: 10,
+      clientY: 10,
+    });
+
+    const menu = UI.queryContextMenu();
+
+    expect(menu).not.toBeNull();
+
+    // the entry is there for the picture the menu is about
+    expect(menu!.querySelector(OCR_IMAGE_ENTRY)).not.toBeNull();
+
+    // and it stays there when the selection is not the picture: the entry is
+    // about the menu's element, and the selection is the teacher's own
+    // business
+    act(() => {
+      API.setSelectedElements([]);
+    });
+
+    await waitFor(() =>
+      expect(menu!.querySelector(OCR_IMAGE_ENTRY)).not.toBeNull(),
+    );
+  });
+
+  it("AC-154 the ocr entry is not offered for an element that is not an image", async () => {
+    // The entry is about a **picture**: a rectangle cannot be read.
+    await render(<ExcalidrawApp />);
+
+    const rectangle = API.createElement({
+      type: "rectangle",
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 150,
+    });
+
+    API.setElements([rectangle]);
+    API.setSelectedElements([rectangle]);
+
+    await waitFor(() => expect(API.getSelectedElements()).toHaveLength(1));
+
+    fireEvent.contextMenu(GlobalTestState.interactiveCanvas, {
+      button: 2,
+      clientX: 10,
+      clientY: 10,
+    });
+
+    const menu = UI.queryContextMenu();
+
+    expect(menu).not.toBeNull();
+    expect(menu!.querySelector(OCR_IMAGE_ENTRY)).toBeNull();
+  });
 });

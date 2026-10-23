@@ -47,6 +47,39 @@ export interface PanelScreenshotPicture {
 }
 
 /**
+ * The **crop** of a pending screenshot, in fractions of the picture (D-116).
+ *
+ * The crop belongs to the **picture**, not to the canvas: it is a part of the
+ * picture, so it is measured in the picture's own terms - fractions of its own
+ * width and height - and it does not move when the picture moves. The picture
+ * is the picture at any size, so a crop measured in fractions is the crop at
+ * any size too.
+ */
+export interface PanelScreenshotCrop {
+  /** the crop's left edge, as a fraction of the picture's width */
+  x: number;
+  /** the crop's top edge, as a fraction of the picture's height */
+  y: number;
+  /** the crop's width, as a fraction of the picture's width */
+  width: number;
+  /** the crop's height, as a fraction of the picture's height */
+  height: number;
+}
+
+/**
+ * The crop of a picture that has **not** been cropped: the whole picture.
+ *
+ * It is the crop a picture starts with (the crop is on by default, D-116), and
+ * it is what one step of revert goes back to.
+ */
+export const WHOLE_PICTURE: PanelScreenshotCrop = {
+  x: 0,
+  y: 0,
+  width: 1,
+  height: 1,
+};
+
+/**
  * A picture that has been taken and has not been placed yet.
  *
  * The position is the picture's **top-left**, in scene coordinates, so the
@@ -63,6 +96,20 @@ export interface PanelScreenshot extends PanelScreenshotPicture {
   /** the picture's size on the canvas, in scene units */
   canvasWidth: number;
   canvasHeight: number;
+  /**
+   * The crop of the picture (D-116).
+   *
+   * It is the picture's **own** state: it belongs to the screenshot, not to
+   * the canvas, and it travels with the picture when the teacher moves it.
+   */
+  crop?: PanelScreenshotCrop;
+  /**
+   * The crop that one step of revert goes back to (D-116).
+   *
+   * `null` when there is nothing to revert - which is what makes the revert
+   * **one** step and not a stack of them.
+   */
+  cropUndo?: PanelScreenshotCrop | null;
 }
 
 /** The pending screenshots, by the panel's id. */
@@ -85,7 +132,13 @@ const notify = () => {
  * wireframe read it (D-103, D-104).
  */
 export const setPendingScreenshot = (screenshot: PanelScreenshot): void => {
-  screenshots.set(screenshot.panelId, screenshot);
+  screenshots.set(screenshot.panelId, {
+    ...screenshot,
+    // the crop is **on by default** (D-116): the picture arrives whole, and it
+    // can be cropped straight away
+    crop: screenshot.crop ?? WHOLE_PICTURE,
+    cropUndo: screenshot.cropUndo ?? null,
+  });
   notify();
 };
 
@@ -136,12 +189,71 @@ export const movePendingScreenshot = (
 };
 
 /**
+ * Crop a pending screenshot (D-116).
+ *
+ * The crop is the **picture's** own state, so it is set on the picture and
+ * nowhere else. The crop it replaces is kept as the **one** step of revert:
+ * a second crop replaces the step, so the revert is always one step deep and
+ * never a stack (D-116).
+ */
+export const setPendingScreenshotCrop = (
+  panelId: string,
+  crop: PanelScreenshotCrop,
+): void => {
+  const screenshot = screenshots.get(panelId);
+
+  if (!screenshot) {
+    return;
+  }
+
+  const current = screenshot.crop ?? WHOLE_PICTURE;
+
+  if (
+    current.x === crop.x &&
+    current.y === crop.y &&
+    current.width === crop.width &&
+    current.height === crop.height
+  ) {
+    return;
+  }
+
+  screenshots.set(panelId, {
+    ...screenshot,
+    crop,
+    cropUndo: current,
+  });
+  notify();
+};
+
+/**
+ * Take the crop back **one step** (D-116).
+ *
+ * The step is the crop that was replaced, so the picture goes back to the
+ * state it was in before the last crop - and to the **uncropped** capture
+ * when the last crop was the first one. There is no second step: a crop that
+ * has been reverted has nothing to revert to.
+ */
+export const revertPendingScreenshotCrop = (panelId: string): void => {
+  const screenshot = screenshots.get(panelId);
+
+  if (!screenshot || !screenshot.cropUndo) {
+    return;
+  }
+
+  screenshots.set(panelId, {
+    ...screenshot,
+    crop: screenshot.cropUndo,
+    cropUndo: null,
+  });
+  notify();
+};
+
+/**
  * Forget a pending screenshot.
  *
  * The picture has landed, or the teacher dismissed the choice, or the panel is
  * gone (D-104).
- */
-export const clearPendingScreenshot = (panelId: string): void => {
+ */ export const clearPendingScreenshot = (panelId: string): void => {
   if (screenshots.delete(panelId)) {
     notify();
   }
