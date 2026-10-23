@@ -80,25 +80,51 @@ working configuration — `enable_mkldnn=False` — is the slow path. That is a 
 
 ### The settings the owner has to set, exactly
 
-These are the extension's own settings (VS Code → Settings → search `excalidraw-bridge`).
-Paste them into `settings.json`; the token is the one the bridge panel shows, and it is the
-**session** token, so it changes when the extension generates a new one.
+**Since wave 5q the engine and the Python path ship with the extension** - they are its
+**defaults**, so there is nothing to configure for those two. Only the **token** is the
+owner's to set, once, in the settings UI (Ctrl+, → `excalidraw-bridge.token`).
 
 ```json
 {
-  "excalidraw-bridge.token": "<the token the bridge panel shows>",
-  "excalidraw-bridge.ocrEngine": "paddle",
-  "excalidraw-bridge.pythonPath": "C:\\Users\\user\\.pyenv\\pyenv-win\\versions\\3.12.10\\python.exe"
+  "excalidraw-bridge.token": "<the token the bridge panel shows>"
 }
 ```
 
-- `excalidraw-bridge.port` — leave it **unset**. The port then comes from
+- `excalidraw-bridge.ocrEngine` - **defaults to `indra`**, the fastest measured engine
+  (wave 5v). The panel's own picker changes it per panel; the setting is the fallback.
+- `excalidraw-bridge.pythonPath` - **defaults to**
+  `C:\Users\user\.pyenv\pyenv-win\versions\3.12.10\python.exe`.
+- `excalidraw-bridge.port` - leave it **unset**. The port then comes from
   `VITE_APP_BRIDGE_URL` in the workspace's `.env`, which is the same variable the
   Excalidraw page is built with, and falls back to the shared default (47511). Setting it
   by hand is how the page and the bridge end up on different ports.
-- `excalidraw-bridge.captureFps` — 6 a second by default. Six is enough to read by.
-- The **engine**: `tesseract` runs inside the extension itself; `indra` and `paddle` run in
-  a Python sidecar, which is why `pythonPath` matters for them.
+- `excalidraw-bridge.captureFps` - 6 a second by default. Six is enough to read by.
+- The **token** is a **secret** and is deliberately **not** shipped in the `.vsix` (it would
+  be published with the artifact). It is per-session: the extension generates one when the
+  setting is empty, and the web app keeps its own copy in the **tab's** session memory, so
+  a page reload does not ask for it again (wave 5q).
+
+---
+
+## What landed for each item, and what it measured
+
+| item | wave | landed | the measurement |
+| --- | --- | --- | --- |
+| 1.1-2.4 the black box | **5t** (`1bda243`) | the capture **re-resolves** its window by rule, a dead helper **restarts**, an empty picture is **never** published | reload recovers **by itself**; a minimised VS Code says *"VS Code's window is not visible - click on it"*; Reload Window recovers |
+| 3.1 the − button at the fit zoom | **5v** (`2a09407`) | the zoom floor is `MIN_ZOOM` (0.1); the page still bounds **panning** | fit 0.676 → **0.433** after four clicks, floor 0.1, the button disabled there |
+| 3.2b the invisible token box | **5v** | the bridge box is sized by `panelChrome.ts` like the rest of the chrome | token field **180×24**, Paste **68×24**, Connect **68×24**, box 192×114 |
+| 3.3 the engine picker | **5v** | a picker beside "Read the text", traffic-light colours, the **fastest** engine as the default | indra **147 ms** / tesseract **278 ms** / paddle **34,668 ms**, coloured green/amber/red |
+| 3.4 the dead lock, the unusable corner | **5v** | the lock is wired, and moved **60.67 px** clear of the resize corner; it is not drawn where it cannot act | the lock is **24×24**; `elementFromPoint` at the corner finds the **canvas** (the handle is reachable) |
+| 3.5 the mute icon at volume 0 | **5v** | the button shows the **effective** state (muted **or** volume 0) | at 0: "Unmute", 🔇, `aria-pressed=true`; a click restores volume **1** |
+| 5.1-5.3 the three choices | **5u** (`fff7723`) | the strip's buttons are sized, and the strip hangs on the panel's own rect | each button **103.99×24 px** (was **0**) |
+| 5.4 the video's camera | **5u** | the camera moved to the **panel**, so every kind has one, selected or not | **24×24 px** on the code panel and on the video panel, present with **0 elements selected** |
+| 3.2c the runnable editor | **5w** | the panel's editor is a **real editor**: the teacher's own **draft**, a **Run** control, a bounded output, and it works with **no bridge** | (building) |
+| 4.7 the small video that would not play | **5r** | the message will name the **file**, not the container, and the panel gets a **fall-back** | (queued) |
+
+**Not done, on purpose:** the **lock is not drawn on a code panel** - a code panel's content
+lives in the editor's process, so there is no picture of it to freeze. Freezing the
+editor's *window* into a poster is the bigger version of that idea, and it is left for a
+later wave rather than shipped half-working.
 
 ---
 
@@ -106,7 +132,14 @@ Paste them into `settings.json`; the token is the one the bridge panel shows, an
 
 | wave | what it answers | the design document |
 | --- | --- | --- |
-| 5l | items 3, 4, 5 — the video at any size | `tasks/wave5l-big-video.md` (in the repo once the task starts) |
-| 5m | items 1, 1b, 2 — the live window by default, and the presenter | `docs/tins-tasks/wave5m-live-default-brief.md` |
-| 5n | items 1c, 1d, 6 — the screenshot, the three choices, the theme | `docs/tins-tasks/wave5n-screenshot-brief.md` |
+| 5l | items 3, 4, 5 - the video at any size | `tasks/wave5l-big-video.md` |
+| 5m | items 1, 1b, 2 - the live window by default, and the presenter | `docs/tins-tasks/wave5m-live-default-brief.md` |
+| 5n | items 1c, 1d, 6 - the screenshot, the three choices, the theme | `docs/tins-tasks/wave5n-screenshot-brief.md` |
 | 5o | PaddleOCR's crash, and the truth about its speed | `docs/tins-tasks/wave5o-paddle-fallback-brief.md` |
+| 5p | the chrome's icon-only buttons must not collapse | `docs/tins-tasks/wave5p-playback-fallback-brief.md` |
+| 5r | the video's failure message must be true, with a fall-back | `docs/tins-tasks/wave5r-playback-fallback-brief.md` |
+| 5s | a YouTube video in the canvas, and its captions | `docs/tins-tasks/wave5s-youtube-brief.md` |
+| 5t | the live view survives a reload, a hidden window and a dead helper | `tasks/wave5t-live-view-survives.md` |
+| 5u | the screenshot must be **visible** and work on every panel | `tasks/wave5u-screenshot-visible.md` |
+| 5v | the chrome and the shell - the things the owner could not reach | `tasks/wave5v-chrome-and-shell.md` |
+| 5w | the code panel becomes a real editor you can run | `tasks/wave5w-runnable-editor.md` |
