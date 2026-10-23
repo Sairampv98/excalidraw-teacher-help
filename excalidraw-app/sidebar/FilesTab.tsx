@@ -375,10 +375,12 @@ export const FilesTab = () => {
    * Picking a video does not arm a canvas click: a video is a **panel**, and a
    * panel is placed by the insert, not dropped on a click.
    *
-   * It does say one thing first: whether this browser can play the container
-   * at all. The insert is never refused (D-97) — the teacher is never told
-   * "no" — but they are told **before** the insert, so they can convert the
-   * file first if they would rather.
+   * It does say one thing first: what the browser reports about the **type**
+   * (`canPlayType`, measured - D-125). The insert is never refused (D-97) —
+   * the teacher is never told "no" — but they are told **before** the insert,
+   * so they can convert the file first if they would rather. What the browser
+   * says about a type is not a verdict about a file: the panel's own message
+   * is about **the file** (D-125).
    */
   const onPickVideo = useCallback((entry: ScannedFile) => {
     setSelected(entry.path);
@@ -389,7 +391,7 @@ export const FilesTab = () => {
 
     if (mimeType && !browserCanPlayVideo(mimeType)) {
       setNotice(
-        `${t("labels.panel.video.cannotPlay", {
+        `${t("labels.panel.video.cannotPlayType", {
           format: videoFormatName(mimeType),
         })} ${t("labels.panel.video.convertCommand")}`,
       );

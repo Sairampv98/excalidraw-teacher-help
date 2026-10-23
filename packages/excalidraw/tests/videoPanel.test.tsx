@@ -5,7 +5,7 @@
  * lint reads this file and fails if a row id is missing.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import React from "react";
 
@@ -25,11 +25,12 @@ import { getDefaultAppState } from "../appState";
 import { restoreElements } from "../data/restore";
 import { captionTextElement, videoPanelContent } from "../index";
 import { Excalidraw } from "../index";
+import { registerMediaResolver } from "../index";
 import { readCaptionBinding } from "../scene/panelContent";
 import { PANEL_SCALE_PROPERTY } from "../scene/panelChrome";
 
 import { API } from "./helpers/api";
-import { act, fireEvent, render } from "./test-utils";
+import { act, fireEvent, render, waitFor } from "./test-utils";
 
 import type { BinaryFileData } from "../types";
 import type { StaticCanvasAppState } from "../types";
@@ -65,6 +66,95 @@ const videoFile = () => ({
   lastRetrieved: 1,
   version: 1,
 });
+
+/** the id the **host's** media store knows a big video by (D-94, D-95) */
+const MEDIA_ID = "media-1";
+
+/**
+ * A video panel whose bytes live in the **host's** media store (D-95).
+ *
+ * The bytes are not in the document: the panel names them by id, and the
+ * library asks the host for a URL.
+ */
+const mediaPanel = (overrides: Record<string, unknown> = {}) =>
+  API.createElement({
+    type: "panel",
+    x: 120,
+    y: 80,
+    width: DISPLAY_WIDTH,
+    height: DISPLAY_HEIGHT,
+    panelKind: "video",
+    panel: videoPanelContent({
+      source: {
+        type: "media",
+        mediaId: MEDIA_ID,
+        mimeType: "video/x-matroska",
+      },
+      tracks: [],
+      language: "en",
+      naturalWidth: INTRINSIC_WIDTH,
+      naturalHeight: INTRINSIC_HEIGHT,
+    }),
+    posterMode: false,
+    posterFileId: null,
+    ...overrides,
+  }) as unknown as ExcalidrawPanelElement;
+
+/**
+ * The **host's** resolver (D-95).
+ *
+ * It is asked for a URL, and it is asked **again** when the panel needs a
+ * fresh one: the URL the host lent may be stale or revoked, and the fallback
+ * asks for another one (D-126).
+ */
+const hostResolver = () => {
+  const asked: string[] = [];
+
+  registerMediaResolver(async (mediaId: string) => {
+    asked.push(mediaId);
+
+    return `blob:mock/${asked.length}`;
+  });
+
+  return asked;
+};
+
+/** the browser's own verdict on a video, as the element reports it */
+const browserVerdict = (
+  video: Element,
+  code: number,
+  message = "The video format is not supported",
+) => {
+  Object.defineProperty(video, "error", {
+    configurable: true,
+    value: { code, message },
+  });
+};
+
+/**
+ * The panel's `<video>`, once it is on the page.
+ *
+ * A media-backed panel asks the host for its URL first, so the element is not
+ * there the moment the panel is rendered.
+ */
+const videoElement = async () =>
+  await waitFor(() => {
+    const video = document.querySelector('[data-testid="panel-video"]');
+
+    expect(video).not.toBeNull();
+
+    return video!;
+  });
+
+/** the panel's failure message, once it is on the page */
+const failurePanel = async () =>
+  await waitFor(() => {
+    const failed = document.querySelector('[data-testid="panel-video-error"]');
+
+    expect(failed).not.toBeNull();
+
+    return failed!;
+  });
 
 /** a video panel, with a caption track */
 const videoPanel = (overrides: Record<string, unknown> = {}) =>
@@ -134,6 +224,11 @@ const elementById = (id: string) =>
   window.h.elements.find((element) => element.id === id);
 
 describe("the video panel", () => {
+  afterEach(() => {
+    // the host's resolver is a singleton: no test may leave one behind
+    registerMediaResolver(null);
+  });
+
   it("AC-65 a video panel is created with the right kind and source, and the canvas does not paint it", () => {
     const panel = videoPanel();
 
@@ -635,7 +730,8 @@ describe("the video panel", () => {
   });
 
   it("AC-135 a video the browser cannot play says why and shows the ffmpeg command", async () => {
-    // a `.mkv`: a container the browser does not decode
+    // a `.mkv`: the browser demuxes Matroska (measured, 2026-10-23) - what it
+    // cannot decode is **this file's** codec
     const panel = videoPanel({
       panel: videoPanelContent({
         source: {
@@ -668,29 +764,302 @@ describe("the video panel", () => {
     expect(video).not.toBeNull();
 
     // The browser's own verdict is the oracle (D-97): `MEDIA_ERR_SRC_NOT_
-    // SUPPORTED` is it saying "I cannot play this container".
-    Object.defineProperty(video!, "error", {
-      configurable: true,
-      value: { code: 4, message: "The video format is not supported" },
-    });
+    // SUPPORTED` is it saying "I cannot decode this file".
+    browserVerdict(video!, 4);
 
     await act(async () => {
       fireEvent.error(video!);
     });
 
-    // the panel says so, in words: which format, and the command that fixes it
+    // The panel tries the **fallback** first (D-126): the file store's data
+    // URL, reached through an object URL - the other way of reaching the same
+    // bytes.
+    const fallbackVideo = await waitFor(() => {
+      const next = document.querySelector('[data-testid="panel-video"]');
+
+      expect(next).not.toBeNull();
+      expect(next).not.toBe(video);
+
+      return next;
+    });
+
+    expect(fallbackVideo!.getAttribute("src")).not.toBe(
+      video!.getAttribute("src"),
+    );
+
+    // and the fallback fails too
+    browserVerdict(fallbackVideo!, 4);
+
+    await act(async () => {
+      fireEvent.error(fallbackVideo!);
+    });
+
+    // the panel says so, in words: the file could not be played, and the
+    // command that fixes it
     const failed = document.querySelector('[data-testid="panel-video-error"]');
 
     expect(failed).not.toBeNull();
-    expect(failed!.textContent).toContain("matroska");
     expect(failed!.textContent).toContain("ffmpeg");
     expect(failed!.textContent).toContain("libx264");
     expect(failed!.textContent).toContain("output.mp4");
+
+    // and it says that the fallback was tried as well (D-126)
+    expect(failed!.textContent).toContain("The fallback was tried as well");
 
     // and there is no empty player pretending to be the video (D-93)
     expect(document.querySelector('[data-testid="panel-video"]')).toBeNull();
     expect(
       document.querySelector('[data-testid="panel-video-box"]'),
     ).toBeNull();
+  });
+
+  it("AC-165 the failure message does not claim the browser cannot play the format", async () => {
+    const asked = hostResolver();
+
+    const panel = mediaPanel();
+
+    await render(
+      <Excalidraw
+        initialData={{
+          elements: [panel] as unknown as ExcalidrawElement[],
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    const video = await videoElement();
+
+    expect(video).not.toBeNull();
+
+    browserVerdict(video!, 4);
+
+    await act(async () => {
+      fireEvent.error(video!);
+    });
+
+    // the fallback is tried first (D-126), and it fails too
+    const fallbackVideo = await waitFor(() => {
+      const next = document.querySelector('[data-testid="panel-video"]');
+
+      expect(next).not.toBeNull();
+      expect(next).not.toBe(video);
+
+      return next;
+    });
+
+    browserVerdict(fallbackVideo!, 4);
+
+    await act(async () => {
+      fireEvent.error(fallbackVideo!);
+    });
+
+    const failed = await failurePanel();
+
+    // The message must NOT claim that the browser cannot play the format:
+    // Chrome demuxes Matroska (measured, 2026-10-23 - a blob URL and a data
+    // URL both play an H.264 `.mkv`, and `canPlayType("video/x-matroska")`
+    // answers "maybe"), so that claim was FALSE (D-125).
+    expect(failed!.textContent).not.toContain("cannot play");
+    expect(failed!.textContent).not.toContain("matroska");
+
+    // and it names the FILE - the browser's verdict is about the bytes
+    expect(failed!.textContent).toContain("this file");
+
+    // the host was asked for the bytes twice: the primary and the fallback
+    expect(asked).toEqual([MEDIA_ID, MEDIA_ID]);
+  });
+
+  it("AC-165 the failure message names the codec as the usual cause and keeps the ffmpeg remedy", async () => {
+    hostResolver();
+
+    const panel = mediaPanel();
+
+    await render(
+      <Excalidraw
+        initialData={{
+          elements: [panel] as unknown as ExcalidrawElement[],
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    const video = await videoElement();
+
+    browserVerdict(video!, 4);
+
+    await act(async () => {
+      fireEvent.error(video!);
+    });
+
+    const fallbackVideo = await waitFor(() => {
+      const next = document.querySelector('[data-testid="panel-video"]');
+
+      expect(next).not.toBeNull();
+      expect(next).not.toBe(video);
+
+      return next;
+    });
+
+    browserVerdict(fallbackVideo!, 4);
+
+    await act(async () => {
+      fireEvent.error(fallbackVideo!);
+    });
+
+    const failed = await failurePanel();
+
+    // the usual cause is the CODEC, not the container (D-125)
+    expect(failed!.textContent).toContain("codec");
+
+    // and the remedy that always works is still there: the `ffmpeg` command
+    // is a remedy, not a verdict on the container
+    expect(failed!.textContent).toContain("ffmpeg");
+    expect(failed!.textContent).toContain("libx264");
+    expect(failed!.textContent).toContain("output.mp4");
+  });
+
+  it("AC-166 the panel asks for a fresh url when the first one fails", async () => {
+    const asked = hostResolver();
+
+    // the fallback must never build a base64 string of a big file: that is
+    // the 827 MiB of memory wave 5l removed (D-94, D-126)
+    const readAsDataURL = vi.spyOn(FileReader.prototype, "readAsDataURL");
+    const encode = vi.spyOn(globalThis, "btoa");
+
+    const panel = mediaPanel();
+
+    await render(
+      <Excalidraw
+        initialData={{
+          elements: [panel] as unknown as ExcalidrawElement[],
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    const video = await videoElement();
+
+    expect(video!.getAttribute("src")).toBe("blob:mock/1");
+
+    browserVerdict(video!, 4);
+
+    await act(async () => {
+      fireEvent.error(video!);
+    });
+
+    // the host is asked **again** for the same media: the panel wants a
+    // FRESH url, because the one it had may be stale or revoked (D-126)
+    await waitFor(() => expect(asked).toEqual([MEDIA_ID, MEDIA_ID]));
+
+    // and the fresh url is the one the video is pointed at now
+    const next = document.querySelector('[data-testid="panel-video"]');
+
+    expect(next).not.toBe(video);
+    expect(next!.getAttribute("src")).toBe("blob:mock/2");
+
+    // and the fallback never built a base64 string of the file
+    expect(readAsDataURL).not.toHaveBeenCalled();
+    expect(encode).not.toHaveBeenCalled();
+  });
+
+  it("AC-166 the panel says the fallback was tried and that it failed too", async () => {
+    hostResolver();
+
+    const panel = mediaPanel();
+
+    await render(
+      <Excalidraw
+        initialData={{
+          elements: [panel] as unknown as ExcalidrawElement[],
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    const video = await videoElement();
+
+    browserVerdict(video!, 4);
+
+    await act(async () => {
+      fireEvent.error(video!);
+    });
+
+    const fallbackVideo = await waitFor(() => {
+      const next = document.querySelector('[data-testid="panel-video"]');
+
+      expect(next).not.toBeNull();
+      expect(next).not.toBe(video);
+
+      return next;
+    });
+
+    browserVerdict(fallbackVideo!, 4);
+
+    await act(async () => {
+      fireEvent.error(fallbackVideo!);
+    });
+
+    const failed = await failurePanel();
+
+    // the panel says **which** it tried: the fallback was tried, and it
+    // failed too (D-126). A panel that says "this file could not be played"
+    // without saying that hides half of what it knows.
+    expect(failed!.getAttribute("data-fallback-tried")).toBe("true");
+    expect(failed!.textContent).toContain("The fallback was tried as well");
+    expect(failed!.textContent).toContain("it failed too");
+  });
+
+  it("AC-167 an error from a replaced url does not report a playback failure", async () => {
+    hostResolver();
+
+    const panel = mediaPanel();
+
+    await render(
+      <Excalidraw
+        initialData={{
+          elements: [panel] as unknown as ExcalidrawElement[],
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    const first = await videoElement();
+
+    // the first source fails: the panel replaces it with the fallback
+    browserVerdict(first!, 4);
+
+    await act(async () => {
+      fireEvent.error(first!);
+    });
+
+    await waitFor(() =>
+      expect(document.querySelector('[data-testid="panel-video"]')).not.toBe(
+        first,
+      ),
+    );
+
+    // and now the error of the **replaced** source arrives. The source is
+    // gone, so this error is not a fact about the file (D-127).
+    browserVerdict(first!, 4);
+
+    await act(async () => {
+      fireEvent.error(first!);
+    });
+
+    // so the panel says nothing about the file
+    expect(
+      document.querySelector('[data-testid="panel-video-error"]'),
+    ).toBeNull();
+
+    // and the video is still there, waiting for the fallback to say its own
+    // verdict
+    expect(
+      document.querySelector('[data-testid="panel-video"]'),
+    ).not.toBeNull();
   });
 });

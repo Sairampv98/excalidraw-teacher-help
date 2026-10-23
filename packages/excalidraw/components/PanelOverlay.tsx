@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -32,7 +33,6 @@ import {
   panelScale,
   readCodePanelState,
   readPanelView,
-  videoFormatName,
 } from "../scene/panelContent";
 import { readVideoPanelState } from "../scene/panelContent";
 import { readPanelPlayback } from "../scene/panelContent";
@@ -52,7 +52,11 @@ import {
   PLAYBACK_LOCAL_CLOCK_MS,
   playbackCorrection,
 } from "../scene/panelPlayback";
-import { panelSource, resolveMediaUrl } from "../scene/mediaRegistry";
+import {
+  mediaObjectUrl,
+  panelSource,
+  resolveMediaUrl,
+} from "../scene/mediaRegistry";
 
 import { t } from "../i18n";
 
@@ -75,7 +79,7 @@ import type {
 
 import type { CodeMirrorEditorProps } from "./TTDDialog/CodeMirrorEditor";
 
-import type { MediaPanelSource } from "../scene/mediaRegistry";
+import type { MediaFallback, MediaPanelSource } from "../scene/mediaRegistry";
 import type { PanelCamera } from "../scene/panelContent";
 import type { PanelChrome } from "../scene/panelChrome";
 import type { PanelPlayback } from "../scene/panelContent";
@@ -991,9 +995,9 @@ const CodePanelSurface = ({
  * The browser's own error codes for "I cannot play this" (D-97).
  *
  * `MEDIA_ERR_DECODE` (3) and `MEDIA_ERR_SRC_NOT_SUPPORTED` (4) are the
- * browser saying that it cannot decode this container - a `.mkv`, say. The
- * numbers are the DOM's own, so they are named here rather than read off
- * `MediaError`, which is not everywhere.
+ * browser saying that it cannot decode **this file**. The numbers are the
+ * DOM's own, so they are named here rather than read off `MediaError`, which
+ * is not everywhere.
  */
 const CANNOT_PLAY_CODES = [3, 4];
 
@@ -1027,21 +1031,13 @@ const UNMUTED_VOLUME = 1;
  * the panel's copy is the same data the document was saved with, so the
  * caption the text element shows is the caption the document knows about.
  */
-/**
- * The browser's own error codes for "I cannot play this" (D-97).
- *
- * `MEDIA_ERR_DECODE` (3) and `MEDIA_ERR_SRC_NOT_SUPPORTED` (4) are the
- * browser saying that it cannot decode this container - a `.mkv`, say. The
- * numbers are the DOM's own, so they are named here rather than read off
- * `MediaError`, which is not everywhere.
- */
 const VideoPanelSurface = ({
   panel,
   src,
-  mimeType,
   chrome,
   onVideoEvent,
   mirror,
+  fallback,
 }: {
   panel: ExcalidrawPanelElement;
   /**
@@ -1051,8 +1047,6 @@ const VideoPanelSurface = ({
    * lent us for a media-backed panel (D-95).
    */
   src: string;
-  /** the video's own type, so the panel can say what it cannot play (D-97) */
-  mimeType: string;
   /** the chrome's geometry, in the panel's own units (D-92) */
   chrome: PanelChrome;
   onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
@@ -1065,6 +1059,14 @@ const VideoPanelSurface = ({
    * would fight.
    */
   mirror?: boolean;
+  /**
+   * The **fallback** for the bytes (D-126).
+   *
+   * The **other way of reaching the same bytes**: a fresh object URL from the
+   * host, or the file store's data URL. It is tried **once**, when the first
+   * source fails, and it never rebuilds a base64 string of a big file.
+   */
+  fallback?: MediaFallback;
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -1085,14 +1087,46 @@ const VideoPanelSurface = ({
    */
   const effectiveMuted = muted || volume === 0;
   /**
-   * The browser's own verdict on the video (D-97).
+   * The browser's own verdict on the video (D-97, D-125).
    *
    * The `<video>` element's `error` event is the **oracle**: it is the browser
    * saying "I cannot play this", and nothing else knows better. A panel that
    * shows nothing and says nothing is indistinguishable from a panel that has
-   * nothing to show (D-75, D-93), so the error becomes a sentence.
+   * nothing to show (D-75, D-93), so the error becomes a sentence - a
+   * sentence about **this file**, never about the container (D-125).
    */
   const [playError, setPlayError] = useState<number | null>(null);
+  /**
+   * The **fallback** (D-126).
+   *
+   * `fallbackUrl` is the other way of reaching the same bytes, once the first
+   * source has failed. `fallbackTried` says that the fallback was tried -
+   * whether it worked or not - because a panel that says "this file could not
+   * be played" without saying whether the fallback was tried hides half of
+   * what it knows (D-75, D-93).
+   */
+  const [fallbackUrl, setFallbackUrl] = useState<string | null>(null);
+  const [fallbackTried, setFallbackTried] = useState(false);
+  /**
+   * How many sources have been tried (D-127).
+   *
+   * Each attempt is its own `<video>` element, so an error that arrives for a
+   * source the panel has already replaced is delivered to the handler of THAT
+   * attempt - and that handler knows the source is gone.
+   */
+  const [attempt, setAttempt] = useState(0);
+  /** the element of the **current** attempt - the two are told apart by it */
+  const currentVideoRef = useRef<HTMLVideoElement | null>(null);
+  /** the listeners of every attempt, so the panel can let go of them at the end */
+  const listenersRef = useRef<
+    { video: HTMLVideoElement; onError: (event: Event) => void }[]
+  >([]);
+  /** the fallback is tried once, and this says so even between renders */
+  const fallbackTriedRef = useRef(false);
+  /** the URL the fallback produced - the library's to give back */
+  const fallbackUrlRef = useRef<string | null>(null);
+  /** the panel is gone: nothing may be written to it any more */
+  const aliveRef = useRef(true);
 
   const state = readVideoPanelState(panel.panel);
   const tracks: PanelCaptionTrack[] = state?.tracks ?? [];
@@ -1111,6 +1145,122 @@ const VideoPanelSurface = ({
     null;
 
   /**
+   * The browser's verdict about **this file** (D-125, D-126, D-127).
+   *
+   * The error belongs to the source that raised it. A source the panel has
+   * already **replaced** is gone, and an error about it is not a fact about
+   * the file (D-127) - so it is ignored. Otherwise the verdict is kept, and
+   * the **fallback** is tried once: the other way of reaching the same bytes
+   * (D-126). Only when the fallback has failed too does the panel say that
+   * the file could not be played.
+   */
+  const handleError = useCallback(
+    async (video: HTMLVideoElement) => {
+      // The source that failed is not the current one: the panel has replaced
+      // it, and this error is not about the file (D-127).
+      if (currentVideoRef.current !== video) {
+        return;
+      }
+
+      const code = video.error?.code ?? 0;
+
+      // The fallback is tried **once** (D-126).
+      if (fallbackTriedRef.current) {
+        setPlayError(code);
+        return;
+      }
+
+      fallbackTriedRef.current = true;
+      setFallbackTried(true);
+
+      const next = fallback ? await fallback() : null;
+
+      if (!aliveRef.current) {
+        return;
+      }
+
+      if (!next) {
+        // the fallback could not even be reached: the first source's verdict
+        // is the failure, and the panel says the fallback was tried
+        setPlayError(code);
+        return;
+      }
+
+      // the URL is lent: the library gives it back when the panel goes away
+      fallbackUrlRef.current = next;
+      setFallbackUrl(next);
+      setAttempt((count) => count + 1);
+    },
+    [fallback],
+  );
+
+  /**
+   * The latest handler, for the listeners that were attached earlier.
+   *
+   * The listener of an attempt must stay attached to its own element - that
+   * is how an error for a replaced source is told apart from an error for the
+   * current one (D-127) - so it cannot be re-created when the handler changes.
+   */
+  const handleErrorRef = useRef(handleError);
+  handleErrorRef.current = handleError;
+
+  /**
+   * The browser's own verdict, listened for **per attempt** (D-127).
+   *
+   * Each attempt is its own `<video>` element, so each attempt's error has
+   * its own handler: the handler of a replaced attempt knows the source is
+   * gone and says nothing about the file.
+   *
+   * The listener is **not** taken off when the element is replaced: the error
+   * that arrives for a replaced source is exactly the one that has to be
+   * judged, and it arrives after the element is detached. It is taken off when
+   * the panel itself goes away.
+   *
+   * It is a **layout** effect on purpose: the listener must be attached
+   * before the browser can dispatch the error, and a media error can arrive
+   * as soon as the source is set.
+   */
+  useLayoutEffect(() => {
+    const video = videoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    currentVideoRef.current = video;
+
+    const onError = (event: Event) => {
+      void handleErrorRef.current(event.target as HTMLVideoElement);
+    };
+
+    video.addEventListener("error", onError);
+    listenersRef.current.push({ video, onError });
+  }, [attempt]);
+
+  /**
+   * The panel goes away: every listener is taken off and the fallback's URL
+   * is given back (D-95's rule: a lent URL is returned).
+   */
+  useEffect(() => {
+    aliveRef.current = true;
+
+    return () => {
+      aliveRef.current = false;
+
+      for (const { video, onError } of listenersRef.current) {
+        video.removeEventListener("error", onError);
+      }
+
+      listenersRef.current = [];
+
+      if (fallbackUrlRef.current) {
+        URL.revokeObjectURL(fallbackUrlRef.current);
+        fallbackUrlRef.current = null;
+      }
+    };
+  }, []);
+
+  /**
    * The panel is registered so the lock transition can freeze the frame the
    * teacher is looking at — at the video's own size, not the panel's.
    */
@@ -1126,7 +1276,7 @@ const VideoPanelSurface = ({
     return () => {
       unregisterVideoSurface(panel.id);
     };
-  }, [panel.id]);
+  }, [panel.id, attempt]);
 
   /**
    * Reports the position of the video, and with it the caption that is on
@@ -1373,15 +1523,33 @@ const VideoPanelSurface = ({
         data-testid="panel-video-error"
         data-error-code={playError}
         data-panel-kind={panel.panelKind}
+        // whether the fallback was tried - the panel says so in words too
+        // (D-126)
+        data-fallback-tried={fallbackTried ? "true" : "false"}
       >
-        <p className="excalidraw__panel-video-error-text">
+        <p
+          className="excalidraw__panel-video-error-text"
+          data-testid="panel-video-error-text"
+        >
           {CANNOT_PLAY_CODES.includes(playError)
-            ? t("labels.panel.video.cannotPlay", {
-                format: videoFormatName(mimeType),
-              })
+            ? t("labels.panel.video.cannotPlay")
             : t("labels.panel.video.playbackFailed")}
         </p>
+        {fallbackTried ? (
+          // The fallback was tried and it failed too: the panel says which it
+          // tried, because a panel that hides half of what it knows is a
+          // panel the teacher cannot act on (D-126, D-75, D-93).
+          <p
+            className="excalidraw__panel-video-error-fallback"
+            data-testid="panel-video-error-fallback"
+          >
+            {t("labels.panel.video.fallbackFailed")}
+          </p>
+        ) : null}
         {CANNOT_PLAY_CODES.includes(playError) && (
+          // The `ffmpeg` command is a **remedy**, not a verdict on the
+          // container (D-125): it is the one command that always produces a
+          // file every browser plays.
           <p className="excalidraw__panel-video-error-command">
             <code>{t("labels.panel.video.convertCommand")}</code>
           </p>
@@ -1393,10 +1561,15 @@ const VideoPanelSurface = ({
   return (
     <div className="excalidraw__panel-video-box" data-testid="panel-video-box">
       <video
+        // Each attempt is its own element, so an error for a source the panel
+        // has already replaced is delivered to the handler of THAT attempt
+        // (D-127).
+        key={attempt}
         ref={videoRef}
         className="excalidraw__panel-video"
         data-testid="panel-video"
-        src={src}
+        // the primary source, or the fallback once it has been tried (D-126)
+        src={fallbackUrl ?? src}
         playsInline={true}
         // the metadata is what tells the browser the video's own size, and the
         // size is what a poster is captured at
@@ -1409,9 +1582,9 @@ const VideoPanelSurface = ({
         onVolumeChange={(event) => setVolume(event.currentTarget.volume)}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
-        // The browser's own verdict: it is the only thing that knows whether
-        // this container can be played here (D-97)
-        onError={(event) => setPlayError(event.currentTarget.error?.code ?? 0)}
+        // The browser's own verdict is listened for in a layout effect, per
+        // attempt - it is the only thing that knows whether THIS file can be
+        // played here (D-97, D-127).
         onLoadedMetadata={(event) => {
           const video = event.currentTarget;
 
@@ -1648,12 +1821,23 @@ const MediaPanelSurface = ({
 
   return (
     <VideoPanelSurface
+      // the media id IS the source: a new one is a new panel's worth of
+      // attempts (D-127)
+      key={source.mediaId}
       panel={panel}
       src={url}
-      mimeType={source.mimeType}
       chrome={chrome}
       onVideoEvent={onVideoEvent}
       mirror={mirror}
+      /**
+       * The **fallback** for the bytes (D-126): the host's own store, asked
+       * for a **fresh** object URL. The URL the host lent may be stale or
+       * revoked - the library lends it and gives it back when the panel goes
+       * away - and asking again is cheap: the host reads its own Blob and
+       * makes another URL. It never rebuilds a base64 string of a big file
+       * (D-94).
+       */
+      fallback={() => resolveMediaUrl(source.mediaId)}
     />
   );
 };
@@ -1755,12 +1939,26 @@ const PanelSurface = ({
     if (source.mimeType.startsWith("video/")) {
       return (
         <VideoPanelSurface
+          // the file id IS the source: a new one is a new panel's worth of
+          // attempts (D-127)
+          key={source.fileId}
           panel={panel}
           src={file.dataURL}
-          mimeType={source.mimeType}
           chrome={chrome}
           onVideoEvent={onVideoEvent}
           mirror={mirror}
+          /**
+           * The **fallback** for the bytes (D-126): the file store's `dataURL`,
+           * re-read, and the same bytes reached through an **object URL**. The
+           * browser decodes the base64 itself, so no base64 string is ever
+           * built (D-94) - and an object URL plays where a data URL without a
+           * type does not (measured, 2026-10-23).
+           */
+          fallback={async () => {
+            const stored = files[source.fileId];
+
+            return stored ? await mediaObjectUrl(stored.dataURL) : null;
+          }}
         />
       );
     }
