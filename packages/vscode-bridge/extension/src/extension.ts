@@ -198,7 +198,13 @@ export function activate(context: vscode.ExtensionContext): void {
       fps: resolveCaptureFps(configuration.get<number>("captureFps")),
       onFrame: (frame) => {
         // The picture goes to the MJPEG STREAM and to nothing else (D-85).
-        bridgeServer?.publishFrame({ bytes: frame.bytes, seq: frame.seq });
+        bridgeServer?.publishFrame({
+          bytes: frame.bytes,
+          seq: frame.seq,
+          // the size rides along: a snapshot has to say how big it is (D-102)
+          width: frame.width,
+          height: frame.height,
+        });
 
         // and the state says the capture is running - once, when it changes.
         captureState.live(frame.seq);

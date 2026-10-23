@@ -858,6 +858,15 @@ exports[`contextMenu element > right-clicking on a group should select whole gro
         },
       },
       {
+        "label": "labels.ocrImage",
+        "name": "ocrImage",
+        "perform": [Function],
+        "predicate": [Function],
+        "trackEvent": {
+          "category": "element",
+        },
+      },
+      {
         "icon": [Function],
         "keyTest": [Function],
         "label": [Function],
@@ -5627,6 +5636,15 @@ exports[`contextMenu element > shows 'Group selection' in context menu for multi
         },
       },
       {
+        "label": "labels.ocrImage",
+        "name": "ocrImage",
+        "perform": [Function],
+        "predicate": [Function],
+        "trackEvent": {
+          "category": "element",
+        },
+      },
+      {
         "icon": [Function],
         "keyTest": [Function],
         "label": [Function],
@@ -6858,6 +6876,15 @@ exports[`contextMenu element > shows 'Ungroup selection' in context menu for gro
       {
         "label": "labels.reformatSelection",
         "name": "reformatSelection",
+        "perform": [Function],
+        "predicate": [Function],
+        "trackEvent": {
+          "category": "element",
+        },
+      },
+      {
+        "label": "labels.ocrImage",
+        "name": "ocrImage",
         "perform": [Function],
         "predicate": [Function],
         "trackEvent": {
@@ -8851,6 +8878,15 @@ exports[`contextMenu element > shows context menu for element > [end of test] ap
         },
       },
       {
+        "label": "labels.ocrImage",
+        "name": "ocrImage",
+        "perform": [Function],
+        "predicate": [Function],
+        "trackEvent": {
+          "category": "element",
+        },
+      },
+      {
         "icon": [Function],
         "keyTest": [Function],
         "label": [Function],
@@ -9852,6 +9888,15 @@ exports[`contextMenu element > shows context menu for element > [end of test] ap
       {
         "label": "labels.reformatSelection",
         "name": "reformatSelection",
+        "perform": [Function],
+        "predicate": [Function],
+        "trackEvent": {
+          "category": "element",
+        },
+      },
+      {
+        "label": "labels.ocrImage",
+        "name": "ocrImage",
         "perform": [Function],
         "predicate": [Function],
         "trackEvent": {

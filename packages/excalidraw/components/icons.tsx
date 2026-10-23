@@ -198,6 +198,17 @@ export const UnlockedIcon = createIcon(
   modifiedTablerIconProps,
 );
 
+// tabler-icons: camera (via Figma)
+// the screenshot button of a panel (D-102)
+export const ScreenshotIcon = createIcon(
+  <g strokeWidth="1.5">
+    <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+    <path d="M9 5h6l1.5 2h2.5a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-8a2 2 0 0 1 2 -2h2.5z" />
+    <path d="M12 15a3 3 0 1 0 0 -6a3 3 0 0 0 0 6z" />
+  </g>,
+  tablerIconProps,
+);
+
 // tabler-icons: lock (via Figma)
 export const LockedIcon = createIcon(
   <g strokeWidth="1.25">

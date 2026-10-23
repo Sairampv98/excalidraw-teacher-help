@@ -42,6 +42,15 @@ export const STREAM_PATH_PREFIX = "/s";
 export const STREAM_PATH_SUFFIX = "frame";
 
 /**
+ * The last segment of the **snapshot's** path.
+ *
+ * One more segment under the same capability: the capability that authorises
+ * the stream authorises the snapshot too, because it is the same picture of
+ * the same window (D-86, D-102).
+ */
+export const SNAPSHOT_PATH_SUFFIX = "snapshot";
+
+/**
  * How long the picture may stay unchanged before the last frame is re-sent.
  *
  * The browser's watchdog on a multipart stream gives up after twelve seconds,
@@ -58,6 +67,15 @@ export interface MjpegFrame {
   bytes: Buffer;
   /** the frame's number: 1, 2, 3 ... */
   seq: number;
+  /**
+   * The frame's own size, in pixels.
+   *
+   * The stream does not need it - the browser decodes the JPEG itself - but a
+   * **snapshot** does: the app has to know how big the picture is before it
+   * draws it, and it must not decode an image to learn its size (D-102).
+   */
+  width?: number;
+  height?: number;
 }
 
 export interface MjpegStreamOptions {
@@ -105,8 +123,22 @@ export interface MjpegStream {
 export const streamPath = (capability: string): string =>
   `${STREAM_PATH_PREFIX}/${capability}/${STREAM_PATH_SUFFIX}`;
 
+/**
+ * The path of a snapshot, with the capability in it.
+ *
+ * It is the stream's path with one more segment, so the same capability
+ * authorises it (D-86, D-102). The app derives the whole URL from the
+ * connection's stream URL, so this is the shape the derivation must produce.
+ */
+export const snapshotPath = (capability: string): string =>
+  `${STREAM_PATH_PREFIX}/${capability}/${SNAPSHOT_PATH_SUFFIX}`;
+
 const STREAM_ROUTE = new RegExp(
   `^${STREAM_PATH_PREFIX}/([^/]+)/${STREAM_PATH_SUFFIX}$`,
+);
+
+const SNAPSHOT_ROUTE = new RegExp(
+  `^${STREAM_PATH_PREFIX}/([^/]+)/${SNAPSHOT_PATH_SUFFIX}$`,
 );
 
 export const createMjpegStream = (options: MjpegStreamOptions): MjpegStream => {
@@ -202,6 +234,51 @@ export const createMjpegStream = (options: MjpegStreamOptions): MjpegStream => {
 
   const handle = (req: IncomingMessage, res: ServerResponse): boolean => {
     const path = (req.url ?? "").split("?")[0] ?? "";
+    const snapshotMatch = SNAPSHOT_ROUTE.exec(path);
+
+    if (snapshotMatch) {
+      // The **snapshot**: ONE JPEG of the last frame the extension already
+      // holds (it computes that frame's CRC on every publish anyway, D-88).
+      // The app fetches it with a plain GET, so a screenshot costs no base64 on
+      // the websocket and no new protocol message (D-102).
+      const capability = snapshotMatch[1] ?? "";
+      const responses = capabilities.get(capability);
+
+      if (!responses) {
+        // The capability is the authorisation (D-86): a request that does not
+        // carry a live one is refused, and it is a 404 so that the endpoint
+        // does not say what it is.
+        res.writeHead(404, { "content-type": "text/plain" });
+        res.end("not found\n");
+        return true;
+      }
+
+      if (!lastFrame) {
+        // there is no frame yet, so there is no picture to hand over
+        res.writeHead(404, { "content-type": "text/plain" });
+        res.end("not found\n");
+        return true;
+      }
+
+      const headers: Record<string, string> = {
+        "content-type": "image/jpeg",
+        "content-length": String(lastFrame.bytes.length),
+        "cache-control": "no-store, no-cache, must-revalidate",
+      };
+
+      // The picture's own size travels in the headers: the app has to know how
+      // big it is before it draws it, and it must not decode an image to learn
+      // its size (D-102).
+      if (lastFrame.width && lastFrame.height) {
+        headers["x-frame-width"] = String(lastFrame.width);
+        headers["x-frame-height"] = String(lastFrame.height);
+      }
+
+      res.writeHead(200, headers);
+      res.end(lastFrame.bytes);
+      return true;
+    }
+
     const match = STREAM_ROUTE.exec(path);
 
     if (!match) {
@@ -269,5 +346,12 @@ export const createMjpegStream = (options: MjpegStreamOptions): MjpegStream => {
     capabilities.clear();
   };
 
-  return { createCapability, urlFor, revoke, publish, handle, close };
+  return {
+    createCapability,
+    urlFor,
+    revoke,
+    publish,
+    handle,
+    close,
+  };
 };

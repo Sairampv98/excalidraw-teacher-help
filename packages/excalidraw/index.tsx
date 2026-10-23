@@ -108,6 +108,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
     imageOptions,
     panelBridge,
     panelOcr,
+    panelScreenshot,
   } = props;
 
   const canvasActions = props.UIOptions?.canvasActions;
@@ -210,6 +211,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
           UIOptions={UIOptions}
           onPaste={onPaste}
           onReformatSelection={onReformatSelection}
+          onOcrImage={props.onOcrImage}
           detectScroll={detectScroll}
           handleKeyboardGlobally={handleKeyboardGlobally}
           pagesEnabled={pagesEnabled}
@@ -231,6 +233,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
           imageOptions={normalizedImageOptions}
           panelBridge={panelBridge}
           panelOcr={panelOcr}
+          panelScreenshot={panelScreenshot}
         >
           {children}
         </App>
@@ -511,6 +514,26 @@ export type {
   PanelCaptureUnavailable,
 } from "./scene/panelFrames";
 
+// the screenshot of a panel: the pending picture, the choice strip's three
+// entries, and the editor's window as a picture (D-102, D-103, D-104)
+export {
+  clearAllPendingScreenshots,
+  clearPendingScreenshot,
+  fetchEditorSnapshot,
+  getAnyPendingScreenshot,
+  getPendingScreenshot,
+  movePendingScreenshot,
+  setPendingScreenshot,
+  snapshotUrl,
+  subscribePendingScreenshots,
+} from "./scene/panelScreenshot";
+export type {
+  PanelScreenshot,
+  PanelScreenshotChoice,
+  PanelScreenshotPicture,
+  PanelScreenshotSource,
+} from "./scene/panelScreenshot";
+
 // the video panel: the payload's video kind, the caption binding, and the
 // caption logic (the cues, the cue that is on screen, the caption element)
 export {
@@ -576,12 +599,17 @@ export {
   selectCaptionTrack,
 } from "./components/panelCaptions";
 export type { VideoPanelEvent } from "./components/PanelOverlay";
-export type { PanelBridgeControls, PanelOcrControls } from "./types";
+export type {
+  PanelBridgeControls,
+  PanelOcrControls,
+  PanelScreenshotControls,
+} from "./types";
 
 // the live video surface: the frame the teacher is looking at, so a host can
 // read the text out of it (D-59)
 export {
   captureVideoFrame,
+  capturePausedVideoFrame,
   getVideoSurface,
 } from "./components/videoPanelSurface";
 

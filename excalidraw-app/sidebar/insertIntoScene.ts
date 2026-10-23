@@ -14,14 +14,21 @@ import {
   generateIdFromFile,
   getDataURL,
 } from "@excalidraw/excalidraw/data/blob";
+import {
+  getPageRect,
+  insertPageAfter,
+  translateContentForPageLayout,
+} from "@excalidraw/excalidraw";
 
 import type { ClipboardData } from "@excalidraw/excalidraw/clipboard";
 import type { RemoteExcalidrawElement } from "@excalidraw/excalidraw/data/reconcile";
 import type {
   AppState,
   BinaryFileData,
+  DataURL,
   ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
+import type { FileId } from "@excalidraw/element/types";
 import type {
   ExcalidrawElement,
   ExcalidrawTextElement,
@@ -38,6 +45,14 @@ export const appendElements = (
   api: ExcalidrawImperativeAPI,
   added: readonly ExcalidrawElement[],
   appState?: { selectedElementIds: AppState["selectedElementIds"] },
+  /**
+   * The page the elements belong to.
+   *
+   * It defaults to the page the teacher is on. A caller that has just created a
+   * page passes that page's id instead, because the app state it wrote is not
+   * readable back yet (D-104).
+   */
+  pageId?: string,
 ) => {
   const existing = api.getSceneElements();
 
@@ -47,7 +62,10 @@ export const appendElements = (
   // helper the library's own insertion paths use. Without it, an image (or a
   // code card) inserted while a later page was active landed on page 1 and was
   // invisible on the canvas even though it was in the document.
-  const stamped = stampCurrentPage(added, api.getAppState().currentPageId);
+  const stamped = stampCurrentPage(
+    added,
+    pageId ?? api.getAppState().currentPageId,
+  );
 
   api.updateScene({
     elements: reconcileElements(
@@ -309,6 +327,180 @@ export const insertImageIntoScene = async (
   ]);
 
   appendElements(api, [image]);
+};
+
+/**
+ * The size a **screenshot** gets on the canvas.
+ *
+ * The same rule the sidebar's images use: the long edge is at most
+ * `MAX_IMAGE_SIZE`, so a screenshot of a whole editor window does not cover
+ * the canvas.
+ */
+export const screenshotCanvasSize = (
+  width: number,
+  height: number,
+): { width: number; height: number } => {
+  const ratio = Math.min(1, MAX_IMAGE_SIZE / Math.max(width, height));
+
+  return {
+    width: Math.max(1, width * ratio),
+    height: Math.max(1, height * ratio),
+  };
+};
+
+/** the media type a data URL carries */
+const dataUrlMimeType = (dataURL: string): BinaryFileData["mimeType"] => {
+  const mimeType = dataURL
+    .slice(0, dataURL.indexOf(","))
+    .split(":")[1]
+    ?.split(";")[0];
+
+  return (mimeType || "image/png") as BinaryFileData["mimeType"];
+};
+
+/** what a screenshot is, as far as the canvas is concerned */
+export type ScreenshotPlacement = {
+  /** the picture, as a data URL */
+  dataURL: string;
+  /** the picture's size on the canvas, in scene units */
+  canvasWidth: number;
+  canvasHeight: number;
+  /** the picture's top-left, in scene coordinates */
+  x: number;
+  y: number;
+};
+
+/**
+ * The picture of a screenshot, as an ordinary **image element** (D-104).
+ *
+ * The bytes go into the document's own file store, so the picture is saved with
+ * the document and travels to the presenter like any other image.
+ */
+const screenshotImage = (
+  screenshot: ScreenshotPlacement,
+  at: { x: number; y: number },
+) => {
+  const fileId = `screenshot-${randomId()}` as FileId;
+
+  const image = newImageElement({
+    type: "image",
+    x: at.x,
+    y: at.y,
+    width: screenshot.canvasWidth,
+    height: screenshot.canvasHeight,
+    fileId,
+  });
+
+  const now = Date.now();
+
+  return {
+    fileId,
+    image,
+    file: {
+      id: fileId,
+      mimeType: dataUrlMimeType(screenshot.dataURL),
+      dataURL: screenshot.dataURL as DataURL,
+      created: now,
+      lastRetrieved: now,
+      version: 1,
+    },
+  };
+};
+
+/**
+ * Places a **screenshot** on the canvas (D-104).
+ *
+ * The picture is an ordinary image element, so everything the teacher can do
+ * with an image — crop it, delete it, move it to another page, export it —
+ * works on a screenshot with no extra code.
+ *
+ * The size is the **capture's own** size: the capture already knows how big the
+ * picture is, so the app never has to decode an image to learn its size.
+ */
+export const insertScreenshotIntoScene = (
+  api: ExcalidrawImperativeAPI,
+  screenshot: ScreenshotPlacement,
+  /** the page the picture belongs to. Defaults to the page the teacher is on. */
+  pageId?: string,
+) => {
+  const { fileId, image, file } = screenshotImage(screenshot, {
+    x: screenshot.x,
+    y: screenshot.y,
+  });
+
+  api.addFiles([file]);
+
+  appendElements(
+    api,
+    [image],
+    { selectedElementIds: { [image.id]: true } },
+    pageId,
+  );
+
+  return fileId;
+};
+
+/**
+ * Places a screenshot on a **new page** (D-103, D-104).
+ *
+ * The page is created after the page the teacher is on, and the picture lands
+ * on it at the same place the wireframe had on the old page.
+ *
+ * It is **ONE** scene write: the new page's layout moves the pages after it,
+ * and the picture is part of the same write, so the two cannot disagree. Two
+ * writes would lose the layout shift, because the app state a write has just
+ * made is not readable back yet.
+ */
+export const insertScreenshotOnNewPage = (
+  api: ExcalidrawImperativeAPI,
+  screenshot: ScreenshotPlacement,
+) => {
+  const appState = api.getAppState();
+  const pages = appState.pages ?? [];
+  const currentPageId = appState.currentPageId ?? pages[0]?.id ?? "";
+  const pageId = `page-${randomId()}`;
+
+  const nextPages = insertPageAfter({
+    pages,
+    afterPageId: currentPageId,
+    pageId,
+  });
+
+  const translated = translateContentForPageLayout({
+    elements: api.getSceneElementsIncludingDeleted(),
+    previousPages: pages,
+    nextPages,
+  });
+
+  // the picture keeps its place on the page: the same offset from the old
+  // page's origin, on the new page's origin
+  const from = getPageRect(pages, currentPageId);
+  const to = getPageRect(nextPages, pageId);
+
+  const { image, file } = screenshotImage(screenshot, {
+    x: screenshot.x + (to.x - from.x),
+    y: screenshot.y + (to.y - from.y),
+  });
+
+  api.addFiles([file]);
+
+  api.updateScene({
+    elements: reconcileElements(
+      translated as RemoteExcalidrawElement[],
+      [
+        ...translated,
+        ...stampCurrentPage([image], pageId),
+      ] as RemoteExcalidrawElement[],
+      appState,
+    ),
+    appState: {
+      pages: nextPages,
+      currentPageId: pageId,
+      selectedElementIds: { [image.id]: true },
+    },
+  });
+
+  return pageId;
 };
 
 /**

@@ -33,6 +33,7 @@ import type {
   ExcalidrawNonSelectionElement,
   BindMode,
   ExcalidrawTextElement,
+  ExcalidrawImageElement,
 } from "@excalidraw/element/types";
 
 import type {
@@ -61,6 +62,7 @@ import type { ImportedDataState } from "./data/types";
 import type { Language } from "./i18n";
 import type { isOverScrollBars } from "./scene/scrollbars";
 import type { PanelBridgeStatus } from "./scene/panelContent";
+import type { PanelScreenshotChoice } from "./scene/panelScreenshot";
 import type React from "react";
 import type { JSX } from "react";
 
@@ -764,6 +766,19 @@ export interface ExcalidrawProps {
     appState: Readonly<AppState>;
   }) => void;
   /**
+   * Called when the user picks "Read the text" on an ordinary **image**
+   * element (D-105).
+   *
+   * The library cannot read anything itself — the OCR engine lives in the
+   * bridge's Node process and never in the browser (D-59) — so it only hands
+   * the image over.
+   */
+  onOcrImage?: (params: {
+    /** the image the teacher picked */
+    element: NonDeleted<ExcalidrawImageElement>;
+    appState: Readonly<AppState>;
+  }) => void;
+  /**
    * Called when element(s) are duplicated so you can listen or modify as
    * needed.
    *
@@ -907,6 +922,14 @@ export interface ExcalidrawProps {
    * browser.
    */
   panelOcr?: PanelOcrControls;
+
+  /**
+   * The host app's controls for the **screenshot** of a panel (D-102).
+   *
+   * The library draws the button, the choice strip and the wireframe; the host
+   * takes the picture and puts it on the canvas.
+   */
+  panelScreenshot?: PanelScreenshotControls;
 }
 
 /**
@@ -948,6 +971,26 @@ export type PanelOcrControls = {
   onOcr?: (panelId: string) => void;
   /** whether a read is running right now */
   busy?: boolean;
+};
+
+/**
+ * What the host tells the library about the **screenshot** of a panel
+ * (D-102, D-103, D-104).
+ *
+ * The library draws the button, the choice strip and the wireframe; the
+ * **host** takes the picture and puts it on the canvas, because the host is
+ * the side that owns the bridge, the pages and the files.
+ *
+ * Without this prop there is no screenshot button: a host that does not do
+ * screenshots gets a panel without one.
+ */
+export type PanelScreenshotControls = {
+  /** the teacher asked for a screenshot of this panel */
+  onCapture?: (panelId: string) => void;
+  /** the teacher made a choice in the strip */
+  onChoice?: (panelId: string, choice: PanelScreenshotChoice) => void;
+  /** the teacher clicked the wireframe: the picture lands here */
+  onPlace?: (panelId: string, at: { x: number; y: number }) => void;
 };
 
 export type SceneData = {

@@ -88,6 +88,7 @@ export type ActionName =
   | "insertDocument"
   | "duplicateSelection"
   | "reformatSelection"
+  | "ocrImage"
   | "deleteSelectedElements"
   | "changeViewBackgroundColor"
   | "clearCanvas"

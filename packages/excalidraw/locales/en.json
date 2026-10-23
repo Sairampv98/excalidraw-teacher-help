@@ -181,6 +181,13 @@
       "liveNotExportable": "A live panel exports as nothing. Lock it to make a poster.",
       "cannotLock": "This panel cannot be locked yet.",
       "ocr": "Read the text",
+      "screenshot": {
+        "button": "Take a screenshot",
+        "ocr": "Read the text",
+        "page": "Place on this page",
+        "newPage": "Place on a new page",
+        "wireframe": "The screenshot goes here"
+      },
       "bridge": {
         "label": "Bridge",
         "placeholder": "Session token",
@@ -221,6 +228,7 @@
     "installPWA": "Install Excalidraw locally (PWA)",
     "autoResize": "Enable text auto-resizing",
     "imageCropping": "Image cropping",
+    "ocrImage": "Read the text",
     "unCroppedDimension": "Uncropped dimension",
     "copyElementLink": "Copy link to object",
     "linkToElement": "Link to object",
