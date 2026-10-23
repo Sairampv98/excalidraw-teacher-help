@@ -1,12 +1,11 @@
 ---
 id: wave5r-playback-fallback
 paths: packages/excalidraw,excalidraw-app,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
-﻿# Wave 5r — the video's failure message must be true, and there must be a fallback
+# Wave 5r — the video's failure message must be true, and there must be a fallback
 
 ## Why this wave exists
 
@@ -111,4 +110,3 @@ ffmpeg -f lavfi -i testsrc=size=640x360:rate=25:duration=3 -c:v libx264 -pix_fmt
 ```
 
 Report the measurements in the close note.
-

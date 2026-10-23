@@ -219,9 +219,11 @@
       "mediaLoading": "Loading the video...",
       "mediaGone": "This panel's video is no longer in this browser's media store.",
       "video": {
-        "cannotPlay": "This browser cannot play a {{format}} video.",
+        "cannotPlay": "This browser could not play this file. The usual cause is a codec this browser does not decode - a 10-bit profile, AV1, or a broken file - and not the container. Converting it to H.264/AAC in an MP4 always works:",
+        "cannotPlayType": "This browser reports that it cannot play {{format}} files. The insert is not refused - but converting the file to H.264/AAC in an MP4 first is safer:",
         "convertCommand": "ffmpeg -i \"input.mkv\" -c:v libx264 -c:a aac -movflags +faststart \"output.mp4\"",
-        "playbackFailed": "This video could not be played."
+        "playbackFailed": "This file could not be played.",
+        "fallbackFailed": "The fallback was tried as well, and it failed too."
       }
     },
     "statusPublished": "Published",

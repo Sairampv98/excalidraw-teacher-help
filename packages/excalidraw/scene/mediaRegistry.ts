@@ -53,6 +53,16 @@ export type PanelSource = PanelContent["source"] | MediaPanelSource;
  */
 export type MediaResolver = (mediaId: string) => Promise<string | null>;
 
+/**
+ * The **fallback** for a panel's bytes (D-126).
+ *
+ * The **other way of reaching the same bytes**: a fresh object URL from the
+ * host, or the file store's data URL. It is asked for **once**, when the first
+ * source fails, and it never rebuilds a base64 string of a big file - that is
+ * the 827 MiB of memory wave 5l removed (D-94).
+ */
+export type MediaFallback = () => Promise<string | null>;
+
 let resolver: MediaResolver | null = null;
 
 /**
@@ -75,6 +85,34 @@ export const hasMediaResolver = (): boolean => resolver !== null;
 export const resolveMediaUrl = async (
   mediaId: string,
 ): Promise<string | null> => (resolver ? await resolver(mediaId) : null);
+
+/**
+ * The bytes of a data URL, reached through an **object URL** (D-126).
+ *
+ * The file store's `dataURL` is re-read and handed to the browser as a Blob:
+ * the browser decodes the base64 itself, so **no base64 string is ever
+ * built** - that is the 827 MiB of memory wave 5l removed (D-94).
+ *
+ * This is the fallback for a file-backed panel, and it is measured to reach
+ * where the data URL cannot: a data URL **without** a type fails with "Unable
+ * to load URL due to content type", while a blob URL with an empty type plays
+ * (Chrome, 2026-10-23).
+ *
+ * `null` when the browser cannot do it: the fallback has then failed, and the
+ * panel says so (D-126).
+ */
+export const mediaObjectUrl = async (
+  dataUrl: string,
+): Promise<string | null> => {
+  try {
+    const response = await fetch(dataUrl);
+    const blob = await response.blob();
+
+    return URL.createObjectURL(blob);
+  } catch {
+    return null;
+  }
+};
 
 /**
  * The panel's source, widened to the media variant.
