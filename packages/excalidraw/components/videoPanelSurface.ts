@@ -78,3 +78,25 @@ export const captureVideoFrame = (
 
   return { dataURL: canvas.toDataURL("image/png"), width, height };
 };
+
+/**
+ * A frame of a video, taken **after** the video was paused (D-102).
+ *
+ * The owner asked for the paused frame: "for video that should pause the video".
+ * So the pause comes **first**, and the frame is drawn after it - a frame
+ * drawn while the video is still running is a frame of a moment the teacher
+ * never saw.
+ *
+ * The pause is the video's own: `pause()` is the only way to hold a frame, and
+ * it is what the teacher would have done with the space bar.
+ *
+ * `null` when the frame cannot be taken - the same rule as
+ * `captureVideoFrame`: the caller then leaves the panel live and says why.
+ */
+export const capturePausedVideoFrame = (
+  video: HTMLVideoElement,
+): { dataURL: string; width: number; height: number } | null => {
+  video.pause();
+
+  return captureVideoFrame(video);
+};

@@ -93,6 +93,29 @@ export type OcrImage = {
   height: number;
 };
 
+/**
+ * The picture's own size, in its pixels.
+ *
+ * An ordinary image element does not carry its natural size - the element's
+ * width and height are its size **on the canvas** - and the OCR's lines come
+ * back in the picture's own pixels (D-59). So the picture is decoded to learn
+ * its size, and the browser does that natively.
+ *
+ * `0` when the picture cannot be decoded: the caller then falls back to the
+ * size the canvas knows.
+ */
+export const imageNaturalSize = (
+  dataURL: string,
+): Promise<{ width: number; height: number }> =>
+  new Promise((resolve) => {
+    const image = new Image();
+
+    image.onload = () =>
+      resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    image.onerror = () => resolve({ width: 0, height: 0 });
+    image.src = dataURL;
+  });
+
 export type OcrPlacement = {
   /** where the picture is drawn on the canvas */
   x: number;

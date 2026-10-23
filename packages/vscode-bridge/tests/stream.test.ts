@@ -24,6 +24,7 @@ import {
   type BridgeServer,
   type BridgeServerOptions,
 } from "../extension/src/bridge";
+import { snapshotPath } from "../extension/src/stream";
 
 import { RawWsClient } from "./helpers/rawWsClient";
 
@@ -135,6 +136,38 @@ const fetchToEnd = async (
       });
       response.on("end", () =>
         resolve({ status: response.statusCode ?? 0, body }),
+      );
+    });
+
+    request.on("error", reject);
+  });
+
+/**
+ * A request for the **snapshot**: one JPEG, with its headers.
+ *
+ * The body is read as binary, because a JPEG is not text.
+ */
+const fetchSnapshot = async (
+  url: string,
+): Promise<{
+  status: number;
+  headers: Record<string, string | string[] | undefined>;
+  body: string;
+}> =>
+  new Promise((resolve, reject) => {
+    const request = httpGet(url, (response) => {
+      let body = "";
+
+      response.setEncoding("binary");
+      response.on("data", (chunk: string) => {
+        body += chunk;
+      });
+      response.on("end", () =>
+        resolve({
+          status: response.statusCode ?? 0,
+          headers: response.headers,
+          body,
+        }),
       );
     });
 
@@ -265,5 +298,62 @@ describe("the MJPEG stream", () => {
     expect(stillWorks.status).toBe(200);
 
     stillWorks.close();
+  });
+
+  it("the extension serves the last frame as ONE JPEG on the snapshot path", async () => {
+    const server = await startServer();
+    const client = await connect(server);
+
+    auth(client);
+
+    const hello = await helloOf(client);
+    const streamUrl = (hello as { streamUrl?: string }).streamUrl!;
+
+    // The snapshot is the stream's URL with ONE more path segment, under the
+    // SAME capability: the capability that authorises the stream authorises
+    // the snapshot, because it is the same picture of the same window
+    // (D-86, D-102).
+    const snapshotUrl = streamUrl.replace(/\/frame$/, "/snapshot");
+
+    expect(snapshotUrl.endsWith("/snapshot")).toBe(true);
+    expect(snapshotUrl).toContain("/s/");
+
+    // the extension's own path for the snapshot, and the URL the app derives
+    // from the connection's stream URL, are the same thing (D-102)
+    const capability = streamUrl.split("/s/")[1]?.split("/")[0] ?? "";
+
+    expect(snapshotPath(capability)).toBe(`/s/${capability}/snapshot`);
+    expect(snapshotUrl.endsWith(snapshotPath(capability))).toBe(true);
+
+    // before there is a frame there is nothing to hand over
+    const empty = await fetchSnapshot(snapshotUrl);
+
+    expect(empty.status).toBe(404);
+
+    // a frame is published: the extension already holds it
+    const picture = jpeg(3);
+    server.publishFrame({ bytes: picture, seq: 1, width: 1295, height: 687 });
+
+    const snapshot = await fetchSnapshot(snapshotUrl);
+
+    expect(snapshot.status).toBe(200);
+    expect(snapshot.headers["content-type"]).toBe("image/jpeg");
+
+    // the picture's own size travels in the headers: the app has to know how
+    // big it is before it draws it, and it must not decode an image to learn
+    // its size (D-102)
+    expect(snapshot.headers["x-frame-width"]).toBe("1295");
+    expect(snapshot.headers["x-frame-height"]).toBe("687");
+
+    // and the body is ONE JPEG - the bytes the stream would have sent
+    expect(snapshot.body).toBe(picture.toString("binary"));
+
+    // a capability that was never issued is refused, exactly as the stream
+    // refuses it
+    const refused = await fetchSnapshot(
+      `http://127.0.0.1:${server.port}/s/${"0".repeat(32)}/snapshot`,
+    );
+
+    expect(refused.status).toBe(404);
   });
 });

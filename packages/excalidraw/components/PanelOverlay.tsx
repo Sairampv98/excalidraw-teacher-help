@@ -38,6 +38,10 @@ import { readPanelPlayback } from "../scene/panelContent";
 import { PANEL_SCALE_PROPERTY, panelChrome } from "../scene/panelChrome";
 import { getPanelCapture, subscribePanelCaptures } from "../scene/panelFrames";
 import {
+  getPendingScreenshot,
+  subscribePendingScreenshots,
+} from "../scene/panelScreenshot";
+import {
   appliedPlaybackState,
   INITIAL_PLAYBACK_SYNC_STATE,
   PLAYBACK_LOCAL_CLOCK_MS,
@@ -49,13 +53,15 @@ import { t } from "../i18n";
 
 import { VS_CODE_DARK } from "./vscodeTheme";
 
+import { ScreenshotIcon } from "./icons";
+
 import { captionCueAt, DEFAULT_CAPTION_LANGUAGE } from "./panelCaptions";
 import {
   registerVideoSurface,
   unregisterVideoSurface,
 } from "./videoPanelSurface";
 
-import type { BinaryFiles } from "../types";
+import type { BinaryFiles, PanelScreenshotControls } from "../types";
 
 import type { CodeMirrorEditorProps } from "./TTDDialog/CodeMirrorEditor";
 
@@ -130,6 +136,13 @@ type PanelOverlayProps = {
    * `onToggleLock(panelId)` - so the panel asks and the host decides.
    */
   onToggleView?: (panelId: string) => void;
+  /**
+   * The host's **screenshot** controls (D-102, D-103).
+   *
+   * The library draws the button and the choice strip; the host takes the
+   * picture and puts it on the canvas.
+   */
+  screenshot?: PanelScreenshotControls;
   /**
    * The host is a **read-only mirror** — the presenter.
    *
@@ -274,6 +287,118 @@ const VS_CODE_HAIRLINE: React.CSSProperties = {
 };
 
 /**
+ * The **screenshot** button of a panel (D-102).
+ *
+ * One button, and nothing else: the three choices come **after** the capture,
+ * not before it (D-103). The button asks the **host** to take the picture,
+ * because the host is the side that owns the bridge, the pages and the files.
+ *
+ * The button is chrome, so it keeps its size on screen at any zoom (D-92).
+ */
+const PanelScreenshotButton = ({
+  panel,
+  chrome,
+  screenshot,
+}: {
+  panel: ExcalidrawPanelElement;
+  chrome: PanelChrome;
+  screenshot: PanelScreenshotControls;
+}) => (
+  <button
+    type="button"
+    className="excalidraw__panel-screenshot-button"
+    data-testid="panel-screenshot-button"
+    data-panel-id={panel.id}
+    onClick={() => screenshot.onCapture?.(panel.id)}
+    title={t("labels.panel.screenshot.button")}
+    aria-label={t("labels.panel.screenshot.button")}
+    style={{
+      width: chrome.buttonSize,
+      height: chrome.buttonSize,
+      fontSize: chrome.buttonFontSize,
+    }}
+  >
+    {ScreenshotIcon}
+  </button>
+);
+
+/**
+ * The **choice strip** of a screenshot (D-103).
+ *
+ * Exactly three entries, and they exist **only** after the capture: before it
+ * there is no screenshot, and a choice about a picture that was never taken is
+ * a choice about nothing. The strip is chrome - it keeps its size on screen at
+ * any zoom (D-92) - and it is drawn by the library, like the header.
+ *
+ * The strip asks the **host** to act: the host owns the bridge, the pages and
+ * the files, and the host is the side that can read a picture (D-105).
+ */
+const PanelScreenshotChoices = ({
+  panel,
+  chrome,
+  screenshot,
+  top,
+}: {
+  panel: ExcalidrawPanelElement;
+  chrome: PanelChrome;
+  screenshot: PanelScreenshotControls;
+  /** where the strip hangs, in the panel's own units */
+  top: string;
+}) => {
+  const pending = useSyncExternalStore(
+    subscribePendingScreenshots,
+    () => getPendingScreenshot(panel.id),
+    () => getPendingScreenshot(panel.id),
+  );
+
+  if (!pending) {
+    return null;
+  }
+
+  const choice = (
+    name: string,
+    value: "ocr" | "page" | "new-page",
+    label: string,
+  ) => (
+    <button
+      type="button"
+      className="excalidraw__panel-screenshot-choice"
+      data-testid={`panel-screenshot-choice-${name}`}
+      data-panel-id={panel.id}
+      onClick={() => screenshot.onChoice?.(panel.id, value)}
+      style={{
+        height: chrome.choiceStripHeight,
+        fontSize: chrome.choiceStripFontSize,
+      }}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div
+      className="excalidraw__panel-screenshot-choices"
+      data-testid="panel-screenshot-choices"
+      data-panel-id={panel.id}
+      style={{
+        position: "absolute",
+        top,
+        right: 0,
+        display: "flex",
+        alignItems: "center",
+        gap: chrome.choiceStripGap,
+        padding: chrome.choiceStripPadding,
+        height: chrome.choiceStripHeight,
+      }}
+    >
+      {choice("ocr", "ocr", t("labels.panel.screenshot.ocr"))}
+      {choice("page", "page", t("labels.panel.screenshot.page"))}
+      {choice("newPage", "new-page", t("labels.panel.screenshot.newPage"))}
+    </div>
+  );
+};
+
+/**
  * The surface of a **code panel**: the teacher's editor, the program's output
  * and the bridge's own messages (D-51).
  *
@@ -300,12 +425,15 @@ const CodePanelSurface = ({
   panel,
   chrome,
   onToggleView,
+  screenshot,
   mirror,
 }: {
   panel: ExcalidrawPanelElement;
   /** the chrome's geometry, in the panel's own units (D-92) */
   chrome: PanelChrome;
   onToggleView?: (panelId: string) => void;
+  /** the host's screenshot controls (D-102) */
+  screenshot?: PanelScreenshotControls;
   /** the host is a read-only mirror - the presenter (D-57) */
   mirror?: boolean;
 }) => {
@@ -456,6 +584,14 @@ const CodePanelSurface = ({
                 ? t("labels.panel.code.viewLive")
                 : t("labels.panel.code.viewEditor")}
             </button>
+          ) : null}
+          {screenshot ? (
+            // the one new button on the chrome: the screenshot (D-102, D-103)
+            <PanelScreenshotButton
+              panel={panel}
+              chrome={chrome}
+              screenshot={screenshot}
+            />
           ) : null}
         </div>
 
@@ -632,6 +768,7 @@ const VideoPanelSurface = ({
   mimeType,
   chrome,
   onVideoEvent,
+  screenshot,
   mirror,
 }: {
   panel: ExcalidrawPanelElement;
@@ -647,6 +784,8 @@ const VideoPanelSurface = ({
   /** the chrome's geometry, in the panel's own units (D-92) */
   chrome: PanelChrome;
   onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
+  /** the host's screenshot controls (D-102) */
+  screenshot?: PanelScreenshotControls;
   /**
    * The host is a **read-only mirror** — the presenter (D-57).
    *
@@ -1114,6 +1253,17 @@ const VideoPanelSurface = ({
             ))}
           </select>
         )}
+
+        {screenshot ? (
+          // the one new button on the chrome: the screenshot (D-102, D-103).
+          // The video's frame is the video's own - the host pauses it first
+          // (D-102).
+          <PanelScreenshotButton
+            panel={panel}
+            chrome={chrome}
+            screenshot={screenshot}
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -1234,6 +1384,7 @@ const PanelSurface = ({
   chrome,
   onVideoEvent,
   onToggleView,
+  screenshot,
   mirror,
 }: {
   panel: ExcalidrawPanelElement;
@@ -1243,6 +1394,8 @@ const PanelSurface = ({
   onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
   /** the teacher flips the code panel's view (D-83) */
   onToggleView?: (panelId: string) => void;
+  /** the host's screenshot controls (D-102) */
+  screenshot?: PanelScreenshotControls;
   /** the host is a read-only mirror - the presenter (D-57) */
   mirror?: boolean;
 }) => {
@@ -1255,6 +1408,7 @@ const PanelSurface = ({
         panel={panel}
         chrome={chrome}
         onToggleView={onToggleView}
+        screenshot={screenshot}
         mirror={mirror}
       />
     );
@@ -1309,6 +1463,7 @@ const PanelSurface = ({
           mimeType={source.mimeType}
           chrome={chrome}
           onVideoEvent={onVideoEvent}
+          screenshot={screenshot}
           mirror={mirror}
         />
       );
@@ -1347,6 +1502,7 @@ const Panel = ({
   viewport,
   onVideoEvent,
   onToggleView,
+  screenshot,
   mirror,
 }: {
   panel: ExcalidrawPanelElement;
@@ -1357,6 +1513,8 @@ const Panel = ({
   onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
   /** the teacher flips the code panel's view (D-83) */
   onToggleView?: (panelId: string) => void;
+  /** the host's screenshot controls (D-102) */
+  screenshot?: PanelScreenshotControls;
   /** the host is a read-only mirror — the presenter (D-57) */
   mirror?: boolean;
 }) => {
@@ -1441,8 +1599,20 @@ const Panel = ({
           chrome={chrome}
           onVideoEvent={onVideoEvent}
           onToggleView={onToggleView}
+          screenshot={screenshot}
           mirror={mirror}
         />
+        {screenshot ? (
+          // The choice strip hangs off the panel's own chrome, and it exists
+          // only after the capture (D-103). The code panel's header is above
+          // it, so the strip hangs below the header.
+          <PanelScreenshotChoices
+            panel={panel}
+            chrome={chrome}
+            screenshot={screenshot}
+            top={panel.panelKind === "code" ? chrome.headerHeight : "0px"}
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -1467,6 +1637,7 @@ const PanelOverlayImpl = ({
   viewport,
   onVideoEvent,
   onToggleView,
+  screenshot,
   mirror,
 }: PanelOverlayProps) => {
   if (panels.length === 0) {
@@ -1491,6 +1662,7 @@ const PanelOverlayImpl = ({
           viewport={viewport}
           onVideoEvent={onVideoEvent}
           onToggleView={onToggleView}
+          screenshot={screenshot}
           mirror={mirror}
         />
       ))}
@@ -1517,7 +1689,8 @@ const areEqual = (prev: PanelOverlayProps, next: PanelOverlayProps) =>
   prev.viewport.height === next.viewport.height &&
   prev.mirror === next.mirror &&
   prev.onVideoEvent === next.onVideoEvent &&
-  prev.onToggleView === next.onToggleView;
+  prev.onToggleView === next.onToggleView &&
+  prev.screenshot === next.screenshot;
 
 export const PanelOverlay = React.memo(PanelOverlayImpl, areEqual);
 

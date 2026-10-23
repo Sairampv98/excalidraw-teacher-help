@@ -1,9 +1,8 @@
 ---
 id: wave5n-screenshot
 paths: packages/excalidraw,excalidraw-app,packages/vscode-bridge,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 5n — the screenshot: capture the editor or the video, then three choices
@@ -85,4 +84,3 @@ Add to the acceptance table, in the shape
 ## The gates
 
 `node scripts/tins-gate.mjs` must pass 4/4 (typecheck, eslint, prettier, vitest) and `node scripts/rowcheck.mjs --all` must exit 0. The kit's own SPEC lint must pass. In the close note, report **measured** evidence: the size of a captured frame, the time a capture takes, and the on-screen size of the choice strip at two zooms.
-

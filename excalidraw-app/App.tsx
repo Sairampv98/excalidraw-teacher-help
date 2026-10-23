@@ -33,7 +33,7 @@ import {
   isDevEnv,
 } from "@excalidraw/common";
 import polyfill from "@excalidraw/excalidraw/polyfill";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadFromBlob } from "@excalidraw/excalidraw/data/blob";
 import { t } from "@excalidraw/excalidraw/i18n";
 
@@ -67,12 +67,17 @@ import {
 
 import type { RemoteExcalidrawElement } from "@excalidraw/excalidraw/data/reconcile";
 import type { RestoredDataState } from "@excalidraw/excalidraw/data/restore";
+import type { PanelScreenshotChoice } from "@excalidraw/excalidraw";
 import type {
   FileId,
   NonDeletedExcalidrawElement,
   OrderedExcalidrawElement,
 } from "@excalidraw/element/types";
-import type { ExcalidrawPanelElement } from "@excalidraw/element/types";
+import type {
+  ExcalidrawImageElement,
+  ExcalidrawPanelElement,
+  NonDeleted,
+} from "@excalidraw/element/types";
 import type {
   AppState,
   ExcalidrawImperativeAPI,
@@ -108,7 +113,8 @@ import { AppMainMenu } from "./components/AppMainMenu";
 import { AppWelcomeScreen } from "./components/AppWelcomeScreen";
 import { insertCodePanel } from "./bridge/insertCodePanel";
 import { useBridgePanel } from "./bridge/useBridgePanel";
-import { useOcr } from "./bridge/useOcr";
+import { useOcr, imageNaturalSize } from "./bridge/useOcr";
+import { useScreenshot } from "./bridge/useScreenshot";
 import {
   ExportToExcalidrawPlus,
   exportToExcalidrawPlus,
@@ -435,6 +441,59 @@ const ExcalidrawWrapper = () => {
     busy: ocrBusy,
   } = useOcr({ api: excalidrawAPI, requestOcr, engineState: ocrState });
 
+  // the screenshot of a panel: the app takes the picture and puts it on the
+  // canvas (D-102, D-104)
+  const {
+    capture: captureScreenshot,
+    choose: chooseScreenshot,
+    place: placeScreenshot,
+  } = useScreenshot({ api: excalidrawAPI, readOcr });
+
+  /**
+   * Reads an **ordinary image** element the teacher picked (D-105).
+   *
+   * The owner asked for the OCR of a screenshot to be offered for "regular
+   * images aswell": a screenshot pasted in by hand is an ordinary image
+   * element, and it deserves the same choice — the same read, the same
+   * per-line text over the picture.
+   */
+  const readImage = useCallback(
+    async ({ element }: { element: NonDeleted<ExcalidrawImageElement> }) => {
+      const current = excalidrawAPI;
+
+      if (!current || !element.fileId) {
+        return;
+      }
+
+      const file = current.getFiles()[element.fileId];
+
+      if (!file) {
+        return;
+      }
+
+      // the picture's own size, in its pixels: the OCR's lines come back in
+      // them, and the element carries only its size on the canvas (D-59)
+      const natural = await imageNaturalSize(file.dataURL);
+
+      await readOcr({
+        image: {
+          dataURL: file.dataURL,
+          width: natural.width || element.width,
+          height: natural.height || element.height,
+        },
+        placement: {
+          x: element.x,
+          y: element.y,
+          width: element.width,
+          height: element.height,
+        },
+        pageId: element.pageId,
+        strokeColor: current.getAppState().currentItemStrokeColor,
+      });
+    },
+    [excalidrawAPI, readOcr],
+  );
+
   /**
    * Reads the **panel** the teacher picked: its poster, or the frame the
    * video is showing right now (D-59).
@@ -527,6 +586,28 @@ const ExcalidrawWrapper = () => {
       });
     },
     [excalidrawAPI, readOcr],
+  );
+
+  /**
+   * The host's **screenshot** controls (D-102, D-103).
+   *
+   * The library draws the button, the choice strip and the wireframe; the app
+   * takes the picture and puts it on the canvas. The object is memoised, so the
+   * panel overlay does not re-render on every frame of a stroke.
+   */
+  const panelScreenshot = useMemo(
+    () => ({
+      onCapture: (panelId: string) => {
+        void captureScreenshot(panelId);
+      },
+      onChoice: (panelId: string, choice: PanelScreenshotChoice) => {
+        void chooseScreenshot(panelId, choice);
+      },
+      onPlace: (panelId: string, at: { x: number; y: number }) => {
+        placeScreenshot(panelId, at);
+      },
+    }),
+    [captureScreenshot, chooseScreenshot, placeScreenshot],
   );
 
   const [errorMessage, setErrorMessage] = useState("");
@@ -1219,6 +1300,12 @@ const ExcalidrawWrapper = () => {
             void readPanel(panelId);
           },
         }}
+        // the screenshot of a panel: the button, the choice strip and the
+        // wireframe are the library's, and the picture is the app's (D-102)
+        panelScreenshot={panelScreenshot}
+        // the OCR of an ordinary image: the same read the panel's OCR uses
+        // (D-105)
+        onOcrImage={readImage}
         theme={editorTheme}
         pagesEnabled={true}
         sidebarWidth={sidebarWidth}

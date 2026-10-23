@@ -337,6 +337,7 @@ import { actionWrapTextInContainer } from "../actions/actionBoundText";
 import { actionToggleHandTool, zoomToFit } from "../actions/actionCanvas";
 import { actionPaste } from "../actions/actionClipboard";
 import { actionReformatSelection } from "../actions/actionReformatSelection";
+import { actionOcrImage } from "../actions/actionOcrImage";
 import { actionCopyElementLink } from "../actions/actionElementLink";
 import { actionUnlockAllElements } from "../actions/actionElementLock";
 import {
@@ -493,6 +494,7 @@ import { activeConfirmDialogAtom } from "./ActiveConfirmDialog";
 import { AnimatedImageOverlay } from "./AnimatedImageOverlay";
 import { PanelChrome } from "./PanelChrome";
 import { PanelOverlay } from "./PanelOverlay";
+import { PanelScreenshotWireframe } from "./PanelScreenshotWireframe";
 
 import { FlowAnimationOverlay } from "./FlowAnimationOverlay";
 import { isFlowAnimationActive, stopFlowAnimation } from "./FlowAnimationState";
@@ -2562,6 +2564,9 @@ class App extends React.Component<AppProps, AppState> {
                             // presenter. It applies the published playback and
                             // never writes one back (D-57).
                             mirror={this.state.viewModeEnabled}
+                            // the host takes the screenshot and puts it on the
+                            // canvas (D-102)
+                            screenshot={this.props.panelScreenshot}
                           />
                           <PanelChrome
                             panels={this.getSelectedPanelElements(
@@ -2578,6 +2583,17 @@ class App extends React.Component<AppProps, AppState> {
                             onToggleLock={this.togglePanelLock}
                             bridge={this.props.panelBridge}
                             ocr={this.props.panelOcr}
+                          />
+                          <PanelScreenshotWireframe
+                            panels={getAllPanelElements(visibleElements)}
+                            camera={{
+                              zoom: this.state.zoom,
+                              scrollX: this.state.scrollX,
+                              scrollY: this.state.scrollY,
+                              offsetLeft: this.state.offsetLeft,
+                              offsetTop: this.state.offsetTop,
+                            }}
+                            onPlace={this.props.panelScreenshot?.onPlace}
                           />
                           <FlowAnimationOverlay
                             elementsMap={allElementsMap}
@@ -14077,6 +14093,7 @@ class App extends React.Component<AppProps, AppState> {
       CONTEXT_MENU_SEPARATOR,
       actionDuplicateSelection,
       actionReformatSelection,
+      actionOcrImage,
       actionToggleElementLock,
       CONTEXT_MENU_SEPARATOR,
       actionDeleteSelected,

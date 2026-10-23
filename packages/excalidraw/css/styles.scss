@@ -451,6 +451,73 @@ body.excalidraw-cursor-resize * {
     }
   }
 
+  // The screenshot button of a panel (D-102).
+  //
+  // One button on the chrome, and nothing else: the three choices come AFTER
+  // the capture, not before it (D-103). Its SIZE is applied inline, from
+  // `scene/panelChrome.ts`, because the chrome is sized for the screen (D-92).
+  &__panel-screenshot-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    border: 1px solid currentColor;
+    cursor: pointer;
+
+    svg {
+      width: 60%;
+      height: 60%;
+      pointer-events: none;
+    }
+  }
+
+  // The choice strip of a screenshot (D-103): three entries, and they exist
+  // only after the capture.
+  //
+  // The strip wears the app's own theme, like every other affordance this
+  // project has added - one theme for all of them.
+  &__panel-screenshot-choices {
+    box-sizing: border-box;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  &__panel-screenshot-choice {
+    padding: 0 calc(6px / var(--panel-scale));
+    border-radius: 4px;
+    background: var(--color-surface);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  // The wireframe that stands where a screenshot will land (D-104).
+  //
+  // It lives in the chrome layer, which is not scaled: its sizes are SCREEN
+  // sizes, so it stays readable at any zoom (D-92).
+  &__panel-screenshot-wireframe {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    border: 1px dashed var(--color-primary);
+    border-radius: 4px;
+    background: var(--color-surface-low, rgba(0, 0, 0, 0.06));
+    color: var(--color-text);
+    font-size: 12px;
+    text-align: center;
+  }
+
+  &__panel-screenshot-wireframe-label {
+    pointer-events: none;
+  }
+
   &__animated-image {
     position: absolute;
     top: 0;

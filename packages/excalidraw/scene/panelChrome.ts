@@ -68,6 +68,14 @@ export const PANEL_CHROME = {
   trackHeight: 20,
   trackFontSize: 11,
   trackMaxWidth: 90,
+  /** the screenshot's choice strip: three entries, sized like the chrome */
+  choiceStripHeight: 24,
+  choiceStripFontSize: 11,
+  choiceStripPadding: 6,
+  choiceStripGap: 4,
+  /** the wireframe that stands where a screenshot will land */
+  wireframeBorderWidth: 1,
+  wireframeFontSize: 11,
 } as const;
 
 /**
@@ -113,6 +121,16 @@ export const panelChrome = (scale: number) => {
     trackHeight: px(PANEL_CHROME.trackHeight),
     trackFontSize: px(PANEL_CHROME.trackFontSize),
     trackMaxWidth: px(PANEL_CHROME.trackMaxWidth),
+
+    /** the screenshot's choice strip */
+    choiceStripHeight: px(PANEL_CHROME.choiceStripHeight),
+    choiceStripFontSize: px(PANEL_CHROME.choiceStripFontSize),
+    choiceStripPadding: px(PANEL_CHROME.choiceStripPadding),
+    choiceStripGap: px(PANEL_CHROME.choiceStripGap),
+
+    /** the wireframe that stands where a screenshot will land */
+    wireframeBorderWidth: px(PANEL_CHROME.wireframeBorderWidth),
+    wireframeFontSize: px(PANEL_CHROME.wireframeFontSize),
   };
 };
 
