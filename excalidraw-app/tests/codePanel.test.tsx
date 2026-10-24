@@ -15,6 +15,7 @@ import React from "react";
 
 import { newPanelElement } from "@excalidraw/element";
 import { validateFractionalIndices } from "@excalidraw/element";
+import { FONT_FAMILY } from "@excalidraw/common";
 import { Excalidraw } from "@excalidraw/excalidraw";
 import { codePanelContent, emptyCodePanelState } from "@excalidraw/excalidraw";
 import { readCodePanelState } from "@excalidraw/excalidraw";
@@ -23,6 +24,7 @@ import {
   codeMirrorLanguageIds,
   loadCodeMirrorLanguage,
 } from "@excalidraw/excalidraw";
+import { createPasteEvent } from "@excalidraw/excalidraw/clipboard";
 import { API } from "@excalidraw/excalidraw/tests/helpers/api";
 import {
   act,
@@ -42,6 +44,8 @@ import {
 import { insertCodePanel } from "../bridge/insertCodePanel";
 import { useBridgePanel } from "../bridge/useBridgePanel";
 import { CODE_LANGUAGE_IDS } from "../codeLanguages";
+import { handleCodePaste } from "../sidebar/insertIntoScene";
+import { panelCopyControls } from "../sidebar/panelCopy";
 
 import { BRIDGE_URL_ENV_VAR } from "../../packages/vscode-bridge/bridge/src/protocol";
 
@@ -1183,5 +1187,107 @@ describe("the app's runnable editor", () => {
       expect(line).toBeTruthy();
       expect(line?.level).toBe("error");
     });
+  });
+});
+
+describe("the panel's editor copy", () => {
+  it("AC-179 the panel's copy pastes on the canvas as the same code card", async () => {
+    // the file the panel is mirroring
+    const CODE = "def greet():\n    return 1";
+
+    const clipboard = mockClipboard(CODE);
+
+    let api: ExcalidrawImperativeAPI | null = null;
+
+    // the panel is in the editor view, so the editor - and the editor's own
+    // controls - are on the screen
+    const panel = pythonCodePanelElement();
+
+    const inEditorView = {
+      ...panel,
+      panel: withPanelView(panel.panel, "editor"),
+    };
+
+    const { container } = await render(
+      <Excalidraw
+        autoFocus
+        initialData={{ elements: [inEditorView] }}
+        // the app's own paste hook: it is what decides that a paste is the
+        // armed code
+        onPaste={handleCodePaste}
+        onExcalidrawAPI={(next) => {
+          api = next;
+        }}
+        // the app's own copy control - the same one the app gives the panel
+        panelCopy={panelCopyControls(() => api)}
+      />,
+    );
+
+    // the library only pastes when the pointer is over the canvas
+    Object.assign(document, {
+      elementFromPoint: () =>
+        container.querySelector<HTMLCanvasElement>("canvas.interactive"),
+    });
+
+    // jsdom has no layout, so the panel is outside the window unless the
+    // window is given a size
+    API.setAppState({ width: 1000, height: 1000 });
+
+    await waitFor(() => expect(api).toBeTruthy());
+
+    // the panel's own copy control is there
+    const copy = await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="code-panel-copy-code"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found!;
+    });
+
+    // the teacher presses it
+    await act(async () => {
+      fireEvent.click(copy);
+    });
+
+    // the code is on the clipboard ...
+    expect(clipboard.writeText).toHaveBeenCalledWith(CODE);
+
+    // ... and the next paste on the canvas is the code card: the SAME card the
+    // markdown viewer's `Copy code` brings, and not a row of plain text boxes
+    document.dispatchEvent(createPasteEvent({ types: { "text/plain": CODE } }));
+
+    // the card is a rectangle: the panel is in the scene too, so the wait is
+    // for the card itself
+    await waitFor(() =>
+      expect(
+        window.h.elements.some((element) => element.type === "rectangle"),
+      ).toBe(true),
+    );
+
+    const elements = window.h.elements as unknown as Array<{
+      type: string;
+      text?: string;
+      fontFamily?: number;
+      backgroundColor?: string;
+      groupIds: string[];
+    }>;
+
+    const card = elements.find((el) => el.type === "rectangle");
+
+    expect(card).toBeTruthy();
+    expect(card!.backgroundColor).toBe("#1e1e1e");
+
+    const runs = elements.filter((el) => el.type === "text");
+
+    expect(runs.length).toBeGreaterThan(1);
+
+    for (const run of runs) {
+      expect(run.fontFamily).toBe(FONT_FAMILY.Cascadia);
+    }
+
+    // every run belongs to one group, so the card moves as a unit
+    expect(new Set(runs.map((run) => run.groupIds[0])).size).toBe(1);
   });
 });

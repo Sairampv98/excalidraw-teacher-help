@@ -169,6 +169,7 @@ import "./index.scss";
 import { AppSidebar } from "./components/AppSidebar";
 import { usePageAutoFit, useSidebarWidth } from "./sidebar/useSidebarLayout";
 import { handleCodePaste } from "./sidebar/insertIntoScene";
+import { panelCopyControls } from "./sidebar/panelCopy";
 import { ReformatChooser } from "./sidebar/ReformatChooser";
 import { CropModal, posterNaturalSize } from "./components/cropModal";
 
@@ -430,6 +431,18 @@ const ExcalidrawWrapper = () => {
   // it feeds (D-51)
   const { bridge, requestOcr, ocrState, panelDraft, panelRun, panelCaptions } =
     useBridgePanel(excalidrawAPI, publishLiveView);
+
+  /**
+   * The panel's **copy** (D-142).
+   *
+   * The code the teacher copied in the panel's editor goes on the clipboard and
+   * arms ONE paste on the canvas - so it arrives as the **same code card** the
+   * markdown viewer's `Copy code` brings, and not as a row of plain text boxes.
+   */
+  const panelCopy = useMemo(
+    () => panelCopyControls(() => excalidrawAPI),
+    [excalidrawAPI],
+  );
 
   // the OCR capability: the read happens in the bridge's Node process, and the
   // app puts the text back on the canvas (D-59)
@@ -1386,6 +1399,9 @@ const ExcalidrawWrapper = () => {
         // sends it to the extension (D-123, D-124)
         panelDraft={panelDraft}
         panelRun={panelRun}
+        // the panel's editor: the code the teacher copied there becomes the
+        // same code card the markdown viewer's `Copy code` brings (D-142)
+        panelCopy={panelCopy}
         // the captions of a YouTube video: the bridge reads them, because a
         // browser cannot, and the tier that answered comes back with them
         // (D-129)

@@ -1298,3 +1298,27 @@ export const pendingInsert = (): ArmedInsert | null => {
 
   return null;
 };
+
+/**
+ * Copies the code to the clipboard and arms **one** paste on the canvas, so the
+ * code arrives as the **same code card** the markdown viewer's `Copy code`
+ * brings (D-142).
+ *
+ * The clipboard is the only channel other programs can see, so it stays plain
+ * text - and the arm is what makes the canvas paste a card. A clipboard that
+ * could not be written is not a reason to refuse: the teacher may have copied
+ * with the keyboard, and the browser already put the text there.
+ */
+export const copyCodeForCanvas = async (
+  api: ExcalidrawImperativeAPI,
+  code: string,
+  { fileName, language }: { fileName?: string; language?: string } = {},
+) => {
+  try {
+    await navigator.clipboard.writeText(code);
+  } catch (error) {
+    console.error(error);
+  }
+
+  armInsert(api, { kind: "code", code, fileName, language });
+};

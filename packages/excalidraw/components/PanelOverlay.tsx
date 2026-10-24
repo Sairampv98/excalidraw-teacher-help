@@ -32,7 +32,9 @@ import {
   panelEditorText,
   panelScale,
   readCodePanelState,
+  readPanelReadLanguage,
   readPanelView,
+  readPanelZoom,
 } from "../scene/panelContent";
 import { readVideoPanelState } from "../scene/panelContent";
 import { readPanelPlayback } from "../scene/panelContent";
@@ -64,6 +66,7 @@ import { t } from "../i18n";
 import { VS_CODE_DARK } from "./vscodeTheme";
 
 import { captionCueAt, DEFAULT_CAPTION_LANGUAGE } from "./panelCaptions";
+import { codeMirrorLanguageIds } from "./codeLanguages";
 import {
   registerVideoSurface,
   unregisterVideoSurface,
@@ -72,6 +75,7 @@ import {
 import type {
   BinaryFiles,
   PanelCaptionControls,
+  PanelCopyControls,
   PanelDraftControls,
   PanelRunControls,
   PanelScreenshotControls,
@@ -183,6 +187,28 @@ type PanelOverlayProps = {
    */
   run?: PanelRunControls;
   /**
+   * The host's controls for the code panel's **copy** (D-142).
+   *
+   * The library draws the control and reports what the teacher selected; the
+   * host puts the code on the clipboard and arms the paste, because the code
+   * card is the host's own.
+   */
+  copy?: PanelCopyControls;
+  /**
+   * The teacher chose the language the panel **reads** the file as (D-142).
+   *
+   * The host owns the write - the same shape as the view's - so the choice
+   * goes into the panel's payload and survives the bridge's own writes.
+   */
+  onReadLanguageChange?: (panelId: string, language: string) => void;
+  /**
+   * The teacher zoomed the **editor** (D-142).
+   *
+   * The host owns the write - the same shape as the view's - so the zoom goes
+   * into the panel's payload and survives the bridge's own writes.
+   */
+  onZoomChange?: (panelId: string, zoom: number) => void;
+  /**
    * The host's controls for a panel's **captions** (D-129).
    *
    * The library asks; the host fetches — a browser cannot read YouTube's
@@ -273,6 +299,9 @@ const CodePanelEditor = ({
   onChange,
   readOnly = true,
   focusOnMount = false,
+  zoom = 1,
+  onCopy,
+  onSelectionChange,
 }: {
   value: string;
   language?: string;
@@ -292,6 +321,12 @@ const CodePanelEditor = ({
    * the editor unusable (D-123).
    */
   focusOnMount?: boolean;
+  /** the editor's own zoom (D-142) */
+  zoom?: number;
+  /** the teacher copied in the editor (D-142) */
+  onCopy?: (text: string) => void;
+  /** the teacher selected something in the editor (D-142) */
+  onSelectionChange?: (text: string) => void;
 }) => {
   const [Editor, setEditor] =
     useState<React.ComponentType<CodeMirrorEditorProps> | null>(null);
@@ -343,6 +378,12 @@ const CodePanelEditor = ({
       // editable surface without knowing how CodeMirror builds its DOM
       testId="code-panel-draft-editor"
       focusOnMount={focusOnMount}
+      // the editor's own zoom (D-142)
+      zoom={zoom}
+      // the teacher copied in the editor: the panel reports it, and the host
+      // turns the next paste on the canvas into a code card (D-142)
+      onCopy={onCopy}
+      onSelectionChange={onSelectionChange}
     />
   );
 };
@@ -355,6 +396,14 @@ const VS_CODE_HAIRLINE: React.CSSProperties = {
   borderTopStyle: "solid",
   borderTopColor: VS_CODE_DARK.border,
 };
+
+/**
+ * The **zoom levels** the editor's own zoom steps through (D-142).
+ *
+ * The zoom is the editor's, and it is the editor's **own** ladder - the same
+ * shape VS Code's zoom has: a few steps, and no more (D-117).
+ */
+const ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 /**
  * The **screenshot** button of a panel (D-102) lives in the panel's
@@ -484,6 +533,9 @@ const CodePanelSurface = ({
   mirror,
   draft,
   run,
+  copy,
+  onReadLanguageChange,
+  onZoomChange,
 }: {
   panel: ExcalidrawPanelElement;
   /** the chrome's geometry, in the panel's own units (D-92) */
@@ -497,6 +549,12 @@ const CodePanelSurface = ({
   draft?: PanelDraftControls;
   /** the host's controls for the Run control (D-124) */
   run?: PanelRunControls;
+  /** the host's controls for the copy (D-142) */
+  copy?: PanelCopyControls;
+  /** the teacher chose the language the panel reads the file as (D-142) */
+  onReadLanguageChange?: (panelId: string, language: string) => void;
+  /** the teacher zoomed the editor (D-142) */
+  onZoomChange?: (panelId: string, zoom: number) => void;
 }) => {
   const state = readCodePanelState(panel.panel);
 
@@ -532,6 +590,33 @@ const CodePanelSurface = ({
     panel.panel,
     state ? { text: state.editor.text, language: state.editor.language } : null,
   );
+
+  /**
+   * The language the panel **reads** the file as (D-142).
+   *
+   * The teacher's own choice wins; without one the file is read **as the file
+   * says it is** - the language the extension reported, or the draft's own.
+   *
+   * It never changes the file in the editor: it is the panel's own reading of
+   * the text, and nothing is sent to the extension.
+   */
+  const readLanguage = readPanelReadLanguage(panel.panel) ?? editor.language;
+
+  /**
+   * The editor's **own** zoom (D-142).
+   *
+   * It is the zoom **inside** the panel's editor, and it never moves the
+   * canvas's zoom (D-117): the two are separate scales.
+   */
+  const zoom = readPanelZoom(panel.panel);
+
+  /**
+   * What the teacher has **selected** in the editor (D-142).
+   *
+   * The editor is the only one that knows the selection, and the panel's own
+   * "Copy as code block" control needs it.
+   */
+  const [selection, setSelection] = useState("");
 
   /**
    * Whether the panel draws the editor at all.
@@ -570,6 +655,77 @@ const CodePanelSurface = ({
 
   const hasFile = Boolean(state?.editor.uri);
   const fileName = codePanelFileName(state?.editor.uri ?? "");
+
+  /**
+   * The languages the teacher may **read** the file as (D-142).
+   *
+   * They are the ones the **registry** knows - the grammars the host filled
+   * (D-84) - and the file's own language, which is always there. A language
+   * nobody registered is never offered: an unknown file must never be
+   * highlighted as something it is not.
+   *
+   * `mermaid` is NOT one of them: the mermaid grammar belongs to the
+   * text-to-diagram dialog, which is the only thing that speaks mermaid
+   * (D-84).
+   */
+  const readLanguageOptions = useMemo(() => {
+    const options: string[] = [];
+
+    for (const language of [editor.language, readLanguage]) {
+      if (language && language !== "mermaid" && !options.includes(language)) {
+        options.push(language);
+      }
+    }
+
+    for (const language of codeMirrorLanguageIds()) {
+      if (language && language !== "mermaid" && !options.includes(language)) {
+        options.push(language);
+      }
+    }
+
+    return options;
+  }, [editor.language, readLanguage]);
+
+  /**
+   * The teacher copies the code (D-142).
+   *
+   * The **selection** is what is copied, and the whole text when nothing is
+   * selected - which is what every other editor does.
+   *
+   * The panel reports it and the **host** arms the paste: the code card is the
+   * host's own, the same card the markdown viewer's `Copy code` brings.
+   */
+  const copyAsCodeBlock = (text: string) => {
+    const code = text || editor.text;
+
+    if (!code) {
+      return;
+    }
+
+    copy?.onCopyAsCodeBlock?.(panel.id, code, {
+      fileName: fileName || undefined,
+      language: readLanguage || undefined,
+    });
+  };
+
+  /**
+   * The editor's own zoom, one step (D-142).
+   *
+   * The zoom is the editor's, so the canvas's zoom does not move with it
+   * (D-117).
+   */
+  const zoomBy = (direction: 1 | -1) => {
+    const next =
+      direction > 0
+        ? ZOOM_LEVELS.find((level) => level > zoom)
+        : [...ZOOM_LEVELS].reverse().find((level) => level < zoom);
+
+    if (next === undefined) {
+      return;
+    }
+
+    onZoomChange?.(panel.id, next);
+  };
 
   /**
    * The teacher turns the live view on and off from the panel's own header
@@ -675,6 +831,116 @@ const CodePanelSurface = ({
   );
 
   /**
+   * The panel's **editor bar** (D-142).
+   *
+   * The three things the teacher asked for: the **language** the file is read
+   * as, a **Copy as code block** control, and the editor's own **zoom**.
+   *
+   * It sits at the **bottom** of the source region, above the run bar: the
+   * panel's own chrome - the bridge field - hangs over the panel's top-left
+   * corner, and a control under it is a control the teacher cannot press.
+   *
+   * A **mirror** does not get it: the presenter shows the host's panel, it
+   * does not change it (D-57).
+   */
+  const editorBar = mirror ? null : (
+    <div
+      className="excalidraw__panel-code-editorbar"
+      data-testid="code-panel-editorbar"
+    >
+      <select
+        className="excalidraw__panel-code-language-picker"
+        data-testid="code-panel-read-language"
+        aria-label={t("labels.editor.readLanguage")}
+        value={readLanguage}
+        onChange={(event) =>
+          onReadLanguageChange?.(panel.id, event.target.value)
+        }
+        style={{
+          background: "transparent",
+          color: VS_CODE_DARK.foreground,
+          border: `1px solid ${VS_CODE_DARK.border}`,
+          borderRadius: 2,
+          font: "inherit",
+        }}
+      >
+        {/* Nothing to read as: the picker says so instead of pretending one
+            is chosen (D-122's rule - say what is missing). */}
+        {readLanguage ? null : (
+          <option value="">{t("labels.editor.readLanguageNone")}</option>
+        )}
+        {readLanguageOptions.map((language) => (
+          <option key={language} value={language}>
+            {language}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        className="excalidraw__panel-code-copy"
+        data-testid="code-panel-copy-code"
+        data-panel-id={panel.id}
+        onClick={() => copyAsCodeBlock(selection)}
+        title={t("labels.editor.copyAsCodeBlockTitle")}
+        aria-label={t("labels.editor.copyAsCodeBlock")}
+        style={{
+          background: "transparent",
+          border: `1px solid ${VS_CODE_DARK.border}`,
+          borderRadius: 2,
+          color: VS_CODE_DARK.foreground,
+          cursor: "pointer",
+          font: "inherit",
+        }}
+      >
+        {t("labels.editor.copyAsCodeBlock")}
+      </button>
+      <button
+        type="button"
+        className="excalidraw__panel-code-zoom"
+        data-testid="code-panel-zoom-out"
+        onClick={() => zoomBy(-1)}
+        title={t("labels.editor.zoomOut")}
+        aria-label={t("labels.editor.zoomOut")}
+        style={{
+          background: "transparent",
+          border: `1px solid ${VS_CODE_DARK.border}`,
+          borderRadius: 2,
+          color: VS_CODE_DARK.foreground,
+          cursor: "pointer",
+          font: "inherit",
+        }}
+      >
+        {"−"}
+      </button>
+      <span
+        className="excalidraw__panel-code-zoom-level"
+        data-testid="code-panel-zoom-level"
+        style={{ color: VS_CODE_DARK.muted }}
+      >
+        {`${Math.round(zoom * 100)}%`}
+      </span>
+      <button
+        type="button"
+        className="excalidraw__panel-code-zoom"
+        data-testid="code-panel-zoom-in"
+        onClick={() => zoomBy(1)}
+        title={t("labels.editor.zoomIn")}
+        aria-label={t("labels.editor.zoomIn")}
+        style={{
+          background: "transparent",
+          border: `1px solid ${VS_CODE_DARK.border}`,
+          borderRadius: 2,
+          color: VS_CODE_DARK.foreground,
+          cursor: "pointer",
+          font: "inherit",
+        }}
+      >
+        {"+"}
+      </button>
+    </div>
+  );
+
+  /**
    * The panel's **source**: the live picture, the editor, or the reason there
    * is neither.
    */
@@ -711,15 +977,26 @@ const CodePanelSurface = ({
         <>
           <CodePanelEditor
             value={editor.text}
-            language={editor.language}
+            // the language the panel **reads** the file as: the teacher's own
+            // choice, or the file's own language (D-142)
+            language={readLanguage}
             // the presenter's copy is a mirror: it is read-only (D-57)
             readOnly={Boolean(mirror)}
             onChange={(text) => draft?.onChange?.(panel.id, text)}
+            // the editor's own zoom (D-142)
+            zoom={zoom}
+            // the teacher copied in the editor: the panel reports it, and the
+            // host turns the next paste on the canvas into a code card.
+            // A **mirror** does not: the presenter shows the host's panel, it
+            // does not change it (D-57).
+            onCopy={mirror ? undefined : (text) => copyAsCodeBlock(text)}
+            onSelectionChange={(text) => setSelection(text)}
           />
-          {/* The run bar is at the **bottom** of the source region: the
-              panel's own chrome - the bridge field - hangs over the panel's
-              top-left corner, and a control under it is a control the
-              teacher cannot press. */}
+          {/* The editor bar and the run bar are at the **bottom** of the
+              source region: the panel's own chrome - the bridge field - hangs
+              over the panel's top-left corner, and a control under it is a
+              control the teacher cannot press. */}
+          {editorBar}
           {runBar}
         </>
       ) : hasFile ? (
@@ -1972,6 +2249,9 @@ const PanelSurface = ({
   mirror,
   draft,
   run,
+  copy,
+  onReadLanguageChange,
+  onZoomChange,
   captions,
 }: {
   panel: ExcalidrawPanelElement;
@@ -1989,6 +2269,12 @@ const PanelSurface = ({
   draft?: PanelDraftControls;
   /** the host's controls for the Run control (D-124) */
   run?: PanelRunControls;
+  /** the host's controls for the copy (D-142) */
+  copy?: PanelCopyControls;
+  /** the teacher chose the language the panel reads the file as (D-142) */
+  onReadLanguageChange?: (panelId: string, language: string) => void;
+  /** the teacher zoomed the editor (D-142) */
+  onZoomChange?: (panelId: string, zoom: number) => void;
   /** the host's controls for the panel's captions (D-129) */
   captions?: PanelCaptionControls;
 }) => {
@@ -2005,6 +2291,9 @@ const PanelSurface = ({
         mirror={mirror}
         draft={draft}
         run={run}
+        copy={copy}
+        onReadLanguageChange={onReadLanguageChange}
+        onZoomChange={onZoomChange}
       />
     );
   }
@@ -2120,6 +2409,9 @@ const Panel = ({
   mirror,
   draft,
   run,
+  copy,
+  onReadLanguageChange,
+  onZoomChange,
   captions,
 }: {
   panel: ExcalidrawPanelElement;
@@ -2138,6 +2430,12 @@ const Panel = ({
   draft?: PanelDraftControls;
   /** the host's controls for the Run control (D-124) */
   run?: PanelRunControls;
+  /** the host's controls for the copy (D-142) */
+  copy?: PanelCopyControls;
+  /** the teacher chose the language the panel reads the file as (D-142) */
+  onReadLanguageChange?: (panelId: string, language: string) => void;
+  /** the teacher zoomed the editor (D-142) */
+  onZoomChange?: (panelId: string, zoom: number) => void;
   /** the host's controls for the panel's captions (D-129) */
   captions?: PanelCaptionControls;
 }) => {
@@ -2258,6 +2556,9 @@ const Panel = ({
           mirror={mirror}
           draft={draft}
           run={run}
+          copy={copy}
+          onReadLanguageChange={onReadLanguageChange}
+          onZoomChange={onZoomChange}
           captions={captions}
         />
         {pending ? (
@@ -2311,6 +2612,9 @@ const PanelOverlayImpl = ({
   mirror,
   draft,
   run,
+  copy,
+  onReadLanguageChange,
+  onZoomChange,
   captions,
 }: PanelOverlayProps) => {
   if (panels.length === 0) {
@@ -2339,6 +2643,9 @@ const PanelOverlayImpl = ({
           mirror={mirror}
           draft={draft}
           run={run}
+          copy={copy}
+          onReadLanguageChange={onReadLanguageChange}
+          onZoomChange={onZoomChange}
           captions={captions}
         />
       ))}
@@ -2369,6 +2676,9 @@ const areEqual = (prev: PanelOverlayProps, next: PanelOverlayProps) =>
   prev.screenshot === next.screenshot &&
   prev.draft === next.draft &&
   prev.run === next.run &&
+  prev.copy === next.copy &&
+  prev.onReadLanguageChange === next.onReadLanguageChange &&
+  prev.onZoomChange === next.onZoomChange &&
   prev.captions === next.captions;
 
 export const PanelOverlay = React.memo(PanelOverlayImpl, areEqual);

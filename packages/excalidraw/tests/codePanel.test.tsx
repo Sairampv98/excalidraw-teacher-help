@@ -27,7 +27,10 @@ import {
   codePanelContent,
   emptyCodePanelState,
   readCodePanelState,
+  readPanelDraft,
+  readPanelReadLanguage,
   readPanelView,
+  readPanelZoom,
   withCodePanelState,
   withPanelDraft,
   withPanelView,
@@ -1391,5 +1394,209 @@ describe("the code panel's view", () => {
 
     expect(run).not.toBeNull();
     expect(run.disabled).toBe(true);
+  });
+});
+
+describe("the live editor is a real editor", () => {
+  it("AC-179 the selected text is copied as a code block", async () => {
+    const onCopyAsCodeBlock = vi.fn();
+
+    const panel = codePanelInView(connectedState(), "editor");
+
+    await render(
+      <Excalidraw
+        panelCopy={{
+          onCopyAsCodeBlock,
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    // the panel's own editor, and the panel's own copy control
+    const host = await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="code-panel-draft-editor"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found!;
+    });
+
+    const copy = document.querySelector(
+      '[data-testid="code-panel-copy-code"]',
+    ) as HTMLButtonElement;
+
+    expect(copy).not.toBeNull();
+
+    // the teacher selects the mirrored text ...
+    const view = EditorView.findFromDOM(host as HTMLElement);
+
+    expect(view).not.toBeNull();
+
+    act(() => {
+      view!.dispatch({ selection: { anchor: 0, head: 6 } });
+    });
+
+    // ... and presses the copy control
+    act(() => {
+      fireEvent.click(copy);
+    });
+
+    // the host is told what was copied: the SELECTION, the panel's language
+    // and the file's name - the host owns the code card (D-142)
+    expect(onCopyAsCodeBlock).toHaveBeenCalledTimes(1);
+    expect(onCopyAsCodeBlock).toHaveBeenCalledWith(
+      panel.id,
+      "print(",
+      expect.objectContaining({ language: "python", fileName: "main.py" }),
+    );
+  });
+
+  it("AC-179 the panel reads the file as the language the teacher chose", async () => {
+    const asked: string[] = [];
+
+    registerCodeMirrorLanguage("python", async () => {
+      asked.push("python");
+      return [];
+    });
+
+    registerCodeMirrorLanguage("javascript", async () => {
+      asked.push("javascript");
+      return [];
+    });
+
+    const panel = codePanelInView(connectedState(), "editor");
+
+    // the teacher has a draft of their own (D-123): the language they read
+    // the file as must not touch it
+    const withDraft = {
+      ...panel,
+      panel: withPanelDraft(panel.panel, {
+        text: "print('mine')",
+        language: "python",
+        edited: true,
+      }),
+    } as unknown as ExcalidrawPanelElement;
+
+    await render(<Excalidraw />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(withDraft)]);
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
+      ).not.toBeNull(),
+    );
+
+    // the file is read as the file says it is
+    await waitFor(() => expect(asked).toContain("python"), { timeout: 10000 });
+
+    const picker = document.querySelector(
+      '[data-testid="code-panel-read-language"]',
+    ) as HTMLSelectElement;
+
+    expect(picker).not.toBeNull();
+    expect(picker.value).toBe("python");
+
+    // the teacher chooses another language ...
+    act(() => {
+      fireEvent.change(picker, { target: { value: "javascript" } });
+    });
+
+    // ... and the panel reads the file as THAT language
+    await waitFor(() => expect(asked).toContain("javascript"), {
+      timeout: 10000,
+    });
+
+    // the editor says so too: it is reading the text as that language
+    await waitFor(() =>
+      expect(
+        document
+          .querySelector('[data-testid="code-panel-draft-editor"]')!
+          .getAttribute("data-language"),
+      ).toBe("javascript"),
+    );
+
+    // the choice is the panel's own: it is in the panel's payload ...
+    const element = window.h.elements.find(
+      (candidate) => candidate.id === panel.id,
+    ) as ExcalidrawPanelElement;
+
+    expect(readPanelReadLanguage(element.panel)).toBe("javascript");
+
+    // ... and the teacher's own **draft** is untouched by it (D-123): the
+    // text is still the teacher's, and the panel still says it is the draft
+    expect(readPanelDraft(element.panel)).toEqual({
+      text: "print('mine')",
+      language: "python",
+      edited: true,
+    });
+
+    expect(
+      document
+        .querySelector('[data-testid="code-panel-editor-source"]')!
+        .getAttribute("data-source"),
+    ).toBe("draft");
+
+    // and the file in the editor was never changed: the panel only reads it
+    expect(asked).not.toContain("mermaid");
+  });
+
+  it("AC-179 the editor zooms inside the panel and the canvas zoom stays where it was", async () => {
+    const panel = codePanelInView(connectedState(), "editor");
+
+    await render(<Excalidraw />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    const host = await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="code-panel-draft-editor"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found!;
+    });
+
+    // the editor's own zoom starts where it is
+    expect(host.getAttribute("data-zoom")).toBe("1");
+
+    const canvasZoom = window.h.state.zoom.value;
+
+    // the teacher zooms the editor in
+    const zoomIn = document.querySelector(
+      '[data-testid="code-panel-zoom-in"]',
+    ) as HTMLButtonElement;
+
+    expect(zoomIn).not.toBeNull();
+
+    act(() => {
+      fireEvent.click(zoomIn);
+    });
+
+    // the editor is bigger ...
+    await waitFor(() => expect(host.getAttribute("data-zoom")).toBe("1.25"));
+
+    expect(
+      document.querySelector('[data-testid="code-panel-zoom-level"]')!
+        .textContent,
+    ).toBe("125%");
+
+    // ... and the canvas's zoom did NOT move: the editor's zoom is the
+    // editor's (D-117)
+    expect(window.h.state.zoom.value).toBe(canvasZoom);
+
+    // and the zoom is the panel's own, so it survives the panel itself
+    const element = window.h.elements.find(
+      (candidate) => candidate.id === panel.id,
+    ) as ExcalidrawPanelElement;
+
+    expect(readPanelZoom(element.panel)).toBe(1.25);
   });
 });

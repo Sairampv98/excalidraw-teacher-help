@@ -1002,6 +1002,19 @@ export interface ExcalidrawProps {
   panelRun?: PanelRunControls;
 
   /**
+   * The host app's controls for the code panel's **copy** (D-142).
+   *
+   * The library draws the editor and reports what the teacher selected; the
+   * **host** puts the code on the clipboard and arms the paste, because the
+   * code card is the host's own (the same card the markdown viewer's `Copy
+   * code` brings).
+   *
+   * Without this prop the panel's editor still copies to the clipboard the
+   * way any editor does - it just does not become a code card on the canvas.
+   */
+  panelCopy?: PanelCopyControls;
+
+  /**
    * The host app's controls for a panel's **captions** (D-129).
    *
    * The library asks for the captions of a video; the host fetches them —
@@ -1039,6 +1052,25 @@ export type PanelRunControls = {
   languages?: string[];
   /** the teacher pressed Run */
   onRun?: (panelId: string) => void;
+};
+
+/**
+ * What the host tells the library about a code panel's **copy** (D-142).
+ *
+ * The library reports the text the teacher selected in the panel's editor; the
+ * **host** puts it on the clipboard and arms the paste, so the code arrives on
+ * the canvas as the **same code card** the markdown viewer's `Copy code`
+ * brings (D-142).
+ *
+ * The language rides along, because the card is highlighted with it.
+ */
+export type PanelCopyControls = {
+  /** the teacher copied the code - the selection, or the whole text */
+  onCopyAsCodeBlock?: (
+    panelId: string,
+    code: string,
+    options: { fileName?: string; language?: string },
+  ) => void;
 };
 
 /**

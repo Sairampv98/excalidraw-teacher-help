@@ -1,9 +1,8 @@
 ---
 id: wave6e-live-editor-is-real
 paths: packages/excalidraw,excalidraw-app,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 6e — the live editor is a real editor
@@ -93,4 +92,3 @@ Report what you saw.
 
 **The teeth check** (the kit's rule, and the only proof that matters): revert the fix and the
 AC-178 tests must FAIL. Restore the fix and they must pass again. Report both failures verbatim.
-

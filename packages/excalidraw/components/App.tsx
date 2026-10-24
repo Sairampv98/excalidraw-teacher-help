@@ -445,7 +445,9 @@ import { panelKeepsAspectRatio } from "../scene/panelContent";
 import {
   captionBindingUpdate,
   panelPlaybackUpdate,
+  panelReadLanguageUpdate,
   panelViewUpdate,
+  panelZoomUpdate,
   readCaptionBinding,
   readPanelPlayback,
   readPanelView,
@@ -2578,6 +2580,13 @@ class App extends React.Component<AppProps, AppState> {
                             // request (D-123, D-124)
                             draft={this.props.panelDraft}
                             run={this.props.panelRun}
+                            // the host owns the copy: the code card is the
+                            // host's own (D-142)
+                            copy={this.props.panelCopy}
+                            // the panel's own reading language and the editor's
+                            // own zoom (D-142)
+                            onReadLanguageChange={this.setPanelReadLanguage}
+                            onZoomChange={this.setPanelZoom}
                             // the host asks for the captions and writes them
                             // into the panel's payload (D-129)
                             captions={this.props.panelCaptions}
@@ -3805,6 +3814,53 @@ class App extends React.Component<AppProps, AppState> {
     const next = readPanelView(element.panel) === "live" ? "editor" : "live";
 
     this.scene.mutateElement(element, panelViewUpdate(element.panel, next));
+  };
+
+  /**
+   * The language the panel **reads** the file as (D-142).
+   *
+   * The teacher's own choice, and it is the panel's own property: it is
+   * persisted in the panel's payload, so it survives the bridge's own writes -
+   * the bridge rewrites that payload on every keystroke in the teacher's
+   * editor.
+   *
+   * It never changes the file in the editor: it is the panel's own reading of
+   * the text, and nothing is sent to the extension.
+   *
+   * The write goes through `mutateElement`, the same path the view's uses, so
+   * it is undoable like every other change.
+   */
+  private setPanelReadLanguage = (panelId: string, language: string) => {
+    const element = this.scene.getNonDeletedElement(panelId);
+
+    if (!element || !isPanelElement(element)) {
+      return;
+    }
+
+    this.scene.mutateElement(
+      element,
+      panelReadLanguageUpdate(element.panel, language),
+    );
+  };
+
+  /**
+   * The **editor's** own zoom (D-142).
+   *
+   * It is the zoom inside the panel's editor, and it never moves the canvas's
+   * zoom (D-117): the two are separate scales, and only this one is written
+   * here.
+   *
+   * The write goes through `mutateElement`, the same path the view's uses, so
+   * it is undoable like every other change.
+   */
+  private setPanelZoom = (panelId: string, zoom: number) => {
+    const element = this.scene.getNonDeletedElement(panelId);
+
+    if (!element || !isPanelElement(element)) {
+      return;
+    }
+
+    this.scene.mutateElement(element, panelZoomUpdate(element.panel, zoom));
   };
 
   /**
