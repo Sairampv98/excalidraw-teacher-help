@@ -213,25 +213,50 @@ body.excalidraw-cursor-resize * {
 
   // The YouTube panel: an iframe of YouTube's own player, and the line that
   // says which tier of the captions answered (D-128, D-129).
+  //
+  // The panel IS the video: it is 16:9, which is the aspect YouTube's own
+  // player renders at. So the iframe FILLS the panel (D-131), and the caption
+  // note - an annotation about the video, not a second thing beside it -
+  // FLOATS over the video's top edge (D-131, D-132).
+  //
+  // An annotation never takes the picture's space.
   &__panel-youtube {
-    display: flex;
-    flex-direction: column;
+    position: relative;
     width: 100%;
     height: 100%;
+    overflow: hidden;
   }
 
   &__panel-youtube-frame {
-    flex: 1 1 auto;
-    min-height: 0;
+    // the video IS the panel: the frame is the panel's box, so the player
+    // renders at its own 16:9 and nothing stretches it (D-131)
+    position: absolute;
+    inset: 0;
     width: 100%;
+    height: 100%;
     border: 0;
   }
 
   &__panel-youtube-note {
-    flex: 0 0 auto;
+    // over the video, not under it: the note takes no row of the panel
+    // (D-131)
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    // ONE line: the reason is a sentence and five lines of it would cover a
+    // third of the video. What does not fit is an ellipsis, and the whole
+    // reason is the note's tooltip (D-132)
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    // The note KEEPS its pointer events, on purpose: `pointer-events: none`
+    // would let every click reach the video, but it would also make the
+    // tooltip unreachable, and the tooltip is where the whole reason lives.
+    // The note is one thin strip at the top edge of the picture, and the
+    // player's own controls - the play button in the middle - are untouched.
     padding: calc(2px / var(--panel-scale)) calc(4px / var(--panel-scale));
     background: var(--color-surface);
-    border-top: 1px solid var(--color-border);
     color: var(--color-text);
     font-size: calc(12px / var(--panel-scale));
   }

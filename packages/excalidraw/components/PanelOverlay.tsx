@@ -1882,6 +1882,16 @@ const MediaPanelSurface = ({
  * leaves the panel, and the iframe's focus is blurred.
  *
  * A foreign document may borrow the focus, never keep it.
+ *
+ * ## The layout (D-131, D-132)
+ *
+ * The panel is the **video**: it is 480x270, which is 16:9, and that is the
+ * aspect YouTube's own player renders at. So the iframe **fills** the panel,
+ * and the caption note — an **annotation** about the video, not a second thing
+ * beside it — **floats over** the video's top edge as one line, with the whole
+ * reason in its tooltip.
+ *
+ * An annotation never takes the picture's space.
  */
 const YoutubePanelSurface = ({
   panel,
@@ -2006,6 +2016,9 @@ const YoutubePanelSurface = ({
           className="excalidraw__panel-youtube-note"
           data-testid="panel-youtube-captions"
           data-caption-tier={tier}
+          // the WHOLE reason is the tooltip (D-132): the line says what fits
+          // and the tooltip says it all
+          title={note}
         >
           {note}
         </div>

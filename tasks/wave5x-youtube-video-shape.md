@@ -1,9 +1,8 @@
 ---
 id: wave5x-youtube-video-shape
 paths: packages/excalidraw,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 5x — the YouTube video must keep its 16:9, and the caption note must not squeeze it
@@ -91,4 +90,3 @@ report the numbers.
 **The teeth check** (the kit's rule, and it is the only proof that matters): revert the fix and
 the AC-171 tests must **fail** with the squashed numbers (the iframe at 480 x 140, the note
 taking the panel's row). Restore the fix and they must pass again. Report both failures verbatim.
-
