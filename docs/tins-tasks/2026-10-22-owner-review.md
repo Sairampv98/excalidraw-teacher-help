@@ -123,6 +123,23 @@ owner's to set, once, in the settings UI (Ctrl+, → `excalidraw-bridge.token`).
 | 5.4 the video's camera | **5u** | the camera moved to the **panel**, so every kind has one, selected or not | **24×24 px** on the code panel and on the video panel, present with **0 elements selected** |
 | 3.2c the runnable editor | **5w** (`c4dbc00`) | the panel's editor is a **real editor**: the teacher's own **draft** (a mirror never overwrites an edited draft), a **Run** control that writes `excalidraw-bridge-snippet-<id>.<ext>` into the workspace and runs it, a 10 s timeout, a 20,000-char output bound, and it works with **no bridge** | `print('hello from the panel')` → output `hello from the panel`, exit 0; with no bridge the editor is still typeable (417×800 px) and says *"Running needs the Excalidraw Bridge."* |
 | 4.7 the small video that would not play | **5r** (`7377ce9`) | the message names the **file and its codec** (not the container), and a real **fall-back** runs: the host is asked for a **fresh** URL, the element is replaced, the video plays again | *"This browser could not play this file. The usual cause is a codec this browser does not decode..."*; the panel says *"The fallback was tried as well, and it failed too."*; an error from a **replaced** source is ignored |
+| the YouTube video in the canvas | **5s** (`585eb42`) | a YouTube video is a panel that holds a **video id** and nothing else, drawn as an **iframe of YouTube's own player**; the captions come in **three tiers** and the tier that answered travels with the answer | proved against the **installed** `.vsix` in a real VS Code: `src=https://www.youtube.com/embed/dQw4w9WgXcQ` (built from the id), the caption answer came back over the real bridge as tier three with the remedy, and the iframe **borrowed the focus and gave it back** |
+| the squashed YouTube player | **5x** (`c74ea40`) | the caption note was eating **130 of the panel's 270 units**, so the player was **stretched to 3.45:1**; the video now **fills** the panel and the note **overlays** its top edge as one line, with the whole reason as the tooltip | the iframe is **480×270** (aspect **1.778** = 16:9) and equals the panel's rect; the note is one **38-unit** strip; with the fix reverted the iframe measures **480×140** again |
+
+**Measured about YouTube on this machine** (2026-10-24): `youtube.com` answers **200**; the public
+`timedtext` endpoint answers **200 with an empty body on 8 of 8 probes** (4 video ids, with and
+without `kind=asr`), and the Data API v3 **without a key** answers **403**. So tier two is dead
+today and the panel will land on tier three for nearly every video unless
+`excalidraw-bridge.youtubeApiKey` is set - and the panel says exactly that, with the setting name
+in the sentence.
+
+**Found in the same live pass, not yet fixed (wave 5y):** a code panel can **claim** a connection
+that is not there, or hide one that is. The connection line lives in the panel's payload, and the
+payload is saved with the document, so a document saved while the bridge was connected comes back
+saying *"Connected to Visual Studio Code (my-todo-app, bridge 0.1.0)."* on a machine where nothing
+is connected - and a panel created *after* the connection says *"Not connected to the Excalidraw
+Bridge."* while the bridge box beside it says *"Connected to Visual Studio Code."* Both were
+measured live.
 
 **Not done, on purpose:** the **lock is not drawn on a code panel** - a code panel's content
 lives in the editor's process, so there is no picture of it to freeze. Freezing the
@@ -146,3 +163,5 @@ later wave rather than shipped half-working.
 | 5u | the screenshot must be **visible** and work on every panel | `tasks/wave5u-screenshot-visible.md` |
 | 5v | the chrome and the shell - the things the owner could not reach | `tasks/wave5v-chrome-and-shell.md` |
 | 5w | the code panel becomes a real editor you can run | `tasks/wave5w-runnable-editor.md` |
+| 5x | the YouTube video keeps its **whole** panel, and the caption note overlays it | `docs/tins-tasks/wave5x-youtube-video-shape-brief.md` |
+| 5y | a panel never shows a **stale** connection - the panel tells the truth | `docs/tins-tasks/wave5y-stale-connection-brief.md` |
