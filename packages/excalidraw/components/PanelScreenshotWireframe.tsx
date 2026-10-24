@@ -5,6 +5,7 @@ import { sceneCoordsToViewportCoords } from "@excalidraw/common";
 import type { ExcalidrawPanelElement } from "@excalidraw/element/types";
 
 import {
+  WHOLE_PICTURE,
   getAnyPendingScreenshot,
   movePendingScreenshot,
   subscribePendingScreenshots,
@@ -30,6 +31,17 @@ import type { PanelCamera } from "../scene/panelContent";
  *
  * The wireframe is chrome: it is sized in **screen** pixels, so it stays
  * readable at any zoom (D-92), and it wears the chrome's own style.
+ *
+ * ## When it is there (D-140)
+ *
+ * The wireframe is the **last** step of the flow: the teacher chooses the
+ * target after the crop and after the choice, so the wireframe stands only once
+ * they have chosen. It is also **above the panels**: it is a guide on the
+ * canvas, and a guide that shares a z-plane with the panels competes with them
+ * instead of standing over them.
+ *
+ * And the flow that writes **text** asks where the **text** goes: the
+ * wireframe says so, and the text lands where the teacher pointed.
  */
 export const PanelScreenshotWireframe = ({
   panels,
@@ -71,12 +83,30 @@ export const PanelScreenshotWireframe = ({
     return null;
   }
 
+  // the target is chosen **last** (D-140): before the teacher has chosen,
+  // there is no target to point at
+  if ((pending.stage ?? "crop") !== "place") {
+    return null;
+  }
+
+  /**
+   * The **cropped** part of the picture is what lands, so the wireframe is
+   * that part's size and stands where that part stands (D-116, D-139).
+   */
+  const crop = pending.crop ?? WHOLE_PICTURE;
+
   const { x, y } = sceneCoordsToViewportCoords(
-    { sceneX: pending.x, sceneY: pending.y },
+    {
+      sceneX: pending.x + pending.canvasWidth * crop.x,
+      sceneY: pending.y + pending.canvasHeight * crop.y,
+    },
     camera,
   );
 
   const zoom = camera.zoom.value || 1;
+
+  const width = pending.canvasWidth * crop.width * zoom;
+  const height = pending.canvasHeight * crop.height * zoom;
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     // the wireframe is a control: it takes the pointer, unlike the canvas
@@ -90,7 +120,9 @@ export const PanelScreenshotWireframe = ({
       moved: false,
     };
 
-    event.currentTarget.setPointerCapture(event.pointerId);
+    // the capture keeps the drag alive when the pointer leaves the wireframe -
+    // and it is optional, because a browser without it still drags
+    event.currentTarget.setPointerCapture?.(event.pointerId);
   };
 
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -133,8 +165,18 @@ export const PanelScreenshotWireframe = ({
       return;
     }
 
-    onPlace?.(pending.panelId, { x: pending.x, y: pending.y });
+    // the wireframe stands where the **cropped part** of the picture lands, so
+    // that is the place it reports (D-116, D-139)
+    onPlace?.(pending.panelId, {
+      x: pending.x + pending.canvasWidth * crop.x,
+      y: pending.y + pending.canvasHeight * crop.y,
+    });
   };
+
+  const label =
+    pending.placing === "text"
+      ? t("labels.crop.wireframeText")
+      : t("labels.crop.wireframePicture");
 
   return (
     <div
@@ -143,7 +185,7 @@ export const PanelScreenshotWireframe = ({
       data-panel-id={pending.panelId}
       role="button"
       tabIndex={0}
-      aria-label={t("labels.panel.screenshot.wireframe")}
+      aria-label={label}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -151,14 +193,14 @@ export const PanelScreenshotWireframe = ({
         position: "absolute",
         left: x - camera.offsetLeft,
         top: y - camera.offsetTop,
-        width: pending.canvasWidth * zoom,
-        height: pending.canvasHeight * zoom,
+        width,
+        height,
         pointerEvents: "auto",
         cursor: "move",
       }}
     >
       <span className="excalidraw__panel-screenshot-wireframe-label">
-        {t("labels.panel.screenshot.wireframe")}
+        {label}
       </span>
     </div>
   );

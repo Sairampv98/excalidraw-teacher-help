@@ -12,6 +12,7 @@ import {
 
 import { t } from "../i18n";
 
+import type { ExcalidrawPage } from "../types";
 import type { PanelScreenshotCrop } from "../scene/panelScreenshot";
 
 /**
@@ -44,15 +45,37 @@ import type { PanelScreenshotCrop } from "../scene/panelScreenshot";
  * The preview is a **picture**, not a control: only the crop handles take the
  * pointer, so the picture in front never swallows the click of a choice that
  * lies behind it.
+ *
+ * ## The z-plane (D-139, D-140)
+ *
+ * The focus state is **two** planes. The dimming steps the **canvas** back, and
+ * the picture comes **forward**: over the interactive canvas and over the
+ * panels. The owner saw the crop handles and could not move them - "i can see
+ * the handles to crop the image but not do anything to it" - because the whole
+ * focus state was drawn *under* the interactive canvas, which took the pointer.
+ * The dimming stays **under** the panels on purpose: a panel dims its own
+ * content, and its own chrome - the three choices - stays bright.
+ *
+ * ## The steps (D-140)
+ *
+ * The crop is the **first** step and the target is the **last** one. The
+ * picture in front is there for the whole flow, so the teacher may crop it
+ * again at any point - which is what the owner's own flows describe.
  */
 export const PanelScreenshotFocus = ({
   panels,
   viewport,
+  pages,
+  onPageChoice,
 }: {
   /** the panels on the canvas: a focus whose panel is gone goes with it */
   panels: readonly ExcalidrawPanelElement[];
   /** the viewport the picture is presented in */
   viewport: { width: number; height: number };
+  /** the document's pages: the page selector ribbon offers them (D-140) */
+  pages: readonly ExcalidrawPage[];
+  /** the teacher picked a page in the ribbon (D-140) */
+  onPageChoice?: (panelId: string, pageId: string | null) => void;
 }) => {
   const pending = useSyncExternalStore(
     subscribePendingScreenshots,
@@ -86,6 +109,7 @@ export const PanelScreenshotFocus = ({
   }
 
   const crop = pending.crop ?? WHOLE_PICTURE;
+  const stage = pending.stage ?? "crop";
 
   /**
    * The picture's size on the screen.
@@ -93,17 +117,44 @@ export const PanelScreenshotFocus = ({
    * The picture keeps its own proportions and fits the viewport, so the teacher
    * sees the picture as it is - big enough to crop, small enough to leave
    * room around it.
+   *
+   * In the **last** step the picture steps back into the corner: the canvas is
+   * the teacher's now - the wireframe is standing on it, and the picture must
+   * not stand on top of it (D-140).
    */
   const pictureWidth = pending.width || 1;
   const pictureHeight = pending.height || 1;
 
-  const fit = Math.min(
-    (viewport.width * 0.9) / pictureWidth,
-    (viewport.height * 0.8) / pictureHeight,
-  );
+  const fit =
+    stage === "place"
+      ? Math.min(
+          (viewport.width * 0.28) / pictureWidth,
+          (viewport.height * 0.28) / pictureHeight,
+        )
+      : Math.min(
+          (viewport.width * 0.9) / pictureWidth,
+          (viewport.height * 0.8) / pictureHeight,
+        );
 
   const displayWidth = pictureWidth * fit;
   const displayHeight = pictureHeight * fit;
+
+  /** where the picture sits: in the middle, or in the corner (D-140) */
+  const inCorner = stage === "place";
+  const pictureLeft = inCorner ? 16 : (viewport.width - displayWidth) / 2;
+  const pictureTop = inCorner ? 16 : (viewport.height - displayHeight) / 2;
+
+  /**
+   * The cropped part of the picture, in the picture's own screen box.
+   *
+   * The preview shows **only** that part (D-139): a crop that is drawn over
+   * the whole picture is a promise the panel does not keep - the teacher
+   * cannot see what they are about to place.
+   */
+  const cropLeft = crop.x * displayWidth;
+  const cropTop = crop.y * displayHeight;
+  const cropWidth = crop.width * displayWidth;
+  const cropHeight = crop.height * displayHeight;
 
   const onPointerDown = (
     event: React.PointerEvent<HTMLDivElement>,
@@ -123,7 +174,9 @@ export const PanelScreenshotFocus = ({
       displayHeight,
     };
 
-    event.currentTarget.setPointerCapture(event.pointerId);
+    // the capture keeps the drag alive when the pointer leaves the handle -
+    // and it is optional, because a browser without it still drags (D-139)
+    event.currentTarget.setPointerCapture?.(event.pointerId);
   };
 
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -148,8 +201,8 @@ export const PanelScreenshotFocus = ({
   const onPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
     dragRef.current = null;
 
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
     }
   };
 
@@ -191,28 +244,46 @@ export const PanelScreenshotFocus = ({
         data-testid="panel-screenshot-focus-preview"
         style={{
           position: "absolute",
-          left: "50%",
-          top: "50%",
-          transform: "translate(-50%, -50%)",
+          left: pictureLeft,
+          top: pictureTop,
           width: displayWidth,
           height: displayHeight,
           // the picture is a picture: only the crop handles take the pointer
           pointerEvents: "none",
         }}
       >
-        <img
-          src={pending.dataURL}
-          alt=""
-          data-testid="panel-screenshot-focus-image"
-          draggable={false}
+        {/* the **cropped part** of the picture - and only that (D-139) */}
+        <div
+          className="excalidraw__panel-screenshot-focus-cropped"
+          data-testid="panel-screenshot-focus-cropped"
           style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "contain",
-            display: "block",
-            pointerEvents: "none",
+            position: "absolute",
+            left: cropLeft,
+            top: cropTop,
+            width: cropWidth,
+            height: cropHeight,
+            overflow: "hidden",
           }}
-        />
+        >
+          <img
+            src={pending.dataURL}
+            alt=""
+            data-testid="panel-screenshot-focus-image"
+            draggable={false}
+            style={{
+              position: "absolute",
+              // the picture is drawn whole, and the crop window looks at the
+              // part of it the teacher kept
+              left: -cropLeft,
+              top: -cropTop,
+              width: displayWidth,
+              height: displayHeight,
+              objectFit: "contain",
+              display: "block",
+              pointerEvents: "none",
+            }}
+          />
+        </div>
 
         {/* the crop: the part of the picture that will be placed */}
         <div
@@ -220,10 +291,10 @@ export const PanelScreenshotFocus = ({
           data-testid="panel-screenshot-crop"
           style={{
             position: "absolute",
-            left: crop.x * displayWidth,
-            top: crop.y * displayHeight,
-            width: crop.width * displayWidth,
-            height: crop.height * displayHeight,
+            left: cropLeft,
+            top: cropTop,
+            width: cropWidth,
+            height: cropHeight,
             border: "1px solid var(--color-primary)",
             boxSizing: "border-box",
             pointerEvents: "none",
@@ -236,7 +307,7 @@ export const PanelScreenshotFocus = ({
               data-testid={`panel-screenshot-crop-handle-${handle}`}
               role="button"
               tabIndex={-1}
-              aria-label={t("labels.panel.screenshot.cropHandle")}
+              aria-label={t("labels.crop.handle")}
               onPointerDown={(event) => onPointerDown(event, handle)}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
@@ -265,16 +336,67 @@ export const PanelScreenshotFocus = ({
           onClick={() => revertPendingScreenshotCrop(pending.panelId)}
           style={{
             position: "absolute",
-            left: "50%",
-            top: "50%",
-            transform: "translate(-50%, 0)",
-            marginTop: displayHeight / 2 + 16,
+            left: pictureLeft + displayWidth / 2,
+            top: pictureTop + displayHeight + 16,
+            transform: "translateX(-50%)",
+            zIndex: "var(--zIndex-panelFocus)",
             pointerEvents: "auto",
             cursor: "pointer",
           }}
         >
-          {t("labels.panel.screenshot.revertCrop")}
+          {t("labels.crop.revert")}
         </button>
+      ) : null}
+
+      {stage === "page" ? (
+        /* The **page selector ribbon** (D-140): the third flow goes through it
+         * before the picture is placed. */
+        <div
+          className="excalidraw__panel-screenshot-choices"
+          data-testid="panel-screenshot-pages"
+          role="group"
+          aria-label={t("labels.crop.pageRibbon")}
+          style={{
+            position: "absolute",
+            left: pictureLeft + displayWidth / 2,
+            top: pictureTop + displayHeight + 16,
+            transform: "translateX(-50%)",
+            zIndex: "var(--zIndex-panelFocus)",
+            display: "flex",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 4,
+            padding: 6,
+            pointerEvents: "auto",
+            // the ribbon is **not** on a panel, so it carries the chrome's scale
+            // itself: the sizes are the screen sizes (D-92)
+            ["--panel-scale" as string]: 1,
+          }}
+        >
+          {pages.map((page) => (
+            <button
+              key={page.id}
+              type="button"
+              className="excalidraw__panel-screenshot-choice"
+              data-testid={`panel-screenshot-page-${page.id}`}
+              data-panel-id={pending.panelId}
+              onClick={() => onPageChoice?.(pending.panelId, page.id)}
+              style={{ flexShrink: 0 }}
+            >
+              {page.name}
+            </button>
+          ))}
+          <button
+            type="button"
+            className="excalidraw__panel-screenshot-choice"
+            data-testid="panel-screenshot-page-new"
+            data-panel-id={pending.panelId}
+            onClick={() => onPageChoice?.(pending.panelId, null)}
+            style={{ flexShrink: 0 }}
+          >
+            {t("labels.crop.newPage")}
+          </button>
+        </div>
       ) : null}
     </div>
   );
@@ -298,8 +420,8 @@ const HANDLE_SIZE = 10;
 /**
  * Where a handle sits on the crop.
  *
- * Every handle is placed on the edge it belongs to: a corner handle sits on
- * the corner, an edge handle sits in the middle of its edge. The handle's own
+ * Every handle is placed on the edge it belongs to: a corner handle sits on the
+ * corner, an edge handle sits in the middle of its edge. The handle's own
  * size is subtracted from the middle of an edge, so the handle is **on** the
  * edge and not half outside it.
  */

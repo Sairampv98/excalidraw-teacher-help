@@ -1147,6 +1147,13 @@ export type PanelScreenshotControls = {
   onCapture?: (panelId: string) => void;
   /** the teacher made a choice in the strip */
   onChoice?: (panelId: string, choice: PanelScreenshotChoice) => void;
+  /**
+   * The teacher picked a page in the **page selector ribbon** (D-140).
+   *
+   * `pageId` is `null` when the teacher asked for a **new** page: the page is
+   * made when the picture is placed, in the same scene write (D-104).
+   */
+  onPageChoice?: (panelId: string, pageId: string | null) => void;
   /** the teacher clicked the wireframe: the picture lands here */
   onPlace?: (panelId: string, at: { x: number; y: number }) => void;
 };
