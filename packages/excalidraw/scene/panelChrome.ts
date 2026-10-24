@@ -129,6 +129,16 @@ export const PANEL_CHROME = {
   ocrButtonWidth: 92,
   ocrPickerHeight: 24,
   ocrPickerWidth: 108,
+  /**
+   * The **loading state** of a read, and the **cancel** beside it (D-138).
+   *
+   * A read that takes time says so while it takes it, and the teacher can
+   * stop it. The spinner is the sign that the read is running, and the cancel
+   * is the way out of a read that is taking too long.
+   */
+  ocrCancelButtonHeight: 24,
+  ocrCancelButtonWidth: 68,
+  ocrSpinnerSize: 12,
   /** one entry of the picker's list: the engine, its speed and its colour */
   ocrPickerRowHeight: 22,
   ocrPickerFontSize: 11,
@@ -254,6 +264,10 @@ export const panelChrome = (scale: number) => {
     ocrPickerRowHeight: px(PANEL_CHROME.ocrPickerRowHeight),
     ocrPickerFontSize: px(PANEL_CHROME.ocrPickerFontSize),
     ocrPickerDotSize: px(PANEL_CHROME.ocrPickerDotSize),
+    /** the loading state of a read and the cancel beside it (D-138) */
+    ocrCancelButtonHeight: px(PANEL_CHROME.ocrCancelButtonHeight),
+    ocrCancelButtonWidth: px(PANEL_CHROME.ocrCancelButtonWidth),
+    ocrSpinnerSize: px(PANEL_CHROME.ocrSpinnerSize),
   };
 };
 
