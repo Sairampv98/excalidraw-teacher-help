@@ -1,3 +1,23 @@
+
+## One note after wave 6a (read this first)
+
+Wave 6a has since landed: the panel's actions are no longer inside the picture. The camera, the
+**Read the text** button with its engine picker, and the bridge box now live in the panel's own
+fieldset in the **properties panel** (packages/excalidraw/components/PanelActions.tsx, drawn by
+packages/excalidraw/actions/actionProperties.tsx). The panel's overlay keeps only the view toggle
+and the lock.
+
+So when this wave touches "the control", it means **the control in the properties panel** -
+packages/excalidraw/components/PanelActions.tsx - and not PanelChrome.tsx. The chrome is a thin
+outline with the lock. Every test id still works wherever the control lives:
+panel-screenshot-button, panel-ocr-button, panel-ocr-engine-picker, panel-ocr-engine-button,
+panel-ocr-engine-list, panel-ocr-engine, panel-ocr-engine-dot, panel-ocr-message,
+panel-bridge, panel-bridge-token, panel-bridge-paste, panel-bridge-connect,
+panel-bridge-state.
+
+One behaviour of the app to know: the properties panel **collapses into an edge pill** about three
+seconds after it opens, so a click on it must land while it is open.
+
 # Wave 6c — the crop really crops, and the placement flows are in the owner's order
 
 ## Why this wave exists
@@ -43,7 +63,7 @@ So four fixes:
 again; do not change them.
 
 Add **two** acceptance rows to the section **"### Wave 6c — the crop really crops, and the placement
-flows are in the owner's order"** in `SPEC.md`, using the reserved ids **AC-176** and **AC-178**:
+flows are in the owner's order"** in `SPEC.md`, using the reserved ids **AC-175** and **AC-176**:
 
 | Row | The acceptance | Check | Detail |
 | --- | --- | --- | --- |
@@ -62,7 +82,7 @@ names, which must themselves start with the row id.
   state, D-116).
 - `excalidraw-app/` - the host's side: taking the picture, putting it on the canvas, and the **page
   selector ribbon** for the third flow.
-- `packages/excalidraw/tests/panelScreenshotFocus.test.tsx` - the AC-176 and AC-178 tests.
+- `packages/excalidraw/tests/panelScreenshotFocus.test.tsx` - the AC-175 and AC-176 tests.
 
 ## The constraints
 
@@ -98,5 +118,5 @@ Do NOT run `yarn test:app` bare: it is `vitest` in WATCH mode and never exits. U
 Report what you saw.
 
 **The teeth check** (the kit's rule, and the only proof that matters): revert the fix and the
-AC-176 and AC-178 tests must FAIL. Restore the fix and they must pass again. Report both failures
+AC-175 and AC-176 tests must FAIL. Restore the fix and they must pass again. Report both failures
 verbatim.

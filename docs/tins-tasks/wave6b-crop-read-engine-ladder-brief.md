@@ -1,3 +1,23 @@
+
+## One note after wave 6a (read this first)
+
+Wave 6a has since landed: the panel's actions are no longer inside the picture. The camera, the
+**Read the text** button with its engine picker, and the bridge box now live in the panel's own
+fieldset in the **properties panel** (packages/excalidraw/components/PanelActions.tsx, drawn by
+packages/excalidraw/actions/actionProperties.tsx). The panel's overlay keeps only the view toggle
+and the lock.
+
+So when this wave touches "the control", it means **the control in the properties panel** -
+packages/excalidraw/components/PanelActions.tsx - and not PanelChrome.tsx. The chrome is a thin
+outline with the lock. Every test id still works wherever the control lives:
+panel-screenshot-button, panel-ocr-button, panel-ocr-engine-picker, panel-ocr-engine-button,
+panel-ocr-engine-list, panel-ocr-engine, panel-ocr-engine-dot, panel-ocr-message,
+panel-bridge, panel-bridge-token, panel-bridge-paste, panel-bridge-connect,
+panel-bridge-state.
+
+One behaviour of the app to know: the properties panel **collapses into an edge pill** about three
+seconds after it opens, so a click on it must land while it is open.
+
 # Wave 6b — one crop-and-read action, the engine ladder, and a loading state
 
 ## Why this wave exists
@@ -32,15 +52,15 @@ Three things, and they belong together:
 again; do not change them.
 
 Add **one** acceptance row to the section **"### Wave 6b — one crop-and-read action, and the engine
-ladder"** in `SPEC.md`, using the reserved id **AC-175**:
+ladder"** in `SPEC.md`, using the reserved id **AC-174**:
 
 | Row | The acceptance | Check | Detail |
 | --- | --- | --- | --- |
 
 The shape is `| AC-n | <label> | \`<check file>\` | <detail> |` and the detail must name the test
 names, which must themselves start with the row id - for example:
-`Tests: \`AC-175 the read uses the cropped region\`, \`AC-175 the engine ladder runs indra with the
-bridge, tesseract without it, and paddle only as a last resort\`, \`AC-175 the answer says which
+`Tests: \`AC-174 the read uses the cropped region\`, \`AC-174 the engine ladder runs indra with the
+bridge, tesseract without it, and paddle only as a last resort\`, \`AC-174 the answer says which
 engine ran and why the one before it did not\`.`
 
 ## The files to change
@@ -55,7 +75,7 @@ engine ran and why the one before it did not\`.`
   **cancel**.
 - `packages/excalidraw/locales/en.json` - the new labels, in a **new group called `ocrLadder`**
   inside `labels` - do not add keys to the `panel` group, another wave is editing it.
-- `excalidraw-app/tests/ocrBridge.test.tsx` - the AC-175 tests.
+- `excalidraw-app/tests/ocrBridge.test.tsx` - the AC-174 tests.
 
 ## The constraints
 
@@ -90,4 +110,4 @@ Do NOT run `yarn test:app` bare: it is `vitest` in WATCH mode and never exits. U
 Report the times you measured.
 
 **The teeth check** (the kit's rule, and the only proof that matters): revert the fix and the
-AC-175 tests must FAIL. Restore the fix and they must pass again. Report both failures verbatim.
+AC-174 tests must FAIL. Restore the fix and they must pass again. Report both failures verbatim.
