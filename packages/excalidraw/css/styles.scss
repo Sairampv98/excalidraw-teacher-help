@@ -13,10 +13,20 @@
   --zIndex-svgLayer: 3;
   --zIndex-wysiwyg: 3;
   --zIndex-canvasButtons: 3;
-  // the **focus state** of a screenshot (D-116): the picture comes forward over
-  // the canvas, and the panel's own chrome - the camera and the three choices
-  // - stays above it, so the teacher can still act on the picture it shows
-  --zIndex-panelFocus: 2;
+  // the **dimming** of the canvas behind a screenshot in focus (D-116): it is
+  // BELOW the panels on purpose - a panel dims its own content (see
+  // `__panel-focus-scrim`) and its own chrome - the three choices - stays
+  // bright, so the teacher can still act on the picture in front (D-140)
+  --zIndex-panelFocusScrim: 2;
+  // the **focus state** of a screenshot (D-116, D-140): the picture comes
+  // forward **over the panels** and over the interactive canvas. The owner
+  // called the clash out - the panels were in the same z-plane as the popup -
+  // and the crop handles were under the interactive canvas, so they were
+  // visible and dead (D-139)
+  --zIndex-panelFocus: 8;
+  // the **wireframe** that says where the picture goes (D-140): it is a guide
+  // on the canvas, so it is above the panels and above the focus state
+  --zIndex-screenshotWireframe: 9;
   --zIndex-layerUI: 4;
   --zIndex-eyeDropperBackdrop: 5;
   --zIndex-eyeDropperPreview: 6;
@@ -625,13 +635,29 @@ body.excalidraw-cursor-resize * {
     // background: without a z-index of its own the wireframe is behind it, and
     // a wireframe nobody can see is a wireframe nobody can drag or click
     // (D-104).
-    z-index: var(--zIndex-panels);
+    //
+    // It is **above the panels** too (D-140): the wireframe is a guide on the
+    // canvas, and a guide that shares a z-plane with the panels competes with
+    // them instead of standing over them.
+    z-index: var(--zIndex-screenshotWireframe);
   }
 
-  // The **focus state** of a screenshot (D-116): the dimming and the picture
-  // in front of the canvas. The panel's own chrome stays above them, so the
-  // three choices are still the teacher's to press.
-  &__panel-screenshot-focus {
+  // The **focus state** of a screenshot (D-116, D-140).
+  //
+  // It is **two** planes: the dimming steps the **canvas** back, and the
+  // picture comes **forward** - over the panels, which is where the owner saw
+  // the clash (D-140).
+  //
+  // The root itself is not a z-plane of its own: the dimming has to stay
+  // **under** the panels (a panel dims its own content, and its chrome - the
+  // three choices - stays bright), while the picture has to be **over** them.
+  &__panel-screenshot-focus-scrim {
+    z-index: var(--zIndex-panelFocusScrim);
+  }
+
+  // The picture in front, with the crop on it: it is above the panels and above
+  // the interactive canvas, so the crop handles are live (D-139).
+  &__panel-screenshot-focus-preview {
     z-index: var(--zIndex-panelFocus);
   }
 

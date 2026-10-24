@@ -17,6 +17,7 @@ import {
   clearAllPendingScreenshots,
   Excalidraw,
   setPendingScreenshot,
+  setPendingScreenshotStage,
 } from "@excalidraw/excalidraw";
 import { API } from "@excalidraw/excalidraw/tests/helpers/api";
 import { act, render, waitFor } from "@excalidraw/excalidraw/tests/test-utils";
@@ -112,6 +113,12 @@ describe("placing a screenshot", () => {
       });
     });
 
+    // the target is chosen **last** (D-140): the wireframe stands once the
+    // teacher has chosen what the picture is
+    act(() => {
+      setPendingScreenshotStage(element.id, "place");
+    });
+
     await waitFor(() =>
       expect(
         document.querySelector('[data-testid="panel-screenshot-wireframe"]'),
@@ -158,8 +165,19 @@ describe("placing a screenshot", () => {
       });
     });
 
+    // the third flow goes through the **page selector ribbon** first (D-140):
+    // the teacher says which page, and the target comes after that
     await act(async () => {
       await result.current.choose("panel-1", "new-page");
+    });
+
+    await act(async () => {
+      result.current.choosePage("panel-1", null);
+    });
+
+    // and the picture is placed where the teacher said
+    await act(async () => {
+      result.current.place("panel-1", { x: 100, y: 200 });
     });
 
     const appState = api.getAppState();
@@ -210,6 +228,12 @@ describe("placing a screenshot", () => {
 
     await act(async () => {
       await result.current.choose("panel-1", "page");
+    });
+
+    // the target is chosen **after** the choice (D-140), and the picture lands
+    // where the teacher said - which is where the cropped part stands
+    await act(async () => {
+      result.current.place("panel-1", { x: 225, y: 325 });
     });
 
     const image = api

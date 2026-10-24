@@ -80,6 +80,31 @@ export const WHOLE_PICTURE: PanelScreenshotCrop = {
 };
 
 /**
+ * Where the teacher is in the **placement flow** (D-140).
+ *
+ * The owner's order, in the owner's words: the **crop** comes first, the
+ * **choice** of what to do with the picture comes next, the **page** is chosen
+ * through the ribbon, and the **target** - where it goes on the canvas - is
+ * chosen **last**.
+ *
+ * - `crop`: the picture is in front with the crop on it, and the three choices
+ *   are the teacher's to press;
+ * - `page`: the **page selector ribbon** is up - the teacher says which page
+ *   the picture goes on;
+ * - `place`: the **wireframe** is up - the teacher says where it goes.
+ */
+export type PanelScreenshotStage = "crop" | "page" | "place";
+
+/**
+ * What the wireframe is asking for (D-140).
+ *
+ * The flow that **writes text** asks where the **text** goes - not where the
+ * picture would go - so the wireframe says so, and the text lands where the
+ * teacher pointed.
+ */
+export type PanelScreenshotPlacing = "picture" | "text";
+
+/**
  * A picture that has been taken and has not been placed yet.
  *
  * The position is the picture's **top-left**, in scene coordinates, so the
@@ -110,6 +135,27 @@ export interface PanelScreenshot extends PanelScreenshotPicture {
    * **one** step and not a stack of them.
    */
   cropUndo?: PanelScreenshotCrop | null;
+  /**
+   * The step of the flow the teacher is on (D-140).
+   *
+   * The crop is the **first** step and the target is the **last** one.
+   */
+  stage?: PanelScreenshotStage;
+  /**
+   * What the teacher chose, when they have chosen one (D-140).
+   */
+  choice?: PanelScreenshotChoice;
+  /**
+   * The page the picture goes on, when the ribbon named one (D-140).
+   *
+   * `null` means a **new** page: the page is made when the picture is placed,
+   * in the same scene write, so the two cannot disagree (D-104).
+   */
+  targetPageId?: string | null;
+  /**
+   * What the wireframe is asking for: the picture, or the text (D-140).
+   */
+  placing?: PanelScreenshotPlacing;
 }
 
 /** The pending screenshots, by the panel's id. */
@@ -138,6 +184,45 @@ export const setPendingScreenshot = (screenshot: PanelScreenshot): void => {
     // can be cropped straight away
     crop: screenshot.crop ?? WHOLE_PICTURE,
     cropUndo: screenshot.cropUndo ?? null,
+    // the flow starts at the **crop** (D-140): the crop comes first, and the
+    // target is chosen after it
+    stage: screenshot.stage ?? "crop",
+    placing: screenshot.placing ?? "picture",
+    targetPageId: screenshot.targetPageId ?? null,
+  });
+  notify();
+};
+
+/**
+ * Move a pending screenshot to the next step of the flow (D-140).
+ *
+ * The **host** drives the flow: it is the side that knows when the read is
+ * finished and which page the ribbon named. The library draws whatever step
+ * the screenshot is on.
+ */
+export const setPendingScreenshotStage = (
+  panelId: string,
+  stage: PanelScreenshotStage,
+  flow: {
+    choice?: PanelScreenshotChoice;
+    targetPageId?: string | null;
+    placing?: PanelScreenshotPlacing;
+  } = {},
+): void => {
+  const screenshot = screenshots.get(panelId);
+
+  if (!screenshot) {
+    return;
+  }
+
+  screenshots.set(panelId, {
+    ...screenshot,
+    stage,
+    ...(flow.choice === undefined ? {} : { choice: flow.choice }),
+    ...(flow.targetPageId === undefined
+      ? {}
+      : { targetPageId: flow.targetPageId }),
+    ...(flow.placing === undefined ? {} : { placing: flow.placing }),
   });
   notify();
 };
