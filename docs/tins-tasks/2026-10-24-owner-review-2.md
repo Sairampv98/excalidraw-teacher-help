@@ -42,7 +42,7 @@ they are self-contained and land last.
 | wave | what it answers | paths |
 | --- | --- | --- |
 | 6a | the panel's actions live in the **properties panel**, not inside the picture; the bridge box stops floating over the picture | `packages/excalidraw,excalidraw-app` |
-| 6b | one crop-and-read flow; the engine ladder **tesseract → indra → paddle**; a loading animation | `packages/excalidraw,excalidraw-app` |
+| 6b | one crop-and-read flow; the engine ladder: **indra** with the bridge, **tesseract** without it, **paddle** last; a loading animation | `packages/excalidraw,excalidraw-app` |
 | 6c | the crop really crops; the three placement flows, in the order the owner wrote them, and the popup hands the canvas back | `packages/excalidraw,excalidraw-app` |
 | 6d | the presenter view works | `excalidraw-app` |
 | 6e | the live editor: select the text, copy it as a code block, choose the language, zoom inside | `packages/excalidraw,excalidraw-app` |
