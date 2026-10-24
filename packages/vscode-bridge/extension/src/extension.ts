@@ -44,6 +44,7 @@ import {
 } from "./inputPanel";
 import {
   createVirtualDisplay,
+  PRESENTER_WINDOW_TITLE,
   VIRTUAL_DISPLAY_SCRIPT_RELATIVE_PATH,
 } from "./virtualDisplay";
 import {
@@ -592,6 +593,10 @@ export function activate(context: vscode.ExtensionContext): void {
           : null,
         virtual: chosen.virtual,
         reason: chosen.reason,
+        // The click, when there is one: a virtual display that is installed
+        // but DETACHED is one click away (D-146), and the panel says which
+        // click it is.
+        remedy: chosen.remedy,
       };
     } catch (error) {
       panelState = {
@@ -604,12 +609,113 @@ export function activate(context: vscode.ExtensionContext): void {
     return panelState;
   };
 
+  /**
+   * The **editor's own window** goes on the virtual display (D-147).
+   *
+   * This is an **option the teacher chooses** (D-148): nothing moves until
+   * the teacher presses the panel's button or runs this command. Their
+   * window is theirs, and it stays exactly where they put it otherwise.
+   *
+   * The window is found **BY RULE** - the workspace folder's name is in its
+   * title, the same rule the capture uses (D-112, D-113) - and the placement
+   * never takes the focus, so the teacher keeps typing while their window
+   * moves.
+   */
+  const placeEditor = async () => {
+    if (process.platform !== "win32") {
+      void vscode.window.showInformationMessage(
+        "Excalidraw Bridge: the virtual display is a Windows feature - your editor stays on the desktop.",
+      );
+      return;
+    }
+
+    if (!workspace) {
+      void vscode.window.showInformationMessage(
+        "Excalidraw Bridge: open a folder first - the editor's window is found by the folder's name.",
+      );
+      return;
+    }
+
+    try {
+      const result = await virtualDisplay.placeWindow({
+        titleLike: workspace,
+        // the OS process name is not the editor's name: VS Code runs as `Code`
+        processName: editorProcessName(appName),
+        subject: "your editor's window",
+      });
+
+      await refreshPanelState();
+
+      void vscode.window.showInformationMessage(
+        `Excalidraw Bridge: ${result.reason}.`,
+      );
+    } catch (error) {
+      void vscode.window.showErrorMessage(
+        `Excalidraw Bridge: ${(error as Error).message}`,
+      );
+    }
+  };
+
+  /**
+   * The **editor's own window** comes BACK (D-149).
+   *
+   * The feature is not a one-way door: the window goes back to the display
+   * the teacher is working on, in the size it had before it moved, and
+   * maximised again if it was maximised before it moved.
+   */
+  const bringBackEditor = async () => {
+    if (process.platform !== "win32") {
+      void vscode.window.showInformationMessage(
+        "Excalidraw Bridge: the virtual display is a Windows feature - your editor is already on this screen.",
+      );
+      return;
+    }
+
+    if (!workspace) {
+      void vscode.window.showInformationMessage(
+        "Excalidraw Bridge: open a folder first - the editor's window is found by the folder's name.",
+      );
+      return;
+    }
+
+    try {
+      const result = await virtualDisplay.bringBack({
+        titleLike: workspace,
+        processName: editorProcessName(appName),
+        subject: "your editor's window",
+      });
+
+      await refreshPanelState();
+
+      void vscode.window.showInformationMessage(
+        `Excalidraw Bridge: ${result.reason}.`,
+      );
+    } catch (error) {
+      void vscode.window.showErrorMessage(
+        `Excalidraw Bridge: ${(error as Error).message}`,
+      );
+    }
+  };
+
   const inputPanel = createInputPanel({
     port: () => bridgeServer?.port ?? port,
     // The panel's controls go onto the **bridge**: the presenter is driven the
     // one way there is, and the panel never sees the session token (D-145).
     onCommand: (command) => {
       bridgeServer?.broadcast({ v: 1, type: "present:command", command });
+    },
+    // The panel's own **actions** stay on the teacher's machine: the editor's
+    // window moving onto the virtual display - and coming back - is the
+    // extension's own business and never goes on the bridge (D-147, D-149).
+    // Nothing moves unless the teacher pressed the button (D-148).
+    onAction: (action) => {
+      if (action === "move-editor-window") {
+        void placeEditor();
+      }
+
+      if (action === "bring-back-editor-window") {
+        void bringBackEditor();
+      }
     },
     state: () => panelState,
   });
@@ -650,6 +756,39 @@ export function activate(context: vscode.ExtensionContext): void {
 
     try {
       const result = await virtualDisplay.placePresenter();
+      await refreshPanelState();
+
+      void vscode.window.showInformationMessage(
+        `Excalidraw Bridge: ${result.reason}.`,
+      );
+    } catch (error) {
+      void vscode.window.showErrorMessage(
+        `Excalidraw Bridge: ${(error as Error).message}`,
+      );
+    }
+  };
+
+  /**
+   * The presenter's window comes BACK (D-149).
+   *
+   * The same round trip as the editor's window: it goes back to the display
+   * the teacher is working on, maximised as it was if it was maximised.
+   */
+  const bringBackPresenter = async () => {
+    if (process.platform !== "win32") {
+      void vscode.window.showInformationMessage(
+        "Excalidraw Bridge: the virtual display is a Windows feature - the presenter's window is already on the desktop.",
+      );
+      return;
+    }
+
+    try {
+      const result = await virtualDisplay.bringBack({
+        titleLike: PRESENTER_WINDOW_TITLE,
+        subject: "the presenter's window",
+        hint: "open the presenter view first",
+      });
+
       await refreshPanelState();
 
       void vscode.window.showInformationMessage(
@@ -802,6 +941,20 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(
       "excalidraw-bridge.placePresenterOnVirtualDisplay",
       placePresenter,
+    ),
+    // The editor's own window goes on the virtual display too (D-147) - and
+    // it comes back (D-149). Both are the teacher's choice (D-148).
+    vscode.commands.registerCommand(
+      "excalidraw-bridge.placeEditorOnVirtualDisplay",
+      placeEditor,
+    ),
+    vscode.commands.registerCommand(
+      "excalidraw-bridge.bringBackEditorToPrimaryDisplay",
+      bringBackEditor,
+    ),
+    vscode.commands.registerCommand(
+      "excalidraw-bridge.bringBackPresenterToPrimaryDisplay",
+      bringBackPresenter,
     ),
   );
 }
