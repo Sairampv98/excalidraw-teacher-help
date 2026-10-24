@@ -683,7 +683,8 @@ _"cropping of images doesnot seem to work i can see the handles to crop the imag
 _"somehow the presenter view is dead this is what the failure is about"_ - the presenter view is the teacher's canvas, seen by someone else (D-141). The acceptance row for this wave is **AC-177**.
 
 | Row | The acceptance | Check | Detail |
-| --- | -------------- | ----- | ------ |
+| --- | --- | --- | --- |
+| AC-177 | the presenter view opens, shows the teacher's scene and page, and its own controls work | `excalidraw-app/tests/presenter.test.tsx` | The presenter is the teacher's canvas, seen by someone else (D-141), and a control that does nothing is worse than no control (D-120). Tests: `AC-177 the presenter view opens and shows the current scene`, `AC-177 the presenter view follows the page the teacher is on`, `AC-177 the presenter's own controls work`, `AC-177 the presenter's fullscreen control is offered only where the browser can do it`. |
 
 ### Wave 6e — the live editor is a real editor
 
