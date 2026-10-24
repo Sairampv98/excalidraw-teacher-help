@@ -145,6 +145,13 @@ output and the draft survive. Measured after the fix: with no token the panel sa
 to the Excalidraw Bridge."*; with the token pasted it says *"Connected to Visual Studio Code
 (my-todo-app, bridge 0.1.0)."*
 
+**Found in the same live pass, and now fixed (wave 5z):** the OCR row showed **indra** in the
+engine picker but named **paddle** in the sentence underneath. The picker is the truth - the panel
+sends the chosen engine with every request (D-118) - so the sentence was naming the extension's
+default instead of what would run. Measured on this box that is the difference between **147 ms**
+and **27,822 ms**. The sentence now names the engine the panel will use: *"Read the text with the
+bridge. (engine: indra)"*.
+
 **Not done, on purpose:** the **lock is not drawn on a code panel** - a code panel's content
 lives in the editor's process, so there is no picture of it to freeze. Freezing the
 editor's *window* into a poster is the bigger version of that idea, and it is left for a
