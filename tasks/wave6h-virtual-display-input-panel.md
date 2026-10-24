@@ -1,9 +1,8 @@
 ---
 id: wave6h-virtual-display-input-panel
 paths: packages/vscode-bridge,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 6h — the virtual display and the input panel
@@ -113,4 +112,3 @@ Report the five measurements above with the numbers.
 
 **The teeth check** (the kit's rule, and the only proof that matters): revert the fix and the
 AC-181 tests must FAIL. Restore the fix and they must pass again. Report both failures verbatim.
-

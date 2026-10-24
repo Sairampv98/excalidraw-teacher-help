@@ -1,4 +1,5 @@
 import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -25,6 +26,8 @@ import {
 import { createRunner, type SpawnedProcess } from "../extension/src/runner";
 import { runSnippet } from "../extension/src/snippet";
 import { resolvePort, resolveToken } from "../extension/src/config";
+import { createInputPanel } from "../extension/src/inputPanel";
+import { createVirtualDisplay } from "../extension/src/virtualDisplay";
 
 import { RawWsClient } from "./helpers/rawWsClient";
 
@@ -216,6 +219,7 @@ describe("the bridge protocol", () => {
       reason: "no captions: the public timedtext endpoint gave nothing back",
       tier: "none",
     },
+    { v: 1, type: "present:command", command: "next-page" },
     { v: 1, type: "ping" },
     { v: 1, type: "pong" },
   ];
@@ -731,5 +735,289 @@ describe("the runnable snippet", () => {
 
     // the command line says what was run, and the file's name says what it is
     expect(names[0]).toContain("excalidraw-bridge-snippet-code-run-4.js");
+  });
+});
+
+/**
+ * The **virtual display** and the **input panel** (D-145).
+ *
+ * The screen the students see and the controls the teacher uses are different
+ * surfaces: the presenter's window goes on a virtual display when the machine
+ * has one, and the teacher drives it from a small page on their real screen.
+ *
+ * These are the extension's half of that, and the rules they keep:
+ *
+ *  - a virtual display is found and the presenter's window is placed on it;
+ *  - with no virtual display the feature says so plainly and falls back to the
+ *    desktop - never a silent failure and never a crash;
+ *  - the panel's controls travel over the **bridge**, so there is one way to
+ *    drive a presentation;
+ *  - the panel is served on 127.0.0.1 only, and it carries no token.
+ */
+describe("the virtual display and the input panel", () => {
+  /** The real display on this kind of machine. */
+  const REAL_DISPLAY = {
+    device: "\\\\.\\DISPLAY1",
+    name: "Generic PnP Monitor",
+    adapter: "AMD Radeon(TM) Graphics",
+    adapterId: "PCI\\VEN_1002&DEV_1638",
+    adapterKey:
+      "\\Registry\\Machine\\System\\CurrentControlSet\\Control\\Video\\{DDC0}\\0000",
+    deviceId: "MONITOR\\LEN9059\\{4d36e96e}\\0001",
+    deviceKey:
+      "\\Registry\\Machine\\System\\CurrentControlSet\\Control\\Class\\{4d36e96e}\\0001",
+    width: 1920,
+    height: 1080,
+    x: 0,
+    y: 0,
+    attached: true,
+    primary: true,
+    adapterFlags: 524293,
+    deviceFlags: 3,
+  };
+
+  /** The virtual display an indirect display driver would add. */
+  const VIRTUAL_DISPLAY = {
+    ...REAL_DISPLAY,
+    device: "\\\\.\\DISPLAY2",
+    name: "Virtual Monitor",
+    adapter: "Virtual Display Driver",
+    adapterId: "ROOT\\DISPLAY\\0001",
+    width: 2560,
+    height: 1440,
+    x: 1920,
+    y: 0,
+    primary: false,
+  };
+
+  /** The helper's output: one json object per line. */
+  const helperOutput = (displays: unknown[]) =>
+    displays.map((display) => JSON.stringify(display)).join("\n");
+
+  /** A helper that answers without a Windows machine behind it. */
+  const fakeHelper = (displays: unknown[]) => {
+    const calls: string[][] = [];
+
+    const run = async (args: string[]) => {
+      calls.push(args);
+
+      if (args.includes("Enumerate")) {
+        return helperOutput(displays);
+      }
+
+      if (args.includes("Find")) {
+        return JSON.stringify({
+          found: true,
+          visible: true,
+          handle: 4242,
+          title: "Excalidraw - Presenter view",
+          x: 100,
+          y: 100,
+          width: 800,
+          height: 600,
+        });
+      }
+
+      return JSON.stringify({ placed: true, handle: 4242 });
+    };
+
+    return { calls, run };
+  };
+
+  /** A plain http request against the bridge's own loopback server. */
+  const fetchFrom = async (
+    port: number,
+    options: { method?: string; path: string; body?: string },
+  ) =>
+    new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const req = httpRequest(
+        {
+          host: "127.0.0.1",
+          port,
+          path: options.path,
+          method: options.method ?? "GET",
+          headers: options.body
+            ? { "content-type": "application/json" }
+            : undefined,
+        },
+        (res) => {
+          let body = "";
+          res.on("data", (chunk: Buffer) => {
+            body += chunk.toString("utf8");
+          });
+          res.on("end", () => {
+            resolve({ status: res.statusCode ?? 0, body });
+          });
+        },
+      );
+
+      req.on("error", reject);
+
+      if (options.body) {
+        req.write(options.body);
+      }
+
+      req.end();
+    });
+
+  it("AC-181 the virtual display is detected and the presenter's window is placed on it", async () => {
+    const helper = fakeHelper([REAL_DISPLAY, VIRTUAL_DISPLAY]);
+    const service = createVirtualDisplay({
+      scriptPath: "virtual-display.ps1",
+      run: helper.run,
+    });
+
+    const displays = await service.displays();
+
+    expect(displays).toHaveLength(2);
+
+    // the virtual one is the virtual one, and the real one is not
+    expect(
+      displays.find((display) => display.device === VIRTUAL_DISPLAY.device),
+    ).toMatchObject({ virtual: true, width: 2560, height: 1440, x: 1920 });
+    expect(
+      displays.find((display) => display.device === REAL_DISPLAY.device),
+    ).toMatchObject({ virtual: false, width: 1920, height: 1080 });
+
+    const target = await service.target();
+
+    expect(target.virtual).toBe(true);
+    expect(target.display?.device).toBe(VIRTUAL_DISPLAY.device);
+    expect(target.reason).toContain("virtual display");
+
+    const placement = await service.placePresenter();
+
+    expect(placement.placed).toBe(true);
+    expect(placement.display?.device).toBe(VIRTUAL_DISPLAY.device);
+
+    // and the window was moved to the display's OWN rectangle
+    const placeCall = helper.calls.find((args) => args.includes("Place"));
+
+    expect(placeCall).toBeTruthy();
+    expect(placeCall?.join(" ")).toContain("-X 1920");
+    expect(placeCall?.join(" ")).toContain("-Y 0");
+    expect(placeCall?.join(" ")).toContain("-Width 2560");
+    expect(placeCall?.join(" ")).toContain("-Height 1440");
+  });
+
+  it("AC-181 with no virtual display the feature says so plainly and falls back to the desktop", async () => {
+    const helper = fakeHelper([REAL_DISPLAY]);
+    const service = createVirtualDisplay({
+      scriptPath: "virtual-display.ps1",
+      run: helper.run,
+    });
+
+    const target = await service.target();
+
+    expect(target.virtual).toBe(false);
+    expect(target.display?.device).toBe(REAL_DISPLAY.device);
+
+    // the reason is a plain sentence, and it is never empty: a failure is a
+    // message, not a silence (D-75)
+    expect(target.reason.length).toBeGreaterThan(0);
+    expect(target.reason).toContain("no virtual display");
+    expect(target.reason).toContain("opens on the desktop");
+
+    const placement = await service.placePresenter();
+
+    expect(placement.placed).toBe(false);
+    expect(placement.reason).toContain("no virtual display");
+
+    // and NOTHING was moved: the presenter's own window opens on the desktop
+    expect(helper.calls.some((args) => args.includes("Place"))).toBe(false);
+  });
+
+  it("AC-181 the input panel's controls drive the presenter over the bridge and not the teacher's own window", async () => {
+    const sent: BridgeMessage[] = [];
+    const panel = createInputPanel({
+      port: () => 47511,
+      onCommand: (command) => {
+        sent.push({ v: 1, type: "present:command", command });
+      },
+      state: () => ({
+        display: null,
+        virtual: false,
+        reason: "the presenter's window opens on the desktop",
+      }),
+    });
+    const capability = panel.createCapability();
+
+    const server = await startServer({ inputPanel: panel });
+    const client = await connect(server);
+
+    auth(client);
+
+    await client.waitForMessage((frame) =>
+      frame.payload.toString("utf8").includes("bridge:hello"),
+    );
+
+    const sent_ = await fetchFrom(server.port, {
+      method: "POST",
+      path: `/panel/${capability}/control`,
+      body: JSON.stringify({ command: "next-page" }),
+    });
+
+    expect(sent_.status).toBe(200);
+
+    // the command travels over the BRIDGE: the panel sends the same message
+    // the presenter's own controls send, so there is one way to drive a
+    // presentation
+    expect(sent).toEqual([
+      { v: 1, type: "present:command", command: "next-page" },
+    ]);
+
+    // a command that is NOT one of the presenter's own controls is refused,
+    // and NOTHING goes on the bridge: the panel can never run anything on the
+    // teacher's machine that the bridge does not already allow
+    const refused = await fetchFrom(server.port, {
+      method: "POST",
+      path: `/panel/${capability}/control`,
+      body: JSON.stringify({ command: "code:run" }),
+    });
+
+    expect(refused.status).toBe(400);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("AC-181 the input panel is served on 127.0.0.1 only and carries no token", async () => {
+    const panel = createInputPanel({
+      port: () => 47511,
+      onCommand: () => undefined,
+    });
+    const capability = panel.createCapability();
+
+    const server = await startServer({ inputPanel: panel });
+
+    // the panel's URL is the loopback and the capability - never the token
+    const url = panel.urlFor(capability);
+
+    expect(url).toContain("http://127.0.0.1:");
+    expect(url).not.toContain(TOKEN);
+
+    const page = await fetchFrom(server.port, {
+      path: `/panel/${capability}/index.html`,
+    });
+
+    expect(page.status).toBe(200);
+
+    // and the page itself carries no token: the panel cannot become a way to
+    // reach the bridge without one
+    expect(page.body).not.toContain(TOKEN);
+    expect(page.body).not.toMatch(/token/i);
+
+    // a request without a live capability is refused, and it is a 404
+    const stranger = await fetchFrom(server.port, {
+      path: "/panel/deadbeefdeadbeefdeadbeefdeadbeef/index.html",
+    });
+
+    expect(stranger.status).toBe(404);
+
+    // the panel does not steal the teacher's keystrokes: it installs no key
+    // handler at all, it never takes the focus, and its buttons do not take
+    // the focus when they are clicked
+    expect(page.body).not.toMatch(/addEventListener\(\s*["']key/);
+    expect(page.body).not.toMatch(/\.focus\(/);
+    expect(page.body).not.toMatch(/autofocus/i);
+    expect(page.body).toContain('data-command="next-page"');
   });
 });

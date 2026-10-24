@@ -705,4 +705,5 @@ The owner's decision: _"pages visible frame can be toggled on/off with a page nu
 _"yes work on the virtual display+input panel"_ - the screen the students see and the controls the teacher uses are different surfaces (D-145). The acceptance row for this wave is **AC-181**.
 
 | Row | The acceptance | Check | Detail |
-| --- | -------------- | ----- | ------ |
+| --- | --- | --- | --- |
+| AC-181 | the **virtual display** is found and the presenter's window is placed on it, and the **input panel** drives it from the teacher's own screen | `packages/vscode-bridge/tests/bridge.test.ts` | The screen the students see and the controls the teacher uses are different surfaces (D-145): the presenter's window goes on a virtual display when the machine has one, and on the desktop - said plainly - when it has not, and the input panel is served on 127.0.0.1 behind a capability and never with the token. Tests: `AC-181 the virtual display is detected and the presenter's window is placed on it`, `AC-181 with no virtual display the feature says so plainly and falls back to the desktop`, `AC-181 the input panel's controls drive the presenter over the bridge and not the teacher's own window`, `AC-181 the input panel is served on 127.0.0.1 only and carries no token`. |

@@ -38,6 +38,15 @@ import { createSnippetService, type SnippetService } from "./snippet";
 import { createBridgeTask } from "./taskPresentation";
 import { captionMessage, resolveYouTubeCaptions } from "./youtubeCaptions";
 import {
+  createInputPanel,
+  UNKNOWN_PANEL_STATE,
+  type PanelState,
+} from "./inputPanel";
+import {
+  createVirtualDisplay,
+  VIRTUAL_DISPLAY_SCRIPT_RELATIVE_PATH,
+} from "./virtualDisplay";
+import {
   CAPTURE_SCRIPT_RELATIVE_PATH,
   createWindowCaptureSupervisor,
   editorProcessName,
@@ -531,6 +540,128 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   };
 
+  /**
+   * The **virtual display** and the **input panel** (D-145).
+   *
+   * The screen the students see and the controls the teacher uses are
+   * different surfaces: the presenter's window goes on a virtual display when
+   * the machine has one, and the teacher drives it from a small page on their
+   * **real** screen.
+   *
+   * The virtual display is a **Windows** feature - it is the indirect display
+   * driver - and it needs **no driver at all**: on a machine without one the
+   * feature says so plainly and the presenter's window opens on the desktop.
+   */
+  const virtualDisplay = createVirtualDisplay({
+    scriptPath: join(
+      context.extensionPath,
+      VIRTUAL_DISPLAY_SCRIPT_RELATIVE_PATH,
+    ),
+  });
+
+  /** The panel's capability. It lives for the session. */
+  let panelCapability: string | null = null;
+
+  /** What the panel shows about the presenter's screen. */
+  let panelState: PanelState = UNKNOWN_PANEL_STATE;
+
+  const refreshPanelState = async (): Promise<PanelState> => {
+    if (process.platform !== "win32") {
+      panelState = {
+        display: null,
+        virtual: false,
+        reason:
+          "the virtual display is a Windows feature - the presenter's window opens on the desktop",
+      };
+      return panelState;
+    }
+
+    try {
+      const chosen = await virtualDisplay.target();
+
+      panelState = {
+        display: chosen.display
+          ? {
+              device: chosen.display.device,
+              name: chosen.display.name,
+              width: chosen.display.width,
+              height: chosen.display.height,
+              x: chosen.display.x,
+              y: chosen.display.y,
+            }
+          : null,
+        virtual: chosen.virtual,
+        reason: chosen.reason,
+      };
+    } catch (error) {
+      panelState = {
+        display: null,
+        virtual: false,
+        reason: `the displays could not be read: ${(error as Error).message}`,
+      };
+    }
+
+    return panelState;
+  };
+
+  const inputPanel = createInputPanel({
+    port: () => bridgeServer?.port ?? port,
+    // The panel's controls go onto the **bridge**: the presenter is driven the
+    // one way there is, and the panel never sees the session token (D-145).
+    onCommand: (command) => {
+      bridgeServer?.broadcast({ v: 1, type: "present:command", command });
+    },
+    state: () => panelState,
+  });
+
+  /**
+   * The **input panel**: the presenter's controls, on the teacher's own
+   * screen.
+   */
+  const openInputPanel = async () => {
+    if (!panelCapability) {
+      panelCapability = inputPanel.createCapability();
+    }
+
+    await refreshPanelState();
+
+    const url = inputPanel.urlFor(panelCapability);
+
+    await vscode.env.openExternal(vscode.Uri.parse(url));
+
+    void vscode.window.showInformationMessage(
+      `Excalidraw Bridge: the presenter's input panel is open. ${panelState.reason}.`,
+    );
+  };
+
+  /**
+   * The presenter's window goes on the **virtual display**.
+   *
+   * With no virtual display the window is left where it is - on the desktop -
+   * and the teacher is told that in plain words.
+   */
+  const placePresenter = async () => {
+    if (process.platform !== "win32") {
+      void vscode.window.showInformationMessage(
+        "Excalidraw Bridge: the virtual display is a Windows feature - the presenter's window opens on the desktop.",
+      );
+      return;
+    }
+
+    try {
+      const result = await virtualDisplay.placePresenter();
+      await refreshPanelState();
+
+      void vscode.window.showInformationMessage(
+        `Excalidraw Bridge: ${result.reason}.`,
+      );
+    } catch (error) {
+      void vscode.window.showErrorMessage(
+        `Excalidraw Bridge: ${(error as Error).message}`,
+      );
+    }
+  };
+
   bridgeServer = createBridgeServer({
     port,
     host: DEFAULT_BRIDGE_HOST,
@@ -540,6 +671,7 @@ export function activate(context: vscode.ExtensionContext): void {
     appName,
     onMessage: handleBridgeMessage,
     onConnect: sendEditorContentTo,
+    inputPanel,
     logger: (message) => console.info("[excalidraw-bridge]", message),
   });
 
@@ -662,6 +794,15 @@ export function activate(context: vscode.ExtensionContext): void {
       await vscode.env.clipboard.writeText(token);
       vscode.window.showInformationMessage("Excalidraw Bridge: token copied.");
     }),
+    // The virtual display and the input panel (D-145)
+    vscode.commands.registerCommand(
+      "excalidraw-bridge.openInputPanel",
+      openInputPanel,
+    ),
+    vscode.commands.registerCommand(
+      "excalidraw-bridge.placePresenterOnVirtualDisplay",
+      placePresenter,
+    ),
   );
 }
 
