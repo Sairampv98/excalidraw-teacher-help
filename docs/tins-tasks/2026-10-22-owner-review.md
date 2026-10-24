@@ -133,13 +133,17 @@ today and the panel will land on tier three for nearly every video unless
 `excalidraw-bridge.youtubeApiKey` is set - and the panel says exactly that, with the setting name
 in the sentence.
 
-**Found in the same live pass, not yet fixed (wave 5y):** a code panel can **claim** a connection
+**Found in the same live pass, and now fixed (wave 5y):** a code panel could **claim** a connection
 that is not there, or hide one that is. The connection line lives in the panel's payload, and the
-payload is saved with the document, so a document saved while the bridge was connected comes back
+payload is saved with the document, so a document saved while the bridge was connected came back
 saying *"Connected to Visual Studio Code (my-todo-app, bridge 0.1.0)."* on a machine where nothing
-is connected - and a panel created *after* the connection says *"Not connected to the Excalidraw
-Bridge."* while the bridge box beside it says *"Connected to Visual Studio Code."* Both were
-measured live.
+was connected - and a panel created *after* the connection said *"Not connected to the Excalidraw
+Bridge."* while the bridge box beside it said *"Connected to Visual Studio Code."* Both were
+measured live. The panel now writes the **truth** when the app starts, when the connection changes
+and when the scene changes, and it writes **only** the connection - so the mirrored text, the run
+output and the draft survive. Measured after the fix: with no token the panel says *"Not connected
+to the Excalidraw Bridge."*; with the token pasted it says *"Connected to Visual Studio Code
+(my-todo-app, bridge 0.1.0)."*
 
 **Not done, on purpose:** the **lock is not drawn on a code panel** - a code panel's content
 lives in the editor's process, so there is no picture of it to freeze. Freezing the
