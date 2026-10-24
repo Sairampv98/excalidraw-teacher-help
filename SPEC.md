@@ -525,6 +525,14 @@ The owner reported on 2026-10-21 that the sidebar's **Copy code** button pastes 
 
 ---
 
+## Acceptance — Wave 6a — the panel's actions live in the properties panel, and the picture carries none of them
+
+_"the screenshot button is inside the panel and i cant click it and the read text button doesnot do anything sadly for now ... u can see the extra options with the panel, kind, video, state, live things i think all the panels have this y not use this for the ocr, crop and other options instead of whatever these buttons that dont click do"_ and _"why is the bridge visible over both the vscode editor and live window even after connecting? (y not move it to the extra options that read panel, kind, code, state, and live?)"_ (D-135, D-136). The camera, the read and the bridge box are **actions of a panel**, so they live in the panel's **properties** - ordinary DOM beside the canvas - and never over the picture. The acceptance row for this wave is **AC-174**.
+
+| Row | The acceptance | Check | Detail |
+| --- | --- | --- | --- |
+| AC-174 | the properties panel carries the panel's actions, and the picture carries none of them | `packages/excalidraw/tests/panelChrome.test.tsx` | The actions are where the teacher can reach them (D-135, D-136). Tests: `AC-174 the properties panel carries the screenshot and the read`, `AC-174 the panel overlay carries no action button and no bridge box`. |
+
 ## Later waves — not implemented by this task
 
 These are recorded so the numbering does not shift. Their design documents are in `docs/superpowers/specs/`, and the waves that are specified but not yet built are in `docs/tins-tasks/`.
@@ -650,7 +658,7 @@ The first two are the owner's explicit approvals of two things that would otherw
 | D-144 | a page has a **frame**, a **number**, and a **size** | locked | The owner's answer, and the model for it is Microsoft Word's: _"pages visible frame can be toggled on/off with a page number etc (the same options one gets in the microsoft word, header/fotter -> page number thingy), ok include presets for width and height. (this should help the export page as now the format in which the text appears would be different based on the preset selected)"_. So a page may be drawn with a visible **frame**, may carry a **page number**, and has a **size** the teacher picks - from **presets** (A4, Letter, 16:9, ...) or by hand - and the preset changes the **export**, because the text in a 16:9 page is not the text in an A4 page. The rule: **the page's shape is a fact about the page, and the export must honour it.** |
 | D-145 | the virtual display and the **input panel** are built | locked | The owner approved this: _"yes work on the virtual display+input panel"_. The idea: a **virtual display** - a screen the teacher can show on a projector without occupying the real desktop - and an **input panel** beside it, so the teacher's controls for the virtual screen are not on the virtual screen. The rule: **the screen the students see and the controls the teacher uses are different surfaces.** |
 
-## Acceptance — Waves 6a to 6h (the owner's review of 2026-10-24)
+## Acceptance — Waves 6b to 6h (the owner's review of 2026-10-24)
 
 The owner's review of 2026-10-24 is recorded in full, with the diagnosis for each item, in `docs/tins-tasks/2026-10-24-owner-review-2.md`. The decisions are already written down: the pages get a frame, a number and **presets** (D-144), and the virtual display + input panel is **approved** (D-145).
 
@@ -704,11 +712,3 @@ _"yes work on the virtual display+input panel"_ - the screen the students see an
 
 | Row | The acceptance | Check | Detail |
 | --- | -------------- | ----- | ------ |
-
-### Wave 6a — the panel's actions live in the properties panel, and the picture carries none of them
-
-_"the screenshot button is inside the panel and i cant click it and the read text button doesnot do anything sadly for now ... u can see the extra options with the panel, kind, video, state, live things i think all the panels have this y not use this for the ocr, crop and other options instead of whatever these buttons that dont click do"_ and _"why is the bridge visible over both the vscode editor and live window even after connecting? (y not move it to the extra options that read panel, kind, code, state, and live?)"_ (D-135, D-136). The camera, the read and the bridge box are **actions of a panel**, so they live in the panel's **properties** - ordinary DOM beside the canvas - and never over the picture. The acceptance row for this wave is **AC-174**.
-
-| Row | The acceptance | Check | Detail |
-| --- | --- | --- | --- |
-| AC-174 | the properties panel carries the panel's actions, and the picture carries none of them | `packages/excalidraw/tests/panelChrome.test.tsx` | The actions are where the teacher can reach them (D-135, D-136). Tests: `AC-174 the properties panel carries the screenshot and the read`, `AC-174 the panel overlay carries no action button and no bridge box`. |
