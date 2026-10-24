@@ -60,7 +60,7 @@ import { renderSceneToSvg } from "../renderer/staticSvgScene";
 
 import type { RenderableElementsMap } from "./types";
 
-import type { AppState, BinaryFiles, PageRect } from "../types";
+import type { AppState, BinaryFiles, PageDecoration, PageRect } from "../types";
 
 const truncateText = (element: ExcalidrawTextElement, maxWidth: number) => {
   if (element.width <= maxWidth) {
@@ -188,12 +188,18 @@ export const exportToCanvas = async (
      * the bounds of the supplied elements.
      */
     pageRect = null,
+    /**
+     * The page's own frame and number (D-144). Drawn into the export, so the
+     * exported page looks like the page the teacher sees.
+     */
+    pageDecoration = null,
   }: {
     exportBackground: boolean;
     exportPadding?: number;
     viewBackgroundColor: string;
     exportingFrame?: ExcalidrawFrameLikeElement | null;
     pageRect?: PageRect | null;
+    pageDecoration?: PageDecoration | null;
   },
   createCanvas: (
     width: number,
@@ -271,6 +277,7 @@ export const exportToCanvas = async (
       zoom: defaultAppState.zoom,
       shouldCacheIgnoreZoom: false,
       theme: appState.exportWithDarkMode ? THEME.DARK : THEME.LIGHT,
+      currentPageDecoration: pageDecoration,
     },
     renderConfig: {
       canvasBackgroundColor: viewBackgroundColor,

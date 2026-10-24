@@ -48,5 +48,11 @@ export {
   countElementsInsidePageRect,
   moveElementsIntoPageRect,
   moveElementsOntoPage,
+  PAGE_SIZE_PRESETS,
+  getPageSizeForPreset,
+  getPageSizePresetForPage,
+  getPageDecoration,
+  updatePage,
 } from "./pages";
-export type { PageRect } from "../types";
+export type { PageDecoration, PageRect } from "../types";
+export type { PageProperties, PageSizePreset } from "./pages";

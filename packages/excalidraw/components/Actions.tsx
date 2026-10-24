@@ -331,6 +331,12 @@ export const SelectedShapeActions = ({
           </div>
         </fieldset>
       )}
+      {/*
+       * the page's own properties (D-144) - the frame, the number and the
+       * size. They belong to the page and not to the selection, so they sit
+       * at the end of the panel, under their own heading.
+       */}
+      {renderAction("changePage")}
     </div>
   );
 };

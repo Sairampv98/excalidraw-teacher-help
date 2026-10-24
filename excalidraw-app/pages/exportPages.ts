@@ -1,6 +1,7 @@
 import {
   exportToCanvas,
   getOrderedElementsForPage,
+  getPageDecoration,
   getPageRect,
 } from "@excalidraw/excalidraw";
 
@@ -13,9 +14,14 @@ import type { PdfPageImage } from "./pdf";
 /**
  * Multi-page export.
  *
- * Every page is rendered at exactly PAGE_WIDTH x PAGE_HEIGHT (scale 1) using
- * only that page's elements, and the rasters are stitched into a **single
- * multi-page PDF** — one file, one page each, in page order.
+ * Every page is rendered at **its own** size (scale 1) using only that page's
+ * elements, and the rasters are stitched into a **single multi-page PDF** —
+ * one file, one page each, in page order.
+ *
+ * A page's size is a fact about the page (D-144): a page picked a preset comes
+ * out in that preset's shape, and the page's frame and number (if it has
+ * them) are drawn into the export, so the exported page looks like the page
+ * the teacher sees.
  *
  * The PDF is assembled by `pages/pdf.ts` rather than by a PDF library: a page
  * here is a flat raster, so a PDF page is just an image, and a small hand-written
@@ -55,7 +61,7 @@ export const exportAllPages = async (
     return;
   }
 
-  // scale 1 so every page comes out at exactly PAGE_WIDTH x PAGE_HEIGHT
+  // scale 1 so every page comes out at exactly its own size
   const exportAppState = { ...appState, exportScale: PAGE_EXPORT_SCALE };
 
   const images: PdfPageImage[] = [];
@@ -70,6 +76,11 @@ export const exportAllPages = async (
       // the page's own rect — pages may differ in size, so the index alone
       // does not tell us where the page sits
       pageRect: getPageRect(appState.pages, page.id),
+      // the page's own frame and number (D-144)
+      pageDecoration: getPageDecoration({
+        pages: appState.pages,
+        pageId: page.id,
+      }),
     });
 
     images.push(await encodeCanvasForPdf(canvas));

@@ -235,6 +235,24 @@
         "notALink": "That is not a YouTube link."
       }
     },
+    "pages": {
+      "title": "Page",
+      "frame": "Show the page's frame",
+      "number": "Show the page's number",
+      "size": "Size",
+      "custom": "Custom",
+      "width": "Width",
+      "height": "Height",
+      "presets": {
+        "a4Portrait": "A4 portrait",
+        "a4Landscape": "A4 landscape",
+        "letterPortrait": "Letter portrait",
+        "letterLandscape": "Letter landscape",
+        "wide169": "16:9",
+        "standard43": "4:3",
+        "project": "1920 x 1080 (the project's own)"
+      }
+    },
     "statusPublished": "Published",
     "sidebarLock": "Keep sidebar open",
     "selectAllElementsInFrame": "Select all elements in frame",
