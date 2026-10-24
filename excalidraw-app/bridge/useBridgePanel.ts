@@ -7,6 +7,7 @@ import { readCodePanelState, readPanelDraft } from "@excalidraw/excalidraw";
 
 import type {
   PanelBridgeControls,
+  PanelCaptionControls,
   PanelDraftControls,
   PanelRunControls,
 } from "@excalidraw/excalidraw";
@@ -31,6 +32,7 @@ import {
   createBridgeSession,
   INITIAL_BRIDGE_SESSION_STATE,
 } from "./bridgeSession";
+import { applyYoutubeCaptions, isVideoCaptionMessage } from "./videoCaptions";
 
 import type { BridgeSession, BridgeSessionState } from "./bridgeSession";
 import type {
@@ -69,6 +71,17 @@ const sameCapture = (a: PanelCapture | null, b: PanelCapture): boolean => {
  * every message about that run carries it (D-124).
  */
 let runCounter = 0;
+
+/**
+ * The sentence the panel shows when the captions could not be asked for.
+ *
+ * The captions are read by the **bridge** (D-129), so with no bridge there is
+ * nothing to ask — and a panel that says nothing is a panel that looks broken
+ * (D-93). The sentence names the remedy, because a reason a teacher cannot
+ * act on is not a reason.
+ */
+export const CAPTIONS_NEEDS_BRIDGE =
+  "no captions: the Excalidraw Bridge is not connected, and a browser cannot read YouTube's captions. Start the Excalidraw Bridge in your editor";
 
 /**
  * The app's wiring for the **code panel**.
@@ -130,6 +143,15 @@ export const useBridgePanel = (
 
   /** The live view as it was last published, so it is published only on a change. */
   const publishedCaptureRef = useRef<PanelCapture | null>(null);
+
+  /**
+   * The panels whose captions were asked for and could not be asked yet (D-129).
+   *
+   * The bridge may not be connected when the panel appears, and the request is
+   * **remembered** rather than dropped: it goes out the moment the bridge
+   * arrives.
+   */
+  const pendingCaptionsRef = useRef<Map<string, string>>(new Map());
 
   // the presenter's half of the live view (D-101), kept in a ref so the
   // publish path always reads the current one
@@ -220,6 +242,21 @@ export const useBridgePanel = (
           publishCapture();
         }
 
+        // The captions that could not be asked for are asked for now (D-129):
+        // the bridge has arrived, and the panel must not stay silent.
+        if (
+          next.connection === "connected" &&
+          pendingCaptionsRef.current.size
+        ) {
+          const pending = [...pendingCaptionsRef.current.entries()];
+
+          pendingCaptionsRef.current.clear();
+
+          for (const [panelId, videoId] of pending) {
+            sessionRef.current?.requestCaptions({ id: panelId, videoId });
+          }
+        }
+
         const current = panelStateRef.current;
 
         if (
@@ -274,6 +311,32 @@ export const useBridgePanel = (
           return;
         }
 
+        // The captions of a YouTube video (D-129). The tier travels with the
+        // answer, and the panel says which tier it is.
+        if (
+          isVideoCaptionMessage(message) &&
+          message.type !== "captions:request"
+        ) {
+          pendingCaptionsRef.current.delete(message.id);
+
+          const current = apiRef.current;
+
+          if (current) {
+            applyYoutubeCaptions(current, {
+              panelId: message.id,
+              videoId: message.videoId,
+              tracks: message.type === "captions:result" ? message.tracks : [],
+              // a "no captions" answer IS the third tier
+              tier:
+                message.tier ??
+                (message.type === "captions:none" ? ("none" as const) : null),
+              reason: message.type === "captions:none" ? message.reason : null,
+            });
+          }
+
+          return;
+        }
+
         publish(reduceCodePanelState(panelStateRef.current, message));
       },
     });
@@ -321,6 +384,42 @@ export const useBridgePanel = (
   const onConnect = useCallback(() => {
     sessionRef.current?.connect();
   }, []);
+
+  /**
+   * The panel asked for the captions of its video (D-129).
+   *
+   * The **bridge** reads them — a browser cannot — and the answer carries the
+   * tier that produced it. With no bridge the request is **remembered** and
+   * the panel says why, so the teacher is not left looking at a video that
+   * silently has no text.
+   */
+  const onCaptionRequest = useCallback((panelId: string, videoId: string) => {
+    const sent =
+      sessionRef.current?.requestCaptions({ id: panelId, videoId }) ?? false;
+
+    if (sent) {
+      return;
+    }
+
+    pendingCaptionsRef.current.set(panelId, videoId);
+
+    const current = apiRef.current;
+
+    if (current) {
+      applyYoutubeCaptions(current, {
+        panelId,
+        videoId,
+        tracks: [],
+        tier: "none",
+        reason: CAPTIONS_NEEDS_BRIDGE,
+      });
+    }
+  }, []);
+
+  const panelCaptions: PanelCaptionControls = useMemo(
+    () => ({ onRequest: onCaptionRequest }),
+    [onCaptionRequest],
+  );
 
   const startRun = useCallback(
     (command: string, args: string[], cwd?: string) =>
@@ -504,5 +603,6 @@ export const useBridgePanel = (
     ocrState,
     panelDraft,
     panelRun,
+    panelCaptions,
   };
 };

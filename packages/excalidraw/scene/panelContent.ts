@@ -877,6 +877,144 @@ export const withVideoPanelState = (
 };
 
 /**
+ * A **YouTube** panel's source (D-128).
+ *
+ * The panel holds a **video id** — not a URL, and not a copy of YouTube's page.
+ * The id is the only thing YouTube's own player needs, and the embed URL is
+ * built from it in {@link youtubeEmbedUrl}: one place, and nothing of ours
+ * talks to their pages, so nothing of ours can rot.
+ */
+export type YoutubePanelSource = {
+  type: "youtube";
+  /** the YouTube video id */
+  videoId: string;
+};
+
+/**
+ * Which **tier** answered the caption request (D-129).
+ *
+ * The captions are the fragile half of the YouTube path, so they degrade in
+ * tiers — and the tier travels with the answer, so the panel can say which
+ * one it is and the teacher is never left guessing why a video has no text.
+ *
+ * The library does not fetch anything: the **host** asks the bridge, and the
+ * bridge answers with one of these.
+ */
+export type PanelCaptionTier = "api" | "public" | "none";
+
+/**
+ * The live state of a **YouTube** panel (D-129).
+ *
+ * The **cues** are not here: they ride in the payload's own homes —
+ * `options.captions` for the active track and `video.tracks` for every track —
+ * exactly as they do for a local video, because the panel does not know where
+ * the cues came from. What is here is only what the panel has to **say**: which
+ * tier answered, and why there are none when there are none.
+ */
+export type YoutubePanelState = {
+  /** which tier answered (D-129) */
+  tier: PanelCaptionTier | null;
+  /** why there are no captions, when there are none (D-129) */
+  reason: string | null;
+};
+
+/**
+ * The payload of a **YouTube** panel.
+ *
+ * A YouTube panel **is** a video panel — it is the same panel with a different
+ * source — so the caption track rides in the same homes and the caption shape
+ * does not change at all. Only the tier is added, because only the tier is new.
+ */
+export type YoutubePanelContent = VideoPanelContent & {
+  /** which tier answered, and why there are none when there are none (D-129) */
+  youtube: YoutubePanelState | null;
+};
+
+/**
+ * The **embed URL** of a YouTube video (D-128).
+ *
+ * The one place the URL is built. An iframe of YouTube's own player is the
+ * **supported** way to play a YouTube video in a web page: there is no
+ * endpoint to call, no markup to parse and no signature to compute, so the
+ * video keeps working when YouTube changes anything.
+ */
+export const youtubeEmbedUrl = (videoId: string): string =>
+  `https://www.youtube.com/embed/${encodeURIComponent(videoId)}`;
+
+/**
+ * The payload of a **YouTube** panel.
+ *
+ * The caption track rides in `options.captions` — the foundation's own home for
+ * a panel's caption track — and the **active** track is the one whose language
+ * the state names. The tier rides beside it, and the tier is the only thing
+ * the panel has to say about where the cues came from (D-129).
+ */
+export const youtubePanelContent = ({
+  videoId,
+  tracks = [],
+  language = "en",
+  tier = null,
+  reason = null,
+  naturalWidth = 640,
+  naturalHeight = 360,
+}: {
+  /** the YouTube video id — the only thing the panel holds (D-128) */
+  videoId: string;
+  tracks?: PanelCaptionTrack[];
+  language?: string;
+  /** which tier answered (D-129) */
+  tier?: PanelCaptionTier | null;
+  /** why there are no captions, when there are none (D-129) */
+  reason?: string | null;
+  naturalWidth?: number | null;
+  naturalHeight?: number | null;
+}): YoutubePanelContent => {
+  const base = videoPanelContent({
+    source: { type: "youtube", videoId },
+    tracks,
+    language,
+    naturalWidth,
+    naturalHeight,
+  });
+
+  return { ...base, youtube: { tier, reason } };
+};
+
+/**
+ * The live state of a YouTube panel's payload, or null when the payload carries
+ * none.
+ *
+ * The only way to read it — the widening stays in here.
+ */
+export const readYoutubePanelState = (
+  content: PanelContent,
+): YoutubePanelState | null => {
+  const widened: Partial<YoutubePanelContent> = content;
+
+  return widened.youtube ?? null;
+};
+
+/**
+ * The same payload with a new live state in it.
+ *
+ * The only way to write it — the widening stays in here.
+ */
+export const withYoutubePanelState = (
+  content: PanelContent,
+  state: YoutubePanelState | null,
+): PanelContent => {
+  const widened: YoutubePanelContent = {
+    ...content,
+    // the video state is kept as it is - a YouTube panel is a video panel, and
+    // the caption track lives in its own homes
+    video: readVideoPanelState(content),
+    youtube: state,
+  };
+
+  return widened;
+};
+
+/**
  * The binding between a video panel and the **text element** its captions are
  * written into.
  *

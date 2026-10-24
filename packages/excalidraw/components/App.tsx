@@ -2575,6 +2575,9 @@ class App extends React.Component<AppProps, AppState> {
                             // request (D-123, D-124)
                             draft={this.props.panelDraft}
                             run={this.props.panelRun}
+                            // the host asks for the captions and writes them
+                            // into the panel's payload (D-129)
+                            captions={this.props.panelCaptions}
                           />
                           <PanelChrome
                             panels={this.getSelectedPanelElements(

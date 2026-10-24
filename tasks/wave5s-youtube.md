@@ -1,12 +1,11 @@
 ---
 id: wave5s-youtube
 paths: packages/excalidraw,excalidraw-app,packages/vscode-bridge,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
-﻿# Wave 5s — a YouTube video in the canvas, and its captions
+# Wave 5s — a YouTube video in the canvas, and its captions
 
 ## Why this wave exists
 
@@ -108,4 +107,3 @@ Add to the acceptance table, in the shape
 renders the embed and the embed loads (network + DOM, not jsdom), and the caption request
 reaches the extension and comes back as one of the three tiers. Report what you measured in
 the close note, and say plainly if the network could not reach YouTube from this machine.
-

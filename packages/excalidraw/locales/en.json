@@ -224,6 +224,15 @@
         "convertCommand": "ffmpeg -i \"input.mkv\" -c:v libx264 -c:a aac -movflags +faststart \"output.mp4\"",
         "playbackFailed": "This file could not be played.",
         "fallbackFailed": "The fallback was tried as well, and it failed too."
+      },
+      "youtube": {
+        "title": "YouTube video",
+        "captionsFromApi": "Captions from the YouTube Data API.",
+        "captionsFromPublic": "Captions from the public endpoint - they may be incomplete.",
+        "noCaptions": "No captions.",
+        "linkPlaceholder": "Paste a YouTube link",
+        "add": "Add video",
+        "notALink": "That is not a YouTube link."
       }
     },
     "statusPublished": "Published",

@@ -211,6 +211,31 @@ body.excalidraw-cursor-resize * {
     text-align: center;
   }
 
+  // The YouTube panel: an iframe of YouTube's own player, and the line that
+  // says which tier of the captions answered (D-128, D-129).
+  &__panel-youtube {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+  }
+
+  &__panel-youtube-frame {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    border: 0;
+  }
+
+  &__panel-youtube-note {
+    flex: 0 0 auto;
+    padding: calc(2px / var(--panel-scale)) calc(4px / var(--panel-scale));
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    color: var(--color-text);
+    font-size: calc(12px / var(--panel-scale));
+  }
+
   // The video's control strip.
   //
   // The chrome is sized for the SCREEN and the content for the PANEL (D-92):

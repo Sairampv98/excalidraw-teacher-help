@@ -188,6 +188,34 @@ describe("the bridge protocol", () => {
       state: "ready",
       engine: "tesseract",
     },
+    {
+      v: 1,
+      type: "captions:request",
+      id: "captions-1",
+      videoId: "dQw4w9WgXcQ",
+    },
+    {
+      v: 1,
+      type: "captions:result",
+      id: "captions-1",
+      videoId: "dQw4w9WgXcQ",
+      tracks: [
+        {
+          language: "en",
+          label: "en",
+          cues: [{ startMs: 1000, endMs: 2500, text: "hello" }],
+        },
+      ],
+      tier: "api",
+    },
+    {
+      v: 1,
+      type: "captions:none",
+      id: "captions-1",
+      videoId: "dQw4w9WgXcQ",
+      reason: "no captions: the public timedtext endpoint gave nothing back",
+      tier: "none",
+    },
     { v: 1, type: "ping" },
     { v: 1, type: "pong" },
   ];

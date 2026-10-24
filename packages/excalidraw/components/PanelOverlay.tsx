@@ -36,6 +36,7 @@ import {
 } from "../scene/panelContent";
 import { readVideoPanelState } from "../scene/panelContent";
 import { readPanelPlayback } from "../scene/panelContent";
+import { readYoutubePanelState, youtubeEmbedUrl } from "../scene/panelContent";
 import {
   PANEL_SCALE_PROPERTY,
   choiceStripPlacement,
@@ -72,6 +73,7 @@ import {
 
 import type {
   BinaryFiles,
+  PanelCaptionControls,
   PanelDraftControls,
   PanelRunControls,
   PanelScreenshotControls,
@@ -84,6 +86,17 @@ import type { PanelCamera } from "../scene/panelContent";
 import type { PanelChrome } from "../scene/panelChrome";
 import type { PanelPlayback } from "../scene/panelContent";
 import type { PlaybackSyncState } from "../scene/panelPlayback";
+import type { YoutubePanelSource } from "../scene/panelContent";
+
+/**
+ * The editor container: the canvas, the panels and the sidebar all live inside
+ * it.
+ *
+ * It is the element that **keeps the keyboard** — the editor listens on it —
+ * so it is where the focus goes back to when a foreign document gives it up
+ * (D-130).
+ */
+const EDITOR_CONTAINER_SELECTOR = ".excalidraw";
 
 /**
  * The host of the panel overlay.
@@ -171,6 +184,14 @@ type PanelOverlayProps = {
    * request and the extension runs the code.
    */
   run?: PanelRunControls;
+  /**
+   * The host's controls for a panel's **captions** (D-129).
+   *
+   * The library asks; the host fetches — a browser cannot read YouTube's
+   * captions, so the bridge does it. Without this prop the panel still shows
+   * the video: the video never needed the bridge.
+   */
+  captions?: PanelCaptionControls;
   /**
    * The host is a **read-only mirror** — the presenter.
    *
@@ -1843,6 +1864,157 @@ const MediaPanelSurface = ({
 };
 
 /**
+ * The **YouTube** panel: an iframe of YouTube's own player (D-128).
+ *
+ * The panel holds a **video id**, and the embed URL is built from it in one
+ * place (`youtubeEmbedUrl`). Nothing here talks to YouTube's pages: an iframe
+ * is the **supported** way to play a YouTube video in a web page, so there is
+ * no endpoint to call, no markup to parse and no signature to compute — and
+ * nothing of ours can rot when YouTube changes something.
+ *
+ * ## The focus (D-130)
+ *
+ * An iframe is different from every other panel's content: clicking it moves
+ * the focus into **YouTube's document**, and the whiteboard's keyboard (Ctrl+V,
+ * the arrow keys, Delete) stops reaching the canvas while it does. So the
+ * iframe **borrows** the focus and gives it back — the same rule the sidebar
+ * already follows (D-73): the canvas takes the focus back when the pointer
+ * leaves the panel, and the iframe's focus is blurred.
+ *
+ * A foreign document may borrow the focus, never keep it.
+ */
+const YoutubePanelSurface = ({
+  panel,
+  source,
+  captions,
+}: {
+  panel: ExcalidrawPanelElement;
+  source: YoutubePanelSource;
+  /** the host's caption controls (D-129) */
+  captions?: PanelCaptionControls;
+}) => {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const state = readYoutubePanelState(panel.panel);
+
+  /**
+   * The captions are asked for **once**, when the panel appears (D-129).
+   *
+   * The library does not fetch them: the **host** asks the bridge, and the
+   * bridge answers with one of the three tiers. Without the host the panel
+   * still shows the video — the video never needed the bridge.
+   *
+   * The effect may run **twice** — React's development mode runs it twice on
+   * purpose — and the captions of a video are read once: the second ask would
+   * be a second call to YouTube for the same thing.
+   */
+  const askedForRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (askedForRef.current === source.videoId) {
+      return;
+    }
+
+    askedForRef.current = source.videoId;
+
+    captions?.onRequest?.(panel.id, source.videoId);
+  }, [captions, panel.id, source.videoId]);
+
+  /**
+   * The focus goes back to the canvas when the pointer leaves (D-130).
+   *
+   * The pointer's position is compared with the iframe's **rect**, the way the
+   * sidebar does it (D-73): an element with `pointer-events: none` is never
+   * returned by `elementFromPoint`, so the rect is the honest test.
+   *
+   * The focus is only taken back when the iframe **holds** it — the teacher's
+   * own typing is never interrupted.
+   */
+  useEffect(() => {
+    const onPointerMove = (event: PointerEvent) => {
+      const frame = iframeRef.current;
+
+      if (!frame || document.activeElement !== frame) {
+        return;
+      }
+
+      const rect = frame.getBoundingClientRect();
+      const inside =
+        event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top &&
+        event.clientY <= rect.bottom;
+
+      if (inside) {
+        return;
+      }
+
+      // the pointer has left the panel: the canvas takes the focus back, and
+      // the iframe's own focus is blurred (D-130)
+      frame.blur();
+      frame.contentWindow?.blur();
+      frame
+        .closest<HTMLElement>(EDITOR_CONTAINER_SELECTOR)
+        ?.focus({ preventScroll: true });
+    };
+
+    document.addEventListener("pointermove", onPointerMove, true);
+
+    return () => {
+      document.removeEventListener("pointermove", onPointerMove, true);
+    };
+  }, []);
+
+  /**
+   * Which tier answered (D-129).
+   *
+   * The panel says it, so the teacher is never left guessing why a video has
+   * no text — and the reason travels with the answer.
+   */
+  const tier = state?.tier ?? null;
+  const note =
+    tier === "api"
+      ? t("labels.panel.youtube.captionsFromApi")
+      : tier === "public"
+      ? t("labels.panel.youtube.captionsFromPublic")
+      : tier === "none"
+      ? // the reason says it all — "no captions: the API key is not set" — and
+        // it is only shown on its own when it is missing
+        state?.reason || t("labels.panel.youtube.noCaptions")
+      : null;
+
+  return (
+    <div
+      className="excalidraw__panel-youtube"
+      data-testid="panel-youtube"
+      data-panel-kind={panel.panelKind}
+    >
+      <iframe
+        ref={iframeRef}
+        className="excalidraw__panel-youtube-frame"
+        data-testid="panel-youtube-embed"
+        data-video-id={source.videoId}
+        src={youtubeEmbedUrl(source.videoId)}
+        title={t("labels.panel.youtube.title")}
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowFullScreen
+        // the iframe is focusable so that the focus can be **given back**: a
+        // foreign document may borrow the focus, never keep it (D-130)
+        tabIndex={-1}
+      />
+      {note ? (
+        <div
+          className="excalidraw__panel-youtube-note"
+          data-testid="panel-youtube-captions"
+          data-caption-tier={tier}
+        >
+          {note}
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
+/**
  * The live surface of a panel.
  *
  * The foundation wave ships a **minimal but real** surface for every kind, so
@@ -1861,6 +2033,7 @@ const PanelSurface = ({
   mirror,
   draft,
   run,
+  captions,
 }: {
   panel: ExcalidrawPanelElement;
   files: BinaryFiles;
@@ -1877,6 +2050,8 @@ const PanelSurface = ({
   draft?: PanelDraftControls;
   /** the host's controls for the Run control (D-124) */
   run?: PanelRunControls;
+  /** the host's controls for the panel's captions (D-129) */
+  captions?: PanelCaptionControls;
 }) => {
   // the source, widened: a panel may name media in the host's store (D-95)
   const source = panelSource(panel);
@@ -1892,6 +2067,12 @@ const PanelSurface = ({
         draft={draft}
         run={run}
       />
+    );
+  }
+
+  if (source.type === "youtube") {
+    return (
+      <YoutubePanelSurface panel={panel} source={source} captions={captions} />
     );
   }
 
@@ -2000,6 +2181,7 @@ const Panel = ({
   mirror,
   draft,
   run,
+  captions,
 }: {
   panel: ExcalidrawPanelElement;
   files: BinaryFiles;
@@ -2017,6 +2199,8 @@ const Panel = ({
   draft?: PanelDraftControls;
   /** the host's controls for the Run control (D-124) */
   run?: PanelRunControls;
+  /** the host's controls for the panel's captions (D-129) */
+  captions?: PanelCaptionControls;
 }) => {
   const { zoom, scrollX, scrollY } = camera;
 
@@ -2135,6 +2319,7 @@ const Panel = ({
           mirror={mirror}
           draft={draft}
           run={run}
+          captions={captions}
         />
         {pending ? (
           // the editor steps back while its picture is in focus (D-116)
@@ -2192,6 +2377,7 @@ const PanelOverlayImpl = ({
   mirror,
   draft,
   run,
+  captions,
 }: PanelOverlayProps) => {
   if (panels.length === 0) {
     return null;
@@ -2219,6 +2405,7 @@ const PanelOverlayImpl = ({
           mirror={mirror}
           draft={draft}
           run={run}
+          captions={captions}
         />
       ))}
     </div>
@@ -2247,7 +2434,8 @@ const areEqual = (prev: PanelOverlayProps, next: PanelOverlayProps) =>
   prev.onToggleView === next.onToggleView &&
   prev.screenshot === next.screenshot &&
   prev.draft === next.draft &&
-  prev.run === next.run;
+  prev.run === next.run &&
+  prev.captions === next.captions;
 
 export const PanelOverlay = React.memo(PanelOverlayImpl, areEqual);
 

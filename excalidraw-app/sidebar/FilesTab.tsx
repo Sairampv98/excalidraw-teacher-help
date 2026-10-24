@@ -26,6 +26,7 @@ import {
   browserCanPlayVideo,
   insertVideoPanel,
 } from "./videoPanel";
+import { insertYoutubePanel, youtubeVideoId } from "./youtubePanel";
 import {
   FILE_ACCEPT,
   directoriesAt,
@@ -216,6 +217,13 @@ export const FilesTab = () => {
    */
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /**
+   * The YouTube link the teacher pasted (D-128).
+   *
+   * The panel holds the **video id**, and the link is read into it — no page is
+   * fetched and no markup is parsed.
+   */
+  const [youtubeLink, setYoutubeLink] = useState("");
 
   // a stash armed here must not survive the tab going away, or a later click
   // on the canvas would paste an image nobody asked for
@@ -315,6 +323,30 @@ export const FilesTab = () => {
     // allow re-picking the same file
     event.target.value = "";
   }, []);
+
+  /**
+   * The teacher pasted a YouTube link, and the panel is made from it (D-128).
+   *
+   * The link is read into a **video id** and nothing else: no page is fetched
+   * and no markup is parsed. A link that carries no id is refused with the
+   * reason, because a panel that shows nothing says nothing about why.
+   */
+  const onAddYoutube = useCallback(() => {
+    const videoId = youtubeVideoId(youtubeLink);
+
+    if (!api) {
+      return;
+    }
+
+    if (!videoId) {
+      setNotice(t("labels.panel.youtube.notALink"));
+      return;
+    }
+
+    insertYoutubePanel(api, { videoId });
+    setYoutubeLink("");
+    setNotice(null);
+  }, [api, youtubeLink]);
 
   const enterDirectory = useCallback(
     (name: string) => {
@@ -753,6 +785,31 @@ export const FilesTab = () => {
           onClick={() => folderInputRef.current?.click()}
         >
           Open folder
+        </button>
+      </div>
+
+      {/* The YouTube video: a link, and a panel that plays it (D-128). */}
+      <div className="app-sidebar-youtube">
+        <input
+          type="text"
+          className="app-sidebar-input"
+          placeholder={t("labels.panel.youtube.linkPlaceholder")}
+          aria-label={t("labels.panel.youtube.linkPlaceholder")}
+          value={youtubeLink}
+          onChange={(event) => setYoutubeLink(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              onAddYoutube();
+            }
+          }}
+        />
+        <button
+          type="button"
+          className="app-sidebar-secondary"
+          onClick={onAddYoutube}
+        >
+          {t("labels.panel.youtube.add")}
         </button>
       </div>
 
