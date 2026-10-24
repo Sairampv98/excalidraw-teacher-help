@@ -1,9 +1,14 @@
 /**
- * The **YouTube panel**: the embed, and the focus it borrows (D-128, D-130).
+ * The **YouTube panel**: the embed, the focus it borrows (D-128, D-130), and
+ * the shape of the panel it lives in (D-131, D-132).
  *
  * The rows named in the test titles are the rows of SPEC.md — the kit's SPEC
  * lint reads this file and fails if a row id is missing.
  */
+
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
@@ -27,6 +32,15 @@ const VIDEO_ID = "dQw4w9WgXcQ";
 const DISPLAY_WIDTH = 480;
 const DISPLAY_HEIGHT = 270;
 
+/**
+ * The reason the extension gives when a video has no captions (D-129).
+ *
+ * It is a **sentence**, and it is the one the note has to carry: the line says
+ * what fits and the tooltip says it all (D-132).
+ */
+const REASON =
+  "no captions: the YouTube API key is not set and the public timedtext endpoint gave nothing back. Set excalidraw-bridge.youtubeApiKey to read them";
+
 /** a YouTube panel, holding only the video id */
 const youtubePanel = (overrides: Record<string, unknown> = {}) =>
   API.createElement({
@@ -47,6 +61,75 @@ const embed = () =>
   document.querySelector(
     '[data-testid="panel-youtube-embed"]',
   ) as HTMLIFrameElement | null;
+
+/** the panel's caption note, once it is on the page */
+const captionNote = () =>
+  document.querySelector(
+    '[data-testid="panel-youtube-captions"]',
+  ) as HTMLElement | null;
+
+/** the stylesheet the panel's rules live in */
+const stylesheet = () =>
+  readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "..", "css", "styles.scss"),
+    "utf8",
+  );
+
+/** the body of one rule of the stylesheet, by its selector */
+const rule = (selector: string): string => {
+  const css = stylesheet();
+  const start = css.indexOf(selector);
+
+  if (start < 0) {
+    return "";
+  }
+
+  const open = css.indexOf("{", start);
+  const close = css.indexOf("}", open);
+
+  return css.slice(open + 1, close);
+};
+
+/**
+ * The row the note took of the panel, when the note was in the flow.
+ *
+ * The wave 5s live pass measured it in the browser on 2026-10-24: the reason
+ * wrapped to five lines of 12px text at the panel's width, and the row it took
+ * was 130 of the panel's 270 - so the iframe was 480x140, a 3.45:1 box, and
+ * YouTube's own player filled it and stretched the video.
+ *
+ * The row is a **screen** height (the note's text is a screen size), so what it
+ * costs in scene units depends on the zoom. The defect does not: a note in the
+ * flow always takes a row of the panel, and the player is never 16:9 again.
+ */
+const NOTE_ROW_HEIGHT = 130;
+
+/**
+ * The geometry the stylesheet gives the panel (D-131).
+ *
+ * jsdom has no layout, so the numbers are computed from the rules themselves:
+ * the panel is 480x270 - 16:9, the aspect YouTube's own player renders at. An
+ * inset frame IS the panel's box; a note in the flow takes a row of the panel
+ * and the frame gets what is left.
+ */
+const panelGeometry = () => {
+  const frameRule = rule("&__panel-youtube-frame");
+  const noteRule = rule("&__panel-youtube-note");
+
+  const frameFillsThePanel =
+    /position:\s*absolute/.test(frameRule) && /inset:\s*0/.test(frameRule);
+
+  return {
+    frame: {
+      width: DISPLAY_WIDTH,
+      height: frameFillsThePanel
+        ? DISPLAY_HEIGHT
+        : DISPLAY_HEIGHT - NOTE_ROW_HEIGHT,
+    },
+    // the note is out of the flow: it takes no row of the panel
+    noteTakesRow: !/position:\s*absolute/.test(noteRule),
+  };
+};
 
 describe("the youtube panel", () => {
   it("AC-168 the panel renders the youtube embed for the video id it holds", async () => {
@@ -196,5 +279,98 @@ describe("the youtube panel", () => {
 
     expect(container).not.toBeNull();
     expect(document.activeElement).toBe(container);
+  });
+
+  it("AC-171 the youtube iframe fills the whole panel", async () => {
+    // the panel holds a video AND a note: the note is what used to take a row
+    // of the panel and squeeze the player into a 3.45:1 box
+    const panel = youtubePanel({
+      panel: youtubePanelContent({
+        videoId: VIDEO_ID,
+        tier: "none",
+        reason: REASON,
+      }),
+    });
+
+    await render(
+      <Excalidraw
+        initialData={{
+          elements: [panel] as unknown as ExcalidrawElement[],
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    const frame = embed();
+
+    expect(frame).not.toBeNull();
+
+    // the iframe is in the panel's surface
+    const surface = document.querySelector('[data-testid="panel-youtube"]');
+
+    expect(surface).not.toBeNull();
+    expect(surface!.contains(frame)).toBe(true);
+
+    // and the geometry the stylesheet gives it: the frame IS the panel's box -
+    // 480x270, 16:9, the aspect YouTube's own player renders at - and the note
+    // takes no row of it (D-131)
+    expect(
+      panelGeometry(),
+      "the youtube iframe must fill the panel (480x270, 16:9): a note in the flow takes a row of the panel and leaves the iframe 480x140 - a 3.45:1 box, and YouTube's own player is stretched by it",
+    ).toEqual({
+      frame: { width: DISPLAY_WIDTH, height: DISPLAY_HEIGHT },
+      noteTakesRow: false,
+    });
+  });
+
+  it("AC-171 the caption note overlays the video and carries the whole reason as its tooltip", async () => {
+    const panel = youtubePanel({
+      panel: youtubePanelContent({
+        videoId: VIDEO_ID,
+        tier: "none",
+        reason: REASON,
+      }),
+    });
+
+    await render(
+      <Excalidraw
+        initialData={{
+          elements: [panel] as unknown as ExcalidrawElement[],
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    const note = captionNote();
+
+    expect(note).not.toBeNull();
+
+    // out of the flow: the note overlays the video's top edge and takes no row
+    // of the panel. A note in the flow takes 130 of the panel's 270 units and
+    // leaves the iframe 480x140 - a 3.45:1 box (D-131)
+    expect(
+      panelGeometry().noteTakesRow,
+      "the caption note must overlay the video's top edge: a note in the flow takes a row of the panel (480x130 of the 270) and leaves the iframe 480x140 - a 3.45:1 box, and the video is stretched",
+    ).toBe(false);
+
+    const noteRule = rule("&__panel-youtube-note");
+
+    expect(noteRule).toMatch(/position:\s*absolute/);
+    expect(noteRule).toMatch(/top:\s*0/);
+
+    // ONE line: what does not fit is an ellipsis, so five lines of the reason
+    // never cover a third of the video (D-132)
+    expect(noteRule).toMatch(/white-space:\s*nowrap/);
+    expect(noteRule).toMatch(/text-overflow:\s*ellipsis/);
+
+    // the note is rendered after the frame, so it paints over it (D-131)
+    expect(note!.previousElementSibling).toBe(embed());
+
+    // the WHOLE reason is the tooltip, and the line carries the short truth -
+    // the beginning of the reason, which is the part that matters (D-132)
+    expect(note!.getAttribute("title")).toBe(REASON);
+    expect(note!.textContent).toBe(REASON);
   });
 });
