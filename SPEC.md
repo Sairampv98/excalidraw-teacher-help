@@ -638,3 +638,89 @@ The first two are the owner's explicit approvals of two things that would otherw
 | D-132 | the caption note is **one line**, and the whole reason is its **tooltip** | locked | The reason is a **sentence** - "no captions: the YouTube API key is not set and the public timedtext endpoint gave nothing back. Set excalidraw-bridge.youtubeApiKey to read them" - and at the panel's width it is **five lines**. Five lines of overlay would cover a third of the video, so the note is **one line with an ellipsis**, and the **whole** reason is the note's `title`: the tooltip says it all, the line says what fits. The rule: **a long reason is shown in the tooltip, and the line carries the short truth** - and the short truth here is the beginning of the reason, which is the part that matters ("no captions: the YouTube API key is not set..."). |
 | D-133 | a panel never shows a **stale** connection: the connection line is replaced by the **truth** | locked | The connection line is a **status**, and a status is the truth **now** - but the status rides in the panel's payload, and the payload is **saved with the document**. So a document saved while the bridge was connected comes back with a line that says _"Connected to Visual Studio Code (my-todo-app, bridge 0.1.0)."_ on a machine where nothing is connected, and the teacher waits for a live window that is never coming. The rule: **the app writes its truth into the panels when it starts and whenever the connection changes** - so a panel that is not connected says **"not connected"**, whatever the document remembers. The saved line is history; the panel's line is the truth. |
 | D-134 | the panel's OCR sentence names the engine the panel will **use**, not the extension's default | locked | The panel's engine picker (D-118) is the teacher's choice **for this panel**, and the panel sends that engine with every OCR request - so the engine that **runs** is the one the teacher picked. But the sentence under the row was built from the engine the **extension** reported in `ocr:state`, which is the extension's own setting (`excalidraw-bridge.ocrEngine`) - and that setting is only the **fallback** for a machine with no picker at all. So the panel could show `indra` in the picker and name `paddle` in the sentence, and the teacher would believe the slow engine runs (27,822 ms against 147 ms on this box). The rule: **the panel says what will happen** - the sentence names the engine the panel will use, which is the teacher's choice when there is one. |
+| D-135 | a panel's **actions** live in the properties panel, and the picture never covers them | locked | A button drawn **inside** the panel overlay is a button on top of a picture, and on a YouTube panel the picture is an **iframe**: a foreign document that takes the click and gives it to YouTube. The button is visible and dead, and a teacher cannot tell a dead button from a broken one. The properties panel (`Panel / Kind / State / Live`) is ordinary DOM beside the canvas, so a button there always works. The rule: **the panel's actions belong to the panel's properties, not to the panel's picture** - the camera, the read and the crop are choices about a panel, and a choice about a panel belongs where the panel's other choices are. |
+| D-136 | the bridge box is **not** drawn over the picture | locked | The bridge box (the token field and the Connect button) was drawn inside the panel overlay, so it covered the VS Code editor and the live window - the very things the teacher is looking at. The connection is a property of the **panel**, so the box belongs in the properties panel with the rest of them. The rule: **the chrome never covers the picture it describes.** |
+| D-137 | the crop and the read are **one** action, and the engine is chosen by what the machine can actually do | locked | The owner asked for both in one breath: *"maybe we should combine the cropping and the ocr together, default uses tessaract, with vscode/vscodium bridge it can use indra and if nothing works they can use paddle"*. So the read takes the **cropped region** - one action, not two - and the engine is a **ladder**, not a setting the teacher has to know about: **indra** when the bridge is connected (147 ms on this box), **tesseract** when it is not (278 ms, and it needs nothing but the browser), and **paddle** only as the last resort (27,822 ms - and it is the one that needs the Python sidecar). The ladder walks itself and says which engine ran and why the one before it did not. The rule: **a teacher should never have to choose an engine; the machine chooses, and says what it chose.** |
+| D-138 | a slow read is **visible**: the panel says it is reading, and the teacher is not left with a dead button | locked | PaddleOCR on this box takes **27,822 ms** - nearly half a minute - and a button that does nothing for half a minute looks exactly like a button that is broken (which is what the owner reported). So a read that is running shows a **loading state**: the control says it is reading, and it can be **cancelled**. The rule: **an action that takes time says so while it takes it.** |
+| D-139 | the crop really **crops**: the handles change the picture that is placed | locked | The owner saw the crop handles and could not move them: *"cropping of images doesnot seem to work i can see the handles to crop the image but not do anything to it"*. A crop that is drawn but does not change the picture is a **promise the panel does not keep**, and the picture that lands on the canvas is the uncropped one. So the handles **are** the crop: dragging one changes the region, the region is what is read and what is placed, and one step takes the crop back (D-116). The rule: **a handle that cannot be moved must not be drawn; a handle that can be moved must change the result.** |
+| D-140 | the placement flows are in the owner's **order**, and the picture hands the canvas back when it is placed | locked | The owner wrote the three flows out: *(crop image) -> insert image in this page -> (crop image) -> select where the screenshot goes to*, and the popup must **vanish** and return to the canvas; *(crop image) -> read text in this cropped region -> select where the extracted text goes to*; and *(crop image) -> insert image in another page -> select the page (through the page selecter ribbon) -> (crop image) -> select where the screenshot goes to*. So the **crop comes first**, the target is chosen **after** it, and the flow that writes **text** asks where the **text** goes - not where the picture would go. The wireframe ("the screenshot goes here") is a **guide on the canvas**, so it must not compete with the panels in the same z-plane (D-116): it is above them and the canvas is dimmed behind it. The rule: **the teacher chooses the target last, and a finished placement gives the canvas back.** |
+| D-141 | the presenter view **works**, and it is the same canvas the teacher is teaching | locked | The owner reported, with the failure in a screenshot, that *"somehow the presenter view is dead"*. A presenter view that does not open, or opens onto a different canvas than the teacher's, is worse than none: the teacher's students see something else. So the presenter view opens, shows the **same** scene and the **same** page, and its own controls work. The rule: **the presenter view is the teacher's canvas, seen by someone else.** |
+| D-142 | the live editor is a **real editor**: the text can be selected, copied as a code block, and read in the language the teacher chooses | locked | The owner: *"the live editor is weird i can see the text from the connection to vscode/vscodium scroll through that text, cannot select that text and paste it as a codeblock (same as when i select copy code or use the insert as code block in the markdown viewer), nor select the programming language of my choice"*. So the mirrored text is **read-only** and the teacher can do nothing with it: not select it, not copy it as a code block, not read it as a chosen language, and not zoom into it for a long file. The rule: **text the teacher can see is text the teacher can take.** |
+| D-143 | the teacher chooses **what** is mirrored, and the choice can follow the cursor | locked | The owner: *"why is the vscode/vscodium what i want section from the vscode that i want to mirror to the canvas option not available? i.e; it should show me the full vscode window (same as when i take a screenshot - only when i click change what is mirrored button or something) and i crop the section i want mirrored (i should be able to edit it as many times as possible, and maybe it can even have a follow the cursor option that dynamically moves the mirrored section based on the position of the mouse that is being moved inside the panel)"*. So the panel mirrors the **whole** window, and there is no way to say *"this part"*. The rule: **what is mirrored is a choice, and a choice can be changed as often as the teacher changes their mind.** The follow-the-cursor option is a **mode**, not a one-off: the region follows the pointer inside the panel, and the teacher can turn it off. |
+| D-144 | a page has a **frame**, a **number**, and a **size** | locked | The owner's answer, and the model for it is Microsoft Word's: *"pages visible frame can be toggled on/off with a page number etc (the same options one gets in the microsoft word, header/fotter -> page number thingy), ok include presets for width and height. (this should help the export page as now the format in which the text appears would be different based on the preset selected)"*. So a page may be drawn with a visible **frame**, may carry a **page number**, and has a **size** the teacher picks - from **presets** (A4, Letter, 16:9, ...) or by hand - and the preset changes the **export**, because the text in a 16:9 page is not the text in an A4 page. The rule: **the page's shape is a fact about the page, and the export must honour it.** |
+| D-145 | the virtual display and the **input panel** are built | locked | The owner approved this: *"yes work on the virtual display+input panel"*. The idea: a **virtual display** - a screen the teacher can show on a projector without occupying the real desktop - and an **input panel** beside it, so the teacher's controls for the virtual screen are not on the virtual screen. The rule: **the screen the students see and the controls the teacher uses are different surfaces.** |
+
+## Acceptance — Waves 6b to 6h (the owner's review of 2026-10-24)
+
+The owner's review of 2026-10-24 is recorded in full, with the diagnosis for each item, in
+`docs/tins-tasks/2026-10-24-owner-review-2.md`. The decisions are already written down: the pages
+get a frame, a number and **presets** (D-144), and the virtual display + input panel is **approved**
+(D-145).
+
+Each wave below has **its own section**, and each wave adds **its own row** to its own section - so
+the waves can be built side by side and the SPEC merges cleanly.
+
+### Wave 6b — one crop-and-read action, and the engine ladder
+
+The owner asked for both in one breath: *"maybe we should combine the cropping and the ocr together,
+default uses tessaract, with vscode/vscodium bridge it can use indra and if nothing works they can
+use paddle put in a loading animation so they know when to expexct the text to be come visible
+again."* So the read takes the **cropped** region - one action, not two - the engine is a **ladder**
+the machine walks by itself (D-137), and a slow read says so while it happens (D-138). The
+acceptance row for this wave is **AC-174**.
+
+| Row | The acceptance | Check | Detail |
+| --- | --- | --- | --- |
+
+### Wave 6c — the crop really crops, and the placement flows are in the owner's order
+
+*"cropping of images doesnot seem to work i can see the handles to crop the image but not do anything
+to it"*, and the three placement flows written out in full: the crop first, the target last, and the
+popup must vanish and hand the canvas back (D-139, D-140). The acceptance rows for this wave are
+**AC-175** and **AC-176**.
+
+| Row | The acceptance | Check | Detail |
+| --- | --- | --- | --- |
+
+### Wave 6d — the presenter view works
+
+*"somehow the presenter view is dead this is what the failure is about"* - the presenter view is the
+teacher's canvas, seen by someone else (D-141). The acceptance row for this wave is **AC-177**.
+
+| Row | The acceptance | Check | Detail |
+| --- | --- | --- | --- |
+
+### Wave 6e — the live editor is a real editor
+
+*"the live editor is weird ... cannot select that text and paste it as a codeblock ... nor select the
+programming language of my choice, zoom in/ zoom out both the page and inside the editor"* (D-142).
+The acceptance row for this wave is **AC-178**.
+
+| Row | The acceptance | Check | Detail |
+| --- | --- | --- | --- |
+
+### Wave 6f — what is mirrored, and follow the cursor
+
+*"why is the vscode/vscodium what i want section ... not available? ... i crop the section i want
+mirrored (i should be able to edit it as many times as possible, and maybe it can even have a follow
+the cursor option)"* (D-143). The acceptance row for this wave is **AC-179**.
+
+| Row | The acceptance | Check | Detail |
+| --- | --- | --- | --- |
+
+### Wave 6g — a page has a frame, a number and a size
+
+The owner's decision: *"pages visible frame can be toggled on/off with a page number etc (the same
+options one gets in the microsoft word, header/fotter -> page number thingy), ok include presets for
+width and height"* (D-144). The acceptance row for this wave is **AC-180**.
+
+| Row | The acceptance | Check | Detail |
+| --- | --- | --- | --- |
+
+### Wave 6h — the virtual display and the input panel
+
+*"yes work on the virtual display+input panel"* - the screen the students see and the controls the
+teacher uses are different surfaces (D-145). The acceptance row for this wave is **AC-181**.
+
+| Row | The acceptance | Check | Detail |
+| --- | --- | --- | --- |
