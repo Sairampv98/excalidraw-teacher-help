@@ -1,6 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import { syncInvalidIndices } from "@excalidraw/element";
+import { isPanelElement, syncInvalidIndices } from "@excalidraw/element";
 
 import { captureVideoFrame, getVideoSurface } from "@excalidraw/excalidraw";
 
@@ -50,12 +50,33 @@ export const OCR_READING_MESSAGE = "Reading the text…";
 /**
  * The sentence that says which engine is in use.
  *
+ * The engine named is the one the panel will **use** (D-134): the engine the
+ * teacher picked for that panel, or - when there is no picker at all - the
+ * engine the extension reported in `ocr:state`.
+ *
+ * The extension's own setting is only the **fallback** for a machine with no
+ * picker (D-118): with a picker, the panel sends the chosen engine with every
+ * request, so the engine that **runs** is the one the teacher picked, and the
+ * sentence has to name that one.
+ *
  * An engine that is not there is **said**, with the reason: the teacher has to
  * be able to fix it (D-91).
  */
-export const ocrEngineMessage = (state: OcrEngineState | null): string => {
+export const ocrEngineMessage = (
+  state: OcrEngineState | null,
+  engine?: OcrEngineName | null,
+): string => {
   if (!state) {
     return OCR_IDLE_MESSAGE;
+  }
+
+  if (engine) {
+    // the reason is about the engine that will run, so it is kept (D-91)
+    if (state.state === "unavailable" && engine === state.engine) {
+      return state.reason ?? "The OCR engine is not available.";
+    }
+
+    return `${OCR_IDLE_MESSAGE} (engine: ${engine})`;
   }
 
   if (state.state === "unavailable") {
@@ -171,6 +192,67 @@ export const useOcr = ({
   );
 
   /**
+   * The panel whose row carries the sentence (D-134).
+   *
+   * The chrome is drawn for the **selected** panel, so the sentence under the
+   * "Read the text" button belongs to that panel - and it has to name the
+   * engine **that** panel will read with.
+   */
+  const [activePanelId, setActivePanelId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const current = api;
+
+    if (!current?.onChange) {
+      return;
+    }
+
+    /**
+     * The selection the app last saw.
+     *
+     * The app state's selection object is a **new** object exactly when the
+     * selection changed, so the scene is only walked when it really changed -
+     * and a scroll, which changes the app state on every frame, costs nothing.
+     */
+    let lastSelection: Record<string, boolean> | null = null;
+
+    const readSelection = () => {
+      const selected = current.getAppState()?.selectedElementIds;
+
+      if (!selected || selected === lastSelection) {
+        return;
+      }
+
+      lastSelection = selected;
+
+      const panelId = Object.keys(selected).find((elementId) =>
+        isPanelElement(
+          current
+            .getSceneElements()
+            .find((element) => element.id === elementId),
+        ),
+      );
+
+      setActivePanelId(panelId ?? null);
+    };
+
+    readSelection();
+
+    return current.onChange(readSelection);
+  }, [api]);
+
+  /**
+   * The engine the panel will read with (D-134).
+   *
+   * It is the teacher's choice for that panel, or the fastest measured engine
+   * when they chose none (D-118). The extension's own setting is only the
+   * fallback for a machine with no picker, so it is never named here.
+   */
+  const activeEngine = activePanelId
+    ? engineFor(activePanelId)
+    : DEFAULT_PANEL_OCR_ENGINE;
+
+  /**
    * The sentence the panel shows.
    *
    * It is the read's own sentence when there was one, and otherwise the
@@ -179,7 +261,7 @@ export const useOcr = ({
    */
   const message = busy
     ? OCR_READING_MESSAGE
-    : readMessage ?? ocrEngineMessage(engineState);
+    : readMessage ?? ocrEngineMessage(engineState, activeEngine);
 
   /**
    * Reads a picture and puts the lines back where they were read from.

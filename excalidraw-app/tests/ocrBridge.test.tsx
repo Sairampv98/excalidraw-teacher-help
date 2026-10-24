@@ -5,6 +5,10 @@
  * AC-73: the OCR request carries the ROI region, and the result places
  *        PER-LINE text elements over the crop.
  *
+ * AC-173: the panel's sentence names the engine the panel will **use** - the
+ *         one the teacher picked - and not the extension's own default
+ *         (D-134).
+ *
  * The rows named in the test titles are the rows of SPEC.md — the kit's SPEC
  * lint reads this file and fails if a row id is missing.
  */
@@ -13,7 +17,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import React from "react";
 
-import { act, render, waitFor } from "@testing-library/react";
+import { act, render, renderHook, waitFor } from "@testing-library/react";
 
 import type { ExcalidrawElement } from "@excalidraw/element/types";
 
@@ -25,6 +29,7 @@ import { dataUrlToBase64, ocrTextElements } from "../bridge/ocrPlacement";
 import { createOcrClient } from "../../packages/vscode-bridge/bridge/src/ocrClient";
 
 import type {
+  OcrEngineState,
   OcrRequest,
   OcrResult,
 } from "../../packages/vscode-bridge/bridge/src/ocr";
@@ -54,9 +59,15 @@ const LINES = [
  *
  * The hook needs an API; this one keeps the elements in a variable, so the
  * test can look at what the app put on the canvas.
+ *
+ * The selection is part of the API too: the panel's chrome is drawn for the
+ * **selected** panel, so the sentence under the "Read the text" button belongs
+ * to that panel (D-134).
  */
-const scene = () => {
+const scene = (selectedElementIds: Record<string, boolean> = {}) => {
   const state: { elements: ExcalidrawElement[] } = { elements: [] };
+
+  const listeners: (() => void)[] = [];
 
   const api = {
     getSceneElements: () => state.elements,
@@ -66,10 +77,25 @@ const scene = () => {
       }
     },
     getFiles: () => ({}),
-    getAppState: () => ({ currentItemStrokeColor: "#1e1e1e" }),
+    getAppState: () => ({
+      currentItemStrokeColor: "#1e1e1e",
+      selectedElementIds,
+    }),
+    // the app hears about the scene and the app state changing (D-134)
+    onChange: (callback: () => void) => {
+      listeners.push(callback);
+
+      return () => {
+        const index = listeners.indexOf(callback);
+
+        if (index >= 0) {
+          listeners.splice(index, 1);
+        }
+      };
+    },
   } as unknown as ExcalidrawImperativeAPI;
 
-  return { api, state };
+  return { api, state, listeners };
 };
 
 describe("the app's OCR", () => {
@@ -181,6 +207,46 @@ describe("the app's OCR", () => {
     expect(first.y).toBeCloseTo(920 * (PLACEMENT.height / IMAGE.height));
     expect(second.x).toBeCloseTo(60 * (PLACEMENT.width / IMAGE.width));
     expect(second.y).toBeCloseTo(960 * (PLACEMENT.height / IMAGE.height));
+  });
+
+  it("AC-173 the OCR sentence names the engine the panel picked, not the extension's default", async () => {
+    // the extension's own setting - the fallback for a machine with no picker
+    const engineState: OcrEngineState = { state: "ready", engine: "paddle" };
+
+    // the panel the teacher is working on: the chrome is drawn for the
+    // selected panel, so the row's sentence belongs to that panel
+    const { api, state } = scene({ "panel-1": true });
+
+    state.elements = [
+      { id: "panel-1", type: "panel" } as unknown as ExcalidrawElement,
+    ];
+
+    const requestOcr = vi.fn(
+      async (): Promise<OcrResult> => ({
+        id: "ocr-1",
+        text: "",
+        lines: [],
+      }),
+    );
+
+    const { result } = renderHook(() =>
+      useOcr({ api, requestOcr, engineState }),
+    );
+
+    // the panel's own engine - the fastest measured one, until the teacher
+    // picks another (D-118) - and NOT the extension's default (D-134)
+    expect(result.current.message).toContain("indra");
+    expect(result.current.message).not.toContain("paddle");
+
+    // and the picker and the sentence are the same thing: the engine the
+    // teacher picks for this panel is the engine the sentence names
+    act(() => {
+      result.current.selectEngine("panel-1", "tesseract");
+    });
+
+    expect(result.current.engineFor("panel-1")).toBe("tesseract");
+    expect(result.current.message).toContain("tesseract");
+    expect(result.current.message).not.toContain("paddle");
   });
 
   it("AC-122 the panel says which engine is in use, and says why when there is none", () => {
