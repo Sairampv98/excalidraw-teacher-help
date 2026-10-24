@@ -1,7 +1,6 @@
 ---
 id: wave6g-pages-frame-number-presets
-paths: packages/excalidraw,excalidraw-app,SPEC.md
-read: 
+paths: packages/excalidraw,excalidraw-app,SPEC.md,packages/utils
 base: main
 status: open
 ---
@@ -108,4 +107,3 @@ Report the measurements.
 
 **The teeth check** (the kit's rule, and the only proof that matters): revert the fix and the
 AC-180 tests must FAIL. Restore the fix and they must pass again. Report both failures verbatim.
-
