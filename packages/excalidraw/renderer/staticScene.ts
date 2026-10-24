@@ -34,6 +34,8 @@ import {
   getLinkHandleFromCoords,
 } from "../components/hyperlink/helpers";
 
+import { PAGE_NUMBER_FONT_SIZE } from "../scene/pages";
+
 import { bootstrapCanvas, getNormalizedCanvasDimensions } from "./helpers";
 
 import type {
@@ -42,7 +44,7 @@ import type {
 } from "../scene/types";
 import type { StaticCanvasAppState, Zoom } from "../types";
 import type { CanvasBackgroundPattern } from "../types";
-import type { PageRect } from "../types";
+import type { PageDecoration, PageRect } from "../types";
 
 const GridLineColor = {
   [THEME.LIGHT]: {
@@ -80,6 +82,57 @@ const strokePageRect = (
     pageRect.height - borderPx,
   );
   context.restore();
+};
+
+/**
+ * Draws a page's frame and its number (D-144).
+ *
+ * The frame is the page's **own** rectangle, and the number is the page's own
+ * number, in the page's footer - the way Word puts a page number in a footer.
+ *
+ * Both are drawn **over** the content: they belong to the page and not to the
+ * drawing, and a page border is on top of what is printed on the page.
+ */
+const drawPageDecoration = (
+  context: CanvasRenderingContext2D,
+  decoration: PageDecoration,
+  zoom: Zoom,
+  theme: StaticCanvasRenderConfig["theme"],
+  scrollX: number,
+  scrollY: number,
+) => {
+  const color =
+    theme === THEME.DARK ? applyDarkModeFilter("#ffffff") : "#1b1b1f";
+
+  if (decoration.frame) {
+    const { x, y, width, height } = decoration.frame;
+    // two screen pixels, whatever the zoom is
+    const lineWidth = 2 / zoom.value;
+
+    context.save();
+    context.lineWidth = lineWidth;
+    context.strokeStyle = color;
+    // inset by half the stroke, so the whole frame is inside the page
+    context.strokeRect(
+      x + scrollX + lineWidth / 2,
+      y + scrollY + lineWidth / 2,
+      width - lineWidth,
+      height - lineWidth,
+    );
+    context.restore();
+  }
+
+  if (decoration.number) {
+    const { text, x, y } = decoration.number;
+
+    context.save();
+    context.fillStyle = color;
+    context.font = `${PAGE_NUMBER_FONT_SIZE}px sans-serif`;
+    context.textAlign = "center";
+    context.textBaseline = "alphabetic";
+    context.fillText(text, x + scrollX, y + scrollY);
+    context.restore();
+  }
 };
 
 const strokeGrid = (
@@ -594,6 +647,18 @@ const _renderStaticScene = ({
       console.error(error);
     }
   });
+
+  // the page's own frame and number (D-144), drawn over the content
+  if (appState.currentPageDecoration) {
+    drawPageDecoration(
+      context,
+      appState.currentPageDecoration,
+      appState.zoom,
+      renderConfig.theme,
+      appState.scrollX,
+      appState.scrollY,
+    );
+  }
 };
 
 /** throttled to animation framerate */

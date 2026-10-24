@@ -752,7 +752,7 @@ const PageBar = () => {
         title={
           pages.length > 1
             ? `Export all ${pages.length} pages as one multi-page PDF`
-            : "Export this page as a PDF (exactly 1920x1080)"
+            : "Export this page as a PDF (at the page's own size)"
         }
         aria-label="Export all pages as a PDF"
       >

@@ -697,7 +697,8 @@ _"why is the vscode/vscodium what i want section ... not available? ... i crop t
 The owner's decision: _"pages visible frame can be toggled on/off with a page number etc (the same options one gets in the microsoft word, header/fotter -> page number thingy), ok include presets for width and height"_ (D-144). The acceptance row for this wave is **AC-180**.
 
 | Row | The acceptance | Check | Detail |
-| --- | -------------- | ----- | ------ |
+| --- | --- | --- | --- |
+| AC-180 | a page has a **frame**, a **number** and a **size**, and the export honours the size | `packages/excalidraw/tests/pages.test.tsx` | The frame and the number are facts **about the page**, saved with the document (D-144): the frame is the page's own rectangle, the number is the page's own number in the page's footer, and both are toggled from the Page section of the properties panel. The size is chosen from a preset (A4 portrait and landscape, Letter portrait and landscape, 16:9, 4:3 and the project's own 1920x1080) or typed by hand; a preset fixes the page's **shape**, and because a page may only grow (D-1) the shape is scaled up to the minimum page size, so the exported image comes out in the preset's shape. Tests: `AC-180 the page frame can be toggled on and off`, `AC-180 the page number says the page's own number`, `AC-180 a size preset shapes the exported page`. |
 
 ### Wave 6h — the virtual display and the input panel
 

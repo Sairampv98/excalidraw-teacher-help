@@ -2,7 +2,7 @@
 id: wave6g-pages-frame-number-presets
 paths: packages/excalidraw,excalidraw-app,SPEC.md,packages/utils
 base: main
-status: open
+status: merged
 ---
 
 # Wave 6g — a page has a frame, a number and a size

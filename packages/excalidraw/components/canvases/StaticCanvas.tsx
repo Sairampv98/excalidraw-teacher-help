@@ -15,7 +15,7 @@ import type {
   StaticCanvasRenderConfig,
 } from "../../scene/types";
 import type { AppState, StaticCanvasAppState } from "../../types";
-import type { PageRect } from "../../types";
+import type { PageDecoration, PageRect } from "../../types";
 import type { RoughCanvas } from "roughjs/bin/canvas";
 
 type StaticCanvasProps = {
@@ -30,6 +30,8 @@ type StaticCanvasProps = {
   appState: StaticCanvasAppState;
   /** rect of the current page to outline; null when the pages system is off */
   currentPageRect: PageRect | null;
+  /** the current page's frame and number; null when it has neither */
+  currentPageDecoration: PageDecoration | null;
   renderConfig: StaticCanvasRenderConfig;
 };
 
@@ -39,8 +41,12 @@ const StaticCanvas = (props: StaticCanvasProps) => {
 
   // merged in so the page frame reaches `renderStaticScene`
   const appState = useMemo(
-    () => ({ ...props.appState, currentPageRect: props.currentPageRect }),
-    [props.appState, props.currentPageRect],
+    () => ({
+      ...props.appState,
+      currentPageRect: props.currentPageRect,
+      currentPageDecoration: props.currentPageDecoration,
+    }),
+    [props.appState, props.currentPageRect, props.currentPageDecoration],
   );
 
   useEffect(() => {
@@ -127,7 +133,8 @@ const areEqual = (
     // on appState)
     prevProps.elementsMap !== nextProps.elementsMap ||
     prevProps.visibleElements !== nextProps.visibleElements ||
-    prevProps.currentPageRect !== nextProps.currentPageRect
+    prevProps.currentPageRect !== nextProps.currentPageRect ||
+    prevProps.currentPageDecoration !== nextProps.currentPageDecoration
   ) {
     return false;
   }

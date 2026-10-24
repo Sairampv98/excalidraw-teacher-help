@@ -32,7 +32,7 @@ export type PdfPageImage = {
 
 export type BuildPdfOptions = {
   pages: PdfPageImage[];
-  /** PDF page size in points; defaults to the first image's size at 96dpi */
+  /** PDF page size in points; defaults to each image's own size at 96dpi */
   pageWidth?: number;
   pageHeight?: number;
 };
@@ -185,8 +185,6 @@ export const buildPdf = ({
     throw new Error("A PDF needs at least one page");
   }
 
-  const width = pageWidth ?? pages[0].width * POINTS_PER_PIXEL;
-  const height = pageHeight ?? pages[0].height * POINTS_PER_PIXEL;
   const count = pages.length;
 
   const firstPageObj = 3;
@@ -205,6 +203,11 @@ export const buildPdf = ({
   writer.object(2, `<< /Type /Pages /Count ${count} /Kids [${kids}] >>`);
 
   pages.forEach((image, index) => {
+    // every page carries its own size (D-144), so the page box is the page's
+    // own size - an explicit override still wins, for the caller's sake
+    const width = pageWidth ?? image.width * POINTS_PER_PIXEL;
+    const height = pageHeight ?? image.height * POINTS_PER_PIXEL;
+
     writer.object(
       firstPageObj + index,
       `<< /Type /Page /Parent 2 0 R ` +
