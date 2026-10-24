@@ -277,6 +277,7 @@ export const useOcr = ({
       pageId,
       strokeColor = "#000000",
       engine,
+      place = true,
     }: {
       /** the picture to read */
       image: OcrImage;
@@ -288,6 +289,14 @@ export const useOcr = ({
       pageId: string;
       /** the colour of the text */
       strokeColor?: string;
+      /**
+       * Whether the read puts the text on the canvas (D-140).
+       *
+       * `false` for the flow that asks where the **text** goes: the text is
+       * read first, and it is placed afterwards - where the teacher says. The
+       * lines come back either way; only the placement is held back.
+       */
+      place?: boolean;
       /**
        * Which engine to read with (D-118).
        *
@@ -321,7 +330,7 @@ export const useOcr = ({
 
         const current = api;
 
-        if (current && elements.length) {
+        if (place && current && elements.length) {
           current.updateScene({
             elements: syncInvalidIndices([
               ...current.getSceneElements(),

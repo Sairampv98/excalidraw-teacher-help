@@ -2629,6 +2629,10 @@ class App extends React.Component<AppProps, AppState> {
                               width: this.state.width,
                               height: this.state.height,
                             }}
+                            pages={this.state.pages}
+                            onPageChoice={
+                              this.props.panelScreenshot?.onPageChoice
+                            }
                           />
                           <FlowAnimationOverlay
                             elementsMap={allElementsMap}

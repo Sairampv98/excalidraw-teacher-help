@@ -488,8 +488,15 @@ const PanelScreenshotChoices = ({
         minHeight: chrome.choiceStripBoxHeight,
       }}
     >
-      {choice("ocr", "ocr", t("labels.panel.screenshot.ocr"))}
+      {/*
+        The three choices, in the **owner's order** (D-140): the picture goes
+        on this page, the text is read out of the cropped region, the picture
+        goes on another page. The order is the teacher's own - "the 1st option
+        ... the 2nd option ... and finally the 3rd option" - so the strip reads
+        the way the owner said it.
+      */}
       {choice("page", "page", t("labels.panel.screenshot.page"))}
+      {choice("ocr", "ocr", t("labels.panel.screenshot.ocr"))}
       {choice("newPage", "new-page", t("labels.panel.screenshot.newPage"))}
     </div>
   );

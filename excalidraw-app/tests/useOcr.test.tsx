@@ -115,13 +115,20 @@ describe("reading the text out of a picture", () => {
     expect(requestOcr).toHaveBeenCalledTimes(1);
     expect(requestOcr.mock.calls[0][0].imageBase64).toBe("QUJD");
 
-    // and the result landed as ordinary text elements over the picture
+    // and the result landed as ordinary text elements over the picture -
+    // where the **teacher** says, not where the picture would go (D-140)
+    await act(async () => {
+      screenshot.current.place("panel-1", { x: 300, y: 400 });
+    });
+
     const texts = api
       .getSceneElements()
       .filter((element) => element.type === "text");
 
     expect(texts.length).toBe(1);
     expect(texts[0].text).toBe("hello");
+    expect(texts[0].x).toBe(300);
+    expect(texts[0].y).toBe(400);
 
     clearAllPendingScreenshots();
   });

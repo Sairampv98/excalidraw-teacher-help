@@ -244,6 +244,14 @@
       "zoomIn": "Zoom in",
       "zoomOut": "Zoom out"
     },
+    "crop": {
+      "handle": "Crop the picture",
+      "revert": "Revert the crop",
+      "wireframePicture": "The screenshot goes here",
+      "wireframeText": "The text goes here",
+      "pageRibbon": "Which page does the picture go on?",
+      "newPage": "A new page"
+    },
     "pages": {
       "title": "Page",
       "frame": "Show the page's frame",

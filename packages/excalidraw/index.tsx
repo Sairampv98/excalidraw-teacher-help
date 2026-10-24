@@ -551,6 +551,7 @@ export {
   revertPendingScreenshotCrop,
   setPendingScreenshot,
   setPendingScreenshotCrop,
+  setPendingScreenshotStage,
   snapshotUrl,
   subscribePendingScreenshots,
   WHOLE_PICTURE,
@@ -560,7 +561,9 @@ export type {
   PanelScreenshotChoice,
   PanelScreenshotCrop,
   PanelScreenshotPicture,
+  PanelScreenshotPlacing,
   PanelScreenshotSource,
+  PanelScreenshotStage,
 } from "./scene/panelScreenshot";
 
 // the video panel: the payload's video kind, the caption binding, and the

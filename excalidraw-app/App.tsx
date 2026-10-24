@@ -461,6 +461,7 @@ const ExcalidrawWrapper = () => {
   const {
     capture: captureScreenshot,
     choose: chooseScreenshot,
+    choosePage: choosePageScreenshot,
     place: placeScreenshot,
   } = useScreenshot({ api: excalidrawAPI, readOcr });
 
@@ -620,11 +621,19 @@ const ExcalidrawWrapper = () => {
       onChoice: (panelId: string, choice: PanelScreenshotChoice) => {
         void chooseScreenshot(panelId, choice);
       },
+      onPageChoice: (panelId: string, pageId: string | null) => {
+        choosePageScreenshot(panelId, pageId);
+      },
       onPlace: (panelId: string, at: { x: number; y: number }) => {
         placeScreenshot(panelId, at);
       },
     }),
-    [captureScreenshot, chooseScreenshot, placeScreenshot],
+    [
+      captureScreenshot,
+      chooseScreenshot,
+      choosePageScreenshot,
+      placeScreenshot,
+    ],
   );
 
   const [errorMessage, setErrorMessage] = useState("");
