@@ -113,6 +113,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
     panelRun,
     panelCopy,
     panelCaptions,
+    panelMirror,
   } = props;
 
   const canvasActions = props.UIOptions?.canvasActions;
@@ -242,6 +243,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
           panelRun={panelRun}
           panelCopy={panelCopy}
           panelCaptions={panelCaptions}
+          panelMirror={panelMirror}
         >
           {children}
         </App>
@@ -644,10 +646,22 @@ export type {
   PanelCaptionControls,
   PanelCopyControls,
   PanelDraftControls,
+  PanelMirrorControls,
   PanelOcrControls,
   PanelRunControls,
   PanelScreenshotControls,
 } from "./types";
+
+// what is mirrored of the editor's window (D-143): the region, and the mode
+// that moves it
+export type { PanelMirror, PanelMirrorRegion } from "./scene/panelMirror";
+export {
+  INITIAL_PANEL_MIRROR,
+  normalizePanelMirrorRegion,
+  panelMirrorCrop,
+  panelMirrorRegionAtPointer,
+  WHOLE_WINDOW,
+} from "./scene/panelMirror";
 
 // the live video surface: the frame the teacher is looking at, so a host can
 // read the text out of it (D-59)

@@ -9,6 +9,8 @@ import type {
   PanelBridgeControls,
   PanelCaptionControls,
   PanelDraftControls,
+  PanelMirrorControls,
+  PanelMirror,
   PanelRunControls,
 } from "@excalidraw/excalidraw";
 import type {
@@ -706,6 +708,38 @@ export const useBridgePanel = (
     return session.requestOcr(request);
   }, []);
 
+  /**
+   * What is **mirrored** of the editor's window (D-143).
+   *
+   * What is mirrored is a **choice**, and a choice can be changed as often as
+   * the teacher changes their mind - so this can be sent as often as the
+   * teacher likes, and the last one wins.
+   *
+   * The editor's window is still found **by rule** (D-112, D-113): a region
+   * never changes how it is found, it only says which part of it is mirrored.
+   */
+  const onMirrorChange = useCallback((panelId: string, mirror: PanelMirror) => {
+    void panelId;
+
+    const session = sessionRef.current;
+
+    if (!session) {
+      return;
+    }
+
+    session.setMirror({
+      region: mirror.region,
+      follow: mirror.follow,
+    });
+  }, []);
+
+  const panelMirror: PanelMirrorControls = useMemo(
+    () => ({
+      onChange: onMirrorChange,
+    }),
+    [onMirrorChange],
+  );
+
   const bridge: PanelBridgeControls = useMemo(
     () => ({
       status: state.connection,
@@ -734,5 +768,6 @@ export const useBridgePanel = (
     panelDraft,
     panelRun,
     panelCaptions,
+    panelMirror,
   };
 };

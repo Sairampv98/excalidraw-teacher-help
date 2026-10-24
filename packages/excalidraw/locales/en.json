@@ -252,6 +252,17 @@
       "pageRibbon": "Which page does the picture go on?",
       "newPage": "A new page"
     },
+    "mirror": {
+      "change": "Change what is mirrored",
+      "follow": "Follow the cursor",
+      "following": "Stop following the cursor",
+      "picker": "What is mirrored",
+      "apply": "Mirror this region",
+      "wholeWindow": "Mirror the whole window",
+      "cancel": "Cancel",
+      "handle": "Crop the mirrored region",
+      "fetchFailed": "The editor's window could not be fetched - the whole window is mirrored."
+    },
     "pages": {
       "title": "Page",
       "frame": "Show the page's frame",

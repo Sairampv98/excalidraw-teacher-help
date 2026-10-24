@@ -62,6 +62,7 @@ import type { ImportedDataState } from "./data/types";
 import type { Language } from "./i18n";
 import type { isOverScrollBars } from "./scene/scrollbars";
 import type { PanelBridgeStatus } from "./scene/panelContent";
+import type { PanelMirror } from "./scene/panelMirror";
 import type { PanelScreenshotChoice } from "./scene/panelScreenshot";
 import type React from "react";
 import type { JSX } from "react";
@@ -981,6 +982,18 @@ export interface ExcalidrawProps {
   panelScreenshot?: PanelScreenshotControls;
 
   /**
+   * The host app's controls for **what is mirrored** (D-143).
+   *
+   * The library draws the control, the crop and the follow mode, and it keeps
+   * the choice in the panel's payload; the host tells the editor, because the
+   * host is the side that talks to the bridge.
+   *
+   * Without this prop there is no mirror control: the panel mirrors the whole
+   * editor's window, which is the default anyway.
+   */
+  panelMirror?: PanelMirrorControls;
+
+  /**
    * The host app's controls for the code panel's **draft** (D-123).
    *
    * The library draws the editor and reports what the teacher typed; the host
@@ -1198,6 +1211,23 @@ export type PanelScreenshotControls = {
   onPageChoice?: (panelId: string, pageId: string | null) => void;
   /** the teacher clicked the wireframe: the picture lands here */
   onPlace?: (panelId: string, at: { x: number; y: number }) => void;
+};
+
+/**
+ * What the host tells the library about **what is mirrored** (D-143).
+ *
+ * The library draws the control, the crop and the mode, and it writes the
+ * choice into the panel's payload; the **host** tells the editor, because the
+ * host is the side that talks to the bridge - and the capture descriptor says
+ * what is mirrored, so every panel that shows the live view says the same
+ * thing.
+ *
+ * Without this prop there is no mirror control: a host that does not do it
+ * gets a panel that mirrors the whole editor's window.
+ */
+export type PanelMirrorControls = {
+  /** the teacher chose what is mirrored, or turned the follow mode on */
+  onChange?: (panelId: string, mirror: PanelMirror) => void;
 };
 
 export type SceneData = {

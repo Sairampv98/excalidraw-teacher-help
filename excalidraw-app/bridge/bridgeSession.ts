@@ -14,6 +14,7 @@ import type {
   WebSocketConstructor,
 } from "../../packages/vscode-bridge/bridge/src/client";
 import type { BridgeMessage } from "../../packages/vscode-bridge/bridge/src/protocol";
+import type { BridgeMirrorRegion } from "../../packages/vscode-bridge/bridge/src/protocol";
 import type {
   OcrRequest,
   OcrResult,
@@ -158,6 +159,20 @@ export interface BridgeSession {
    * the panel then says that the captions were not read.
    */
   requestCaptions: (request: { id: string; videoId: string }) => boolean;
+  /**
+   * Say what is **mirrored** of the editor's window (D-143).
+   *
+   * What is mirrored is a **choice**, so this can be sent as often as the
+   * teacher likes: the last one wins. A region of `null` means the **whole**
+   * window, which is the default.
+   *
+   * It answers whether the message could be sent at all: with no bridge
+   * connected there is nobody to tell.
+   */
+  setMirror: (mirror: {
+    region: BridgeMirrorRegion | null;
+    follow: boolean;
+  }) => boolean;
   /** close the connection and stop reconnecting */
   disconnect: () => void;
 }
@@ -460,6 +475,21 @@ export const createBridgeSession = (
         type: "captions:request",
         id: request.id,
         videoId: request.videoId,
+      };
+
+      return client.send(message);
+    },
+
+    setMirror: (mirror) => {
+      if (!client) {
+        return false;
+      }
+
+      const message: BridgeMessage = {
+        v: 1,
+        type: "editor:mirror",
+        ...(mirror.region ? { region: mirror.region } : {}),
+        follow: mirror.follow,
       };
 
       return client.send(message);

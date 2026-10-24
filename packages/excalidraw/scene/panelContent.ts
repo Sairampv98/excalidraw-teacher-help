@@ -44,9 +44,16 @@ import type {
   PanelContent,
 } from "@excalidraw/element/types";
 
+import {
+  INITIAL_PANEL_MIRROR,
+  normalizePanelMirrorRegion,
+} from "./panelMirror";
+
 import type { NormalizedZoomValue } from "../types";
 
 import type { PanelSource } from "./mediaRegistry";
+
+import type { PanelMirror } from "./panelMirror";
 
 export type PanelCamera = {
   zoom: { value: NormalizedZoomValue };
@@ -384,6 +391,17 @@ export type CodePanelContent = PanelContent & {
    * panel that carries none is at 1.
    */
   zoom?: number;
+  /**
+   * What the panel **mirrors** of the editor's window (D-143).
+   *
+   * It is the panel's own property and it is persisted with the document, so
+   * the teacher's choice survives a reload - and it is the panel's own, so two
+   * panels can mirror two different parts of the editor's window.
+   *
+   * Optional, so a document written before this wave still loads - and such a
+   * panel mirrors the **whole** window, which is the default.
+   */
+  mirror?: PanelMirror;
 };
 
 /**
@@ -709,6 +727,71 @@ export const panelZoomUpdate = (
   zoom: number,
 ): PanelViewUpdate => ({
   panel: withPanelZoom(content, zoom),
+});
+
+/**
+ * What the panel **mirrors** of the editor's window (D-143), or the default
+ * when the panel carries no choice.
+ *
+ * The only way to READ it - the widening stays in here.
+ *
+ * The default is the **whole window** and the follow mode is **off**: a panel
+ * that was created before this wave reads as the default, and a panel the
+ * teacher never touched mirrors the whole editor's window.
+ */
+export const readPanelMirror = (content: PanelContent): PanelMirror => {
+  const widened: Partial<CodePanelContent> = content;
+
+  const mirror = widened.mirror;
+
+  if (!mirror) {
+    return INITIAL_PANEL_MIRROR;
+  }
+
+  return {
+    region: normalizePanelMirrorRegion(mirror.region),
+    follow: mirror.follow === true,
+  };
+};
+
+/**
+ * The same payload with the mirror in it.
+ *
+ * The only way to WRITE it - the widening stays in here.
+ *
+ * The spread keeps everything else, and that is the point: the bridge rewrites
+ * the panel's payload on every keystroke in the teacher's editor, and the
+ * teacher's own **choice of what to mirror** must survive that (D-123, D-143).
+ */
+export const withPanelMirror = (
+  content: PanelContent,
+  mirror: PanelMirror,
+): PanelContent => {
+  const widened: PanelContent & {
+    mirror?: PanelMirror;
+  } = {
+    ...content,
+    mirror: {
+      region: mirror.region ?? null,
+      follow: mirror.follow === true,
+    },
+  };
+
+  return widened;
+};
+
+/**
+ * The element update that changes what the panel mirrors.
+ *
+ * In the same style as `panelViewUpdate`: the update is the payload with the
+ * new mirror in it, and it goes through `mutateElement`, so it is undoable
+ * like every other change.
+ */
+export const panelMirrorUpdate = (
+  content: PanelContent,
+  mirror: PanelMirror,
+): PanelViewUpdate => ({
+  panel: withPanelMirror(content, mirror),
 });
 
 /**

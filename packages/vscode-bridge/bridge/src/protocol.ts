@@ -52,6 +52,7 @@ export const BRIDGE_MESSAGE_TYPES = [
   "bridge:hello",
   "editor:content",
   "editor:capture",
+  "editor:mirror",
   "run:started",
   "run:output",
   "run:exit",
@@ -103,6 +104,105 @@ export interface BridgeSelection {
   start: number;
   end: number;
 }
+
+/**
+ * The part of the editor's window that is **mirrored** (D-143).
+ *
+ * What is mirrored is a **choice**, and a choice can be changed as often as the
+ * teacher changes their mind - so the choice travels over the bridge, and the
+ * teacher can make another one whenever they want.
+ *
+ * The region is measured in **fractions of the whole window**: 0 to 1 on each
+ * axis. A region in fractions is the same region whatever size the window is,
+ * so a window that is resized - or a window on another screen - does not move
+ * the region out from under the teacher.
+ *
+ * **No region at all** means the **whole window**: that is the default, and it
+ * is what a panel with no region set mirrors.
+ */
+export interface BridgeMirrorRegion {
+  /** the region's left edge, as a fraction of the window's width */
+  x: number;
+  /** the region's top edge, as a fraction of the window's height */
+  y: number;
+  /** the region's width, as a fraction of the window's width */
+  width: number;
+  /** the region's height, as a fraction of the window's height */
+  height: number;
+}
+
+/**
+ * The region of the **whole** window: what is mirrored when the teacher has
+ * chosen nothing (D-143).
+ */
+export const WHOLE_WINDOW: BridgeMirrorRegion = {
+  x: 0,
+  y: 0,
+  width: 1,
+  height: 1,
+};
+
+/**
+ * Whether a value is a mirror region (D-143).
+ *
+ * The guard is the same one every other part of the protocol uses: the types
+ * are erased at run time, and this function is what decides.
+ */
+export const isBridgeMirrorRegion = (
+  value: unknown,
+): value is BridgeMirrorRegion =>
+  isRecord(value) &&
+  typeof value.x === "number" &&
+  typeof value.y === "number" &&
+  typeof value.width === "number" &&
+  typeof value.height === "number";
+
+/**
+ * The region as it will be used: inside the window, and with an area.
+ *
+ * A region that reaches outside the window, or that has no area, is not a
+ * region - so it is clamped, and a region with no area becomes **no region**:
+ * the whole window, which is the default (D-143).
+ */
+export const normalizeBridgeMirrorRegion = (
+  value: unknown,
+): BridgeMirrorRegion | null => {
+  if (!isBridgeMirrorRegion(value)) {
+    return null;
+  }
+
+  const width = Math.min(Math.max(value.width, 0), 1);
+  const height = Math.min(Math.max(value.height, 0), 1);
+
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+
+  const x = Math.min(Math.max(value.x, 0), 1 - width);
+  const y = Math.min(Math.max(value.y, 0), 1 - height);
+
+  return { x, y, width, height };
+};
+
+/**
+ * Are two regions the same region?
+ *
+ * The region is compared by its four numbers, so a region that is set again
+ * with the same numbers is not a change - and the teacher who picks the same
+ * crop twice does not make the panel redraw for nothing (D-143).
+ */
+export const isSameBridgeMirrorRegion = (
+  a: BridgeMirrorRegion | null | undefined,
+  b: BridgeMirrorRegion | null | undefined,
+): boolean => {
+  if (!a || !b) {
+    return !a && !b;
+  }
+
+  return (
+    a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+  );
+};
 
 /**
  * The presenter's **controls**, as they travel over the bridge (D-145).
@@ -259,6 +359,51 @@ export type BridgeMessage =
       reason?: string;
       /** the frame's number when the state was published: 1, 2, 3 ... */
       seq: number;
+      /**
+       * The part of the editor's window that is **mirrored** (D-143).
+       *
+       * It is absent when the **whole** window is mirrored, which is the
+       * default: a panel with no region set mirrors the whole window.
+       */
+      region?: BridgeMirrorRegion;
+      /**
+       * Whether the mirrored region **follows the pointer** inside the panel
+       * (D-143).
+       *
+       * It is a mode, and it is off unless the teacher turns it on.
+       */
+      follow?: boolean;
+      /**
+       * The picture's own size, in its own pixels.
+       *
+       * The crop is measured in fractions of the picture, so the picture's own
+       * size is what turns a fraction into the shape the teacher sees.
+       */
+      width?: number;
+      height?: number;
+    }
+  /**
+   * panel -> extension. What is mirrored, and whether it follows the pointer
+   * (D-143).
+   *
+   * What is mirrored is a **choice**, and a choice can be changed as often as
+   * the teacher changes their mind - so this message can be sent as often as
+   * the teacher likes, and the last one wins.
+   */
+  | {
+      v: 1;
+      type: "editor:mirror";
+      /**
+       * The region of the editor's window to mirror, in fractions of the whole
+       * window. **Absent** means the whole window - the default (D-143).
+       */
+      region?: BridgeMirrorRegion;
+      /**
+       * Whether the region follows the pointer inside the panel.
+       *
+       * It is a **mode**, and it is **off** unless the teacher turns it on.
+       */
+      follow: boolean;
     }
   /** extension -> panel. The program started. */
   | { v: 1; type: "run:started"; runId: string; command: string; cwd: string }
@@ -569,7 +714,21 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
         // reason and nothing else - the panel has to be able to SAY it (D-75)
         (value.state === "live"
           ? value.reason === undefined
-          : typeof value.reason === "string" && value.reason.length > 0)
+          : typeof value.reason === "string" && value.reason.length > 0) &&
+        // the region is the teacher's own choice, and it is optional: no
+        // region means the whole window (D-143)
+        (value.region === undefined || isBridgeMirrorRegion(value.region)) &&
+        (value.follow === undefined || typeof value.follow === "boolean") &&
+        (value.width === undefined || typeof value.width === "number") &&
+        (value.height === undefined || typeof value.height === "number")
+      );
+    case "editor:mirror":
+      return (
+        // the region is optional: no region means the whole window (D-143)
+        (value.region === undefined || isBridgeMirrorRegion(value.region)) &&
+        // the follow mode is a flag, and it is always said: "off" is said as
+        // "off", so a mode can never be left in an unknown state (D-143)
+        typeof value.follow === "boolean"
       );
     case "run:started":
       return (

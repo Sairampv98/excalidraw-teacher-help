@@ -1,9 +1,8 @@
 ---
 id: wave6f-what-to-mirror
 paths: packages/excalidraw,excalidraw-app,packages/vscode-bridge,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 6f — what is mirrored, and follow the cursor
@@ -101,4 +100,3 @@ Report what you saw, and say plainly if a step could not be made to work.
 
 **The teeth check** (the kit's rule, and the only proof that matters): revert the fix and the
 AC-182 tests must FAIL. Restore the fix and they must pass again. Report both failures verbatim.
-

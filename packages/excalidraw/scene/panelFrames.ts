@@ -31,6 +31,8 @@
  * the text mirror - the same fallback a panel without a bridge shows.
  */
 
+import type { PanelMirrorRegion } from "./panelMirror";
+
 /**
  * The live view is running.
  *
@@ -49,6 +51,22 @@ export interface PanelCaptureLive {
    * with the connection.
    */
   streamUrl: string;
+  /**
+   * The part of the editor's window that is **mirrored** (D-143).
+   *
+   * It is absent when the **whole** window is mirrored, which is the default.
+   * It is the editor's own report of what it is mirroring; the panel's own
+   * choice lives in the panel's payload.
+   */
+  region?: PanelMirrorRegion;
+  /**
+   * The picture's own size, in its own pixels.
+   *
+   * The crop is measured in fractions of the picture, so the picture's own
+   * size is what turns a fraction into the shape the teacher sees.
+   */
+  width?: number;
+  height?: number;
 }
 
 /**

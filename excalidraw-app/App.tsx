@@ -429,8 +429,15 @@ const ExcalidrawWrapper = () => {
 
   // the VS Code bridge: the app's side of the connection, and the code panel
   // it feeds (D-51)
-  const { bridge, requestOcr, ocrState, panelDraft, panelRun, panelCaptions } =
-    useBridgePanel(excalidrawAPI, publishLiveView);
+  const {
+    bridge,
+    requestOcr,
+    ocrState,
+    panelDraft,
+    panelRun,
+    panelCaptions,
+    panelMirror,
+  } = useBridgePanel(excalidrawAPI, publishLiveView);
 
   /**
    * The panel's **copy** (D-142).
@@ -1406,6 +1413,9 @@ const ExcalidrawWrapper = () => {
         // browser cannot, and the tier that answered comes back with them
         // (D-129)
         panelCaptions={panelCaptions}
+        // what is mirrored of the editor's window: the teacher's own choice,
+        // and the editor has to know it (D-143)
+        panelMirror={panelMirror}
         // the OCR option of a panel: the read happens in the bridge's Node
         // process, and the app puts the text back on the canvas (D-59)
         panelOcr={{

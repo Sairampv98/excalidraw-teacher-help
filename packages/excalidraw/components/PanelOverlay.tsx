@@ -32,6 +32,7 @@ import {
   panelEditorText,
   panelScale,
   readCodePanelState,
+  readPanelMirror,
   readPanelReadLanguage,
   readPanelView,
   readPanelZoom,
@@ -47,8 +48,14 @@ import {
 import { getPanelCapture, subscribePanelCaptures } from "../scene/panelFrames";
 import {
   getPendingScreenshot,
+  snapshotUrl,
   subscribePendingScreenshots,
 } from "../scene/panelScreenshot";
+import {
+  openPanelMirrorPicker,
+  panelMirrorCrop,
+  panelMirrorRegionAtPointer,
+} from "../scene/panelMirror";
 import {
   appliedPlaybackState,
   INITIAL_PLAYBACK_SYNC_STATE,
@@ -86,6 +93,7 @@ import type { CodeMirrorEditorProps } from "./TTDDialog/CodeMirrorEditor";
 import type { MediaFallback, MediaPanelSource } from "../scene/mediaRegistry";
 import type { PanelCamera } from "../scene/panelContent";
 import type { PanelChrome } from "../scene/panelChrome";
+import type { PanelMirror } from "../scene/panelMirror";
 import type { PanelPlayback } from "../scene/panelContent";
 import type { PlaybackSyncState } from "../scene/panelPlayback";
 import type { YoutubePanelSource } from "../scene/panelContent";
@@ -165,6 +173,14 @@ type PanelOverlayProps = {
    * `onToggleLock(panelId)` - so the panel asks and the host decides.
    */
   onToggleView?: (panelId: string) => void;
+  /**
+   * The teacher chose **what is mirrored**, or turned the follow mode on
+   * (D-143).
+   *
+   * The host owns the write - the same shape as the view's - so the choice
+   * reaches the editor over the bridge and the panel's payload keeps it.
+   */
+  onMirrorChange?: (panelId: string, mirror: PanelMirror) => void;
   /**
    * The host's **screenshot** controls (D-102, D-103).
    *
@@ -525,6 +541,17 @@ const PanelScreenshotChoices = ({
  * the panel's own header, and the choice is the panel's own - it is persisted
  * in the payload, so it survives the bridge's own writes.
  */
+
+/**
+ * How often the mirrored region follows the pointer (D-143).
+ *
+ * The pointer moves faster than the panel can be redrawn, so the region
+ * follows at a steady pace - about eight times a second, which is quick
+ * enough to feel like the picture is under the pointer and slow enough to
+ * leave the canvas alone.
+ */
+const FOLLOW_INTERVAL_MS = 120;
+
 const CodePanelSurface = ({
   panel,
   chrome,
@@ -536,6 +563,7 @@ const CodePanelSurface = ({
   copy,
   onReadLanguageChange,
   onZoomChange,
+  onMirrorChange,
 }: {
   panel: ExcalidrawPanelElement;
   /** the chrome's geometry, in the panel's own units (D-92) */
@@ -555,6 +583,8 @@ const CodePanelSurface = ({
   onReadLanguageChange?: (panelId: string, language: string) => void;
   /** the teacher zoomed the editor (D-142) */
   onZoomChange?: (panelId: string, zoom: number) => void;
+  /** the teacher chose what is mirrored, or turned the follow mode on (D-143) */
+  onMirrorChange?: (panelId: string, mirror: PanelMirror) => void;
 }) => {
   const state = readCodePanelState(panel.panel);
 
@@ -609,6 +639,187 @@ const CodePanelSurface = ({
    * canvas's zoom (D-117): the two are separate scales.
    */
   const zoom = readPanelZoom(panel.panel);
+
+  /**
+   * What the panel **mirrors** of the editor's window (D-143).
+   *
+   * It is the panel's own setting: the whole window until the teacher chooses
+   * a region, and the follow mode is off until they turn it on.
+   */
+  const panelMirror = readPanelMirror(panel.panel);
+
+  /**
+   * The panel's own area, in pixels.
+   *
+   * The mirrored region is shown through a window, and the window is **fitted**
+   * into this area - so the region's own shape is kept and the picture is
+   * never stretched (D-143).
+   *
+   * It is measured, because only the browser knows how big the panel is on the
+   * screen - and it is measured again when the panel changes size.
+   */
+  const sourceRef = useRef<HTMLDivElement | null>(null);
+
+  const [sourceArea, setSourceArea] = useState({ width: 0, height: 0 });
+
+  useLayoutEffect(() => {
+    const element = sourceRef.current;
+
+    if (!element) {
+      return;
+    }
+
+    const measure = () => {
+      // The panel's own size, in the panel's own units: the overlay is scaled
+      // by the canvas's zoom, and the crop window is drawn in the panel's own
+      // units - so the **layout box** is the size that counts, not the
+      // rectangle on the screen.
+      const width = element.offsetWidth;
+      const height = element.offsetHeight;
+
+      if (!width || !height) {
+        // a panel that is not on the screen measures nothing: the last good
+        // measurement stands, and the panel is drawn again when it is back
+        return;
+      }
+
+      setSourceArea((previous) =>
+        previous.width === width && previous.height === height
+          ? previous
+          : { width, height },
+      );
+    };
+
+    measure();
+
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(measure);
+
+      observer.observe(element);
+
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener("resize", measure);
+
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
+  /**
+   * The window the mirrored region is shown through.
+   *
+   * It is the region itself: the picture is drawn whole behind it, and the
+   * window shows only the part the teacher cropped (D-143).
+   */
+  const crop = panelMirrorCrop(
+    panelMirror.region,
+    capture?.status === "live"
+      ? { width: capture.width ?? 0, height: capture.height ?? 0 }
+      : null,
+    sourceArea,
+  );
+
+  /**
+   * The window the region is shown through, for the pointer that moves it.
+   *
+   * It is read when the pointer moves, so the region follows the pointer
+   * exactly and no measuring is needed between the moves (D-143).
+   */
+  const cropWindowRef = useRef<HTMLDivElement | null>(null);
+
+  /**
+   * When the follow mode last moved the region.
+   *
+   * The pointer moves faster than the panel can be redrawn, so the region
+   * follows at a steady pace instead of on every mouse move - and the last
+   * move always stands (D-143).
+   */
+  const lastFollowRef = useRef(0);
+
+  /** why the picker could not be opened, when it could not */
+  const [mirrorNotice, setMirrorNotice] = useState<string | null>(null);
+
+  /**
+   * The teacher asked what is mirrored (D-143).
+   *
+   * The picker shows the **whole** editor's window - the very picture a
+   * screenshot gives - so the teacher can see what they are choosing.
+   *
+   * The picture is the extension's **snapshot** and not the live stream: a
+   * second stream would take the panel's own live view down with it, and the
+   * picture comes from the teacher's own machine - the capability in the URL
+   * is what authorises it (D-86).
+   */
+  const openMirrorPicker = () => {
+    setMirrorNotice(null);
+
+    if (capture?.status !== "live") {
+      return;
+    }
+
+    openPanelMirrorPicker(
+      panel.id,
+      {
+        src: snapshotUrl(capture.streamUrl),
+        width: capture.width ?? 0,
+        height: capture.height ?? 0,
+      },
+      panelMirror.region,
+    );
+  };
+
+  /**
+   * The teacher turned the follow mode on or off (D-143).
+   *
+   * It is a **mode**: it is off until they turn it on, and they can turn it
+   * off again.
+   */
+  const toggleFollow = () => {
+    onMirrorChange?.(panel.id, {
+      ...panelMirror,
+      follow: !panelMirror.follow,
+    });
+  };
+
+  /**
+   * The pointer moved inside the mirrored region (D-143).
+   *
+   * The region keeps its size and moves so that its middle is under the
+   * pointer - so the teacher points at the part of the editor they are talking
+   * about, and the panel shows it.
+   */
+  const onFollowMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!panelMirror.follow || !panelMirror.region || !cropWindowRef.current) {
+      return;
+    }
+
+    const now = Date.now();
+
+    if (now - lastFollowRef.current < FOLLOW_INTERVAL_MS) {
+      return;
+    }
+
+    lastFollowRef.current = now;
+
+    const rect = cropWindowRef.current.getBoundingClientRect();
+
+    const next = panelMirrorRegionAtPointer(
+      panelMirror.region,
+      { x: event.clientX, y: event.clientY },
+      {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+      },
+    );
+
+    if (next.x === panelMirror.region.x && next.y === panelMirror.region.y) {
+      return;
+    }
+
+    onMirrorChange?.(panel.id, { ...panelMirror, region: next });
+  };
 
   /**
    * What the teacher has **selected** in the editor (D-142).
@@ -740,6 +951,19 @@ const CodePanelSurface = ({
    * does not change it (D-57).
    */
   const canToggleView = Boolean(onToggleView) && !mirror && connected;
+
+  /**
+   * Whether the panel may say **what is mirrored** (D-143).
+   *
+   * The choice only means something when the panel is showing the editor's
+   * own window - and a MIRROR (the presenter) does not get the controls: it
+   * shows the host's view, it does not change it (D-57).
+   */
+  const canMirror =
+    Boolean(onMirrorChange) &&
+    !mirror &&
+    view === "live" &&
+    capture?.status === "live";
 
   /**
    * The **run bar**: the language to run, the Run control, and which text the
@@ -948,27 +1172,87 @@ const CodePanelSurface = ({
     <div
       className="excalidraw__panel-code-source"
       data-testid="code-panel-source"
+      ref={sourceRef}
+      style={{ position: "relative" }}
     >
       {view === "live" && capture?.status === "live" ? (
         // The live view of the editor's window: a **plain `<img>`**
         // pointed at the extension's MJPEG stream (D-85). The browser
         // decodes the JPEG natively, so the app does nothing per frame.
+        //
         // The picture keeps the aspect ratio it has in the editor:
-        // `contain` fits it into the panel without stretching it, and
-        // the frame's own size comes from the stream itself - the app is
-        // never told it (D-82).
-        <img
-          className="excalidraw__panel-code-live"
-          data-testid="code-panel-live-frame"
-          src={capture.streamUrl}
-          alt=""
-          style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "contain",
-            display: "block",
-          }}
-        />
+        // `contain` fits it into the panel without stretching it, and the
+        // frame's own size comes from the stream itself - the app is never
+        // told it (D-82).
+        //
+        // The `<img>` is **never replaced**: the window around it is what
+        // changes when the teacher chooses a region (D-143), and a picture
+        // that is taken out of the page and put back loses its stream.
+        <div
+          className="excalidraw__panel-code-live-window"
+          data-testid="code-panel-live-window"
+          data-region={
+            crop && panelMirror.region
+              ? `${panelMirror.region.x},${panelMirror.region.y},${panelMirror.region.width},${panelMirror.region.height}`
+              : undefined
+          }
+          ref={cropWindowRef}
+          onPointerMove={onFollowMove}
+          style={
+            crop
+              ? {
+                  // The **region** the teacher chose (D-143): the picture is
+                  // drawn whole and the window shows only the part they
+                  // cropped, so the panel mirrors the region and nothing else.
+                  position: "absolute",
+                  left: "50%",
+                  top: "50%",
+                  transform: "translate(-50%, -50%)",
+                  // the window is as big as it can be without stretching the
+                  // region; until the panel's own area is measured it takes
+                  // its size from the region's own shape
+                  ...(crop.windowWidth && crop.windowHeight
+                    ? { width: crop.windowWidth, height: crop.windowHeight }
+                    : {
+                        maxWidth: "100%",
+                        maxHeight: "100%",
+                        aspectRatio: crop.aspectRatio,
+                      }),
+                  overflow: "hidden",
+                }
+              : {
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                }
+          }
+        >
+          <img
+            className="excalidraw__panel-code-live"
+            data-testid="code-panel-live-frame"
+            src={capture.streamUrl}
+            alt=""
+            style={
+              crop
+                ? {
+                    position: "absolute",
+                    width: crop.pictureWidth,
+                    height: crop.pictureHeight,
+                    left: crop.pictureLeft,
+                    top: crop.pictureTop,
+                    display: "block",
+                  }
+                : {
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "contain",
+                    display: "block",
+                  }
+            }
+          />
+        </div>
       ) : showEditor ? (
         // The editor is the FALLBACK of the live view (D-99), and it is what
         // the teacher sees when the panel is in the editor view. It is
@@ -1149,6 +1433,79 @@ const CodePanelSurface = ({
                   ? t("labels.panel.code.viewLive")
                   : t("labels.panel.code.viewEditor")}
               </button>
+            ) : null}
+            {canMirror ? (
+              <>
+                {/* What is **mirrored** (D-143): the teacher's own control, and
+                    it is in the panel's own header - the header is always
+                    mounted, so the teacher can change it mid-class. */}
+                <button
+                  type="button"
+                  className="excalidraw__panel-code-mirror"
+                  data-testid="code-panel-mirror-region"
+                  data-panel-id={panel.id}
+                  onClick={() => void openMirrorPicker()}
+                  title={t("labels.mirror.change")}
+                  aria-label={t("labels.mirror.change")}
+                  style={{
+                    background: "transparent",
+                    border: `1px solid ${VS_CODE_DARK.border}`,
+                    borderRadius: 2,
+                    color: VS_CODE_DARK.foreground,
+                    cursor: "pointer",
+                    font: "inherit",
+                  }}
+                >
+                  {t("labels.mirror.change")}
+                </button>
+                {panelMirror.region ? (
+                  /* The follow mode: it is **off** until the teacher turns it
+                     on, and they can turn it off again (D-143). */
+                  <button
+                    type="button"
+                    className="excalidraw__panel-code-mirror-follow"
+                    data-testid="code-panel-mirror-follow"
+                    data-panel-id={panel.id}
+                    data-follow={panelMirror.follow ? "on" : "off"}
+                    onClick={toggleFollow}
+                    title={
+                      panelMirror.follow
+                        ? t("labels.mirror.following")
+                        : t("labels.mirror.follow")
+                    }
+                    aria-label={
+                      panelMirror.follow
+                        ? t("labels.mirror.following")
+                        : t("labels.mirror.follow")
+                    }
+                    style={{
+                      background: panelMirror.follow
+                        ? VS_CODE_DARK.accent
+                        : "transparent",
+                      border: `1px solid ${VS_CODE_DARK.border}`,
+                      borderRadius: 2,
+                      color: VS_CODE_DARK.foreground,
+                      cursor: "pointer",
+                      font: "inherit",
+                    }}
+                  >
+                    {t("labels.mirror.follow")}
+                  </button>
+                ) : null}
+              </>
+            ) : null}
+            {mirrorNotice ? (
+              /* A failure is a **message**, not a silence (D-75). */
+              <span
+                className="excalidraw__panel-code-mirror-notice"
+                data-testid="code-panel-mirror-notice"
+                style={{
+                  color: VS_CODE_DARK.muted,
+                  fontSize: chrome.languageFontSize,
+                }}
+              >
+                {mirrorNotice}
+              </span>
             ) : null}
           </div>
 
@@ -2245,6 +2602,7 @@ const PanelSurface = ({
   chrome,
   onVideoEvent,
   onToggleView,
+  onMirrorChange,
   screenshot,
   mirror,
   draft,
@@ -2261,6 +2619,8 @@ const PanelSurface = ({
   onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
   /** the teacher flips the code panel's view (D-83) */
   onToggleView?: (panelId: string) => void;
+  /** the teacher chose what is mirrored, or turned the follow mode on (D-143) */
+  onMirrorChange?: (panelId: string, mirror: PanelMirror) => void;
   /** the host's screenshot controls (D-102) */
   screenshot?: PanelScreenshotControls;
   /** the host is a read-only mirror - the presenter (D-57) */
@@ -2287,6 +2647,7 @@ const PanelSurface = ({
         panel={panel}
         chrome={chrome}
         onToggleView={onToggleView}
+        onMirrorChange={onMirrorChange}
         screenshot={screenshot}
         mirror={mirror}
         draft={draft}
@@ -2405,6 +2766,7 @@ const Panel = ({
   viewport,
   onVideoEvent,
   onToggleView,
+  onMirrorChange,
   screenshot,
   mirror,
   draft,
@@ -2422,6 +2784,8 @@ const Panel = ({
   onVideoEvent?: (panelId: string, event: VideoPanelEvent) => void;
   /** the teacher flips the code panel's view (D-83) */
   onToggleView?: (panelId: string) => void;
+  /** the teacher chose what is mirrored, or turned the follow mode on (D-143) */
+  onMirrorChange?: (panelId: string, mirror: PanelMirror) => void;
   /** the host's screenshot controls (D-102) */
   screenshot?: PanelScreenshotControls;
   /** the host is a read-only mirror — the presenter (D-57) */
@@ -2552,6 +2916,7 @@ const Panel = ({
           chrome={chrome}
           onVideoEvent={onVideoEvent}
           onToggleView={onToggleView}
+          onMirrorChange={onMirrorChange}
           screenshot={screenshot}
           mirror={mirror}
           draft={draft}
@@ -2608,6 +2973,7 @@ const PanelOverlayImpl = ({
   viewport,
   onVideoEvent,
   onToggleView,
+  onMirrorChange,
   screenshot,
   mirror,
   draft,
@@ -2639,6 +3005,7 @@ const PanelOverlayImpl = ({
           viewport={viewport}
           onVideoEvent={onVideoEvent}
           onToggleView={onToggleView}
+          onMirrorChange={onMirrorChange}
           screenshot={screenshot}
           mirror={mirror}
           draft={draft}
@@ -2673,6 +3040,7 @@ const areEqual = (prev: PanelOverlayProps, next: PanelOverlayProps) =>
   prev.mirror === next.mirror &&
   prev.onVideoEvent === next.onVideoEvent &&
   prev.onToggleView === next.onToggleView &&
+  prev.onMirrorChange === next.onMirrorChange &&
   prev.screenshot === next.screenshot &&
   prev.draft === next.draft &&
   prev.run === next.run &&
