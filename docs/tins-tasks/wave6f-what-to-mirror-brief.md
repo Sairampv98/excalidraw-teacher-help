@@ -30,15 +30,15 @@ So the teacher wants to mirror **a part** of the editor's window, not all of it:
 change it.
 
 Add **one** acceptance row to the section **"### Wave 6f — what is mirrored, and follow the cursor"**
-in `SPEC.md`, using the reserved id **AC-179**:
+in `SPEC.md`, using the reserved id **AC-182**:
 
 | Row | The acceptance | Check | Detail |
 | --- | --- | --- | --- |
 
 The shape is `| AC-n | <label> | \`<check file>\` | <detail> |` and the detail must name the test
 names, which must themselves start with the row id - for example:
-`Tests: \`AC-179 the mirror region can be set and changed again\`, \`AC-179 the follow the cursor mode
-moves the region with the pointer\`, \`AC-179 the mirror falls back to the whole window when no
+`Tests: \`AC-182 the mirror region can be set and changed again\`, \`AC-182 the follow the cursor mode
+moves the region with the pointer\`, \`AC-182 the mirror falls back to the whole window when no
 region is set\`.`
 
 ## The files to change
@@ -53,7 +53,7 @@ region is set\`.`
 - `excalidraw-app/bridge/useScreenshot.ts` (and the panel's capture path) - the app's side.
 - `packages/excalidraw/components/PanelOverlay.tsx` - the **change what is mirrored** control on the
   panel, and the **follow the cursor** mode.
-- `packages/vscode-bridge/tests/bridge.test.ts` - the AC-179 tests.
+- `packages/vscode-bridge/tests/bridge.test.ts` - the AC-182 tests.
 
 ## The constraints
 
@@ -92,4 +92,4 @@ VS Code window:
 Report what you saw, and say plainly if a step could not be made to work.
 
 **The teeth check** (the kit's rule, and the only proof that matters): revert the fix and the
-AC-179 tests must FAIL. Restore the fix and they must pass again. Report both failures verbatim.
+AC-182 tests must FAIL. Restore the fix and they must pass again. Report both failures verbatim.

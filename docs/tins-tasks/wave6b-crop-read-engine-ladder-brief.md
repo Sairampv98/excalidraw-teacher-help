@@ -32,15 +32,15 @@ Three things, and they belong together:
 again; do not change them.
 
 Add **one** acceptance row to the section **"### Wave 6b — one crop-and-read action, and the engine
-ladder"** in `SPEC.md`, using the reserved id **AC-174**:
+ladder"** in `SPEC.md`, using the reserved id **AC-175**:
 
 | Row | The acceptance | Check | Detail |
 | --- | --- | --- | --- |
 
 The shape is `| AC-n | <label> | \`<check file>\` | <detail> |` and the detail must name the test
 names, which must themselves start with the row id - for example:
-`Tests: \`AC-174 the read uses the cropped region\`, \`AC-174 the engine ladder runs indra with the
-bridge, tesseract without it, and paddle only as a last resort\`, \`AC-174 the answer says which
+`Tests: \`AC-175 the read uses the cropped region\`, \`AC-175 the engine ladder runs indra with the
+bridge, tesseract without it, and paddle only as a last resort\`, \`AC-175 the answer says which
 engine ran and why the one before it did not\`.`
 
 ## The files to change
@@ -55,7 +55,7 @@ engine ran and why the one before it did not\`.`
   **cancel**.
 - `packages/excalidraw/locales/en.json` - the new labels, in a **new group called `ocrLadder`**
   inside `labels` - do not add keys to the `panel` group, another wave is editing it.
-- `excalidraw-app/tests/ocrBridge.test.tsx` - the AC-174 tests.
+- `excalidraw-app/tests/ocrBridge.test.tsx` - the AC-175 tests.
 
 ## The constraints
 
@@ -90,4 +90,4 @@ Do NOT run `yarn test:app` bare: it is `vitest` in WATCH mode and never exits. U
 Report the times you measured.
 
 **The teeth check** (the kit's rule, and the only proof that matters): revert the fix and the
-AC-174 tests must FAIL. Restore the fix and they must pass again. Report both failures verbatim.
+AC-175 tests must FAIL. Restore the fix and they must pass again. Report both failures verbatim.

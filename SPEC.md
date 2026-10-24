@@ -658,14 +658,14 @@ Each wave below has **its own section**, and each wave adds **its own row** to i
 
 ### Wave 6b — one crop-and-read action, and the engine ladder
 
-The owner asked for both in one breath: _"maybe we should combine the cropping and the ocr together, default uses tessaract, with vscode/vscodium bridge it can use indra and if nothing works they can use paddle put in a loading animation so they know when to expexct the text to be come visible again."_ So the read takes the **cropped** region - one action, not two - the engine is a **ladder** the machine walks by itself (D-137), and a slow read says so while it happens (D-138). The acceptance row for this wave is **AC-174**.
+The owner asked for both in one breath: _"maybe we should combine the cropping and the ocr together, default uses tessaract, with vscode/vscodium bridge it can use indra and if nothing works they can use paddle put in a loading animation so they know when to expexct the text to be come visible again."_ So the read takes the **cropped** region - one action, not two - the engine is a **ladder** the machine walks by itself (D-137), and a slow read says so while it happens (D-138). The acceptance row for this wave is **AC-175**.
 
 | Row | The acceptance | Check | Detail |
 | --- | -------------- | ----- | ------ |
 
 ### Wave 6c — the crop really crops, and the placement flows are in the owner's order
 
-_"cropping of images doesnot seem to work i can see the handles to crop the image but not do anything to it"_, and the three placement flows written out in full: the crop first, the target last, and the popup must vanish and hand the canvas back (D-139, D-140). The acceptance rows for this wave are **AC-175** and **AC-176**.
+_"cropping of images doesnot seem to work i can see the handles to crop the image but not do anything to it"_, and the three placement flows written out in full: the crop first, the target last, and the popup must vanish and hand the canvas back (D-139, D-140). The acceptance rows for this wave are **AC-176** and **AC-178**.
 
 | Row | The acceptance | Check | Detail |
 | --- | -------------- | ----- | ------ |
@@ -680,14 +680,14 @@ _"somehow the presenter view is dead this is what the failure is about"_ - the p
 
 ### Wave 6e — the live editor is a real editor
 
-_"the live editor is weird ... cannot select that text and paste it as a codeblock ... nor select the programming language of my choice, zoom in/ zoom out both the page and inside the editor"_ (D-142). The acceptance row for this wave is **AC-178**.
+_"the live editor is weird ... cannot select that text and paste it as a codeblock ... nor select the programming language of my choice, zoom in/ zoom out both the page and inside the editor"_ (D-142). The acceptance row for this wave is **AC-179**.
 
 | Row | The acceptance | Check | Detail |
 | --- | -------------- | ----- | ------ |
 
 ### Wave 6f — what is mirrored, and follow the cursor
 
-_"why is the vscode/vscodium what i want section ... not available? ... i crop the section i want mirrored (i should be able to edit it as many times as possible, and maybe it can even have a follow the cursor option)"_ (D-143). The acceptance row for this wave is **AC-179**.
+_"why is the vscode/vscodium what i want section ... not available? ... i crop the section i want mirrored (i should be able to edit it as many times as possible, and maybe it can even have a follow the cursor option)"_ (D-143). The acceptance row for this wave is **AC-182**.
 
 | Row | The acceptance | Check | Detail |
 | --- | -------------- | ----- | ------ |

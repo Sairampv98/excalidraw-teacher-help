@@ -43,7 +43,7 @@ So four fixes:
 again; do not change them.
 
 Add **two** acceptance rows to the section **"### Wave 6c — the crop really crops, and the placement
-flows are in the owner's order"** in `SPEC.md`, using the reserved ids **AC-175** and **AC-176**:
+flows are in the owner's order"** in `SPEC.md`, using the reserved ids **AC-176** and **AC-178**:
 
 | Row | The acceptance | Check | Detail |
 | --- | --- | --- | --- |
@@ -62,7 +62,7 @@ names, which must themselves start with the row id.
   state, D-116).
 - `excalidraw-app/` - the host's side: taking the picture, putting it on the canvas, and the **page
   selector ribbon** for the third flow.
-- `packages/excalidraw/tests/panelScreenshotFocus.test.tsx` - the AC-175 and AC-176 tests.
+- `packages/excalidraw/tests/panelScreenshotFocus.test.tsx` - the AC-176 and AC-178 tests.
 
 ## The constraints
 
@@ -98,5 +98,5 @@ Do NOT run `yarn test:app` bare: it is `vitest` in WATCH mode and never exits. U
 Report what you saw.
 
 **The teeth check** (the kit's rule, and the only proof that matters): revert the fix and the
-AC-175 and AC-176 tests must FAIL. Restore the fix and they must pass again. Report both failures
+AC-176 and AC-178 tests must FAIL. Restore the fix and they must pass again. Report both failures
 verbatim.
