@@ -232,10 +232,25 @@ describe("the screenshot of a panel", () => {
       ).not.toBeNull(),
     );
 
-    // the chrome carries the screenshot button, and one button only
+    // The camera is a choice ABOUT the panel, so it lives in the panel's
+    // properties (D-135): the teacher selects the panel and the camera is
+    // there - outside the picture, where a click always reaches it. A camera
+    // drawn on the picture would be a camera under a YouTube panel's iframe,
+    // and the iframe would take the click.
+    API.setSelectedElements([asElement(panel)]);
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="panel-screenshot-button"]'),
+      ).not.toBeNull(),
+    );
+
+    // and the picture itself carries no button at all
     expect(
-      document.querySelector('[data-testid="panel-screenshot-button"]'),
-    ).not.toBeNull();
+      document.querySelector(
+        '[data-testid="panel"] [data-testid="panel-screenshot-button"]',
+      ),
+    ).toBeNull();
 
     // and NO choice: the three options come after the capture, not before it
     // (D-103). In particular there is no OCR of a screenshot that was never
@@ -309,8 +324,12 @@ describe("the screenshot of a panel", () => {
     // that svg in percentages of the button (D-108).
     //
     // jsdom cannot lay out a flexbox, so the test asserts the STYLE that
-    // makes the collapse impossible: the size is the chrome's size, in the
-    // panel's own units (D-92), and the flexbox may not shrink it.
+    // makes the collapse impossible: the size is the chrome's size, in
+    // SCREEN pixels (D-92), and the flexbox may not shrink it.
+    //
+    // The camera lives in the panel's **properties** now (D-135), so it is
+    // outside the panel's transform: its width is the screen width and not
+    // the screen width divided by the panel's scale.
     const { container } = await render(
       <Excalidraw
         initialData={{ files: { [VIDEO_FILE_ID]: videoFile() } }}
@@ -318,11 +337,24 @@ describe("the screenshot of a panel", () => {
       />,
     );
 
+    const code = codePanel();
+    const video = videoPanel();
+
     API.setAppState({ width: 1000, height: 1000 });
-    API.setElements([asElement(codePanel()), asElement(videoPanel())]);
+    API.setElements([asElement(code), asElement(video)]);
 
     // the panels are drawn by the overlay, which renders after the scene is
     // restored
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="code-panel"]'),
+      ).not.toBeNull(),
+    );
+
+    // and the camera is in the properties panel, which the teacher opens by
+    // selecting the panel
+    API.setSelectedElements([asElement(code)]);
+
     await waitFor(() =>
       expect(
         container.querySelector('[data-testid="panel-screenshot-button"]'),
@@ -335,15 +367,10 @@ describe("the screenshot of a panel", () => {
 
     expect(button).not.toBeNull();
 
-    // the panel publishes the scale its own transform carries
-    const scale = parseFloat(
-      getComputedStyle(
-        container.querySelector('[data-testid="panel"]')!,
-      ).getPropertyValue(PANEL_SCALE_PROPERTY),
-    );
-
     // the width is the chrome's width: 24 screen pixels, whatever the zoom
-    expect(parseFloat(button!.style.width) * scale).toBeCloseTo(
+    // and whatever the panel's scale - the button is not inside the panel's
+    // transform any more, so it is not divided by the scale
+    expect(parseFloat(button!.style.width)).toBeCloseTo(
       PANEL_CHROME.buttonSize,
       3,
     );
@@ -410,9 +437,11 @@ describe("the screenshot of a panel", () => {
     API.setAppState({ width: 1000, height: 1000 });
     API.setElements([asElement(panel)]);
 
+    // the panel is on the canvas: the camera is not on the picture any more
+    // (D-135), so the panel itself is what the test waits for
     await waitFor(() =>
       expect(
-        container.querySelector('[data-testid="panel-screenshot-button"]'),
+        container.querySelector('[data-testid="code-panel"]'),
       ).not.toBeNull(),
     );
 
@@ -482,9 +511,11 @@ describe("the screenshot of a panel", () => {
     API.setAppState({ width: 1000, height: 1000 });
     API.setElements([asElement(panel)]);
 
+    // the panel is on the canvas: the camera is not on the picture any more
+    // (D-135), so the panel itself is what the test waits for
     await waitFor(() =>
       expect(
-        container.querySelector('[data-testid="panel-screenshot-button"]'),
+        container.querySelector('[data-testid="code-panel"]'),
       ).not.toBeNull(),
     );
 
@@ -535,9 +566,10 @@ describe("the screenshot of a panel", () => {
   it("AC-152 a video panel carries a screenshot button", async () => {
     // The owner's item 5.4: "video does not get a camera icon at all".
     //
-    // The camera is a control that acts on the **panel**, so it lives on the
-    // panel - for every kind of panel, and whether or not the panel is
-    // selected (D-115).
+    // The camera is a control that acts on the **panel**, so it lives in the
+    // panel's PROPERTIES - for every kind of panel (D-135). It is not on the
+    // video's own controls either: a control that lives in the content is a
+    // control some panels do not have at all.
     const { container } = await render(
       <Excalidraw
         initialData={{ files: { [VIDEO_FILE_ID]: videoFile() } }}
@@ -545,8 +577,17 @@ describe("the screenshot of a panel", () => {
       />,
     );
 
+    const video = videoPanel();
+
     API.setAppState({ width: 1000, height: 1000 });
-    API.setElements([asElement(videoPanel())]);
+    API.setElements([asElement(video)]);
+
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="panel"]')).not.toBeNull(),
+    );
+
+    // the teacher selects the video panel, and the camera is there
+    API.setSelectedElements([asElement(video)]);
 
     await waitFor(() =>
       expect(
@@ -554,41 +595,64 @@ describe("the screenshot of a panel", () => {
       ).not.toBeNull(),
     );
 
-    // the camera hangs on the panel itself, and not inside the video's own
-    // controls: a control that lives in the content is a control some panels
-    // do not have at all
-    const camera = container.querySelector(
-      '[data-testid="panel-screenshot-camera"]',
-    );
-
-    expect(camera).not.toBeNull();
-    expect(camera!.closest('[data-testid="panel"]')).not.toBeNull();
+    // and it is NOT on the panel's picture: a camera drawn over the picture is
+    // a camera under a YouTube panel's iframe, and the iframe takes the click
+    expect(
+      container.querySelector(
+        '[data-testid="panel"] [data-testid="panel-screenshot-button"]',
+      ),
+    ).toBeNull();
   });
 
-  it("AC-152 the screenshot button is rendered for a panel that is not selected", async () => {
-    // The owner asked for the camera to be reachable "even if i did not
-    // select the wireframe" (D-115): the teacher must be able to take the
-    // picture of a panel without selecting it first.
+  it("AC-152 the screenshot button is reachable from the panel's properties", async () => {
+    // The camera is a choice about the panel, so it lives where the panel's
+    // other choices are (D-135) - and a button there always works, because
+    // the properties panel is ordinary DOM beside the canvas.
+    const captured: string[] = [];
+
     const { container } = await render(
-      <Excalidraw panelScreenshot={{ onCapture: () => {} }} />,
+      <Excalidraw
+        panelScreenshot={{
+          onCapture: (panelId) => captured.push(panelId),
+        }}
+      />,
     );
+
+    const panel = codePanel();
 
     API.setAppState({ width: 1000, height: 1000 });
-    API.setElements([asElement(codePanel())]);
+    API.setElements([asElement(panel)]);
 
     await waitFor(() =>
-      expect(
-        container.querySelector('[data-testid="panel-screenshot-button"]'),
-      ).not.toBeNull(),
+      expect(container.querySelector('[data-testid="panel"]')).not.toBeNull(),
     );
 
-    // the panel is on the canvas, and it is NOT selected
+    // the panel is on the canvas, and it is NOT selected: the picture carries
+    // no button at all, so there is nothing to click there
     expect(API.getSelectedElements()).toHaveLength(0);
-
-    // and the camera is there all the same
     expect(
       container.querySelector('[data-testid="panel-screenshot-button"]'),
-    ).not.toBeNull();
+    ).toBeNull();
+
+    // the teacher selects the panel, and the camera appears in its properties
+    API.setSelectedElements([asElement(panel)]);
+
+    const camera = await waitFor(() => {
+      const button = container.querySelector(
+        '[data-testid="panel-screenshot-button"]',
+      );
+
+      expect(button).not.toBeNull();
+
+      return button as HTMLElement;
+    });
+
+    // and clicking it WORKS: the host is asked for the picture
+    await act(async () => {
+      fireEvent.click(camera);
+    });
+
+    expect(captured).toEqual([panel.id]);
   });
 
   it("AC-153 a pending screenshot dims the canvas and presents the preview in front", async () => {

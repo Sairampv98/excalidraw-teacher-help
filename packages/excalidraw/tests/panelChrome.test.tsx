@@ -466,3 +466,126 @@ describe("the chrome that has to work (AC-158)", () => {
     expect(parseFloat(connect!.style.width)).toBeGreaterThan(0);
   });
 });
+
+describe("the panel's actions live in the properties panel (AC-174)", () => {
+  it("AC-174 the properties panel carries the screenshot and the read", async () => {
+    // The camera and the read are choices ABOUT a panel, so they live where
+    // the panel's other choices are (D-135). The properties panel is ordinary
+    // DOM beside the canvas, so a button there always works - a button drawn
+    // on top of a YouTube panel's picture is a button under an iframe, and
+    // the iframe takes the click.
+    const panel = codePanel();
+
+    const captured: string[] = [];
+    const read: string[] = [];
+
+    const { container } = await render(
+      <Excalidraw
+        initialData={{
+          elements: [panel] as unknown as ExcalidrawElement[],
+        }}
+        panelScreenshot={{ onCapture: (panelId) => captured.push(panelId) }}
+        panelOcr={{
+          message: "Not connected to the Excalidraw Bridge.",
+          onOcr: (panelId) => read.push(panelId),
+        }}
+      />,
+    );
+
+    // the teacher selects the panel, and the properties panel opens
+    API.setAppState({
+      width: 1000,
+      height: 1000,
+      selectedElementIds: { [panel.id]: true },
+    });
+
+    const actions = await waitFor(() => {
+      const block = container.querySelector(
+        '[data-testid="panel-actions"]',
+      ) as HTMLElement | null;
+
+      expect(block).not.toBeNull();
+
+      return block!;
+    });
+
+    const camera = actions.querySelector(
+      '[data-testid="panel-screenshot-button"]',
+    ) as HTMLButtonElement | null;
+    const readButton = actions.querySelector(
+      '[data-testid="panel-ocr-button"]',
+    ) as HTMLButtonElement | null;
+
+    expect(camera).not.toBeNull();
+    expect(readButton).not.toBeNull();
+
+    // and they WORK: the host is asked for the picture and for the read
+    await act(async () => {
+      fireEvent.click(camera!);
+      fireEvent.click(readButton!);
+    });
+
+    expect(captured).toEqual([panel.id]);
+    expect(read).toEqual([panel.id]);
+  });
+
+  it("AC-174 the panel overlay carries no action button and no bridge box", async () => {
+    // The picture carries no button at all, and the bridge box does not float
+    // over the editor and the live window any more (D-135, D-136).
+    const panel = codePanel();
+
+    const { container } = await render(
+      <Excalidraw
+        initialData={{
+          elements: [panel] as unknown as ExcalidrawElement[],
+        }}
+        panelScreenshot={{ onCapture: () => {} }}
+        panelOcr={{ message: "Not connected.", onOcr: () => {} }}
+        panelBridge={{
+          token: "a-token",
+          status: "not-connected",
+          message: "Not connected.",
+        }}
+      />,
+    );
+
+    API.setAppState({
+      width: 1000,
+      height: 1000,
+      selectedElementIds: { [panel.id]: true },
+    });
+
+    const picture = await waitFor(() => {
+      const element = container.querySelector(
+        '[data-testid="panel"]',
+      ) as HTMLElement | null;
+
+      expect(element).not.toBeNull();
+
+      return element!;
+    });
+
+    for (const testId of [
+      "panel-screenshot-button",
+      "panel-ocr-button",
+      "panel-ocr-engine-picker",
+      "panel-bridge",
+      "panel-bridge-token",
+      "panel-bridge-connect",
+    ]) {
+      expect(picture.querySelector(`[data-testid="${testId}"]`)).toBeNull();
+    }
+
+    // and the chrome layer carries neither the bridge box nor the read: the
+    // chrome never covers the picture it describes
+    const chrome = container.querySelector(
+      '[data-testid="panel-chrome"]',
+    ) as HTMLElement | null;
+
+    expect(chrome).not.toBeNull();
+    expect(chrome!.querySelector('[data-testid="panel-bridge"]')).toBeNull();
+    expect(
+      chrome!.querySelector('[data-testid="panel-ocr-button"]'),
+    ).toBeNull();
+  });
+});

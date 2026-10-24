@@ -173,6 +173,7 @@
       "title": "Panel",
       "kind": "Kind",
       "state": "State",
+      "actions": "Actions",
       "lock": "Lock panel",
       "unlock": "Unlock panel",
       "live": "Live",

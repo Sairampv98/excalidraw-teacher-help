@@ -2596,8 +2596,6 @@ class App extends React.Component<AppProps, AppState> {
                             }}
                             onToggleLock={this.togglePanelLock}
                             files={this.files}
-                            bridge={this.props.panelBridge}
-                            ocr={this.props.panelOcr}
                           />
                           <PanelScreenshotWireframe
                             panels={getAllPanelElements(visibleElements)}

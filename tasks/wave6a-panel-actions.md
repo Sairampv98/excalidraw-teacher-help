@@ -1,9 +1,8 @@
 ---
 id: wave6a-panel-actions
 paths: packages/excalidraw,excalidraw-app,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 6a — the panel's actions live in the **properties panel**, not inside the picture
@@ -103,4 +102,3 @@ Report what you saw, with the numbers.
 **The teeth check** (the kit's rule, and the only proof that matters): revert the fix and the
 AC-174 tests must FAIL (the actions are not in the properties panel, or the overlay still carries
 them). Restore the fix and they must pass again. Report both failures verbatim.
-

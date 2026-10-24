@@ -83,6 +83,7 @@ import type { Scene } from "@excalidraw/element";
 import type { CaptureUpdateActionType } from "@excalidraw/element";
 
 import { trackEvent } from "../analytics";
+import { PanelActions } from "../components/PanelActions";
 import { RadioSelection } from "../components/RadioSelection";
 import { ColorPicker } from "../components/ColorPicker/ColorPicker";
 import { FontPicker } from "../components/FontPicker/FontPicker";
@@ -1827,6 +1828,15 @@ export const actionChangeArrowProperties = register({
  * toggle is a DOM button on the panel itself (see `components/PanelChrome.tsx`),
  * because the canvas cannot draw an interactive control and the properties
  * popover closes as soon as it is dismissed.
+ *
+ * ## The panel's ACTIONS live here too (D-135, D-136)
+ *
+ * The camera, the read and the bridge box are choices about a panel, and a
+ * choice about a panel belongs where the panel's other choices are. They used
+ * to be drawn inside the panel's overlay - on top of the picture - and on a
+ * YouTube panel the picture is an **iframe**, so the control was visible and
+ * dead. Here they are ordinary DOM beside the canvas, so a click always
+ * reaches them, and the picture is clear of every button.
  */
 export const actionChangePanel = register({
   name: "changePanel",
@@ -1837,7 +1847,7 @@ export const actionChangePanel = register({
     // It's just a container for the panel's own properties
     return false;
   },
-  PanelComponent: ({ elements, appState }) => {
+  PanelComponent: ({ elements, appState, appProps }) => {
     const selectedElements = getSelectedElements(elements, appState);
     const panel = selectedElements.find(isPanelElement);
 
@@ -1856,6 +1866,10 @@ export const actionChangePanel = register({
             {panel.posterMode
               ? t("labels.panel.poster")
               : t("labels.panel.live")}
+          </div>
+          <div>{t("labels.panel.actions")}</div>
+          <div>
+            <PanelActions panel={panel} appProps={appProps} />
           </div>
         </div>
       </fieldset>
