@@ -1,9 +1,8 @@
 ---
 id: wave5z-ocr-engine-truth
 paths: excalidraw-app,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 5z — the OCR sentence must name the engine the panel will actually use
@@ -91,4 +90,3 @@ change when the teacher picks the other engine. Report what you saw.
 **The teeth check** (the kit's rule, and the only proof that matters): revert the fix and the
 AC-173 test must **fail** with the sentence still naming the extension's default. Restore the fix
 and it must pass again. Report both failure messages verbatim.
-
