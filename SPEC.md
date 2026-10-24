@@ -691,7 +691,8 @@ _"somehow the presenter view is dead this is what the failure is about"_ - the p
 _"the live editor is weird ... cannot select that text and paste it as a codeblock ... nor select the programming language of my choice, zoom in/ zoom out both the page and inside the editor"_ (D-142). The acceptance row for this wave is **AC-179**.
 
 | Row | The acceptance | Check | Detail |
-| --- | -------------- | ----- | ------ |
+| --- | --- | --- | --- |
+| AC-179 | the mirrored text can be **selected and pasted as a code block**, the **language** can be chosen, and the editor can be **zoomed inside** the panel | `packages/excalidraw/tests/codePanel.test.tsx` `excalidraw-app/tests/codePanel.test.tsx` | The live editor is a **real editor** (D-142): the text in the panel can be selected, copied, and pasted on the canvas as the **same code card** the markdown viewer's `Copy code` and `insert as code block` bring - the app's own armed paste, and not a second kind of element. The panel's own **editor bar** carries the three things the teacher asked for: the **language** the file is **read** as (the file in the editor is never changed by it), a **Copy as code block** control, and the editor's own **zoom** - which is the editor's and never the canvas's (D-117). The teacher's own **draft** is never touched by any of it (D-123): the copy takes the **selection** (or the whole text when nothing is selected), the mirror never overwrites the draft, and the language the teacher chooses is the panel's own reading of the file and not the draft's. Tests: `AC-179 the selected text is copied as a code block`, `AC-179 the panel reads the file as the language the teacher chose`, `AC-179 the editor zooms inside the panel and the canvas zoom stays where it was`, `AC-179 the panel's copy pastes on the canvas as the same code card`. |
 
 ### Wave 6f — what is mirrored, and follow the cursor
 

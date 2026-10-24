@@ -356,6 +356,34 @@ export type CodePanelContent = PanelContent & {
    * Optional, so a document written before this wave still loads.
    */
   draft?: CodePanelDraft;
+  /**
+   * The language the panel **reads** the file as (D-142).
+   *
+   * The file in the teacher's editor is NEVER changed by it: this is the
+   * panel's own reading of the text - the grammar the mirror is highlighted
+   * with - and it is the panel's own property, so it is persisted with the
+   * document and it survives the bridge's own writes (the bridge rewrites
+   * `code` on every keystroke).
+   *
+   * It is **beside** the draft on purpose: the draft is the teacher's own
+   * text, and the language the teacher reads the file as is not the draft's
+   * language (D-123).
+   *
+   * Optional, so a document written before this wave still loads - and a
+   * panel that carries none reads the file as the file says it is.
+   */
+  readLanguage?: string;
+  /**
+   * The editor's **own** zoom (D-142).
+   *
+   * It is the zoom **inside** the panel's editor, and it never moves the
+   * canvas's zoom (D-117): the two are separate scales, and this one is the
+   * editor's.
+   *
+   * Optional, so a document written before this wave still loads - and a
+   * panel that carries none is at 1.
+   */
+  zoom?: number;
 };
 
 /**
@@ -581,6 +609,106 @@ export const panelDraftUpdate = (
   draft: CodePanelDraft,
 ): PanelViewUpdate => ({
   panel: withPanelDraft(content, draft),
+});
+
+/**
+ * The language the panel **reads** the file as (D-142), or null when the panel
+ * carries no choice of its own.
+ *
+ * The only way to READ it - the widening stays in here.
+ *
+ * A panel that carries none reads the file **as the file says it is**: the
+ * language the extension reported, or the draft's own language.
+ */
+export const readPanelReadLanguage = (content: PanelContent): string | null => {
+  const widened: Partial<CodePanelContent> = content;
+
+  return widened.readLanguage ?? null;
+};
+
+/**
+ * The same payload with the language the panel reads the file as in it.
+ *
+ * The only way to WRITE it - the widening stays in here.
+ *
+ * The spread keeps everything else, and that is the point: the teacher's own
+ * **draft** must survive this write (D-123), and so must the panel's view.
+ */
+export const withPanelReadLanguage = (
+  content: PanelContent,
+  language: string,
+): PanelContent => {
+  const widened: PanelContent & {
+    readLanguage?: string;
+  } = {
+    ...content,
+    readLanguage: language,
+  };
+
+  return widened;
+};
+
+/**
+ * The element update that changes the language the panel reads the file as.
+ *
+ * In the same style as `panelViewUpdate`: the update is the payload with the
+ * new language in it, and it goes through `mutateElement`, so it is undoable
+ * like every other change.
+ */
+export const panelReadLanguageUpdate = (
+  content: PanelContent,
+  language: string,
+): PanelViewUpdate => ({
+  panel: withPanelReadLanguage(content, language),
+});
+
+/**
+ * The editor's **own** zoom (D-142), or 1 when the panel carries none.
+ *
+ * The only way to READ it - the widening stays in here.
+ *
+ * It is the zoom **inside** the panel's editor. It never moves the canvas's
+ * zoom (D-117): the two are separate scales.
+ */
+export const readPanelZoom = (content: PanelContent): number => {
+  const widened: Partial<CodePanelContent> = content;
+
+  const zoom = widened.zoom;
+
+  return typeof zoom === "number" && zoom > 0 ? zoom : 1;
+};
+
+/**
+ * The same payload with the editor's own zoom in it.
+ *
+ * The only way to WRITE it - the widening stays in here.
+ */
+export const withPanelZoom = (
+  content: PanelContent,
+  zoom: number,
+): PanelContent => {
+  const widened: PanelContent & {
+    zoom?: number;
+  } = {
+    ...content,
+    zoom,
+  };
+
+  return widened;
+};
+
+/**
+ * The element update that changes the editor's own zoom.
+ *
+ * In the same style as `panelViewUpdate`: the update is the payload with the
+ * new zoom in it, and it goes through `mutateElement`, so it is undoable like
+ * every other change.
+ */
+export const panelZoomUpdate = (
+  content: PanelContent,
+  zoom: number,
+): PanelViewUpdate => ({
+  panel: withPanelZoom(content, zoom),
 });
 
 /**

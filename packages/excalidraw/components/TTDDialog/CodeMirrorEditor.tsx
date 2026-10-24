@@ -79,6 +79,34 @@ export interface CodeMirrorEditorProps {
    * thing that speaks mermaid.
    */
   language?: string;
+  /**
+   * The editor's **own** zoom (D-142).
+   *
+   * It is the zoom **inside** the editor: the text is drawn bigger and the
+   * editor scrolls more. It never moves the canvas's zoom (D-117) - the two
+   * are separate scales, and this one is the editor's.
+   *
+   * `1` is the editor's own size, and the default.
+   */
+  zoom?: number;
+  /**
+   * The teacher copied something in the editor (D-142).
+   *
+   * The panel's editor is a **real** editor, so the native copy gesture works
+   * in it - and the panel reports what was copied, so the host can turn the
+   * next paste on the canvas into a code card.
+   *
+   * The text is the editor's own **selection**: what the teacher selected is
+   * what is copied, exactly as in any other editor.
+   */
+  onCopy?: (text: string) => void;
+  /**
+   * The text the teacher has **selected** (D-142).
+   *
+   * The editor is the only one that knows the selection, and the panel's own
+   * "Copy as code block" control needs it.
+   */
+  onSelectionChange?: (text: string) => void;
 }
 
 // ---- Dark theme ----
@@ -255,7 +283,39 @@ const getErrorLineExtension = (
   );
 };
 
+// ---- The editor's own zoom ----
+//
+// The zoom is the editor's **own** (D-142): it is the size of the text the
+// editor draws, and nothing else moves - the canvas's zoom is a separate
+// scale, and it never moves with this one (D-117).
+//
+// It is a **font size**, not a transform: a transform would scale the drawing
+// without the layout, and the editor would then think it has more room than
+// it has. A bigger font is a bigger editor - which is what a zoom is, and
+// what the owner asked for ("requires more scrolling is all").
+//
+// The size is relative (`em`), so the editor keeps the size it had at `1` and
+// the zoom is a multiple of it.
+const zoomTheme = (zoom: number) =>
+  EditorView.theme({
+    ".cm-scroller": {
+      fontSize: `${zoom}em`,
+    },
+  });
+
 // ---- Helpers ----
+
+/**
+ * The text the teacher has **selected** in the editor.
+ *
+ * A selection range is not a string - it is a range - so the text is read out
+ * of the document between its two ends.
+ */
+const selectedText = (state: EditorState): string => {
+  const range = state.selection.main;
+
+  return range.empty ? "" : state.sliceDoc(range.from, range.to);
+};
 
 const getThemeExtensions = (theme: CodeMirrorTheme) => {
   if (theme === "vscode") {
@@ -278,17 +338,25 @@ const CodeMirrorEditor = ({
   language,
   testId,
   focusOnMount = true,
+  zoom = 1,
+  onCopy,
+  onSelectionChange,
 }: CodeMirrorEditorProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   const onKeyboardSubmitRef = useRef(onKeyboardSubmit);
+  const onCopyRef = useRef(onCopy);
+  const onSelectionChangeRef = useRef(onSelectionChange);
   const themeCompartmentRef = useRef(new Compartment());
   const errorLineCompartmentRef = useRef(new Compartment());
   const languageCompartmentRef = useRef(new Compartment());
+  const zoomCompartmentRef = useRef(new Compartment());
 
   onChangeRef.current = onChange;
   onKeyboardSubmitRef.current = onKeyboardSubmit;
+  onCopyRef.current = onCopy;
+  onSelectionChangeRef.current = onSelectionChange;
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -316,6 +384,27 @@ const CodeMirrorEditor = ({
             if (update.docChanged) {
               onChangeRef.current(update.state.doc.toString());
             }
+
+            if (update.selectionSet || update.docChanged) {
+              // the panel's own "Copy as code block" control needs to know what
+              // the teacher has selected (D-142)
+              onSelectionChangeRef.current?.(selectedText(update.state));
+            }
+          }),
+          // The teacher copied in the editor (D-142).
+          //
+          // This is an **observer** and not a handler: CodeMirror's own copy
+          // handler answers the event first, and a handler that runs after it
+          // never runs at all. An observer always runs, and it never changes
+          // what the browser copies - it only reports it.
+          EditorView.domEventObservers({
+            copy: (_event, view) => {
+              const text = selectedText(view.state);
+
+              if (text) {
+                onCopyRef.current?.(text);
+              }
+            },
           }),
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap]),
@@ -329,6 +418,8 @@ const CodeMirrorEditor = ({
           // the grammar lives in its own compartment: it is fetched
           // asynchronously, and it is swapped when the file changes
           languageCompartmentRef.current.of([]),
+          // the editor's own zoom (D-142)
+          zoomCompartmentRef.current.of(zoomTheme(zoom)),
           drawSelection({ drawRangeCursor: true }),
           ...(placeholder ? [cmPlaceholder(placeholder)] : []),
         ],
@@ -375,6 +466,27 @@ const CodeMirrorEditor = ({
       ),
     });
   }, [errorLine]);
+
+  /**
+   * The editor's own **zoom** (D-142).
+   *
+   * The zoom is the size of the text the editor draws, so the editor has to
+   * measure itself again: the lines are taller now, and the editor that does
+   * not know it scrolls to the wrong place.
+   *
+   * It is the editor's zoom and **only** the editor's: the canvas's zoom is a
+   * separate scale, and it never moves with this one (D-117).
+   */
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) {
+      return;
+    }
+    view.dispatch({
+      effects: zoomCompartmentRef.current.reconfigure(zoomTheme(zoom)),
+    });
+    view.requestMeasure();
+  }, [zoom]);
 
   /**
    * The grammar of the file.
@@ -431,6 +543,11 @@ const CodeMirrorEditor = ({
       ref={containerRef}
       className="ttd-dialog-input ttd-dialog-input--codemirror"
       data-testid={testId}
+      // the editor's own zoom (D-142), so the panel (and a test) can say how
+      // big the editor is drawing its text
+      data-zoom={zoom}
+      // the language the editor is **reading** the text as (D-142)
+      data-language={language ?? ""}
     />
   );
 };

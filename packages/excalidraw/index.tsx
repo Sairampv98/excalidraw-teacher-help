@@ -111,6 +111,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
     panelScreenshot,
     panelDraft,
     panelRun,
+    panelCopy,
     panelCaptions,
   } = props;
 
@@ -239,6 +240,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
           panelScreenshot={panelScreenshot}
           panelDraft={panelDraft}
           panelRun={panelRun}
+          panelCopy={panelCopy}
           panelCaptions={panelCaptions}
         >
           {children}
@@ -492,10 +494,14 @@ export {
   panelViewUpdate,
   readCodePanelState,
   readPanelDraft,
+  readPanelReadLanguage,
   readPanelView,
+  readPanelZoom,
   withCodePanelState,
   withPanelDraft,
+  withPanelReadLanguage,
   withPanelView,
+  withPanelZoom,
 } from "./scene/panelContent";
 export type {
   CodePanelContent,
@@ -633,6 +639,7 @@ export type { VideoPanelEvent } from "./components/PanelOverlay";
 export type {
   PanelBridgeControls,
   PanelCaptionControls,
+  PanelCopyControls,
   PanelDraftControls,
   PanelOcrControls,
   PanelRunControls,

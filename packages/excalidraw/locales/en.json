@@ -236,6 +236,14 @@
         "notALink": "That is not a YouTube link."
       }
     },
+    "editor": {
+      "readLanguage": "The language to read the file as",
+      "readLanguageNone": "choose a language",
+      "copyAsCodeBlock": "Copy as code block",
+      "copyAsCodeBlockTitle": "Copy the selected code - paste it on the canvas as a code card",
+      "zoomIn": "Zoom in",
+      "zoomOut": "Zoom out"
+    },
     "pages": {
       "title": "Page",
       "frame": "Show the page's frame",
