@@ -94,6 +94,11 @@
           "type": "string",
           "default": "C:\\Users\\user\\.pyenv\\pyenv-win\\versions\\3.12.10\\python.exe",
           "description": "The Python interpreter the indra and paddle OCR engines run in. Point it at a virtual environment that has them installed."
+        },
+        "excalidraw-bridge.youtubeApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Your own YouTube Data API v3 key. It is used only to read the captions of a YouTube video, and it is never sent anywhere but YouTube. Leave it empty and the captions fall back to the public endpoint, which is best effort - and the panel says which tier answered."
         }
       }
     },

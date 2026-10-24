@@ -1,4 +1,4 @@
-import type { FileId } from "@excalidraw/element/types";
+import type { FileId, PanelCaptionCue } from "@excalidraw/element/types";
 
 import { isOcrEngineName, isOcrLine, isOcrModel, isOcrRegion } from "./ocr";
 
@@ -64,6 +64,9 @@ export const BRIDGE_MESSAGE_TYPES = [
   "ocr:result",
   "ocr:error",
   "ocr:state",
+  "captions:request",
+  "captions:result",
+  "captions:none",
   "ping",
   "pong",
 ] as const;
@@ -99,6 +102,40 @@ export interface BridgeSelection {
   start: number;
   end: number;
 }
+
+/**
+ * The **caption tier** that answered (D-129).
+ *
+ * The captions are the fragile half of the YouTube path, so they degrade in
+ * tiers and the panel says which tier it is:
+ *
+ *  - `"api"` - the official **Data API v3**, with the teacher's own key. A
+ *    versioned API, and for the teacher's own channel the captions are
+ *    authorised by the owner, so this tier really works;
+ *  - `"public"` - the public **`timedtext`** endpoint. Best effort, and often
+ *    empty for auto-generated captions;
+ *  - `"none"` - there are no captions, and the answer says why.
+ *
+ * The tier travels **with the answer**, so the teacher is never left guessing
+ * why a video has no text.
+ */
+export type CaptionTier = "api" | "public" | "none";
+
+/**
+ * A caption track as it travels over the bridge.
+ *
+ * The shape is the one the **local** path already produces, and it does not
+ * change: the panel does not know where the cues came from, it only knows the
+ * cues.
+ */
+export type BridgeCaptionTrack = {
+  /** the track's language, e.g. "en" */
+  language: string;
+  /** the track's label, e.g. "English (auto-generated)" */
+  label: string;
+  /** the cues of the track */
+  cues: PanelCaptionCue[];
+};
 
 /**
  * A message on the wire.
@@ -342,6 +379,68 @@ export type BridgeMessage =
       id: string;
       message: string;
     }
+  /**
+   * panel -> extension. Fetch the captions of a YouTube video (D-129).
+   *
+   * A browser cannot read YouTube's captions: they are not in the page. So the
+   * **bridge** - the Node process the teacher's VS Code extension runs - asks
+   * for them, and the app receives them as ordinary caption track data.
+   */
+  | {
+      v: 1;
+      type: "captions:request";
+      /** the id of this request, so the answer can be matched to it */
+      id: string;
+      /** the YouTube video id */
+      videoId: string;
+    }
+  /**
+   * extension -> panel. The captions of the video (D-129).
+   *
+   * The **cues** are the same shape the local path produces - the panel does
+   * not know where they came from - and the **tier** travels with them, so the
+   * panel can say which tier answered.
+   */
+  | {
+      v: 1;
+      type: "captions:result";
+      /** the id of the request this answers */
+      id: string;
+      /** the YouTube video id */
+      videoId: string;
+      /** every track the video has - there is often more than one */
+      tracks: BridgeCaptionTrack[];
+      /**
+       * Which tier answered (D-129).
+       *
+       * It is **optional**: an extension that predates the field still reads,
+       * and the panel then says that the tier is unknown rather than guessing.
+       */
+      tier?: CaptionTier;
+    }
+  /**
+   * extension -> panel. The video has no captions (D-129).
+   *
+   * The **reason** is never empty: the teacher's own key is not set, the
+   * public endpoint gave nothing back, or the video simply has no captions -
+   * and the teacher is told which.
+   */
+  | {
+      v: 1;
+      type: "captions:none";
+      /** the id of the request this answers */
+      id: string;
+      /** the YouTube video id */
+      videoId: string;
+      /** why there are none - the video has none, or they could not be read */
+      reason: string;
+      /**
+       * Which tier answered (D-129): the third one, "none".
+       *
+       * It is **optional**, for the same reason as on `captions:result`.
+       */
+      tier?: CaptionTier;
+    }
   /** panel -> extension. */
   | { v: 1; type: "ping" }
   /** extension -> panel. */
@@ -357,6 +456,23 @@ const isSelection = (value: unknown): value is BridgeSelection =>
   isRecord(value) &&
   typeof value.start === "number" &&
   typeof value.end === "number";
+
+/** Whether a value is one of the caption tiers (D-129). */
+export const isCaptionTier = (value: unknown): value is CaptionTier =>
+  value === "api" || value === "public" || value === "none";
+
+const isCaptionCue = (value: unknown): value is PanelCaptionCue =>
+  isRecord(value) &&
+  typeof value.startMs === "number" &&
+  typeof value.endMs === "number" &&
+  typeof value.text === "string";
+
+const isCaptionTrack = (value: unknown): value is BridgeCaptionTrack =>
+  isRecord(value) &&
+  typeof value.language === "string" &&
+  typeof value.label === "string" &&
+  Array.isArray(value.cues) &&
+  value.cues.every(isCaptionCue);
 
 /**
  * The runtime guard for the protocol.
@@ -489,6 +605,26 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
       );
     case "ocr:error":
       return typeof value.id === "string" && typeof value.message === "string";
+    case "captions:request":
+      return typeof value.id === "string" && typeof value.videoId === "string";
+    case "captions:result":
+      return (
+        typeof value.id === "string" &&
+        typeof value.videoId === "string" &&
+        Array.isArray(value.tracks) &&
+        value.tracks.every(isCaptionTrack) &&
+        // the tier is optional (D-129): an extension that predates it still reads
+        (value.tier === undefined || isCaptionTier(value.tier))
+      );
+    case "captions:none":
+      return (
+        typeof value.id === "string" &&
+        typeof value.videoId === "string" &&
+        // the reason is never empty: the teacher is told why (D-129)
+        typeof value.reason === "string" &&
+        value.reason.length > 0 &&
+        (value.tier === undefined || isCaptionTier(value.tier))
+      );
     case "ping":
     case "pong":
       return true;

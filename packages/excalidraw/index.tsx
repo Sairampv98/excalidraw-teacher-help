@@ -111,6 +111,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
     panelScreenshot,
     panelDraft,
     panelRun,
+    panelCaptions,
   } = props;
 
   const canvasActions = props.UIOptions?.canvasActions;
@@ -238,6 +239,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
           panelScreenshot={panelScreenshot}
           panelDraft={panelDraft}
           panelRun={panelRun}
+          panelCaptions={panelCaptions}
         >
           {children}
         </App>
@@ -553,19 +555,27 @@ export {
   readCaptionBinding,
   readPanelPlayback,
   readVideoPanelState,
+  readYoutubePanelState,
   videoFormatName,
   videoPanelContent,
   withVideoPanelState,
+  withYoutubePanelState,
+  youtubeEmbedUrl,
+  youtubePanelContent,
 } from "./scene/panelContent";
 export type {
   CaptionBinding,
   CaptionBoundPanel,
+  PanelCaptionTier,
   PanelPlayback,
   PlaybackPanel,
   VideoPanelContent,
   VideoPanelElement,
   VideoPanelSource,
   VideoPanelState,
+  YoutubePanelContent,
+  YoutubePanelSource,
+  YoutubePanelState,
 } from "./scene/panelContent";
 
 // the media registry: the library owns the SHAPE and the host owns the BYTES
@@ -612,6 +622,7 @@ export {
 export type { VideoPanelEvent } from "./components/PanelOverlay";
 export type {
   PanelBridgeControls,
+  PanelCaptionControls,
   PanelDraftControls,
   PanelOcrControls,
   PanelRunControls,

@@ -150,6 +150,14 @@ export interface BridgeSession {
    * loudly.
    */
   requestOcr: (request: Omit<OcrRequest, "id">) => Promise<OcrResult>;
+  /**
+   * Ask the extension for the **captions** of a YouTube video (D-129).
+   *
+   * The request carries the video **id** — never a URL — and the answer
+   * carries the tier that produced it. With no bridge there is nothing to ask:
+   * the panel then says that the captions were not read.
+   */
+  requestCaptions: (request: { id: string; videoId: string }) => boolean;
   /** close the connection and stop reconnecting */
   disconnect: () => void;
 }
@@ -441,6 +449,21 @@ export const createBridgeSession = (
     },
 
     requestOcr: (request) => ocr.recognize(request),
+
+    requestCaptions: (request) => {
+      if (!client) {
+        return false;
+      }
+
+      const message: BridgeMessage = {
+        v: 1,
+        type: "captions:request",
+        id: request.id,
+        videoId: request.videoId,
+      };
+
+      return client.send(message);
+    },
 
     disconnect: () => {
       client?.disconnect();

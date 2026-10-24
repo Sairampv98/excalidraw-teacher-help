@@ -20,6 +20,8 @@ import type {
   PanelContent,
 } from "@excalidraw/element/types";
 
+import type { YoutubePanelSource } from "./panelContent";
+
 /**
  * Where a **media-backed** panel's content comes from.
  *
@@ -37,13 +39,16 @@ export type MediaPanelSource = {
 
 /**
  * The panel's source, as the **library** sees it: the document's own variants
- * plus the media one.
+ * plus the media one and the **YouTube** one (D-128).
  *
  * `PanelContent["source"]` cannot name the media variant — the element type
  * lives in `@excalidraw/element`, outside this wave's scope — so the widening
  * happens here, in one place, and every read goes through `panelSource()`.
  */
-export type PanelSource = PanelContent["source"] | MediaPanelSource;
+export type PanelSource =
+  | PanelContent["source"]
+  | MediaPanelSource
+  | YoutubePanelSource;
 
 /**
  * The resolver the **host** fills (D-95).

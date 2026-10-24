@@ -959,6 +959,18 @@ export interface ExcalidrawProps {
    * never runs anything itself.
    */
   panelRun?: PanelRunControls;
+
+  /**
+   * The host app's controls for a panel's **captions** (D-129).
+   *
+   * The library asks for the captions of a video; the host fetches them —
+   * through the bridge, which is the only side that can read YouTube's
+   * captions — and writes them into the panel's payload.
+   *
+   * Without this prop a YouTube panel still shows the video: the video half
+   * never needed the bridge.
+   */
+  panelCaptions?: PanelCaptionControls;
 }
 
 /**
@@ -986,6 +998,27 @@ export type PanelRunControls = {
   languages?: string[];
   /** the teacher pressed Run */
   onRun?: (panelId: string) => void;
+};
+
+/**
+ * What the host tells the library about a panel's **captions** (D-129).
+ *
+ * The library asks; the host fetches. A browser cannot read YouTube's
+ * captions — they are not in the page — so the **bridge** reads them, in one
+ * of three tiers, and the tier travels with the answer.
+ *
+ * Without this prop the panel still shows the video: the video never needed
+ * the bridge.
+ */
+export type PanelCaptionControls = {
+  /**
+   * The host is asked for the captions of a video.
+   *
+   * The **video id** is the panel's own, and the answer is written into the
+   * panel's payload by the host, because the payload is the document's own
+   * business and the library does not own the scene.
+   */
+  onRequest?: (panelId: string, videoId: string) => void;
 };
 
 /**

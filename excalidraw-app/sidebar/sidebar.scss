@@ -51,6 +51,25 @@
   flex: 1 1 auto;
 }
 
+// The YouTube link: a field and a button, beside "Open files" (D-128).
+.app-sidebar-youtube {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.app-sidebar-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface-high);
+  color: var(--text-primary-color);
+  font-size: 0.8125rem;
+  font-family: inherit;
+}
+
 .app-sidebar-primary {
   background-color: var(--color-primary);
   border-color: var(--color-primary);

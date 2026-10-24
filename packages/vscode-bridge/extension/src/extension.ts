@@ -36,6 +36,7 @@ import { createRunPseudoterminal } from "./pseudoterminal";
 import { createRunner, type Runner } from "./runner";
 import { createSnippetService, type SnippetService } from "./snippet";
 import { createBridgeTask } from "./taskPresentation";
+import { captionMessage, resolveYouTubeCaptions } from "./youtubeCaptions";
 import {
   CAPTURE_SCRIPT_RELATIVE_PATH,
   createWindowCaptureSupervisor,
@@ -86,6 +87,15 @@ export function activate(context: vscode.ExtensionContext): void {
   const configuration = vscode.workspace.getConfiguration(CONFIG_SECTION);
   const port = resolvePort(workspaceRoot, configuration.get<number>("port"));
   const { token, generated } = resolveToken(configuration.get<string>("token"));
+  /**
+   * The teacher's **own** YouTube API key (D-129).
+   *
+   * It is a secret, and it is the teacher's: the setting is never written to
+   * disk by the extension and never travels over the bridge - only the
+   * captions the key unlocked do. Without it the captions fall back to the
+   * public endpoint, and the panel says which tier answered.
+   */
+  const youtubeApiKey = configuration.get<string>("youtubeApiKey");
   // The folder's name, as it appears in the window's title. It is empty when the
   // teacher has no folder open - and the **bridge** is what turns that into a
   // name the panel can show ("no folder open", D-122). The capture keeps the
@@ -468,6 +478,31 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   };
 
+  /**
+   * The captions of a YouTube video (D-129).
+   *
+   * A browser cannot read them, so the **bridge** does: the tiers are tried in
+   * order, and the tier that answered travels with the answer - so the panel
+   * can say *"these captions came from the public endpoint, which may be
+   * incomplete"* or *"no captions: the API key is not set"*.
+   */
+  const readCaptions = async (request: { id: string; videoId: string }) => {
+    const answer = await resolveYouTubeCaptions({
+      videoId: request.videoId,
+      apiKey: youtubeApiKey,
+      fetchImpl: fetch,
+    });
+
+    // the message carries the tier that answered (D-129)
+    bridgeServer?.broadcast(
+      captionMessage({
+        id: request.id,
+        videoId: request.videoId,
+        answer,
+      }),
+    );
+  };
+
   const handleBridgeMessage = (message: BridgeMessage) => {
     switch (message.type) {
       case "run:start":
@@ -486,6 +521,10 @@ export function activate(context: vscode.ExtensionContext): void {
         break;
       case "ocr:request":
         void readText(message);
+        break;
+      case "captions:request":
+        // The captions of a YouTube video, in the tiers (D-129).
+        void readCaptions(message);
         break;
       default:
         break;

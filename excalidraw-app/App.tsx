@@ -428,10 +428,8 @@ const ExcalidrawWrapper = () => {
 
   // the VS Code bridge: the app's side of the connection, and the code panel
   // it feeds (D-51)
-  const { bridge, requestOcr, ocrState, panelDraft, panelRun } = useBridgePanel(
-    excalidrawAPI,
-    publishLiveView,
-  );
+  const { bridge, requestOcr, ocrState, panelDraft, panelRun, panelCaptions } =
+    useBridgePanel(excalidrawAPI, publishLiveView);
 
   // the OCR capability: the read happens in the bridge's Node process, and the
   // app puts the text back on the canvas (D-59)
@@ -1322,6 +1320,10 @@ const ExcalidrawWrapper = () => {
         // sends it to the extension (D-123, D-124)
         panelDraft={panelDraft}
         panelRun={panelRun}
+        // the captions of a YouTube video: the bridge reads them, because a
+        // browser cannot, and the tier that answered comes back with them
+        // (D-129)
+        panelCaptions={panelCaptions}
         // the OCR option of a panel: the read happens in the bridge's Node
         // process, and the app puts the text back on the canvas (D-59)
         panelOcr={{
