@@ -10,6 +10,18 @@ import { FilesTab } from "../sidebar/FilesTab";
 
 const PROSE = "Prose that the reader selects with the mouse.";
 const LINK_TEXT = "link to the docs";
+
+/**
+ * How long a clipboard assertion may wait.
+ *
+ * The clipboard here is a MOCK: the handler calls it synchronously, so the
+ * assertion is about the handler having run, not about a slow device. The
+ * default `waitFor` timeout is 1000 ms, and on a busy machine (the gate runs
+ * the whole suite with several workers at once) the test file's own timers can
+ * be starved past that - the suite then failed on a passing behaviour, which
+ * is worse than a slow test.
+ */
+const CLIPBOARD_WAIT_MS = 10_000;
 const SOURCE = [
   "# Notes",
   "",
@@ -110,8 +122,9 @@ const openMarkdown = async () => {
 
   fireEvent.click(container.querySelector(".app-file-list__row")!);
 
-  await waitFor(() =>
-    expect(container.querySelector(".app-doc-markdown")).toBeTruthy(),
+  await waitFor(
+    () => expect(container.querySelector(".app-doc-markdown")).toBeTruthy(),
+    { timeout: CLIPBOARD_WAIT_MS },
   );
 
   const body = container.querySelector<HTMLElement>(".app-doc-markdown")!;
@@ -130,8 +143,9 @@ describe("the markdown viewer copies what is selected", () => {
     // the mouse-up that ends the selection is what triggers the copy
     fireEvent.mouseUp(body);
 
-    await waitFor(() =>
-      expect(clipboard.writeText).toHaveBeenCalledWith(PROSE),
+    await waitFor(
+      () => expect(clipboard.writeText).toHaveBeenCalledWith(PROSE),
+      { timeout: CLIPBOARD_WAIT_MS },
     );
 
     expect(clipboard.writeText).toHaveBeenCalledTimes(1);
@@ -148,8 +162,9 @@ describe("the markdown viewer copies what is selected", () => {
 
     fireEvent.mouseUp(body);
 
-    await waitFor(() =>
-      expect(clipboard.writeText).toHaveBeenCalledWith(LINK_TEXT),
+    await waitFor(
+      () => expect(clipboard.writeText).toHaveBeenCalledWith(LINK_TEXT),
+      { timeout: CLIPBOARD_WAIT_MS },
     );
 
     expect(clipboard.writeText).toHaveBeenCalledTimes(1);
@@ -177,7 +192,9 @@ describe("the markdown viewer copies what is selected", () => {
 
     fireEvent.mouseUp(body);
 
-    await waitFor(() => expect(clipboard.writeText).not.toHaveBeenCalled());
+    await waitFor(() => expect(clipboard.writeText).not.toHaveBeenCalled(), {
+      timeout: CLIPBOARD_WAIT_MS,
+    });
   });
 
   it("AC-25 a blocked clipboard is reported, not thrown", async () => {
@@ -189,10 +206,12 @@ describe("the markdown viewer copies what is selected", () => {
 
     fireEvent.mouseUp(body);
 
-    await waitFor(() =>
-      expect(setToast).toHaveBeenCalledWith(
-        expect.objectContaining({ message: "Clipboard was blocked" }),
-      ),
+    await waitFor(
+      () =>
+        expect(setToast).toHaveBeenCalledWith(
+          expect.objectContaining({ message: "Clipboard was blocked" }),
+        ),
+      { timeout: CLIPBOARD_WAIT_MS },
     );
   });
 });
