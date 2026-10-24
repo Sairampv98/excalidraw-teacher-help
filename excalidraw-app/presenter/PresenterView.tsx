@@ -53,6 +53,48 @@ const FILE_REQUEST_RETRY_MS = 4000;
 /** how often the presenter's canvas is re-measured while it settles on mount */
 const MEASURE_SETTLE_MS = 120;
 
+/**
+ * Whether this browser can put the presenter window into fullscreen.
+ *
+ * The Fullscreen API is not everywhere, and where it is, the browser can still
+ * refuse the request. So the capability is **detected** rather than assumed:
+ * a control that cannot have an effect must not be drawn (D-120).
+ */
+const canEnterFullscreen = () =>
+  typeof document !== "undefined" &&
+  typeof document.documentElement?.requestFullscreen === "function";
+
+/**
+ * Enters or leaves fullscreen.
+ *
+ * Never throws, and never leaves a rejection unhandled: the old code called
+ * `requestFullscreen()` unguarded, so where the API was missing it threw a
+ * TypeError **inside the key handler** (the teacher sees nothing at all), and
+ * where the browser refused the request the rejection was swallowed - so the
+ * control did nothing and said nothing, which is the one thing a control must
+ * not do (D-120).
+ */
+const toggleFullscreen = () => {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  try {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => {});
+      return;
+    }
+
+    if (!canEnterFullscreen()) {
+      return;
+    }
+
+    void document.documentElement.requestFullscreen().catch(() => {});
+  } catch {
+    // the browser refused - the control simply does not take effect
+  }
+};
+
 type PresenterStatus = "waiting" | "live" | "stale" | "unsupported";
 
 /**
@@ -69,6 +111,14 @@ export const PresenterView = () => {
   const [status, setStatus] = useState<PresenterStatus>("waiting");
   const [showHint, setShowHint] = useState(true);
   const [pagesEnabled, setPagesEnabled] = useState(false);
+
+  /**
+   * Whether the browser can honour the presenter's fullscreen control.
+   *
+   * Read on every render (it is a cheap capability check), so the hint never
+   * promises a control the browser cannot deliver (D-120).
+   */
+  const canFullscreen = canEnterFullscreen();
 
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(excalidrawAPI);
   apiRef.current = excalidrawAPI;
@@ -532,14 +582,6 @@ export const PresenterView = () => {
   // presenter window shortcuts
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    const toggleFullscreen = () => {
-      if (document.fullscreenElement) {
-        document.exitFullscreen().catch(() => {});
-      } else {
-        document.documentElement.requestFullscreen().catch(() => {});
-      }
-    };
-
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (
@@ -572,11 +614,7 @@ export const PresenterView = () => {
   }, []);
 
   const onDoubleClick = useCallback(() => {
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    } else {
-      document.documentElement.requestFullscreen().catch(() => {});
-    }
+    toggleFullscreen();
   }, []);
 
   return (
@@ -635,8 +673,13 @@ export const PresenterView = () => {
 
       {showHint && status !== "unsupported" && (
         <div className="presenter-hint">
-          <strong>F</strong> fullscreen · <strong>H</strong> hide hint ·
-          double-click to toggle fullscreen
+          {canFullscreen && (
+            <>
+              <strong>F</strong> fullscreen ·{" "}
+            </>
+          )}
+          <strong>H</strong> hide hint
+          {canFullscreen && " · double-click to toggle fullscreen"}
         </div>
       )}
     </div>

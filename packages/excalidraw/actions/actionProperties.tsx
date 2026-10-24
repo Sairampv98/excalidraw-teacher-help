@@ -144,15 +144,29 @@ import {
 } from "../scene";
 
 import {
+  PAGE_SIZE_PRESETS,
+  getPageSize,
+  getPageSizeForPreset,
+  getPageSizePresetForPage,
+  updatePage,
+} from "../scene";
+
+import { CheckboxItem } from "../components/CheckboxItem";
+
+import {
   withCaretPositionPreservation,
   restoreCaretPosition,
 } from "../hooks/useTextEditorFocus";
 
 import { getShortcutKey } from "../shortcut";
 
+import { PAGE_HEIGHT, PAGE_WIDTH } from "../types";
+
 import { register } from "./register";
 
 import type { AppClassProperties, AppState, Primitive } from "../types";
+
+import type { PageProperties } from "../scene";
 
 const FONT_SIZE_RELATIVE_INCREASE_STEP = 0.1;
 
@@ -1842,6 +1856,144 @@ export const actionChangePanel = register({
             {panel.posterMode
               ? t("labels.panel.poster")
               : t("labels.panel.live")}
+          </div>
+        </div>
+      </fieldset>
+    );
+  },
+});
+
+/**
+ * The page's own properties (D-144).
+ *
+ * The frame, the number and the size are facts **about the page**, not about
+ * the elements on it: the frame is the page's own rectangle, the number is the
+ * page's own number, and the size is the shape the page is exported in. They
+ * live in the properties panel because that is where the teacher already looks
+ * for the properties of what is on the canvas.
+ */
+export const actionChangePage = register<PageProperties>({
+  name: "changePage",
+  label: "labels.pages.title",
+  trackEvent: false,
+  perform: (elements, appState, value) => {
+    if (!value) {
+      return false;
+    }
+
+    const pages = updatePage({
+      pages: appState.pages,
+      pageId: appState.currentPageId,
+      properties: value,
+    });
+
+    if (pages === appState.pages) {
+      // nothing changed: there is no page to change
+      return false;
+    }
+
+    return {
+      appState: { ...appState, pages },
+      elements,
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+    };
+  },
+  PanelComponent: ({ appState, appProps, updateData }) => {
+    // the pages system is off: there is no page, so there is nothing to change
+    if (!appProps.pagesEnabled) {
+      return null;
+    }
+
+    const page = appState.pages.find(
+      (candidate) => candidate.id === appState.currentPageId,
+    );
+
+    if (!page) {
+      return null;
+    }
+
+    const { width, height } = getPageSize(page);
+    const preset = getPageSizePresetForPage(page);
+
+    return (
+      <fieldset>
+        <legend>{t("labels.pages.title")}</legend>
+        <div className="selected-shape-actions">
+          <CheckboxItem
+            checked={!!page.frame}
+            onChange={(checked) => updateData({ frame: checked })}
+          >
+            {t("labels.pages.frame")}
+          </CheckboxItem>
+          <CheckboxItem
+            checked={!!page.number}
+            onChange={(checked) => updateData({ number: checked })}
+          >
+            {t("labels.pages.number")}
+          </CheckboxItem>
+          <div>{t("labels.pages.size")}</div>
+          <div>
+            <select
+              data-testid="page-size-preset"
+              value={preset?.id ?? ""}
+              onChange={(event) => {
+                const chosen = PAGE_SIZE_PRESETS.find(
+                  (candidate) => candidate.id === event.target.value,
+                );
+
+                if (chosen) {
+                  // the page remembers the preset it was picked from, not only
+                  // the size it ended up with
+                  updateData({
+                    ...getPageSizeForPreset(chosen),
+                    sizePreset: chosen.id,
+                  });
+                }
+              }}
+            >
+              <option value="">{t("labels.pages.custom")}</option>
+              {PAGE_SIZE_PRESETS.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {t(candidate.labelKey)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>{t("labels.pages.width")}</div>
+          <div>
+            <input
+              data-testid="page-width"
+              type="number"
+              value={width}
+              min={PAGE_WIDTH}
+              onChange={(event) => {
+                const next = Number(event.target.value);
+
+                if (Number.isFinite(next) && next > 0) {
+                  // a size of the teacher's own is not a preset's size any
+                  // more
+                  updateData({ width: next, sizePreset: undefined });
+                }
+              }}
+            />
+          </div>
+          <div>{t("labels.pages.height")}</div>
+          <div>
+            <input
+              data-testid="page-height"
+              type="number"
+              value={height}
+              min={PAGE_HEIGHT}
+              onChange={(event) => {
+                const next = Number(event.target.value);
+
+                if (Number.isFinite(next) && next > 0) {
+                  // a size of the teacher's own is not a preset's size any
+                  // more
+                  updateData({ height: next, sizePreset: undefined });
+                }
+              }}
+            />
           </div>
         </div>
       </fieldset>

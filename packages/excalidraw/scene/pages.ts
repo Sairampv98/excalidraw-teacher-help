@@ -26,12 +26,21 @@ import {
 import type {
   ExcalidrawPage,
   NormalizedZoomValue,
+  PageDecoration,
   PageRect,
   ResolvedExcalidrawPage,
 } from "../types";
 
+import type { TranslationKeys } from "../i18n";
+
+/** how far the page's number sits from the page's bottom edge, in scene units */
+export const PAGE_NUMBER_MARGIN = 48;
+
+/** the page's number font size, in scene units */
+export const PAGE_NUMBER_FONT_SIZE = 28;
+
 /**
- * Pages system.
+ * The pages system.
  *
  * A page is a rect laid out left-to-right in scene space. Pages may differ in
  * size, so the layout is computed from *cumulative* offsets:
@@ -127,6 +136,221 @@ export const getCurrentPageRect = (
   pages: readonly ExcalidrawPage[],
   currentPageId: string,
 ): PageRect => getPageRect(pages, currentPageId);
+
+/**
+ * A page size **preset** (D-144).
+ *
+ * A preset is a *shape*, not an absolute size: the widths and heights below
+ * are the shapes a page of that paper size has (96 dpi), and what the teacher
+ * picks is the **ratio** - the thing that decides how the page's text is laid
+ * out and how the exported image comes out.
+ *
+ * The sizes are in document units rather than scene units on purpose: a
+ * scene unit is not a physical size, so the honest thing a preset can carry is
+ * the shape of the paper.
+ */
+export type PageSizePreset = {
+  id: string;
+  /** the label of the preset, in the locales */
+  labelKey: TranslationKeys;
+  /** the shape's width, in document units (96 dpi) */
+  width: number;
+  /** the shape's height, in document units (96 dpi) */
+  height: number;
+};
+
+/**
+ * The page sizes the teacher may pick from (D-144).
+ *
+ * The list is deliberately short and fixed: A4 and Letter, portrait and
+ * landscape, the two screen ratios, and the project's own default.
+ */
+export const PAGE_SIZE_PRESETS: readonly PageSizePreset[] = [
+  {
+    id: "project",
+    labelKey: "labels.pages.presets.project",
+    width: PAGE_WIDTH,
+    height: PAGE_HEIGHT,
+  },
+  {
+    id: "a4-portrait",
+    labelKey: "labels.pages.presets.a4Portrait",
+    width: 794,
+    height: 1123,
+  },
+  {
+    id: "a4-landscape",
+    labelKey: "labels.pages.presets.a4Landscape",
+    width: 1123,
+    height: 794,
+  },
+  {
+    id: "letter-portrait",
+    labelKey: "labels.pages.presets.letterPortrait",
+    width: 816,
+    height: 1056,
+  },
+  {
+    id: "letter-landscape",
+    labelKey: "labels.pages.presets.letterLandscape",
+    width: 1056,
+    height: 816,
+  },
+  {
+    id: "16-9",
+    labelKey: "labels.pages.presets.wide169",
+    width: 1280,
+    height: 720,
+  },
+  {
+    id: "4-3",
+    labelKey: "labels.pages.presets.standard43",
+    width: 1024,
+    height: 768,
+  },
+];
+
+/**
+ * The page size a preset stands for, in scene units.
+ *
+ * A page may only grow (D-1), so the preset's **shape** is scaled up until
+ * both of its sides are at least the minimum page size. The ratio - the part
+ * the teacher sees in the export - is the preset's own; the absolute size
+ * stays inside the project's rule that a page is never smaller than the
+ * minimum.
+ */
+export const getPageSizeForPreset = (
+  preset: PageSizePreset,
+): { width: number; height: number } => {
+  const factor = Math.max(
+    PAGE_WIDTH / preset.width,
+    PAGE_HEIGHT / preset.height,
+  );
+
+  return {
+    width: Math.round(preset.width * factor),
+    height: Math.round(preset.height * factor),
+  };
+};
+
+/**
+ * The preset a page's size came from, or null when it is a size of its own.
+ *
+ * The page remembers the preset it was picked from (two presets may share a
+ * shape - 16:9 and the project's own 1920x1080 are the same page - and the
+ * teacher has to see the one they picked). A page that has no preset of its
+ * own is matched by its size, so a page written by an older version still
+ * shows the preset it looks like.
+ */
+export const getPageSizePresetForPage = (
+  page: ExcalidrawPage,
+): PageSizePreset | null => {
+  if (page.sizePreset) {
+    const chosen = PAGE_SIZE_PRESETS.find(
+      (preset) => preset.id === page.sizePreset,
+    );
+
+    if (chosen) {
+      return chosen;
+    }
+  }
+
+  const { width, height } = getPageSize(page);
+
+  return (
+    PAGE_SIZE_PRESETS.find((preset) => {
+      const size = getPageSizeForPreset(preset);
+      return size.width === width && size.height === height;
+    }) ?? null
+  );
+};
+
+/**
+ * The properties of a page the teacher may change (D-144).
+ *
+ * A size is clamped to the minimum page size, exactly as a page that grew to
+ * contain imported content is (D-1, D-5).
+ */
+export type PageProperties = Partial<
+  Pick<ExcalidrawPage, "frame" | "number" | "width" | "height" | "sizePreset">
+>;
+
+/**
+ * Applies the teacher's changes to a page.
+ *
+ * The page is a fact about the document, so the change is a change of the
+ * page - not of the elements on it, and not of the view.
+ */
+export const updatePage = ({
+  pages,
+  pageId,
+  properties,
+}: {
+  pages: readonly ExcalidrawPage[];
+  pageId: string;
+  properties: PageProperties;
+}): readonly ExcalidrawPage[] => {
+  if (!pages.some((page) => page.id === pageId)) {
+    return pages;
+  }
+
+  return pages.map((page) => {
+    if (page.id !== pageId) {
+      return page;
+    }
+
+    const next: ExcalidrawPage = { ...page, ...properties };
+
+    if (properties.width !== undefined) {
+      next.width = Math.max(properties.width, PAGE_WIDTH);
+    }
+
+    if (properties.height !== undefined) {
+      next.height = Math.max(properties.height, PAGE_HEIGHT);
+    }
+
+    return next;
+  });
+};
+
+/**
+ * The frame and the number a page draws (D-144).
+ *
+ * The frame is the page's **own** rectangle - the page is the frame, so there
+ * is nothing to place. The number is the page's number (its place in the
+ * page list, counting from one), in the page's footer, the way Word puts a
+ * page number in a footer.
+ *
+ * Both are facts about the page, so they are derived here from the page list
+ * alone: the editor and the exporter ask the same question and get the same
+ * answer.
+ */
+export const getPageDecoration = ({
+  pages,
+  pageId,
+}: {
+  pages: readonly ExcalidrawPage[];
+  pageId: string;
+}): PageDecoration => {
+  const page = pages.find((candidate) => candidate.id === pageId);
+
+  if (!page) {
+    return { frame: null, number: null };
+  }
+
+  const pageRect = getPageRect(pages, pageId);
+
+  return {
+    frame: page.frame ? pageRect : null,
+    number: page.number
+      ? {
+          text: String(getPageIndex(pages, pageId) + 1),
+          x: pageRect.x + pageRect.width / 2,
+          y: pageRect.y + pageRect.height - PAGE_NUMBER_MARGIN,
+        }
+      : null,
+  };
+};
 
 /**
  * Zoom at which the whole page fits inside the viewport.

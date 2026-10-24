@@ -381,6 +381,7 @@ import {
   getElementsWithinSelection,
   getNormalizedZoom,
   getPageClampRect,
+  getPageDecoration,
   getPageRect,
   getPageViewportWidth,
   getSelectedElements,
@@ -562,6 +563,7 @@ import type {
   NullableGridSize,
   NormalizedZoomValue,
   Offsets,
+  PageDecoration,
   PageRect,
 } from "../types";
 import type { ExcalidrawPage } from "../types";
@@ -2507,6 +2509,7 @@ class App extends React.Component<AppProps, AppState> {
                             scale={window.devicePixelRatio}
                             appState={this.state}
                             currentPageRect={this.getCurrentPageRect()}
+                            currentPageDecoration={this.getCurrentPageDecoration()}
                             renderConfig={{
                               imageCache: this.imageCache,
                               isExporting: false,
@@ -4191,11 +4194,37 @@ class App extends React.Component<AppProps, AppState> {
 
     // page-scoped view: keep the camera inside the current page's rect.
     // Clamping is idempotent, so this converges in a single follow-up render.
+    //
+    // A page whose **own rect** moved counts as a camera change here (D-144:
+    // the teacher picked a preset, so the page changed size, and a page that
+    // changed size moves the pages after it): the camera has to be inside the
+    // current page's rect, and a page that just moved may have left it outside.
+    //
+    // The pages may be missing from either state (a document that has none
+    // yet), and then there is no page that could have moved.
+    const prevPageRect = prevState.pages
+      ? getPageRect(prevState.pages, prevState.currentPageId)
+      : null;
+    const nextPageRect = this.state.pages
+      ? getPageRect(this.state.pages, this.state.currentPageId)
+      : null;
+    const currentPageMoved =
+      this.pagesEnabled &&
+      prevPageRect !== null &&
+      nextPageRect !== null &&
+      prevState.pages !== this.state.pages &&
+      prevState.currentPageId === this.state.currentPageId &&
+      (prevPageRect.x !== nextPageRect.x ||
+        prevPageRect.y !== nextPageRect.y ||
+        prevPageRect.width !== nextPageRect.width ||
+        prevPageRect.height !== nextPageRect.height);
+
     if (
       this.pagesEnabled &&
       (prevState.scrollX !== this.state.scrollX ||
         prevState.scrollY !== this.state.scrollY ||
-        prevState.zoom.value !== this.state.zoom.value)
+        prevState.zoom.value !== this.state.zoom.value ||
+        currentPageMoved)
     ) {
       const clamped = this.clampCameraToCurrentPage({
         scrollX: this.state.scrollX,
@@ -5590,6 +5619,7 @@ class App extends React.Component<AppProps, AppState> {
     pages: readonly ExcalidrawPage[];
     pageId: string;
     rect: PageRect;
+    decoration: PageDecoration;
   } | null = null;
 
   /**
@@ -5600,7 +5630,17 @@ class App extends React.Component<AppProps, AppState> {
    */
   private hasFramedPage = false;
 
-  private getCurrentPageRect = (): PageRect | null => {
+  /**
+   * The current page's rect and its own decoration (D-144).
+   *
+   * Both are derived from the same two facts - the page list and the current
+   * page - so they are cached together: the static canvas compares its props
+   * by identity, and a fresh object on every render would re-render it.
+   */
+  private getCurrentPageLayout = (): {
+    rect: PageRect;
+    decoration: PageDecoration;
+  } | null => {
     if (!this.pagesEnabled) {
       return null;
     }
@@ -5615,11 +5655,22 @@ class App extends React.Component<AppProps, AppState> {
         pages,
         pageId: currentPageId,
         rect: getPageRect(pages, currentPageId),
+        decoration: getPageDecoration({ pages, pageId: currentPageId }),
       };
     }
 
-    return this.pageRectCache.rect;
+    return {
+      rect: this.pageRectCache.rect,
+      decoration: this.pageRectCache.decoration,
+    };
   };
+
+  private getCurrentPageRect = (): PageRect | null =>
+    this.getCurrentPageLayout()?.rect ?? null;
+
+  /** the current page's frame and number, if it has either (D-144) */
+  private getCurrentPageDecoration = (): PageDecoration | null =>
+    this.getCurrentPageLayout()?.decoration ?? null;
 
   /** keeps the camera inside the current page's rect */
   private clampCameraToCurrentPage = (

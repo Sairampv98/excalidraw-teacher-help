@@ -24,6 +24,7 @@ import type {
 import type {
   AppState,
   BinaryFiles,
+  PageDecoration,
   PageRect,
 } from "@excalidraw/excalidraw/types";
 
@@ -44,6 +45,11 @@ type ExportOpts = {
    * of `elements`.
    */
   pageRect?: PageRect | null;
+  /**
+   * The page's own frame and number (D-144), drawn into the export so the
+   * exported page looks like the page the teacher sees.
+   */
+  pageDecoration?: PageDecoration | null;
 };
 
 export const exportToCanvas = ({
@@ -55,6 +61,7 @@ export const exportToCanvas = ({
   exportPadding,
   exportingFrame,
   pageRect,
+  pageDecoration,
 }: ExportOpts & {
   exportPadding?: number;
 }) => {
@@ -74,6 +81,7 @@ export const exportToCanvas = ({
       viewBackgroundColor,
       exportingFrame,
       pageRect,
+      pageDecoration,
     },
     (width: number, height: number) => {
       const canvas = document.createElement("canvas");

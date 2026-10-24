@@ -442,7 +442,12 @@ export {
   DEFAULT_PAGE_ID,
   DEFAULT_SIDEBAR_WIDTH,
 } from "./types";
-export type { ExcalidrawPage, PageRect, ResolvedExcalidrawPage } from "./types";
+export type {
+  ExcalidrawPage,
+  PageDecoration,
+  PageRect,
+  ResolvedExcalidrawPage,
+} from "./types";
 export {
   getPageRectByIndex,
   getPageRectAtIndex,
@@ -470,6 +475,11 @@ export {
   growPagesToFitContent,
   getPageClampRect,
   paginateContentIntoPages,
+  PAGE_SIZE_PRESETS,
+  getPageSizeForPreset,
+  getPageSizePresetForPage,
+  getPageDecoration,
+  updatePage,
 } from "./scene";
 
 export {

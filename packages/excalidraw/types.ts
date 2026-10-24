@@ -209,6 +209,27 @@ export type ExcalidrawPage = {
    * rect itself is not a user-facing axis.
    */
   contentScale?: number;
+  /**
+   * Whether the page's **frame** is drawn (D-144): the rectangle around the
+   * page, the way a printed page has a border. Off by default - a page is an
+   * invisible rectangle until the teacher asks for a frame.
+   */
+  frame?: boolean;
+  /**
+   * Whether the page's **number** is drawn (D-144): the page's own number, in
+   * the page's footer, the way Word puts a page number in a footer. Off by
+   * default.
+   */
+  number?: boolean;
+  /**
+   * The id of the size preset the page was picked from (D-144), if any.
+   *
+   * The page's size is `width` and `height` - that is the fact the export
+   * honours - but the preset is remembered too, because two presets may share
+   * a shape (16:9 and the project's own 1920x1080 are the same page) and the
+   * teacher has to see the one they picked.
+   */
+  sizePreset?: string;
 };
 
 /** a page whose geometry has been resolved to concrete numbers */
@@ -224,6 +245,24 @@ export type PageRect = {
   y: number;
   width: number;
   height: number;
+};
+
+/**
+ * What a page draws around its own content (D-144): its **frame** and its
+ * **number**.
+ *
+ * This is the page's own decoration, not an element: it is not selectable, it
+ * is not stored in the scene, and it is drawn from the page's own facts, so it
+ * survives a reload and reaches the export.
+ */
+export type PageDecoration = {
+  /** the page's own rect, drawn as a frame; null when the page has no frame */
+  frame: PageRect | null;
+  /**
+   * the page's number and where it sits, in scene coordinates; null when the
+   * page has no number
+   */
+  number: { text: string; x: number; y: number } | null;
 };
 
 export type BinaryFileData = {
@@ -324,6 +363,8 @@ export type StaticCanvasAppState = Readonly<
     canvasBackgroundPattern: AppState["canvasBackgroundPattern"];
     /** rect of the current page to outline; null when the pages system is off */
     currentPageRect?: PageRect | null;
+    /** the current page's frame and number; null when it has neither */
+    currentPageDecoration?: PageDecoration | null;
     frameRendering: AppState["frameRendering"];
     currentHoveredFontFamily: AppState["currentHoveredFontFamily"];
     hoveredElementIds: AppState["hoveredElementIds"];

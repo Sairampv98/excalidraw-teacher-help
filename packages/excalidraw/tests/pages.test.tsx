@@ -37,6 +37,7 @@ import { actionWrapSelectionInFrame } from "../actions/actionFrame";
 import { createPasteEvent, serializeAsClipboardJSON } from "../clipboard";
 import { loadFromBlob } from "../data";
 import { Excalidraw } from "../index";
+import { exportToCanvas } from "../scene/export";
 import {
   clampCameraToPage,
   deletePage,
@@ -51,6 +52,8 @@ import {
   scalePageContent,
   translateContentForPageLayout,
 } from "../scene/pages";
+// the page's own decoration is read through the namespace on purpose: the
+// test has to fail on the behaviour, not on a missing import
 import * as pagesModule from "../scene/pages";
 import {
   DEFAULT_PAGE_ID,
@@ -59,7 +62,14 @@ import {
   PAGE_WIDTH,
 } from "../types";
 
-import { render, fireEvent, act, waitFor, GlobalTestState } from "./test-utils";
+import {
+  render,
+  fireEvent,
+  act,
+  waitFor,
+  screen,
+  GlobalTestState,
+} from "./test-utils";
 import { API } from "./helpers/api";
 import { UI } from "./helpers/ui";
 
@@ -1316,5 +1326,190 @@ describe("the page-relative camera anchor", () => {
       -(pageRect.x + camera.scrollX) / pageRect.width,
       6,
     );
+  });
+});
+
+/**
+ * The page's own frame, number and size (D-144, AC-180).
+ *
+ * The frame and the number are facts **about the page**, not about the
+ * elements on it: they live on the page, they are drawn from the page's own
+ * rect, and they reach the export - so the exported page looks like the page
+ * the teacher sees.
+ *
+ * The size is a fact about the page too: a preset is the page's *shape*, and
+ * the export comes out in that shape.
+ */
+describe("pages - the frame, the number and the size", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  /**
+   * Exports a page the way the app exports it: the page's own rect is the
+   * canvas, and the page's own frame and number are drawn into it.
+   */
+  const exportPage = async (pageId: string) => {
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d")! as CanvasRenderingContext2D & {
+      __getDrawCalls: () => { type: string; props: Record<string, unknown> }[];
+    };
+
+    const exported = await exportToCanvas(
+      h.elements.filter((element) => !element.isDeleted),
+      h.state,
+      {},
+      {
+        exportBackground: true,
+        exportPadding: 0,
+        viewBackgroundColor: "#ffffff",
+        pageRect: getPageRect(h.state.pages, pageId),
+        pageDecoration: pagesModule.getPageDecoration({
+          pages: h.state.pages,
+          pageId,
+        }),
+      },
+      (width, height) => {
+        canvas.width = width;
+        canvas.height = height;
+        return { canvas, scale: 1 };
+      },
+    );
+
+    return { canvas: exported, context };
+  };
+
+  it("AC-180 the page frame can be toggled on and off", async () => {
+    await render(<Excalidraw pagesEnabled={true} />);
+
+    h.setState({ pages: TWO_PAGES, currentPageId: "page-1" });
+
+    // the page's own controls live in the properties panel; the rectangle tool
+    // is enough to have that panel open
+    UI.clickTool("rectangle");
+
+    const frameToggle = screen.getByText("Show the page's frame");
+
+    // off by default: a page is an invisible rectangle until it is asked for
+    expect(h.state.pages[0].frame).toBeFalsy();
+
+    fireEvent.click(frameToggle);
+
+    expect(h.state.pages[0].frame).toBe(true);
+
+    // the frame that is drawn is the page's own rectangle
+    const pageRect = getPageRect(h.state.pages, "page-1");
+
+    expect(
+      pagesModule.getPageDecoration({ pages: h.state.pages, pageId: "page-1" })
+        .frame,
+    ).toEqual(pageRect);
+
+    // and it really reaches the export
+    const on = await exportPage("page-1");
+
+    expect(
+      on.context.__getDrawCalls().some((call) => call.type === "strokeRect"),
+    ).toBe(true);
+
+    // and off again: no frame, and nothing drawn as one
+    fireEvent.click(frameToggle);
+
+    expect(h.state.pages[0].frame).toBe(false);
+    expect(
+      pagesModule.getPageDecoration({ pages: h.state.pages, pageId: "page-1" })
+        .frame,
+    ).toBe(null);
+
+    const off = await exportPage("page-1");
+
+    expect(
+      off.context.__getDrawCalls().some((call) => call.type === "strokeRect"),
+    ).toBe(false);
+  });
+
+  it("AC-180 the page number says the page's own number", async () => {
+    await render(<Excalidraw pagesEnabled={true} />);
+
+    h.setState({ pages: TWO_PAGES, currentPageId: "page-2" });
+
+    UI.clickTool("rectangle");
+
+    const numberToggle = screen.getByText("Show the page's number");
+
+    expect(h.state.pages[1].number).toBeFalsy();
+
+    fireEvent.click(numberToggle);
+
+    expect(h.state.pages[1].number).toBe(true);
+
+    const decoration = pagesModule.getPageDecoration({
+      pages: h.state.pages,
+      pageId: "page-2",
+    });
+
+    // the second page says "2" - the number is the page's own, not a counter
+    // of the pages that happen to have one
+    expect(decoration.number?.text).toBe("2");
+
+    // and it sits in the page's footer, in the middle of the page
+    const pageRect = getPageRect(h.state.pages, "page-2");
+
+    expect(decoration.number!.x).toBe(pageRect.x + pageRect.width / 2);
+    expect(decoration.number!.y).toBeGreaterThan(pageRect.y);
+    expect(decoration.number!.y).toBeLessThan(pageRect.y + pageRect.height);
+
+    // the first page has no number of its own: the number is a fact about the
+    // page it belongs to
+    expect(
+      pagesModule.getPageDecoration({ pages: h.state.pages, pageId: "page-1" })
+        .number,
+    ).toBe(null);
+
+    // and the number really reaches the export
+    const { context } = await exportPage("page-2");
+
+    expect(
+      context
+        .__getDrawCalls()
+        .some((call) => call.type === "fillText" && call.props.text === "2"),
+    ).toBe(true);
+  });
+
+  it("AC-180 a size preset shapes the exported page", async () => {
+    await render(<Excalidraw pagesEnabled={true} />);
+
+    h.setState({ pages: TWO_PAGES, currentPageId: "page-1" });
+
+    UI.clickTool("rectangle");
+
+    const presetSelect = screen.getByTestId("page-size-preset");
+
+    // the project's own size is the default
+    expect(presetSelect).toHaveValue("project");
+
+    fireEvent.change(presetSelect, { target: { value: "a4-portrait" } });
+
+    const portrait = await exportPage("page-1");
+
+    // the exported image is the page, in the preset's shape: A4 portrait is
+    // 210 x 297 mm, so it is taller than it is wide
+    expect(portrait.canvas.height).toBeGreaterThan(portrait.canvas.width);
+    expect(portrait.canvas.width / portrait.canvas.height).toBeCloseTo(
+      210 / 297,
+      2,
+    );
+
+    // the page's own size is the preset's size
+    expect(h.state.pages[0].width).toBe(portrait.canvas.width);
+    expect(h.state.pages[0].height).toBe(portrait.canvas.height);
+
+    // another preset, another shape
+    fireEvent.change(presetSelect, { target: { value: "a4-landscape" } });
+
+    const landscape = await exportPage("page-1");
+
+    expect(landscape.canvas.width).toBeGreaterThan(landscape.canvas.height);
+    expect(landscape.canvas.height).not.toBe(portrait.canvas.height);
   });
 });

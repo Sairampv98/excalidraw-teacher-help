@@ -658,14 +658,14 @@ Each wave below has **its own section**, and each wave adds **its own row** to i
 
 ### Wave 6b — one crop-and-read action, and the engine ladder
 
-The owner asked for both in one breath: _"maybe we should combine the cropping and the ocr together, default uses tessaract, with vscode/vscodium bridge it can use indra and if nothing works they can use paddle put in a loading animation so they know when to expexct the text to be come visible again."_ So the read takes the **cropped** region - one action, not two - the engine is a **ladder** the machine walks by itself (D-137), and a slow read says so while it happens (D-138). The acceptance row for this wave is **AC-174**.
+The owner asked for both in one breath: _"maybe we should combine the cropping and the ocr together, default uses tessaract, with vscode/vscodium bridge it can use indra and if nothing works they can use paddle put in a loading animation so they know when to expexct the text to be come visible again."_ So the read takes the **cropped** region - one action, not two - the engine is a **ladder** the machine walks by itself (D-137), and a slow read says so while it happens (D-138). The acceptance row for this wave is **AC-175**.
 
 | Row | The acceptance | Check | Detail |
 | --- | -------------- | ----- | ------ |
 
 ### Wave 6c — the crop really crops, and the placement flows are in the owner's order
 
-_"cropping of images doesnot seem to work i can see the handles to crop the image but not do anything to it"_, and the three placement flows written out in full: the crop first, the target last, and the popup must vanish and hand the canvas back (D-139, D-140). The acceptance rows for this wave are **AC-175** and **AC-176**.
+_"cropping of images doesnot seem to work i can see the handles to crop the image but not do anything to it"_, and the three placement flows written out in full: the crop first, the target last, and the popup must vanish and hand the canvas back (D-139, D-140). The acceptance rows for this wave are **AC-176** and **AC-178**.
 
 | Row | The acceptance | Check | Detail |
 | --- | -------------- | ----- | ------ |
@@ -675,18 +675,19 @@ _"cropping of images doesnot seem to work i can see the handles to crop the imag
 _"somehow the presenter view is dead this is what the failure is about"_ - the presenter view is the teacher's canvas, seen by someone else (D-141). The acceptance row for this wave is **AC-177**.
 
 | Row | The acceptance | Check | Detail |
-| --- | -------------- | ----- | ------ |
+| --- | --- | --- | --- |
+| AC-177 | the presenter view opens, shows the teacher's scene and page, and its own controls work | `excalidraw-app/tests/presenter.test.tsx` | The presenter is the teacher's canvas, seen by someone else (D-141), and a control that does nothing is worse than no control (D-120). Tests: `AC-177 the presenter view opens and shows the current scene`, `AC-177 the presenter view follows the page the teacher is on`, `AC-177 the presenter's own controls work`, `AC-177 the presenter's fullscreen control is offered only where the browser can do it`. |
 
 ### Wave 6e — the live editor is a real editor
 
-_"the live editor is weird ... cannot select that text and paste it as a codeblock ... nor select the programming language of my choice, zoom in/ zoom out both the page and inside the editor"_ (D-142). The acceptance row for this wave is **AC-178**.
+_"the live editor is weird ... cannot select that text and paste it as a codeblock ... nor select the programming language of my choice, zoom in/ zoom out both the page and inside the editor"_ (D-142). The acceptance row for this wave is **AC-179**.
 
 | Row | The acceptance | Check | Detail |
 | --- | -------------- | ----- | ------ |
 
 ### Wave 6f — what is mirrored, and follow the cursor
 
-_"why is the vscode/vscodium what i want section ... not available? ... i crop the section i want mirrored (i should be able to edit it as many times as possible, and maybe it can even have a follow the cursor option)"_ (D-143). The acceptance row for this wave is **AC-179**.
+_"why is the vscode/vscodium what i want section ... not available? ... i crop the section i want mirrored (i should be able to edit it as many times as possible, and maybe it can even have a follow the cursor option)"_ (D-143). The acceptance row for this wave is **AC-182**.
 
 | Row | The acceptance | Check | Detail |
 | --- | -------------- | ----- | ------ |
@@ -696,7 +697,8 @@ _"why is the vscode/vscodium what i want section ... not available? ... i crop t
 The owner's decision: _"pages visible frame can be toggled on/off with a page number etc (the same options one gets in the microsoft word, header/fotter -> page number thingy), ok include presets for width and height"_ (D-144). The acceptance row for this wave is **AC-180**.
 
 | Row | The acceptance | Check | Detail |
-| --- | -------------- | ----- | ------ |
+| --- | --- | --- | --- |
+| AC-180 | a page has a **frame**, a **number** and a **size**, and the export honours the size | `packages/excalidraw/tests/pages.test.tsx` | The frame and the number are facts **about the page**, saved with the document (D-144): the frame is the page's own rectangle, the number is the page's own number in the page's footer, and both are toggled from the Page section of the properties panel. The size is chosen from a preset (A4 portrait and landscape, Letter portrait and landscape, 16:9, 4:3 and the project's own 1920x1080) or typed by hand; a preset fixes the page's **shape**, and because a page may only grow (D-1) the shape is scaled up to the minimum page size, so the exported image comes out in the preset's shape. Tests: `AC-180 the page frame can be toggled on and off`, `AC-180 the page number says the page's own number`, `AC-180 a size preset shapes the exported page`. |
 
 ### Wave 6h — the virtual display and the input panel
 
