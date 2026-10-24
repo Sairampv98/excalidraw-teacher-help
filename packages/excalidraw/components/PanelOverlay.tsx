@@ -63,8 +63,6 @@ import { t } from "../i18n";
 
 import { VS_CODE_DARK } from "./vscodeTheme";
 
-import { ScreenshotIcon } from "./icons";
-
 import { captionCueAt, DEFAULT_CAPTION_LANGUAGE } from "./panelCaptions";
 import {
   registerVideoSurface,
@@ -359,89 +357,10 @@ const VS_CODE_HAIRLINE: React.CSSProperties = {
 };
 
 /**
- * The **screenshot** button of a panel (D-102).
+ * The **screenshot** button of a panel (D-102) lives in the panel's
+ * **properties**, not on the panel's picture (D-135) - see
+ * `components/PanelActions.tsx`.
  *
- * One button, and nothing else: the three choices come **after** the capture,
- * not before it (D-103). The button asks the **host** to take the picture,
- * because the host is the side that owns the bridge, the pages and the files.
- *
- * The button is chrome, so it keeps its size on screen at any zoom (D-92).
- */
-const PanelScreenshotButton = ({
-  panel,
-  chrome,
-  screenshot,
-}: {
-  panel: ExcalidrawPanelElement;
-  chrome: PanelChrome;
-  screenshot: PanelScreenshotControls;
-}) => (
-  <button
-    type="button"
-    className="excalidraw__panel-screenshot-button"
-    data-testid="panel-screenshot-button"
-    data-panel-id={panel.id}
-    onClick={() => screenshot.onCapture?.(panel.id)}
-    title={t("labels.panel.screenshot.button")}
-    aria-label={t("labels.panel.screenshot.button")}
-    style={{
-      width: chrome.buttonSize,
-      height: chrome.buttonSize,
-      fontSize: chrome.buttonFontSize,
-      // The chrome's size is DECIDED (D-92), and the flexbox may not take it
-      // away (D-108): the header is tight, and a button that may shrink can
-      // be shrunk away entirely - which is what happened on 2026-10-22, when
-      // this button measured zero pixels wide in the owner's app.
-      flexShrink: 0,
-    }}
-  >
-    {ScreenshotIcon}
-  </button>
-);
-
-/**
- * The **camera** of a panel (D-115).
- *
- * The camera is a control that acts on a **panel**, so it lives on the panel:
- * it is drawn for every panel, whatever its kind, and whether or not the
- * panel is selected - the teacher must be able to take the picture of a panel
- * without selecting it first (D-115).
- *
- * It hangs on the panel's **top-right corner**, clear of the corner itself:
- * the corner is where the canvas draws the panel's resize handle, and a
- * control that sits on the handle is a control that costs the teacher the
- * handle.
- */
-const PanelScreenshotCamera = ({
-  panel,
-  chrome,
-  screenshot,
-}: {
-  panel: ExcalidrawPanelElement;
-  chrome: PanelChrome;
-  screenshot: PanelScreenshotControls;
-}) => (
-  <div
-    className="excalidraw__panel-screenshot-camera"
-    data-testid="panel-screenshot-camera"
-    style={{
-      position: "absolute",
-      top: chrome.panelCornerInset,
-      right: chrome.panelCornerInset,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-    }}
-  >
-    <PanelScreenshotButton
-      panel={panel}
-      chrome={chrome}
-      screenshot={screenshot}
-    />
-  </div>
-);
-
-/**
  * The **choice strip** of a screenshot (D-103).
  *
  * Exactly three entries, and they exist **only** after the capture: before it
@@ -2342,25 +2261,20 @@ const Panel = ({
           />
         ) : null}
         {screenshot ? (
-          <>
-            {/* The camera is a control that acts on the PANEL, so it lives on
-                the panel - for every kind of panel, and whether or not the
-                panel is selected (D-115). */}
-            <PanelScreenshotCamera
-              panel={panel}
-              chrome={chrome}
-              screenshot={screenshot}
-            />
-            {/* The choice strip hangs off the panel's own chrome, and it exists
-                only after the capture (D-103). Its position is computed from
-                the panel's own rect (D-114), never guessed. */}
-            <PanelScreenshotChoices
-              panel={panel}
-              chrome={chrome}
-              screenshot={screenshot}
-              top={placement.top}
-            />
-          </>
+          // The choice strip hangs off the panel's own chrome, and it exists
+          // only after the capture (D-103). Its position is computed from
+          // the panel's own rect (D-114), never guessed.
+          //
+          // The CAMERA is not here: it is a choice about the panel, so it
+          // lives in the panel's properties (D-135). A button drawn on top
+          // of the picture is a button under a YouTube panel's iframe - and
+          // the iframe takes the click.
+          <PanelScreenshotChoices
+            panel={panel}
+            chrome={chrome}
+            screenshot={screenshot}
+            top={placement.top}
+          />
         ) : null}
       </div>
     </div>
