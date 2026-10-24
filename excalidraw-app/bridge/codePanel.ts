@@ -386,6 +386,12 @@ export const toPanelCapture = (
       ? {
           status: "live",
           streamUrl,
+          // What is **mirrored**, as the editor says it (D-143): the region
+          // and the picture's own size, which is what turns the region's
+          // fractions into the shape the teacher sees.
+          ...(message.region ? { region: message.region } : {}),
+          ...(message.width ? { width: message.width } : {}),
+          ...(message.height ? { height: message.height } : {}),
         }
       : {
           status: "unavailable",

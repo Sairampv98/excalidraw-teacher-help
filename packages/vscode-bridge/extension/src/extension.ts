@@ -10,6 +10,7 @@ import {
 
 import { createBridgeServer, type BridgeConnection } from "./bridge";
 import { createCaptureStatePublisher } from "./captureState";
+import { applyMirrorMessage, createMirrorStore } from "./mirrorRegion";
 import {
   resolveCaptureFps,
   resolvePort,
@@ -203,6 +204,16 @@ export function activate(context: vscode.ExtensionContext): void {
     bridgeServer?.broadcast(message);
   });
 
+  /**
+   * What is **mirrored** of the editor's window (D-143).
+   *
+   * The teacher's own choice: the whole window until they choose a region,
+   * and a region they can change as often as they like. The editor's window
+   * is still found **by rule** (D-112, D-113) - a region never changes how it
+   * is found, it only says which part of it is mirrored.
+   */
+  const mirror = createMirrorStore();
+
   const startWindowCapture = () => {
     if (process.platform !== "win32") {
       // the capture is a Windows program: `PrintWindow` is a Windows API
@@ -235,7 +246,12 @@ export function activate(context: vscode.ExtensionContext): void {
         });
 
         // and the state says the capture is running - once, when it changes.
-        captureState.live(frame.seq);
+        // The picture's own size rides with it: the crop is measured in
+        // fractions of the picture, so the panel needs the size (D-143).
+        captureState.live(frame.seq, {
+          width: frame.width,
+          height: frame.height,
+        });
       },
       onUnavailable: (reason) => {
         // A failure is a **message**, not a silence: the panel has to be able
@@ -528,6 +544,16 @@ export function activate(context: vscode.ExtensionContext): void {
         break;
       case "ping":
         bridgeServer?.broadcast({ v: 1, type: "pong" });
+        break;
+      case "editor:mirror":
+        // What is mirrored is a **choice** (D-143): the teacher changed it, so
+        // the capture descriptor says so again, and a panel that connects
+        // later learns the choice.
+        applyMirrorMessage(
+          mirror,
+          (state) => captureState.setMirror(state),
+          message,
+        );
         break;
       case "ocr:request":
         void readText(message);

@@ -28,6 +28,14 @@ import { runSnippet } from "../extension/src/snippet";
 import { resolvePort, resolveToken } from "../extension/src/config";
 import { createInputPanel } from "../extension/src/inputPanel";
 import { createVirtualDisplay } from "../extension/src/virtualDisplay";
+import {
+  applyMirrorMessage,
+  createMirrorStore,
+} from "../extension/src/mirrorRegion";
+import {
+  createCaptureStatePublisher,
+  type CaptureStateMessage,
+} from "../extension/src/captureState";
 
 import { RawWsClient } from "./helpers/rawWsClient";
 
@@ -136,6 +144,12 @@ describe("the bridge protocol", () => {
       type: "editor:capture",
       state: "live",
       seq: 1,
+    },
+    {
+      v: 1,
+      type: "editor:mirror",
+      region: { x: 0.25, y: 0.1, width: 0.5, height: 0.4 },
+      follow: false,
     },
     {
       v: 1,
@@ -1034,5 +1048,176 @@ describe("the virtual display and the input panel", () => {
     expect(page.body).not.toMatch(/\.focus\(/);
     expect(page.body).not.toMatch(/autofocus/i);
     expect(page.body).toContain('data-command="next-page"');
+  });
+});
+
+describe("what is mirrored (D-143)", () => {
+  it("AC-182 the whole window is mirrored until the teacher chooses a region", () => {
+    // The mirror starts with **no region**: the whole editor's window is
+    // mirrored, which is the default.
+    const mirror = createMirrorStore();
+
+    expect(mirror.state.region).toBeNull();
+    expect(mirror.state.follow).toBe(false);
+
+    // And the capture descriptor says so: it carries **no region at all**,
+    // because a region of "nothing" IS the whole window.
+    const published: CaptureStateMessage[] = [];
+    const captureState = createCaptureStatePublisher((message) =>
+      published.push(message),
+    );
+
+    captureState.live(1, { width: 1282, height: 674 });
+
+    expect(published).toHaveLength(1);
+    expect(published[0].type).toBe("editor:capture");
+    expect(published[0].state).toBe("live");
+    expect(published[0].region).toBeUndefined();
+    expect(published[0].follow).toBeUndefined();
+
+    // The picture's own size rides with the state: the crop is measured in
+    // fractions of the picture, so the panel needs the size to draw it.
+    expect(published[0].width).toBe(1282);
+    expect(published[0].height).toBe(674);
+  });
+
+  it("AC-182 the region travels to the editor and comes back in the capture descriptor", async () => {
+    const region = { x: 0.25, y: 0.1, width: 0.5, height: 0.4 };
+
+    let arrive: (message: BridgeMessage) => void = () => undefined;
+
+    const arrived = new Promise<BridgeMessage>((resolve) => {
+      arrive = resolve;
+    });
+
+    const server = await startServer({
+      onMessage: (message) => {
+        if (message.type === "editor:mirror") {
+          arrive(message);
+        }
+      },
+    });
+
+    const client = await connect(server);
+
+    auth(client);
+
+    await client.waitForMessage((frame) =>
+      frame.payload.toString("utf8").includes("bridge:hello"),
+    );
+
+    // The teacher's choice goes over the bridge like every other message.
+    client.send(
+      encodeBridgeMessage({
+        v: 1,
+        type: "editor:mirror",
+        region,
+        follow: false,
+      }),
+    );
+
+    expect(await arrived).toEqual({
+      v: 1,
+      type: "editor:mirror",
+      region,
+      follow: false,
+    });
+
+    // And the editor's answer: the capture descriptor says what is mirrored
+    // now, so every panel that shows the live view says the same thing.
+    const mirror = createMirrorStore();
+    const published: CaptureStateMessage[] = [];
+    const captureState = createCaptureStatePublisher((message) =>
+      published.push(message),
+    );
+
+    captureState.live(1, { width: 1282, height: 674 });
+
+    applyMirrorMessage(mirror, (state) => captureState.setMirror(state), {
+      region,
+      follow: false,
+    });
+
+    expect(published).toHaveLength(2);
+    expect(published[1].region).toEqual(region);
+    expect(published[1].follow).toBeUndefined();
+  });
+
+  it("AC-182 the region can be changed again and again", () => {
+    const mirror = createMirrorStore();
+
+    // The teacher crops a region ...
+    expect(mirror.set({ x: 0.1, y: 0.1, width: 0.4, height: 0.4 }, false)).toBe(
+      true,
+    );
+    expect(mirror.state.region).toEqual({
+      x: 0.1,
+      y: 0.1,
+      width: 0.4,
+      height: 0.4,
+    });
+
+    // ... changes their mind ...
+    expect(mirror.set({ x: 0.5, y: 0.2, width: 0.3, height: 0.3 }, false)).toBe(
+      true,
+    );
+    expect(mirror.state.region).toEqual({
+      x: 0.5,
+      y: 0.2,
+      width: 0.3,
+      height: 0.3,
+    });
+
+    // ... and asks for the whole window again.
+    expect(mirror.set(null, false)).toBe(true);
+    expect(mirror.state.region).toBeNull();
+
+    // The same choice again changes nothing: the teacher may pick the same
+    // crop twice, and the second pick is not a change.
+    expect(mirror.set(null, false)).toBe(false);
+
+    // A region that reaches outside the window is pulled back inside it, and
+    // a region with no area is **no region** - the whole window.
+    expect(mirror.set({ x: 0.9, y: 0.9, width: 0.5, height: 0.5 }, false)).toBe(
+      true,
+    );
+    expect(mirror.state.region).toEqual({
+      x: 0.5,
+      y: 0.5,
+      width: 0.5,
+      height: 0.5,
+    });
+
+    expect(mirror.set({ x: 0, y: 0, width: 0, height: 0 }, false)).toBe(true);
+    expect(mirror.state.region).toBeNull();
+  });
+
+  it("AC-182 the follow the cursor mode is off until the teacher turns it on", () => {
+    const mirror = createMirrorStore();
+    const published: CaptureStateMessage[] = [];
+    const captureState = createCaptureStatePublisher((message) =>
+      published.push(message),
+    );
+
+    captureState.live(1, { width: 1282, height: 674 });
+
+    // The mode is **off** by default, and the descriptor says nothing about
+    // it: a mode that is off is not said.
+    expect(mirror.state.follow).toBe(false);
+    expect(published[0].follow).toBeUndefined();
+
+    // The teacher turns it on ...
+    mirror.set({ x: 0.1, y: 0.1, width: 0.4, height: 0.4 }, true);
+    captureState.setMirror(mirror.state);
+
+    expect(mirror.state.follow).toBe(true);
+    expect(published[1].follow).toBe(true);
+
+    // ... and off again.
+    mirror.set(mirror.state.region, false);
+    captureState.setMirror(mirror.state);
+
+    expect(mirror.state.follow).toBe(false);
+    expect(published[2].follow).toBeUndefined();
   });
 });

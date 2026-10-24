@@ -33,6 +33,7 @@ import {
   readPanelZoom,
   withCodePanelState,
   withPanelDraft,
+  withPanelMirror,
   withPanelView,
 } from "../scene/panelContent";
 import {
@@ -1598,5 +1599,225 @@ describe("the live editor is a real editor", () => {
     ) as ExcalidrawPanelElement;
 
     expect(readPanelZoom(element.panel)).toBe(1.25);
+  });
+});
+
+describe("what is mirrored (D-143)", () => {
+  it("AC-182 the panel shows only the region the teacher chose", async () => {
+    const region = { x: 0.25, y: 0.1, width: 0.5, height: 0.4 };
+
+    await render(<Excalidraw />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    // The whole window is mirrored until the teacher chooses a region: the
+    // picture is shown as it is, and there is no window in front of it.
+    const whole = codePanelInView(connectedState(), "live");
+
+    API.setElements([asElement(whole)]);
+
+    act(() => {
+      setPanelCapture(whole.id, {
+        status: "live",
+        streamUrl: "http://127.0.0.1:47511/s/a-capability/frame",
+        width: 1000,
+        height: 500,
+      });
+    });
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-live-frame"]'),
+      ).not.toBeNull(),
+    );
+
+    // the whole window is mirrored: the picture is shown as it is, and the
+    // window in front of it carries **no region** (D-143)
+    expect(
+      document
+        .querySelector('[data-testid="code-panel-live-window"]')
+        ?.getAttribute("data-region"),
+    ).toBeNull();
+
+    const wholeImage = document.querySelector(
+      '[data-testid="code-panel-live-frame"]',
+    ) as HTMLImageElement;
+
+    // and the picture is the whole picture, fitted and not stretched
+    expect(wholeImage.style.objectFit).toBe("contain");
+    expect(wholeImage.style.width).toBe("100%");
+
+    // Now the teacher chose a region: the panel shows THAT and nothing else.
+    const chosen = codePanel(connectedState(), {
+      panel: withPanelMirror(
+        withPanelView(codePanelContent(connectedState(), "session-1"), "live"),
+        { region, follow: false },
+      ),
+    });
+
+    API.setElements([asElement(chosen)]);
+
+    act(() => {
+      setPanelCapture(chosen.id, {
+        status: "live",
+        streamUrl: "http://127.0.0.1:47511/s/a-capability/frame",
+        width: 1000,
+        height: 500,
+      });
+    });
+
+    const mirrorWindow = (await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="code-panel-live-window"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found as HTMLDivElement;
+    })) as HTMLDivElement;
+
+    // the region is the one the teacher chose
+    expect(mirrorWindow.getAttribute("data-region")).toBe("0.25,0.1,0.5,0.4");
+
+    // The picture is drawn WHOLE behind the window, and the window is cut out
+    // of it with the region's own numbers: the picture is twice the window's
+    // width, and it is pushed left by half a window.
+    const image = mirrorWindow.querySelector(
+      '[data-testid="code-panel-live-frame"]',
+    ) as HTMLImageElement;
+
+    expect(image.style.width).toBe("200%");
+    expect(image.style.height).toBe("250%");
+    expect(image.style.left).toBe("-50%");
+    expect(image.style.top).toBe("-25%");
+
+    // and the window keeps the region's own shape, so the picture is never
+    // stretched
+    expect(mirrorWindow.style.aspectRatio).toBe("500 / 200");
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
+  });
+
+  it("AC-182 the mirrored region follows the pointer while the follow mode is on", async () => {
+    const onChange = vi.fn();
+
+    const panel = codePanel(connectedState(), {
+      panel: withPanelMirror(
+        withPanelView(codePanelContent(connectedState(), "session-1"), "live"),
+        { region: { x: 0.25, y: 0.1, width: 0.5, height: 0.4 }, follow: true },
+      ),
+    });
+
+    await render(<Excalidraw panelMirror={{ onChange }} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    act(() => {
+      setPanelCapture(panel.id, {
+        status: "live",
+        streamUrl: "http://127.0.0.1:47511/s/a-capability/frame",
+        width: 1000,
+        height: 500,
+      });
+    });
+
+    const mirrorWindow = (await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="code-panel-live-window"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found as HTMLDivElement;
+    })) as HTMLDivElement;
+
+    // the window's own place on the screen: the pointer is read against it
+    mirrorWindow.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        width: 400,
+        height: 200,
+      } as DOMRect);
+
+    // the teacher points at the right-hand side of the mirrored region
+    fireEvent.pointerMove(mirrorWindow, { clientX: 300, clientY: 100 });
+
+    // and the region moves: it keeps its size, and its middle is under the
+    // pointer
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    const [panelId, mirror] = onChange.mock.calls[0];
+
+    expect(panelId).toBe(panel.id);
+    expect(mirror.region).toEqual({
+      x: 0.375,
+      y: 0.1,
+      width: 0.5,
+      height: 0.4,
+    });
+
+    // the mode is the teacher's own: it is on, and the region follows
+    expect(mirror.follow).toBe(true);
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
+  });
+
+  it("AC-182 the follow mode is off until the teacher turns it on", async () => {
+    const onChange = vi.fn();
+
+    // the same panel, with the follow mode OFF
+    const panel = codePanel(connectedState(), {
+      panel: withPanelMirror(
+        withPanelView(codePanelContent(connectedState(), "session-1"), "live"),
+        { region: { x: 0.25, y: 0.1, width: 0.5, height: 0.4 }, follow: false },
+      ),
+    });
+
+    await render(<Excalidraw panelMirror={{ onChange }} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    act(() => {
+      setPanelCapture(panel.id, {
+        status: "live",
+        streamUrl: "http://127.0.0.1:47511/s/a-capability/frame",
+        width: 1000,
+        height: 500,
+      });
+    });
+
+    const mirrorWindow = (await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="code-panel-live-window"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found as HTMLDivElement;
+    })) as HTMLDivElement;
+
+    mirrorWindow.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        width: 400,
+        height: 200,
+      } as DOMRect);
+
+    // the pointer moves and the region does NOT follow: the mode is off
+    fireEvent.pointerMove(mirrorWindow, { clientX: 300, clientY: 100 });
+
+    expect(onChange).not.toHaveBeenCalled();
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
   });
 });

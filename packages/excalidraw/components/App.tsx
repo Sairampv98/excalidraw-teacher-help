@@ -453,6 +453,8 @@ import {
   readPanelView,
   readVideoPanelState,
 } from "../scene/panelContent";
+import { panelMirrorUpdate, readPanelMirror } from "../scene/panelContent";
+import { INITIAL_PANEL_MIRROR } from "../scene/panelMirror";
 
 import { PLAYBACK_PUBLISH_INTERVAL_MS } from "../scene/panelPlayback";
 
@@ -499,6 +501,7 @@ import { PanelChrome } from "./PanelChrome";
 import { PanelOverlay } from "./PanelOverlay";
 import { PanelScreenshotFocus } from "./PanelScreenshotFocus";
 import { PanelScreenshotWireframe } from "./PanelScreenshotWireframe";
+import { PanelMirrorPicker } from "./PanelMirrorPicker";
 
 import { FlowAnimationOverlay } from "./FlowAnimationOverlay";
 import { isFlowAnimationActive, stopFlowAnimation } from "./FlowAnimationState";
@@ -522,6 +525,8 @@ import { AppStateObserver, type OnStateChange } from "./AppStateObserver";
 import { findShapeByKey } from "./shapes";
 
 import UnlockPopup from "./UnlockPopup";
+
+import type { PanelMirror, PanelMirrorRegion } from "../scene/panelMirror";
 
 import type { VideoPanelEvent } from "./PanelOverlay";
 import type { VideoPanelElement } from "../scene/panelContent";
@@ -2569,6 +2574,9 @@ class App extends React.Component<AppProps, AppState> {
                             // the teacher flips the code panel's view from the
                             // panel's own header (D-83)
                             onToggleView={this.togglePanelView}
+                            // the teacher chooses what is mirrored, and whether
+                            // it follows the pointer (D-143)
+                            onMirrorChange={this.setPanelMirror}
                             // a view-only host is a read-only mirror — the
                             // presenter. It applies the published playback and
                             // never writes one back (D-57).
@@ -2633,6 +2641,21 @@ class App extends React.Component<AppProps, AppState> {
                             onPageChoice={
                               this.props.panelScreenshot?.onPageChoice
                             }
+                          />
+                          {/*
+                            The **picker** for what is mirrored (D-143): the
+                            whole editor's window with the crop on it, so the
+                            teacher can see what they are choosing. It is
+                            mounted last, so it is in front of everything the
+                            canvas draws.
+                          */}
+                          <PanelMirrorPicker
+                            panels={getAllPanelElements(visibleElements)}
+                            viewport={{
+                              width: this.state.width,
+                              height: this.state.height,
+                            }}
+                            onChoose={this.choosePanelMirror}
                           />
                           <FlowAnimationOverlay
                             elementsMap={allElementsMap}
@@ -3861,6 +3884,57 @@ class App extends React.Component<AppProps, AppState> {
     }
 
     this.scene.mutateElement(element, panelZoomUpdate(element.panel, zoom));
+  };
+
+  /**
+   * What the panel **mirrors** of the editor's window (D-143).
+   *
+   * What is mirrored is a **choice**, and a choice can be changed as often as
+   * the teacher changes their mind - so this is a write like any other: the
+   * teacher crops a region, and they can crop another one whenever they want.
+   *
+   * The choice is the panel's own and it is persisted in the panel's payload,
+   * so it survives the bridge's own writes - the bridge rewrites that payload
+   * on every keystroke in the teacher's editor.
+   *
+   * The host is told as well, because the **editor** has to know what is
+   * mirrored: the capture descriptor says what is mirrored, so every panel
+   * that shows the live view says the same thing (D-143).
+   *
+   * The write goes through `mutateElement`, the same path the view's uses, so
+   * it is undoable like every other change.
+   */
+  private setPanelMirror = (panelId: string, mirror: PanelMirror) => {
+    const element = this.scene.getNonDeletedElement(panelId);
+
+    if (!element || !isPanelElement(element)) {
+      return;
+    }
+
+    this.scene.mutateElement(element, panelMirrorUpdate(element.panel, mirror));
+
+    this.props.panelMirror?.onChange?.(panelId, mirror);
+  };
+
+  /**
+   * The teacher chose a **region** in the picker (D-143).
+   *
+   * A region of `null` is the **whole window** - the default - and the
+   * follow mode is kept as it was: choosing what is mirrored does not turn
+   * the mode on or off.
+   */
+  private choosePanelMirror = (
+    panelId: string,
+    region: PanelMirrorRegion | null,
+  ) => {
+    const element = this.scene.getNonDeletedElement(panelId);
+
+    const current =
+      element && isPanelElement(element)
+        ? readPanelMirror(element.panel)
+        : INITIAL_PANEL_MIRROR;
+
+    this.setPanelMirror(panelId, { ...current, region });
   };
 
   /**
