@@ -20,6 +20,7 @@ import {
 
 import { createMjpegStream, type MjpegFrame } from "./stream";
 
+import type { ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import type { Socket } from "node:net";
 
@@ -102,6 +103,17 @@ export interface BridgeServerOptions {
   onConnect?: (connection: BridgeConnection) => void;
   /** Called when a client goes away. */
   onDisconnect?: (connection: BridgeConnection) => void;
+  /**
+   * The **input panel** (D-145).
+   *
+   * It is served by the very same HTTP server that carries the websocket
+   * upgrade and the capture stream: the same fixed loopback port, another
+   * path. The panel is the teacher's own page - the controls they use while
+   * the presenter is on the virtual display.
+   */
+  inputPanel?: {
+    handle: (req: IncomingMessage, res: ServerResponse) => boolean;
+  };
   /** Where the server's own notes go. */
   logger?: (message: string) => void;
 }
@@ -221,6 +233,12 @@ export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
 
     // The stream answers for itself, including a request it refuses.
     if (stream.handle(req, res)) {
+      return;
+    }
+
+    // The input panel answers for itself too (D-145): the teacher's own page,
+    // on the same loopback port.
+    if (options.inputPanel?.handle(req, res)) {
       return;
     }
 

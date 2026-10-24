@@ -67,6 +67,7 @@ export const BRIDGE_MESSAGE_TYPES = [
   "captions:request",
   "captions:result",
   "captions:none",
+  "present:command",
   "ping",
   "pong",
 ] as const;
@@ -102,6 +103,41 @@ export interface BridgeSelection {
   start: number;
   end: number;
 }
+
+/**
+ * The presenter's **controls**, as they travel over the bridge (D-145).
+ *
+ * They are the same controls the presenter's own window carries - previous
+ * page, next page, zoom in, zoom out, present, stop - and they are the ONLY
+ * thing the input panel may ask for: the panel is a page on the teacher's own
+ * screen, and it must not become a way to run anything on their machine that
+ * the bridge does not already allow.
+ *
+ * The list is closed on purpose. A command that is not on it is refused, and
+ * the panel is told so.
+ */
+export type PresenterCommand =
+  | "previous-page"
+  | "next-page"
+  | "zoom-in"
+  | "zoom-out"
+  | "present"
+  | "stop";
+
+/** Every command the input panel may send, in the order the panel shows them. */
+export const PRESENTER_COMMANDS: readonly PresenterCommand[] = [
+  "previous-page",
+  "next-page",
+  "zoom-in",
+  "zoom-out",
+  "present",
+  "stop",
+];
+
+/** Whether a value is one of the presenter's commands (D-145). */
+export const isPresenterCommand = (value: unknown): value is PresenterCommand =>
+  typeof value === "string" &&
+  (PRESENTER_COMMANDS as readonly string[]).includes(value);
 
 /**
  * The **caption tier** that answered (D-129).
@@ -441,6 +477,18 @@ export type BridgeMessage =
        */
       tier?: CaptionTier;
     }
+  /**
+   * panel -> extension. The presenter's **controls** (D-145).
+   *
+   * The input panel is a small page the extension serves on its own loopback
+   * HTTP server, and the teacher opens it on their **real** screen: the screen
+   * the students see and the controls the teacher uses are different surfaces.
+   *
+   * The command travels over the **bridge** - there is one way to drive a
+   * presentation - and it is one of a closed list of the presenter's own
+   * controls, so the panel can never ask for anything else.
+   */
+  | { v: 1; type: "present:command"; command: PresenterCommand }
   /** panel -> extension. */
   | { v: 1; type: "ping" }
   /** extension -> panel. */
@@ -625,6 +673,9 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
         value.reason.length > 0 &&
         (value.tier === undefined || isCaptionTier(value.tier))
       );
+    case "present:command":
+      // the command is one of the presenter's own controls, and nothing else
+      return isPresenterCommand(value.command);
     case "ping":
     case "pong":
       return true;

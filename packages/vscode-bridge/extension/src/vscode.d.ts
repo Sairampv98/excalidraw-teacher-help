@@ -55,6 +55,16 @@ declare module "vscode" {
     toString(): string;
   }
 
+  export namespace Uri {
+    /**
+     * A URI from its text form.
+     *
+     * The input panel's URL is built this way - a loopback URL with the
+     * panel's capability in it, never the session token (D-145).
+     */
+    export function parse(value: string): Uri;
+  }
+
   export interface TextDocument {
     readonly uri: Uri;
     readonly fileName: string;
@@ -312,5 +322,12 @@ declare module "vscode" {
      * it is talking to (D-76).
      */
     export const appName: string;
+    /**
+     * Open a URI outside the editor - in the browser.
+     *
+     * The input panel is a page on the teacher's **own** screen, and this is
+     * how it gets there (D-145).
+     */
+    export function openExternal(target: Uri): Thenable<boolean>;
   }
 }

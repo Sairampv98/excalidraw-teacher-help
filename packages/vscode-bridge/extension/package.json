@@ -61,6 +61,14 @@
       {
         "command": "excalidraw-bridge.copyToken",
         "title": "Excalidraw Bridge: Copy the session token"
+      },
+      {
+        "command": "excalidraw-bridge.openInputPanel",
+        "title": "Excalidraw Bridge: Open the presenter's input panel"
+      },
+      {
+        "command": "excalidraw-bridge.placePresenterOnVirtualDisplay",
+        "title": "Excalidraw Bridge: Put the presenter's window on the virtual display"
       }
     ],
     "configuration": {
