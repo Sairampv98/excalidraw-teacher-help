@@ -17,6 +17,18 @@
 # to the desktop (D-145). A silent failure is not an option, and a crash is
 # not an option either - so every mode answers with a fact.
 #
+# WHY an adapter with NO current mode is still reported (D-146): a virtual
+# display driver can be INSTALLED and its monitor DETACHED - VDD Control keeps
+# a monitor detached until the teacher sets its mode to Extend, and until then
+# the monitor is not part of the desktop's coordinate space, so no window can
+# be placed on it. Skipping that adapter made the tool say "there is no virtual
+# display" to a teacher who had already installed one. The rule: **a driver
+# that is installed but not attached is still a fact, and the fact names the
+# click.** So a VIRTUAL adapter with no mode is reported as a detached virtual
+# display, with the reason that says what to do. An adapter with no mode that
+# is NOT virtual (the other outputs of the same GPU) is not a display at all,
+# and it is still not reported.
+#
 # WHY the window is found BY RULE (D-112, D-113): the presenter's window is
 # NOT remembered by its handle. The handle changes when the browser recreates
 # its window, and `MainWindowHandle` is 0 for a hidden or a minimised one.
@@ -31,6 +43,19 @@
 # keystrokes away. The rule: **the presenter's window may move, and it may
 # never take the focus.**
 #
+# WHY the placement is MEASURED and not believed (D-147): SetWindowPos returns
+# TRUE on a MAXIMISED window and the window does not move - Windows puts it
+# back to the work area of the display it was on. A tool that believes the
+# return value tells the teacher their window is on the projector when it is
+# not. So a maximised window is un-maximised first (by the style route, which
+# never activates anything), the rect is READ BACK afterwards, and the answer
+# is the measured one. The rule: **a move that did not happen is never
+# reported as one.**
+#
+# WHY a window can come BACK (D-149): the feature is not a one-way door. The
+# same helper puts a window back on the primary display, and -Maximise puts
+# the window back into the maximised state it was in before it moved.
+#
 # Arguments: -Mode <Enumerate|Find|Place> -TitleLike <substring>
 #            -ProcessName <name> -Handle <n> -X -Y -Width -Height
 param(
@@ -41,7 +66,8 @@ param(
   [int]$X = 0,
   [int]$Y = 0,
   [int]$Width = 0,
-  [int]$Height = 0
+  [int]$Height = 0,
+  [switch]$Maximise
 )
 
 $ErrorActionPreference = 'Stop'
@@ -217,10 +243,181 @@ public class VdCap {
   /// SWP_NOACTIVATE (16) + SWP_NOZORDER (4) + SWP_SHOWWINDOW (64)
   ///
   /// NOACTIVATE is the important one: the window moves and it does NOT take
-  /// the focus, so the teacher's keystrokes stay in their editor.
-  public static bool Place(IntPtr hwnd, int x, int y, int width, int height) {
-    if (!IsWindow(hwnd)) return false;
-    return SetWindowPos(hwnd, IntPtr.Zero, x, y, width, height, 16 | 4 | 64);
+  /// the focus, so the teacher's keystrokes stay in their editor (D-147).
+  public const uint SWP_NOACTIVATE = 16;
+  public const uint SWP_NOZORDER = 4;
+  public const uint SWP_SHOWWINDOW = 64;
+  /// SWP_FRAMECHANGED (32): the frame is recalculated after the style changed.
+  public const uint SWP_FRAMECHANGED = 32;
+
+  /// ShowWindow: SW_MAXIMIZE (3) and SW_RESTORE (9).
+  ///
+  /// SW_MAXIMIZE does NOT activate the window, so the focus stays where the
+  /// teacher left it. SW_RESTORE DOES activate a window that was MINIMISED -
+  /// so it is never used on a minimised window (D-147).
+  public const int SW_MAXIMIZE = 3;
+  public const int SW_RESTORE = 9;
+
+  /// The window styles and the window long index.
+  ///
+  /// WS_MAXIMIZE is the bit that says "this window is maximised". It is read
+  /// and cleared by the STYLE route, which never activates anything.
+  public const int WS_MAXIMIZE = 0x01000000;
+  public const int GWL_STYLE = -16;
+
+  /// The adapter's own flags: is it on the desktop, and is it the primary one?
+  public const int DISPLAY_DEVICE_ATTACHED_TO_DESKTOP = 0x1;
+  public const int DISPLAY_DEVICE_PRIMARY_DEVICE = 0x4;
+
+  [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
+  static extern int GetWindowLong(IntPtr hwnd, int index);
+
+  [DllImport("user32.dll", EntryPoint = "SetWindowLongW")]
+  static extern int SetWindowLong(IntPtr hwnd, int index, int value);
+
+  [DllImport("user32.dll")]
+  static extern bool ShowWindow(IntPtr hwnd, int command);
+
+  /// How far the measured rect may be from the requested one, in pixels.
+  public const int PLACE_TOLERANCE = 2;
+
+  /// What a placement DID - measured, never believed (D-147).
+  ///
+  /// SetWindowPos returns TRUE on a MAXIMISED window and the window does not
+  /// move: Windows puts it back to the work area of the display it was on. So
+  /// the return value is not the answer - the rect is READ BACK afterwards and
+  /// the answer is the measured one.
+  public class Placement {
+    /// is the window where it was asked to be?
+    public bool Placed;
+    /// did the move call itself succeed?
+    public bool Moved;
+    /// was the window maximised BEFORE the move?
+    public bool WasMaximised;
+    /// was the window un-maximised to make the move possible?
+    public bool Restored;
+    /// is the window maximised now?
+    public bool Maximised;
+    /// was the window minimised, and therefore left alone?
+    public bool Minimised;
+    /// the MEASURED rect
+    public int X, Y, Width, Height;
+    /// why it did not land, when it did not
+    public string Reason = "";
+  }
+
+  /// The window's rect, READ BACK.
+  public static RECT RectOf(IntPtr hwnd) {
+    RECT rect;
+    if (!GetWindowRect(hwnd, out rect)) rect = new RECT();
+    return rect;
+  }
+
+  /// Is the window MAXIMISED?
+  public static bool IsMaximised(IntPtr hwnd) {
+    return (GetWindowLong(hwnd, GWL_STYLE) & WS_MAXIMIZE) != 0;
+  }
+
+  /// Un-maximise a window WITHOUT taking the focus.
+  ///
+  /// SW_RESTORE puts the window back into the size and place it had before it
+  /// was maximised - and it is the route that WORKS: clearing the style bit
+  /// alone leaves the window on its old rectangle, and the move that follows
+  /// is then undone by the window itself.
+  ///
+  /// SW_RESTORE activates a window that was MINIMISED, so it is never called
+  /// on one: the caller has already left a minimised window alone (D-147).
+  public static bool UnMaximise(IntPtr hwnd) {
+    if (!IsMaximised(hwnd)) return false;
+    ShowWindow(hwnd, SW_RESTORE);
+    return !IsMaximised(hwnd);
+  }
+
+  /// Put a window on a rectangle, and MEASURE what happened.
+  ///
+  /// The rule (D-147): **a move that did not happen is never reported as one.**
+  /// So the window is read back and the measured rect is the answer.
+  public static Placement Place(IntPtr hwnd, int x, int y, int width, int height, bool maximise) {
+    Placement result = new Placement();
+
+    if (!IsWindow(hwnd)) {
+      result.Reason = "the window is not there any more";
+      return result;
+    }
+
+    if (IsIconic(hwnd)) {
+      // A MINIMISED window is left alone: restoring it would ACTIVATE it and
+      // take the teacher's keystrokes away (D-147).
+      result.Minimised = true;
+      RECT here = RectOf(hwnd);
+      result.X = here.Left;
+      result.Y = here.Top;
+      result.Width = here.Right - here.Left;
+      result.Height = here.Bottom - here.Top;
+      result.Reason = "the window is minimised, so it was left where it was - restore it and try again";
+      return result;
+    }
+
+    result.WasMaximised = IsMaximised(hwnd);
+    uint flags = SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW;
+
+    if (result.WasMaximised) {
+      // A maximised window does not move: Windows re-maximises it to the work
+      // area of the display it is on. So it is un-maximised FIRST - without
+      // taking the focus.
+      if (UnMaximise(hwnd)) {
+        result.Restored = true;
+        flags |= SWP_FRAMECHANGED;
+      }
+    }
+
+    result.Moved = SetWindowPos(hwnd, IntPtr.Zero, x, y, width, height, flags);
+
+    if (maximise) {
+      // SW_MAXIMIZE does not activate the window, so the focus stays where
+      // the teacher left it, and the window maximises on the display it is
+      // now on.
+      ShowWindow(hwnd, SW_MAXIMIZE);
+      result.Maximised = IsMaximised(hwnd);
+    }
+
+    RECT rect = RectOf(hwnd);
+    result.X = rect.Left;
+    result.Y = rect.Top;
+    result.Width = rect.Right - rect.Left;
+    result.Height = rect.Bottom - rect.Top;
+
+    if (maximise) {
+      // A maximised window fills the WORK AREA of its display, so its rect is
+      // not the one that was asked for: what matters is that it is maximised
+      // and that it is ON the display that was asked for.
+      result.Placed = result.Moved && result.Maximised && Inside(result, x, y, width, height);
+    }
+    else {
+      result.Placed = result.Moved && Near(result.X, x) && Near(result.Y, y) &&
+                      Near(result.Width, width) && Near(result.Height, height);
+    }
+
+    if (!result.Placed) {
+      result.Reason = string.Format(
+        "the window stayed where it was ({0}x{1} at {2},{3}) instead of {4}x{5} at {6},{7}",
+        result.Width, result.Height, result.X, result.Y, width, height, x, y);
+    }
+
+    return result;
+  }
+
+  /// Is the measured rect close enough to the wanted one?
+  static bool Near(int measured, int wanted) {
+    return Math.Abs(measured - wanted) <= PLACE_TOLERANCE;
+  }
+
+  /// Is the measured window's middle inside the rectangle that was asked for?
+  static bool Inside(Placement placement, int x, int y, int width, int height) {
+    int middleX = placement.X + placement.Width / 2;
+    int middleY = placement.Y + placement.Height / 2;
+    return middleX >= x - PLACE_TOLERANCE && middleX <= x + width + PLACE_TOLERANCE &&
+           middleY >= y - PLACE_TOLERANCE && middleY <= y + height + PLACE_TOLERANCE;
   }
 }
 '@
@@ -232,15 +429,33 @@ function Write-Json($value) {
   Write-Output (ConvertTo-Json -InputObject $value -Compress -Depth 4)
 }
 
+function Test-VirtualText($text) {
+  # The rule that tells a VIRTUAL display from a real one - the same rule the
+  # extension applies to what this helper reports: an indirect display driver
+  # says so in its own name ("Virtual Display Driver"), in its id, or in its
+  # key in the registry.
+  if (-not $text) { return $false }
+  return ($text -match '(?i)virtual|indirect|\bidd\b')
+}
+
 try {
   if ($Mode -eq 'Enumerate') {
     # every display adapter, and the display device that is attached to it
     foreach ($adapter in [VdCap]::Adapters()) {
-      $screen = [VdCap]::CurrentMode($adapter.DeviceName)
+      # is this adapter a VIRTUAL display? an indirect display driver says so
+      # in its own name, its id or its registry key
+      $virtual = (Test-VirtualText $adapter.DeviceString) -or
+                 (Test-VirtualText $adapter.DeviceID) -or
+                 (Test-VirtualText $adapter.DeviceKey) -or
+                 (($adapter.StateFlags -band 16) -ne 0)
 
-      if ($null -eq $screen) {
-        # no mode: this output has no display attached to it. It is not a
-        # screen, so it is not reported as one.
+      $screen = [VdCap]::CurrentMode($adapter.DeviceName)
+      $detached = ($null -eq $screen)
+
+      if ($detached -and -not $virtual) {
+        # no mode, and not a virtual display: this output has nothing
+        # attached to it at all. It is not a screen, so it is not reported
+        # as one.
         continue
       }
 
@@ -248,18 +463,41 @@ try {
       $deviceId = ''
       $deviceKey = ''
       $deviceFlags = 0
-      $attached = $false
-      $primary = $false
 
       foreach ($display in [VdCap]::DisplayDevices($adapter.DeviceName)) {
         $name = $display.DeviceString
         $deviceId = $display.DeviceID
         $deviceKey = $display.DeviceKey
         $deviceFlags = $display.StateFlags
-        # 1 = ATTACHED_TO_DESKTOP, 2 = PRIMARY_DEVICE
-        $attached = (($display.StateFlags -band 1) -ne 0)
-        $primary = (($display.StateFlags -band 2) -ne 0)
         break
+      }
+
+      # The ADAPTER's own flags are the OS's word for "this display is on the
+      # desktop" and "this display is the primary one". The monitor's flags
+      # are the monitor's own business - a virtual display's monitor claims to
+      # be primary too, and it is not.
+      $attached = (($adapter.StateFlags -band 1) -ne 0)
+      $primary = (($adapter.StateFlags -band 4) -ne 0)
+
+      if ($detached) {
+        # a VIRTUAL display whose monitor is NOT attached to the desktop:
+        # there is no mode, so it has no size and no place, and no window
+        # can be placed on it yet. It is reported anyway (D-146) - the driver
+        # is installed, that is a fact, and the fact names the click.
+        $width = 0
+        $height = 0
+        $x = 0
+        $y = 0
+        $attached = $false
+        $primary = $false
+        $reason = 'the virtual display is installed but its monitor is DETACHED - open VDD Control and set the monitor to Extend, and it joins the desktop'
+      }
+      else {
+        $width = $screen.Width
+        $height = $screen.Height
+        $x = $screen.X
+        $y = $screen.Y
+        $reason = ''
       }
 
       Write-Json ([ordered]@{
@@ -270,12 +508,15 @@ try {
         adapterKey  = $adapter.DeviceKey
         deviceId    = $deviceId
         deviceKey   = $deviceKey
-        width       = $screen.Width
-        height      = $screen.Height
-        x           = $screen.X
-        y           = $screen.Y
+        width       = $width
+        height      = $height
+        x           = $x
+        y           = $y
         attached    = $attached
         primary     = $primary
+        virtual     = $virtual
+        detached    = $detached
+        reason      = $reason
         adapterFlags = $adapter.StateFlags
         deviceFlags  = $deviceFlags
       })
@@ -320,14 +561,23 @@ try {
     }
   }
   elseif ($Mode -eq 'Place') {
-    $placed = [VdCap]::Place([IntPtr]::new($Handle), $X, $Y, $Width, $Height)
+    $result = [VdCap]::Place([IntPtr]::new($Handle), $X, $Y, $Width, $Height, [bool]$Maximise)
+
+    # The MEASURED rect, and the truth about the move: a move that did not
+    # happen is never reported as one (D-147).
     Write-Json ([ordered]@{
-      placed = $placed
-      handle = $Handle
-      x      = $X
-      y      = $Y
-      width  = $Width
-      height = $Height
+      placed      = $result.Placed
+      moved       = $result.Moved
+      wasMaximised = $result.WasMaximised
+      restored    = $result.Restored
+      maximised   = $result.Maximised
+      minimised   = $result.Minimised
+      handle      = $Handle
+      measuredX   = $result.X
+      measuredY   = $result.Y
+      measuredWidth  = $result.Width
+      measuredHeight = $result.Height
+      reason      = $result.Reason
     })
   }
 }

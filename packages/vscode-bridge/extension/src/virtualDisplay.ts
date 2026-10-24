@@ -24,10 +24,16 @@ import { join } from "node:path";
  *  - **no driver is required and none is installed**. The feature works on a
  *    machine that has never heard of an indirect display driver, and it says
  *    what it found instead of failing quietly.
+ *  - **an installed but DETACHED virtual display is a fact, and the fact names
+ *    the click** (D-146). A teacher who has installed a virtual display driver
+ *    and left its monitor detached must never be told "there is no virtual
+ *    display" - they are one click away from the thing they asked for, and the
+ *    reason tells them which click it is.
  *  - **the window is found BY RULE** (the same rule the capture uses, D-112,
  *    D-113): the presenter's window is located by its title, never by a
  *    remembered handle. A window on a virtual display is found exactly like a
- *    window on the desktop.
+ *    window on the desktop - and so is the **editor's own window** (D-147),
+ *    whose title carries the workspace name.
  *  - **the placement never takes the focus**. The teacher is typing in their
  *    editor while the presenter's window moves, and a window that grabs the
  *    focus while it moves takes their keystrokes away.
@@ -91,6 +97,22 @@ export interface DisplayDevice {
    * that the reason can be shown and not guessed at.
    */
   virtual: boolean;
+  /**
+   * Is this display **detached** - installed, but not part of the desktop's
+   * coordinate space (D-146)?
+   *
+   * A virtual display driver can be installed and its monitor kept detached:
+   * VDD Control holds a monitor detached until the teacher sets its mode to
+   * Extend. A detached display has no mode, so it has no size and no place,
+   * and **no window can be placed on it**. It is still reported - the driver
+   * is installed, that is a fact - and the reason says what to do about it.
+   */
+  detached: boolean;
+  /**
+   * The helper's own words about this display - the click that attaches a
+   * detached one. Empty when there is nothing to say.
+   */
+  reason: string;
 }
 
 /**
@@ -140,6 +162,9 @@ interface RawDisplay {
   y?: number;
   attached?: boolean;
   primary?: boolean;
+  virtual?: boolean;
+  detached?: boolean;
+  reason?: string;
   adapterFlags?: number;
   deviceFlags?: number;
 }
@@ -181,6 +206,7 @@ export const parseDisplays = (output: string): DisplayDevice[] => {
     }
 
     const adapterFlags = asNumber(raw.adapterFlags);
+    const attached = raw.attached !== false;
 
     displays.push({
       device: asText(raw.device),
@@ -194,11 +220,12 @@ export const parseDisplays = (output: string): DisplayDevice[] => {
       height: asNumber(raw.height),
       x: asNumber(raw.x),
       y: asNumber(raw.y),
-      attached: raw.attached !== false,
+      attached,
       primary: raw.primary === true,
       adapterFlags,
       deviceFlags: asNumber(raw.deviceFlags),
       virtual:
+        raw.virtual === true ||
         isVirtualDisplayText(
           raw.adapter,
           raw.adapterId,
@@ -206,7 +233,12 @@ export const parseDisplays = (output: string): DisplayDevice[] => {
           raw.name,
           raw.deviceId,
           raw.deviceKey,
-        ) || (adapterFlags & DISPLAY_DEVICE_VIRTUAL) !== 0,
+        ) ||
+        (adapterFlags & DISPLAY_DEVICE_VIRTUAL) !== 0,
+      // A display that is not attached to the desktop is detached, whether the
+      // helper says so or the OS's own flags say so (D-146).
+      detached: raw.detached === true || !attached,
+      reason: asText(raw.reason),
     });
   }
 
@@ -226,9 +258,34 @@ export interface DisplayTarget {
   display: DisplayDevice | null;
   /** is that display a virtual one? */
   virtual: boolean;
+  /**
+   * Is there a virtual display that is **installed but detached** (D-146)?
+   *
+   * It is never the target - a detached display is not part of the desktop's
+   * coordinate space, so there is nothing to place a window on - and the
+   * remedy names the click that attaches it.
+   */
+  detached: boolean;
   /** the sentence the teacher reads. Never empty. */
   reason: string;
+  /**
+   * The click that attaches a detached virtual display.
+   *
+   * Empty when there is nothing to do - the display is there, or there is none
+   * at all.
+   */
+  remedy: string;
 }
+
+/**
+ * The fact: this machine has no virtual display.
+ *
+ * It is a fact about the MACHINE, so it is kept apart from the sentence that
+ * follows it - that sentence says what happens to the window, and the window
+ * is not always the presenter's one.
+ */
+export const NO_VIRTUAL_DISPLAY_FACT =
+  "no virtual display was found on this machine";
 
 /**
  * The sentence the teacher reads when the machine has no virtual display.
@@ -236,46 +293,96 @@ export interface DisplayTarget {
  * It is a FACT about this machine, and it says what happens instead: the
  * presenter's window opens on the desktop.
  */
-export const NO_VIRTUAL_DISPLAY_REASON =
-  "no virtual display was found on this machine - the presenter's window opens on the desktop";
+export const NO_VIRTUAL_DISPLAY_REASON = `${NO_VIRTUAL_DISPLAY_FACT} - the presenter's window opens on the desktop`;
+
+/**
+ * The click that attaches a **detached** virtual display (D-146).
+ *
+ * VDD Control keeps a monitor detached until the teacher sets its mode to
+ * Extend. That is the one click the teacher has to make, so the reason names
+ * it - the extension never says "there is no virtual display" to a teacher
+ * who has one installed.
+ */
+export const DETACHED_VIRTUAL_DISPLAY_REMEDY =
+  "open VDD Control and set the monitor to Extend";
+
+/**
+ * The sentence for a virtual display that is **installed but detached**.
+ *
+ * It names the click, and it says what happens until the click is made.
+ */
+export const detachedVirtualDisplayReason = (display: DisplayDevice): string =>
+  `the virtual display ${
+    display.name || display.adapter || display.device
+  } is installed but its monitor is DETACHED - ${DETACHED_VIRTUAL_DISPLAY_REMEDY}, and a window can be placed on it; until then the window opens on the desktop`;
 
 /**
  * Picks the display the presenter's window goes on.
  *
- * The rule: a **virtual** display wins, and the first one is taken when there
- * are several. Without one, the **primary** display is the target - the
- * desktop - and the reason says so.
+ * The rule: an **attached virtual** display wins, and the first one is taken
+ * when there are several. A virtual display that is **detached** is never the
+ * target - there is nothing to place a window on - but it is not ignored
+ * either: the reason names the click that attaches it (D-146). Without any
+ * virtual display, the **primary** display is the target - the desktop - and
+ * the reason says so.
  */
 export const chooseTargetDisplay = (
   displays: DisplayDevice[],
 ): DisplayTarget => {
-  const virtual = displays.find((display) => display.virtual);
+  // the displays that are part of the desktop's coordinate space right now
+  const onScreen = displays.filter((display) => !display.detached);
+  const virtual = onScreen.find((display) => display.virtual);
 
   if (virtual) {
     return {
       display: virtual,
       virtual: true,
-      reason: `the presenter's window is on the virtual display ${
+      detached: false,
+      reason: `a window goes on the virtual display ${
         virtual.name || virtual.device
       } (${virtual.width}x${virtual.height} at ${virtual.x},${virtual.y})`,
+      remedy: "",
+    };
+  }
+
+  // A virtual display that is installed but detached: a fact, and a fact with
+  // a click in it (D-146).
+  const detachedVirtual = displays.find(
+    (display) => display.virtual && display.detached,
+  );
+
+  if (detachedVirtual) {
+    const desktop =
+      onScreen.find((display) => display.primary) ?? onScreen[0] ?? null;
+
+    return {
+      display: desktop,
+      virtual: false,
+      detached: true,
+      reason: detachedVirtualDisplayReason(detachedVirtual),
+      remedy: DETACHED_VIRTUAL_DISPLAY_REMEDY,
     };
   }
 
   const primary =
-    displays.find((display) => display.primary) ?? displays[0] ?? null;
+    onScreen.find((display) => display.primary) ?? onScreen[0] ?? null;
 
   if (!primary) {
     return {
       display: null,
       virtual: false,
+      detached: false,
       reason: `${NO_VIRTUAL_DISPLAY_REASON} - and no display was found at all`,
+      remedy: "",
     };
   }
 
   return {
     display: primary,
     virtual: false,
+    detached: false,
     reason: NO_VIRTUAL_DISPLAY_REASON,
+    remedy: "",
   };
 };
 
@@ -345,7 +452,86 @@ export const parseWindow = (output: string): FoundWindow | null => {
   return null;
 };
 
-/** What the placement did. */
+/** What a placement did - MEASURED, never believed (D-147). */
+export interface PlacementOutcome {
+  /** is the window where it was asked to be? */
+  placed: boolean;
+  /** did the move call itself succeed? (the API's own word, not the answer) */
+  moved: boolean;
+  /** was the window maximised BEFORE the move? */
+  wasMaximised: boolean;
+  /** was the window un-maximised to make the move possible? */
+  restored: boolean;
+  /** is the window maximised now? */
+  maximised: boolean;
+  /** was the window minimised, and therefore left alone? */
+  minimised: boolean;
+  /** the MEASURED left edge */
+  x: number;
+  /** the MEASURED top edge */
+  y: number;
+  /** the MEASURED width */
+  width: number;
+  /** the MEASURED height */
+  height: number;
+  /** why it did not land, when it did not */
+  reason: string;
+}
+
+/**
+ * The helper's answer about a placement, read.
+ *
+ * The rect it reports is the MEASURED one: the helper reads the window back
+ * after the move, because `SetWindowPos` returns TRUE on a maximised window
+ * and the window does not move (D-147).
+ */
+export const parsePlacement = (output: string): PlacementOutcome => {
+  const nothing: PlacementOutcome = {
+    placed: false,
+    moved: false,
+    wasMaximised: false,
+    restored: false,
+    maximised: false,
+    minimised: false,
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+    reason: "the helper did not answer",
+  };
+
+  for (const line of output.split(/\r?\n/)) {
+    const trimmed = line.trim();
+
+    if (!trimmed.startsWith("{")) {
+      continue;
+    }
+
+    try {
+      const raw = JSON.parse(trimmed) as Record<string, unknown>;
+
+      return {
+        placed: raw.placed === true,
+        moved: raw.moved === true,
+        wasMaximised: raw.wasMaximised === true,
+        restored: raw.restored === true,
+        maximised: raw.maximised === true,
+        minimised: raw.minimised === true,
+        x: asNumber(raw.measuredX),
+        y: asNumber(raw.measuredY),
+        width: asNumber(raw.measuredWidth),
+        height: asNumber(raw.measuredHeight),
+        reason: asText(raw.reason),
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  return nothing;
+};
+
+/** What a placement did. */
 export interface PlacementResult {
   /** was the window moved? */
   placed: boolean;
@@ -425,6 +611,23 @@ export interface VirtualDisplayOptions {
   run?: VirtualDisplayRunner;
 }
 
+/**
+ * The rule that finds a window, and what the panel may say about it.
+ *
+ * The rule is a **title substring** and the process that owns the window. A
+ * handle is never remembered (D-112, D-113).
+ */
+export interface PlaceWindowOptions {
+  /** the title substring that finds the window */
+  titleLike: string;
+  /** the process that owns the window, when the caller knows it */
+  processName?: string;
+  /** what the window is called in the sentence the teacher reads */
+  subject: string;
+  /** what to do when no window is found */
+  hint?: string;
+}
+
 export interface VirtualDisplayService {
   /** every display on this machine */
   displays: () => Promise<DisplayDevice[]>;
@@ -432,8 +635,27 @@ export interface VirtualDisplayService {
   target: () => Promise<DisplayTarget>;
   /** the presenter's window, found BY RULE */
   findPresenter: () => Promise<FoundWindow | null>;
-  /** put a window on a display, without taking the focus */
-  place: (handle: number, display: DisplayDevice) => Promise<boolean>;
+  /**
+   * A window, found BY RULE (D-112, D-113, D-147).
+   *
+   * The rule is a **title substring** and, when the caller knows it, the
+   * process that owns the window. A handle is never remembered.
+   */
+  findWindow: (
+    titleLike: string,
+    processName?: string,
+  ) => Promise<FoundWindow | null>;
+  /**
+   * Put a window on a display, without taking the focus.
+   *
+   * The answer is MEASURED: the window is read back after the move, and a
+   * move that did not happen is never reported as one (D-147).
+   */
+  place: (
+    handle: number,
+    display: DisplayDevice,
+    options?: { maximise?: boolean },
+  ) => Promise<PlacementOutcome>;
   /**
    * Put the presenter's window on the virtual display.
    *
@@ -441,6 +663,22 @@ export interface VirtualDisplayService {
    * window opens on the desktop, and the reason says so.
    */
   placePresenter: () => Promise<PlacementResult>;
+  /**
+   * Put **a** window on the virtual display, found BY RULE (D-147).
+   *
+   * The editor's own window goes on the virtual display the same way the
+   * presenter's window does - the same rule finds it, and the placement never
+   * takes the focus, so the teacher keeps typing while their window moves.
+   */
+  placeWindow: (options: PlaceWindowOptions) => Promise<PlacementResult>;
+  /**
+   * Bring a window **BACK** to the display the teacher is working on (D-149).
+   *
+   * The feature is not a one-way door: the window goes back to the primary
+   * display, in the size it had before it moved, and maximised again if it
+   * was maximised before it moved.
+   */
+  bringBack: (options: PlaceWindowOptions) => Promise<PlacementResult>;
 }
 
 /**
@@ -472,17 +710,30 @@ export const createVirtualDisplay = (
   const target = async (): Promise<DisplayTarget> =>
     chooseTargetDisplay(await displays());
 
-  const findPresenter = async (): Promise<FoundWindow | null> => {
+  const findWindow = async (
+    rule: string,
+    processName?: string,
+  ): Promise<FoundWindow | null> => {
     const output = await run(
-      helperArgs(["-Mode", "Find", "-TitleLike", titleLike]),
+      helperArgs([
+        "-Mode",
+        "Find",
+        "-TitleLike",
+        rule,
+        ...(processName ? ["-ProcessName", processName] : []),
+      ]),
     );
     return parseWindow(output);
   };
 
+  const findPresenter = async (): Promise<FoundWindow | null> =>
+    findWindow(titleLike);
+
   const place = async (
     handle: number,
     display: DisplayDevice,
-  ): Promise<boolean> => {
+    placeOptions: { maximise?: boolean } = {},
+  ): Promise<PlacementOutcome> => {
     const output = await run(
       helperArgs([
         "-Mode",
@@ -497,28 +748,32 @@ export const createVirtualDisplay = (
         String(display.width),
         "-Height",
         String(display.height),
+        ...(placeOptions.maximise ? ["-Maximise"] : []),
       ]),
     );
 
-    for (const line of output.split(/\r?\n/)) {
-      const trimmed = line.trim();
-
-      if (!trimmed.startsWith("{")) {
-        continue;
-      }
-
-      try {
-        const raw = JSON.parse(trimmed) as Record<string, unknown>;
-        return raw.placed === true;
-      } catch {
-        continue;
-      }
-    }
-
-    return false;
+    return parsePlacement(output);
   };
 
-  const placePresenter = async (): Promise<PlacementResult> => {
+  /**
+   * What it remembers about a window it moved.
+   *
+   * Not the handle - never the handle (D-112, D-113) - but the FACTS the
+   * round trip needs: was the window maximised, and how big was it? The
+   * window is found by its rule again, and these two facts put it back the
+   * way the teacher had it (D-149).
+   */
+  const moved = new Map<
+    string,
+    { maximised: boolean; width: number; height: number }
+  >();
+
+  const ruleKey = (rule: PlaceWindowOptions): string =>
+    `${rule.titleLike}|${rule.processName ?? ""}`;
+
+  const placeWindow = async (
+    options: PlaceWindowOptions,
+  ): Promise<PlacementResult> => {
     const chosen = await target();
 
     if (!chosen.display) {
@@ -531,41 +786,143 @@ export const createVirtualDisplay = (
     }
 
     if (!chosen.virtual) {
-      // No virtual display: the presenter's own window opens on the desktop,
-      // and nothing is moved. The teacher is told that in plain words.
+      // There is no virtual display to place the window on: the window stays
+      // where it is, and the teacher is told that in plain words. When the
+      // display IS there and only DETACHED, the reason is the one that names
+      // the click that attaches it (D-146).
       return {
         placed: false,
-        reason: chosen.reason,
+        reason: chosen.detached
+          ? chosen.reason
+          : `${NO_VIRTUAL_DISPLAY_FACT} - ${options.subject} opens on the desktop`,
         display: chosen.display,
         handle: 0,
       };
     }
 
-    const window = await findPresenter();
+    const window = await findWindow(options.titleLike, options.processName);
 
     if (!window?.found) {
       return {
         placed: false,
-        reason:
-          "no presenter window was found to move - open the presenter view first",
+        reason: `no window was found to move - ${
+          options.hint ?? `${options.subject} is not open`
+        }`,
         display: chosen.display,
         handle: 0,
       };
     }
 
-    const placed = await place(window.handle, chosen.display);
+    const outcome = await place(window.handle, chosen.display);
+
+    if (outcome.placed) {
+      // The facts the round trip needs - was it maximised, and how big was
+      // it? (D-149). The handle is NOT kept: the window is found by its rule
+      // again.
+      moved.set(ruleKey(options), {
+        maximised: outcome.wasMaximised,
+        width: window.width,
+        height: window.height,
+      });
+    } else {
+      moved.delete(ruleKey(options));
+    }
 
     return {
-      placed,
-      reason: placed
-        ? `the presenter's window was moved to the virtual display ${
+      placed: outcome.placed,
+      reason: outcome.placed
+        ? `${options.subject} was moved to the virtual display ${
             chosen.display.name || chosen.display.device
-          }`
-        : "the presenter's window could not be moved to the virtual display",
+          } (${outcome.width}x${outcome.height} at ${outcome.x},${outcome.y})`
+        : `${options.subject} was not moved - ${outcome.reason}`,
       display: chosen.display,
       handle: window.handle,
     };
   };
 
-  return { displays, target, findPresenter, place, placePresenter };
+  const placePresenter = async (): Promise<PlacementResult> =>
+    placeWindow({
+      titleLike,
+      subject: "the presenter's window",
+      hint: "open the presenter view first",
+    });
+
+  /**
+   * Bring a window BACK to the display the teacher is working on (D-149).
+   *
+   * The window goes back to the primary display, in the size it had before
+   * it moved, and maximised again if it was maximised before it moved. The
+   * feature is not a one-way door.
+   */
+  const bringBack = async (
+    options: PlaceWindowOptions,
+  ): Promise<PlacementResult> => {
+    const found = await displays();
+    const onScreen = found.filter((display) => !display.detached);
+    const desktop =
+      onScreen.find((display) => display.primary && !display.virtual) ??
+      onScreen.find((display) => !display.virtual) ??
+      null;
+
+    if (!desktop) {
+      return {
+        placed: false,
+        reason: `${NO_VIRTUAL_DISPLAY_FACT} - and no display was found at all`,
+        display: null,
+        handle: 0,
+      };
+    }
+
+    const window = await findWindow(options.titleLike, options.processName);
+
+    if (!window?.found) {
+      return {
+        placed: false,
+        reason: `no window was found to bring back - ${
+          options.hint ?? `${options.subject} is not open`
+        }`,
+        display: desktop,
+        handle: 0,
+      };
+    }
+
+    const was = moved.get(ruleKey(options));
+    const wasMaximised = was?.maximised === true;
+    const outcome = await place(
+      window.handle,
+      {
+        ...desktop,
+        // the window goes back in the size it had before it moved
+        width: was?.width || desktop.width,
+        height: was?.height || desktop.height,
+      },
+      { maximise: wasMaximised },
+    );
+
+    if (outcome.placed) {
+      moved.delete(ruleKey(options));
+    }
+
+    return {
+      placed: outcome.placed,
+      reason: outcome.placed
+        ? `${options.subject} is back on ${desktop.name || desktop.device}${
+            wasMaximised ? ", maximised as it was" : ""
+          }`
+        : `${options.subject} was not brought back - ${outcome.reason}`,
+      display: desktop,
+      handle: window.handle,
+    };
+  };
+
+  return {
+    displays,
+    target,
+    findPresenter,
+    findWindow,
+    place,
+    placePresenter,
+    placeWindow,
+    bringBack,
+  };
 };

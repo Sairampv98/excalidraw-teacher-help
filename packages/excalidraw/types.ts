@@ -1151,6 +1151,16 @@ export type PanelOcrControls = {
   /** whether a read is running right now */
   busy?: boolean;
   /**
+   * Stop the read that is running (D-138).
+   *
+   * A read that takes time says so while it takes it, and the teacher can
+   * stop it: the control offers the way out while the read is running, and
+   * the panel is usable again at once.
+   *
+   * Without it the control only says that it is reading.
+   */
+  onCancel?: () => void;
+  /**
    * The engines the picker offers, each with its **measured** speed (D-118).
    *
    * Without them the panel has no picker, and the read falls back to the

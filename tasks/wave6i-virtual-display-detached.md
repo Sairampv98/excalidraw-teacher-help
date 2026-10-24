@@ -1,9 +1,8 @@
 ---
 id: wave6i-virtual-display-detached
 paths: packages/vscode-bridge,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 6i — the extension sees the virtual display the teacher HAS installed
@@ -129,4 +128,3 @@ verbatim in your report.
 REPORT BACK (plain text, under 250 words): what changed, the file list with line counts, the gate
 result, the rowcheck result, the two raw lines the helper printed on this machine, both teeth
 failures verbatim, and anything you could not do. Do not close the session - the parent does that.
-

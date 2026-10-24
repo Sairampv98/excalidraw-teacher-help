@@ -451,10 +451,21 @@ const ExcalidrawWrapper = () => {
     imageOfPanel,
     message: ocrMessage,
     busy: ocrBusy,
+    cancel: cancelOcr,
+    rememberCrop: rememberPanelCrop,
+    cropFor,
     engines: ocrEngines,
     engineFor,
+    pickedEngineFor,
     selectEngine,
-  } = useOcr({ api: excalidrawAPI, requestOcr, engineState: ocrState });
+  } = useOcr({
+    api: excalidrawAPI,
+    requestOcr,
+    engineState: ocrState,
+    // the ladder (D-137): with the bridge the fastest engine there is goes
+    // first, without it the rung that needs nothing but the browser does
+    bridgeConnected: bridge.status === "connected",
+  });
 
   // the screenshot of a panel: the app takes the picture and puts it on the
   // canvas (D-102, D-104)
@@ -464,6 +475,17 @@ const ExcalidrawWrapper = () => {
     choosePage: choosePageScreenshot,
     place: placeScreenshot,
   } = useScreenshot({ api: excalidrawAPI, readOcr });
+
+  /**
+   * The **crop** of each panel's picture, in the picture's own pixels (D-137).
+   *
+   * The crop and the read are **one** action: the teacher crops the panel
+   * once, and every read of that panel reads the region they cropped - the
+   * read takes the cropped region, and not the whole picture.
+   *
+   * The crop is remembered by the OCR hook, next to the engine the teacher
+   * picked for the same panel.
+   */
 
   /**
    * Reads an **ordinary image** element the teacher picked (D-105).
@@ -539,8 +561,28 @@ const ExcalidrawWrapper = () => {
         return;
       }
 
+      /**
+       * The **crop** the teacher took for this panel, if they took one (D-137).
+       *
+       * The crop and the read are one action: the read takes the cropped
+       * region, and not the whole picture, so the teacher reads the part they
+       * marked and not the whole poster.
+       */
+      const crop = cropFor(panelId);
+
       await readOcr({
         image,
+        panelId,
+        ...(crop
+          ? {
+              region: {
+                x: crop.x,
+                y: crop.y,
+                width: crop.width,
+                height: crop.height,
+              },
+            }
+          : {}),
         placement: {
           x: panel.x,
           y: panel.y,
@@ -549,11 +591,14 @@ const ExcalidrawWrapper = () => {
         },
         pageId: panel.pageId,
         strokeColor: current.getAppState().currentItemStrokeColor,
-        // the engine the teacher chose **for this panel** (D-118)
-        engine: engineFor(panelId),
+        // the engine the teacher chose **for this panel** (D-118) - and when
+        // they chose none, the ladder chooses (D-137)
+        ...(pickedEngineFor(panelId)
+          ? { engine: pickedEngineFor(panelId)! }
+          : {}),
       });
     },
-    [excalidrawAPI, engineFor, imageOfPanel, readOcr],
+    [excalidrawAPI, cropFor, imageOfPanel, pickedEngineFor, readOcr],
   );
 
   /**
@@ -562,6 +607,10 @@ const ExcalidrawWrapper = () => {
    * The region travels with the request, so the bridge reads only that part
    * of the picture — the crop is the one OCR lever that costs nothing and buys
    * the most.
+   *
+   * The crop is **remembered** for the panel (D-137): the read of that panel
+   * takes the region the teacher cropped, so the crop and the read are one
+   * action and not two.
    */
   const readCrop = useCallback(
     async (panel: ExcalidrawPanelElement, crop: CropRect) => {
@@ -580,6 +629,14 @@ const ExcalidrawWrapper = () => {
       }
 
       const natural = posterNaturalSize(panel);
+
+      // the crop is the panel's crop from now on (D-137)
+      rememberPanelCrop(panel.id, {
+        x: crop.x,
+        y: crop.y,
+        width: crop.width,
+        height: crop.height,
+      });
 
       await readOcr({
         image: {
@@ -603,7 +660,7 @@ const ExcalidrawWrapper = () => {
         strokeColor: current.getAppState().currentItemStrokeColor,
       });
     },
-    [excalidrawAPI, readOcr],
+    [excalidrawAPI, readOcr, rememberPanelCrop],
   );
 
   /**
@@ -1357,6 +1414,9 @@ const ExcalidrawWrapper = () => {
           onOcr: (panelId) => {
             void readPanel(panelId);
           },
+          // a read that takes time says so while it takes it, and it can be
+          // stopped (D-138)
+          onCancel: cancelOcr,
           // the engine picker: the teacher chooses the engine **in the
           // panel**, and the choice is per panel (D-118)
           engines: ocrEngines,

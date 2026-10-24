@@ -1,11 +1,9 @@
 ---
 id: wave6b-crop-read-engine-ladder
 paths: excalidraw-app,packages/excalidraw,packages/vscode-bridge,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
-
 
 ## One note after wave 6a (read this first)
 
@@ -119,4 +117,3 @@ Report the times you measured.
 
 **The teeth check** (the kit's rule, and the only proof that matters): revert the fix and the
 AC-174 tests must FAIL. Restore the fix and they must pass again. Report both failures verbatim.
-

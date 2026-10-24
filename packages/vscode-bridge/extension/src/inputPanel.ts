@@ -32,6 +32,10 @@ import type { IncomingMessage, ServerResponse } from "node:http";
  *    so there is one way to drive a presentation. A command that is not on the
  *    list is refused, so the panel can never run anything on the teacher's
  *    machine that the bridge does not already allow.
+ *  - **the panel's own ACTIONS stay on the teacher's machine**. The one action
+ *    there is - the editor's window moving onto the virtual display (D-147) -
+ *    is the extension's own business, it never goes on the bridge, and the
+ *    list of actions is closed.
  *  - **the panel does not take the teacher's keystrokes**. It installs no key
  *    handler at all, it never calls `focus()`, and its buttons do not take
  *    the focus when they are clicked: the teacher types in their own editor
@@ -84,7 +88,44 @@ export interface PanelState {
   virtual: boolean;
   /** the sentence the teacher reads. Never empty. */
   reason: string;
+  /**
+   * The click the teacher has to make, when there is one (D-146).
+   *
+   * A virtual display driver that is installed but DETACHED is one click away
+   * from being usable, and the panel shows that click instead of hiding it.
+   */
+  remedy?: string;
 }
+
+/**
+ * The panel's own **actions** - the things it asks the extension to do on the
+ * teacher's machine.
+ *
+ * An action is NOT a presenter's control: it never goes on the bridge, and it
+ * never leaves the teacher's own machine. The list is closed - a page that
+ * asks for anything else is refused.
+ *
+ * The editor's window moves only when the teacher presses the button
+ * (D-148): their window is theirs, and nothing moves unless they ask.
+ */
+export type PanelAction = "move-editor-window" | "bring-back-editor-window";
+
+/** Every action the panel may ask for. */
+export const PANEL_ACTIONS: readonly PanelAction[] = [
+  "move-editor-window",
+  "bring-back-editor-window",
+];
+
+/**
+ * Is this one of the panel's own actions?
+ *
+ * The list is the whole answer: an action that is not on it is refused, so a
+ * page on the internet cannot make the extension do anything it does not
+ * already do.
+ */
+export const isPanelAction = (value: unknown): value is PanelAction =>
+  typeof value === "string" &&
+  (PANEL_ACTIONS as readonly string[]).includes(value);
 
 /** The state the panel shows when nothing is known yet. */
 export const UNKNOWN_PANEL_STATE: PanelState = {
@@ -143,6 +184,11 @@ export const panelPage = (): string => `<!doctype html>
   }
   h1 { font-size: 16px; margin: 0 0 4px; }
   #where { margin: 0 0 12px; opacity: 0.8; }
+  #remedy {
+    margin: 0 0 12px;
+    padding: 8px 10px;
+    border-left: 3px solid rgba(128, 128, 128, 0.6);
+  }
   .controls { display: flex; flex-wrap: wrap; gap: 8px; }
   button {
     font: inherit;
@@ -160,6 +206,7 @@ export const panelPage = (): string => `<!doctype html>
 <body>
 <h1>Presenter controls</h1>
 <p id="where">Looking for the presenter's screen...</p>
+<p id="remedy" hidden></p>
 <div class="controls">
   <button type="button" data-command="previous-page">Previous page</button>
   <button type="button" data-command="next-page">Next page</button>
@@ -167,6 +214,10 @@ export const panelPage = (): string => `<!doctype html>
   <button type="button" data-command="zoom-out">Zoom out</button>
   <button type="button" data-command="present">Present</button>
   <button type="button" data-command="stop">Stop</button>
+</div>
+<div class="controls">
+  <button type="button" data-action="move-editor-window">Move this editor to the virtual display</button>
+  <button type="button" data-action="bring-back-editor-window">Bring this editor back to this screen</button>
 </div>
 <p id="status"></p>
 <script>
@@ -176,23 +227,25 @@ export const panelPage = (): string => `<!doctype html>
   // The commands travel to the extension over this page's own loopback
   // route, and the extension puts them on the bridge - so the presenter is
   // driven the same way it is driven from its own window.
+  //
+  // An ACTION is the panel's own business on the teacher's machine - the
+  // editor's window moving onto the virtual display (D-147). It never goes on
+  // the bridge.
   var status = document.getElementById("status");
 
-  var send = function (command) {
+  var send = function (body, done) {
     fetch("./control", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ command: command }),
+      body: JSON.stringify(body),
     })
       .then(function (response) {
-        return response.json().then(function (body) {
-          return { ok: response.ok, body: body };
+        return response.json().then(function (answer) {
+          return { ok: response.ok, body: answer };
         });
       })
       .then(function (answer) {
-        status.textContent = answer.ok
-          ? answer.body.command + " was sent to the presenter"
-          : answer.body.reason;
+        status.textContent = answer.ok ? done(answer.body) : answer.body.reason;
       })
       .catch(function (error) {
         status.textContent = "the presenter did not answer: " + error.message;
@@ -208,7 +261,29 @@ export const panelPage = (): string => `<!doctype html>
         event.preventDefault();
       });
       button.addEventListener("click", function () {
-        send(button.getAttribute("data-command"));
+        send(
+          { command: button.getAttribute("data-command") },
+          function (answer) {
+            return answer.command + " was sent to the presenter";
+          },
+        );
+      });
+    },
+  );
+
+  Array.prototype.forEach.call(
+    document.querySelectorAll("button[data-action]"),
+    function (button) {
+      button.addEventListener("mousedown", function (event) {
+        event.preventDefault();
+      });
+      button.addEventListener("click", function () {
+        send(
+          { action: button.getAttribute("data-action") },
+          function (answer) {
+            return answer.action + " was asked for";
+          },
+        );
       });
     },
   );
@@ -219,6 +294,14 @@ export const panelPage = (): string => `<!doctype html>
     })
     .then(function (state) {
       document.getElementById("where").textContent = state.reason;
+
+      // The remedy, when there is one: a virtual display that is installed
+      // but detached is one click away, and the panel says which click
+      // (D-146).
+      var remedy = document.getElementById("remedy");
+
+      remedy.textContent = state.remedy || "";
+      remedy.hidden = !state.remedy;
     })
     .catch(function () {
       document.getElementById("where").textContent =
@@ -247,6 +330,13 @@ export interface InputPanelOptions {
    * presenter is driven the one way there is.
    */
   onCommand: (command: PresenterCommand) => void;
+  /**
+   * An action of the panel's own was asked for.
+   *
+   * It is the teacher's own machine and never the bridge: the action list is
+   * closed, and the extension does the one thing it knows how to do.
+   */
+  onAction?: (action: PanelAction) => void;
   /** what the panel shows about the presenter's screen */
   state?: () => PanelState;
 }
@@ -406,36 +496,51 @@ export const createInputPanel = (options: InputPanelOptions): InputPanel => {
         return;
       }
 
-      let command: unknown;
+      let parsed: { command?: unknown; action?: unknown } | undefined;
 
       try {
-        command = (JSON.parse(body) as { command?: unknown }).command;
+        parsed = JSON.parse(body) as { command?: unknown; action?: unknown };
       } catch {
-        command = undefined;
+        parsed = undefined;
       }
 
-      if (!isPresenterCommand(command)) {
-        // A command that is not one of the presenter's own controls is
-        // refused: the panel can never run anything on the teacher's machine
-        // that the bridge does not already allow.
+      if (isPresenterCommand(parsed?.command)) {
+        options.onCommand(parsed.command);
+
         text(
           res,
-          400,
-          JSON.stringify({
-            ok: false,
-            reason: "that is not one of the presenter's controls",
-          }),
+          200,
+          JSON.stringify({ ok: true, command: parsed.command }),
           "application/json; charset=utf-8",
         );
         return;
       }
 
-      options.onCommand(command);
+      if (isPanelAction(parsed?.action)) {
+        // An ACTION is the panel's own business on the teacher's own machine:
+        // the editor's window moving onto the virtual display (D-147). It
+        // never goes on the bridge, and the list of actions is closed.
+        options.onAction?.(parsed.action);
 
+        text(
+          res,
+          200,
+          JSON.stringify({ ok: true, action: parsed.action }),
+          "application/json; charset=utf-8",
+        );
+        return;
+      }
+
+      // A command that is not one of the presenter's own controls is
+      // refused: the panel can never run anything on the teacher's machine
+      // that the bridge does not already allow.
       text(
         res,
-        200,
-        JSON.stringify({ ok: true, command }),
+        400,
+        JSON.stringify({
+          ok: false,
+          reason: "that is not one of the presenter's controls",
+        }),
         "application/json; charset=utf-8",
       );
     });
