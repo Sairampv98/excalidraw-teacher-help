@@ -818,7 +818,22 @@ describe("the virtual display and the input panel", () => {
         });
       }
 
-      return JSON.stringify({ placed: true, handle: 4242 });
+      // the placement is MEASURED: the helper reads the window back after
+      // the move, and the measured rect is the answer (D-147)
+      return JSON.stringify({
+        placed: true,
+        moved: true,
+        wasMaximised: false,
+        restored: false,
+        maximised: false,
+        minimised: false,
+        handle: 4242,
+        measuredX: 1920,
+        measuredY: 0,
+        measuredWidth: 2560,
+        measuredHeight: 1440,
+        reason: "",
+      });
     };
 
     return { calls, run };

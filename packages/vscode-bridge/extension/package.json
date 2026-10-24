@@ -69,6 +69,18 @@
       {
         "command": "excalidraw-bridge.placePresenterOnVirtualDisplay",
         "title": "Excalidraw Bridge: Put the presenter's window on the virtual display"
+      },
+      {
+        "command": "excalidraw-bridge.placeEditorOnVirtualDisplay",
+        "title": "Excalidraw Bridge: Put the editor's window on the virtual display"
+      },
+      {
+        "command": "excalidraw-bridge.bringBackEditorToPrimaryDisplay",
+        "title": "Excalidraw Bridge: Bring the editor's window back to this screen"
+      },
+      {
+        "command": "excalidraw-bridge.bringBackPresenterToPrimaryDisplay",
+        "title": "Excalidraw Bridge: Bring the presenter's window back to this screen"
       }
     ],
     "configuration": {
