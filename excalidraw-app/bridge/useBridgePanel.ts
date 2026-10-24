@@ -22,11 +22,14 @@ import { OCR_NEEDS_BRIDGE } from "../../packages/vscode-bridge/bridge/src/ocrCli
 
 import {
   applyCodePanelState,
+  applyConnectionTruth,
   applyPanelDraft,
   bridgeCodePanelIds,
+  connectionLine,
   initialCodePanelState,
   reduceCodePanelState,
   toPanelCapture,
+  withConnectionTruth,
 } from "./codePanel";
 import {
   createBridgeSession,
@@ -35,10 +38,12 @@ import {
 import { applyYoutubeCaptions, isVideoCaptionMessage } from "./videoCaptions";
 
 import type { BridgeSession, BridgeSessionState } from "./bridgeSession";
+import type { ConnectionTruth } from "./codePanel";
 import type {
   OcrEngineState,
   OcrRequest,
 } from "../../packages/vscode-bridge/bridge/src/ocr";
+import type { BridgeMessage } from "../../packages/vscode-bridge/bridge/src/protocol";
 import type { CaptureStateMessage } from "../../packages/vscode-bridge/extension/src/captureState";
 
 /**
@@ -71,6 +76,31 @@ const sameCapture = (a: PanelCapture | null, b: PanelCapture): boolean => {
  * every message about that run carries it (D-124).
  */
 let runCounter = 0;
+
+/**
+ * The bridge's hello - the message that names the editor (D-76).
+ */
+type BridgeHello = Extract<BridgeMessage, { type: "bridge:hello" }>;
+
+/**
+ * The truth, as the session's state and the last hello make it (D-133).
+ *
+ * While the bridge is connected the panel's line is the hello's line - it
+ * names the editor and the workspace (D-76). While it is not, the line is the
+ * session's own sentence for the state, so a panel never claims a connection
+ * it does not have.
+ */
+const truthOf = (
+  session: BridgeSessionState,
+  hello: BridgeHello | null,
+): ConnectionTruth => ({
+  connection: session.connection,
+  statusMessage: session.message,
+  line:
+    hello && session.connection === "connected"
+      ? connectionLine(hello)
+      : session.message,
+});
 
 /**
  * The sentence the panel shows when the captions could not be asked for.
@@ -128,6 +158,27 @@ export const useBridgePanel = (
   const sessionRef = useRef<BridgeSession | null>(null);
   const panelStateRef = useRef<CodePanelState>(initialCodePanelState());
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(api);
+
+  /**
+   * The connection TRUTH, as the app knows it **now** (D-133).
+   *
+   * A connection line is a **status**, and a status is the truth now. The line
+   * rides in the panel's payload, and the payload is saved with the document -
+   * so the truth has to be written into the panels again and again, or a
+   * document saved while the bridge was connected comes back claiming a
+   * connection that is not there.
+   */
+  const truthRef = useRef<ConnectionTruth>(
+    truthOf(INITIAL_BRIDGE_SESSION_STATE, null),
+  );
+
+  /** The last hello the bridge sent. It names the editor (D-76). */
+  const helloRef = useRef<BridgeHello | null>(null);
+
+  /** The session's state, as the app last heard it. */
+  const sessionStateRef = useRef<BridgeSessionState>(
+    INITIAL_BRIDGE_SESSION_STATE,
+  );
 
   /**
    * The capture's **state**, as the extension last said it (D-85).
@@ -198,10 +249,43 @@ export const useBridgePanel = (
     }
   }, []);
 
+  /**
+   * Write the connection TRUTH into every bridge code panel (D-133).
+   *
+   * The truth is written on its own, and NOT through `publish`: a publish
+   * carries the app's whole state, and the app's state has no mirror and no
+   * output until the bridge sends them. The panel's own text, the run's
+   * output and the teacher's draft are the document's, and they survive.
+   */
+  const writeTruth = useCallback(() => {
+    const current = apiRef.current;
+
+    if (!current) {
+      return;
+    }
+
+    const elements = current.getSceneElements();
+    const updated = applyConnectionTruth(elements, truthRef.current);
+
+    if (updated === elements) {
+      return;
+    }
+
+    current.updateScene({
+      elements: updated,
+      // the connection is not something the teacher undoes
+      captureUpdate: CaptureUpdateAction.NEVER,
+    });
+  }, []);
+
   /** Write the panel's state into the code panels of the scene. */
   const publish = useCallback(
     (next: CodePanelState) => {
-      panelStateRef.current = next;
+      // The app's own state carries the truth too, so a publish can never put
+      // an old truth back into the panels (D-133).
+      const state = withConnectionTruth(next, truthRef.current);
+
+      panelStateRef.current = state;
 
       // The live view is published here too, so that a panel which has just
       // become connected gets the live view with it (D-85).
@@ -214,7 +298,7 @@ export const useBridgePanel = (
       }
 
       const elements = current.getSceneElements();
-      const updated = applyCodePanelState(elements, next);
+      const updated = applyCodePanelState(elements, state);
 
       if (updated === elements) {
         return;
@@ -233,6 +317,7 @@ export const useBridgePanel = (
     const session = createBridgeSession({
       onStateChange: (next) => {
         setState(next);
+        sessionStateRef.current = next;
 
         // The stream's URL is part of the CONNECTION's state (D-85): a new
         // connection gets a new capability, so the live view has to be
@@ -259,20 +344,33 @@ export const useBridgePanel = (
 
         const current = panelStateRef.current;
 
-        if (
-          current.connection === next.connection &&
-          current.statusMessage === next.message
-        ) {
-          return;
-        }
+        // The truth is what the panels must say (D-133): the connection
+        // changed, so the line the panel shows is a new one. Only the
+        // connection is written - the mirrored text, the run's output and the
+        // teacher's own draft survive.
+        truthRef.current = truthOf(next, helloRef.current);
 
-        publish({
-          ...current,
-          connection: next.connection,
-          statusMessage: next.message,
-        });
+        panelStateRef.current = withConnectionTruth(
+          {
+            ...current,
+            connection: next.connection,
+            statusMessage: next.message,
+          },
+          truthRef.current,
+        );
+
+        writeTruth();
       },
       onMessage: (message) => {
+        if (message.type === "bridge:hello") {
+          // The hello names the editor, and the panel's connection line says
+          // so (D-76). The truth is updated BEFORE the state is published, so
+          // the line the panel ends up with is the hello's line and not the
+          // session's (D-133).
+          helloRef.current = message;
+          truthRef.current = truthOf(sessionStateRef.current, message);
+        }
+
         if (message.type === "bridge:hello" && message.appName) {
           // The bridge names the editor it runs in (D-76). The port is fixed,
           // so with two editors running the app may reach the one that does
@@ -366,7 +464,39 @@ export const useBridgePanel = (
       // they are not true any more (D-82).
       clearAllPanelCaptures();
     };
-  }, [publish, publishCapture]);
+  }, [publish, publishCapture, writeTruth]);
+
+  /**
+   * The app writes its truth into the panels (D-133).
+   *
+   * Three moments: the app **starts**, the **connection changes**, and the
+   * **scene** changes. The last one matters because a panel that appears
+   * *after* the connection was established has never learned about it: the
+   * app only writes its state into the panels when the state changes, so a
+   * panel born later kept saying "not connected" while the bridge was right
+   * there (D-133).
+   */
+  useEffect(() => {
+    // the app starts: the panels are told what is true now, whatever the
+    // document remembers
+    writeTruth();
+
+    const current = apiRef.current;
+
+    if (!current) {
+      return;
+    }
+
+    // the scene changed: a panel may have appeared, and a panel that appeared
+    // has to learn what is true now.
+    const unsubscribe = current.onChange?.(() => {
+      writeTruth();
+    });
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, [api, writeTruth]);
 
   const onTokenChange = useCallback((next: string) => {
     setToken(next);

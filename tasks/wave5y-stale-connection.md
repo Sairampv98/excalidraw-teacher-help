@@ -1,9 +1,8 @@
 ---
 id: wave5y-stale-connection
 paths: excalidraw-app,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 5y — a panel must never claim a connection that is not there
@@ -111,4 +110,3 @@ the two sentences you saw.
 **The teeth check** (the kit's rule, and the only proof that matters): revert the fix and the
 AC-172 tests must **fail** with the stale line still showing. Restore the fix and they must pass
 again. Report both failures verbatim.
-

@@ -10,6 +10,7 @@ import type { ExcalidrawElement } from "@excalidraw/element/types";
 import type {
   CodePanelDraft,
   CodePanelState,
+  PanelBridgeStatus,
   PanelCapture,
 } from "@excalidraw/excalidraw";
 
@@ -48,6 +49,89 @@ const keepTail = <T>(lines: T[]): T[] =>
     : lines;
 
 /**
+ * The connection TRUTH, as the app knows it **now** (D-133).
+ *
+ * The connection line in a panel is a **status**, and a status is the truth
+ * now - but the line rides in the panel's payload, and the payload is saved
+ * with the document. So the truth has to be written into the panels again and
+ * again, or a document saved while the bridge was connected comes back
+ * claiming a connection that is not there.
+ */
+export type ConnectionTruth = {
+  /** where the connection stands */
+  connection: PanelBridgeStatus;
+  /** a sentence for the state. Never empty. */
+  statusMessage: string;
+  /**
+   * The line the panel shows for the connection. Never empty: the panel says
+   * what the connection IS, and it says it in one place only.
+   */
+  line: string;
+};
+
+/**
+ * The line the bridge's hello earns.
+ *
+ * The bridge says which editor it runs in (D-76). The port is fixed, so with
+ * two editors running the app may reach the one that does NOT have the
+ * teacher's file open - and this line is where the teacher sees which one that
+ * is.
+ */
+export const connectionLine = (
+  message: Extract<BridgeMessage, { type: "bridge:hello" }>,
+): string =>
+  message.appName
+    ? `Connected to ${message.appName} (${
+        message.workspace || NO_WORKSPACE_NAME
+      }, bridge ${message.version}).`
+    : `Connected to ${message.workspace || NO_WORKSPACE_NAME} (bridge ${
+        message.version
+      }).`;
+
+/**
+ * The state, with the connection TRUTH in it (D-133).
+ *
+ * ONLY the connection is written: the mirrored text, the program's output and
+ * the teacher's own draft survive. The connection line is **replaced** - the
+ * console keeps exactly one of them, and it says what is true now.
+ */
+export const withConnectionTruth = (
+  state: CodePanelState,
+  truth: ConnectionTruth,
+): CodePanelState => ({
+  ...state,
+  connection: truth.connection,
+  statusMessage: truth.statusMessage,
+  console: keepTail([
+    ...state.console.filter((line) => line.kind !== "connection"),
+    { level: "info", kind: "connection", text: truth.line },
+  ]),
+});
+
+/**
+ * Does the state already say the truth?
+ *
+ * The check is by VALUE, not by identity: a panel that already says the truth
+ * is left alone, and that is what keeps the writer from writing for ever.
+ */
+export const carriesConnectionTruth = (
+  state: CodePanelState,
+  truth: ConnectionTruth,
+): boolean => {
+  if (state.connection !== truth.connection) {
+    return false;
+  }
+
+  if (state.statusMessage !== truth.statusMessage) {
+    return false;
+  }
+
+  const lines = state.console.filter((line) => line.kind === "connection");
+
+  return lines.length === 1 && lines[0].text === truth.line;
+};
+
+/**
  * The panel's state after a message from the bridge.
  *
  * A message the panel does not care about leaves the state alone — the state
@@ -84,17 +168,7 @@ export const reduceCodePanelState = (
           {
             level: "info",
             kind: "connection",
-            // The bridge says which editor it runs in (D-76). The port is
-            // fixed, so with two editors running the app may reach the one
-            // that does NOT have the teacher's file open - and this line is
-            // where the teacher sees which one that is.
-            text: message.appName
-              ? `Connected to ${message.appName} (${
-                  message.workspace || NO_WORKSPACE_NAME
-                }, bridge ${message.version}).`
-              : `Connected to ${
-                  message.workspace || NO_WORKSPACE_NAME
-                } (bridge ${message.version}).`,
+            text: connectionLine(message),
           },
         ]),
       };
@@ -194,6 +268,52 @@ export const reduceCodePanelState = (
 
     return newElementWith(element, {
       panel: withCodePanelState(element.panel, state),
+    });
+  });
+
+  return changed ? next : elements;
+};
+
+/**
+ * The elements, with the connection TRUTH in every bridge code panel (D-133).
+ *
+ * ONLY the connection is written: the mirrored text, the program's output and
+ * the teacher's own draft survive. The panels are the document's, and the
+ * document remembers what the panel showed when the document was saved - which
+ * is history, not the truth.
+ *
+ * The **same array** comes back when nothing changed, so the caller can tell
+ * "there is nothing to do" from "the scene changed" without comparing the
+ * elements one by one.
+ */
+export const applyConnectionTruth = (
+  elements: readonly ExcalidrawElement[],
+  truth: ConnectionTruth,
+): readonly ExcalidrawElement[] => {
+  let changed = false;
+
+  const next = elements.map((element) => {
+    if (
+      !isPanelElement(element) ||
+      element.panelKind !== "code" ||
+      element.panel.source.type !== "bridge"
+    ) {
+      return element;
+    }
+
+    const current = readCodePanelState(element.panel);
+
+    if (!current || carriesConnectionTruth(current, truth)) {
+      return element;
+    }
+
+    changed = true;
+
+    return newElementWith(element, {
+      panel: withCodePanelState(
+        element.panel,
+        withConnectionTruth(current, truth),
+      ),
     });
   });
 
