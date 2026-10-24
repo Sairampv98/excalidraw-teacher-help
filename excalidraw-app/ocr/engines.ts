@@ -104,3 +104,108 @@ export const DEFAULT_PANEL_OCR_ENGINE: OcrEngineName =
   OCR_ENGINE_CHOICES.reduce((fastest, engine) =>
     engine.measuredMs < fastest.measuredMs ? engine : fastest,
   ).id;
+
+/**
+ * Where a rung of the **ladder** runs (D-137).
+ *
+ * - `bridge` - the engine lives in the extension's Node process (D-59);
+ * - `browser` - the engine would have to run in the browser.
+ */
+export type OcrLadderRoute = "bridge" | "browser";
+
+/** one rung of the ladder */
+export type OcrLadderRung = {
+  /** the engine this rung asks for */
+  engine: OcrEngineName;
+  /** where the engine runs when the bridge is connected */
+  withBridge: OcrLadderRoute;
+  /** where the engine runs when the bridge is **not** connected */
+  withoutBridge: OcrLadderRoute;
+  /** what the rung needs to run at all */
+  needs: string;
+};
+
+/**
+ * The **ladder**, in the order the machine walks it (D-137).
+ *
+ * The order is not a preference - it is what the machine can actually do:
+ *
+ * 1. **indra** when the bridge is connected: the fastest engine there is
+ *    (147 ms on this box);
+ * 2. **tesseract** when the bridge is not there (278 ms): the engine the owner
+ *    called the default, and the one that needs nothing but the browser;
+ * 3. **paddle** only as the last resort (27,822 ms): it is the slowest by an
+ *    order of magnitude and it needs the Python sidecar.
+ *
+ * A teacher should never have to choose an engine - the machine chooses, and
+ * says what it chose.
+ */
+export const OCR_LADDER: readonly OcrLadderRung[] = [
+  {
+    engine: "indra",
+    withBridge: "bridge",
+    withoutBridge: "bridge",
+    needs: "the bridge, with the Python sidecar",
+  },
+  {
+    engine: "tesseract",
+    withBridge: "bridge",
+    withoutBridge: "browser",
+    needs: "an engine in the browser",
+  },
+  {
+    engine: "paddle",
+    withBridge: "bridge",
+    withoutBridge: "bridge",
+    needs: "the bridge, with the Python sidecar",
+  },
+];
+
+/** a rung of the ladder, with the route it takes on this machine */
+export type OcrLadderStep = OcrLadderRung & {
+  /** where this rung runs, on this machine */
+  route: OcrLadderRoute;
+};
+
+/**
+ * The rungs, for the machine as it is now.
+ *
+ * With the bridge connected every rung takes the bridge - the engine lives in
+ * the extension's Node process (D-59). Without the bridge tesseract is the
+ * rung that can still run, in the browser, and the other two say why they
+ * cannot.
+ */
+export const ocrLadderFor = ({
+  bridgeConnected,
+}: {
+  bridgeConnected: boolean;
+}): readonly OcrLadderStep[] =>
+  OCR_LADDER.map((rung) => ({
+    ...rung,
+    route: bridgeConnected ? rung.withBridge : rung.withoutBridge,
+  }));
+
+/**
+ * The engines the **browser** can run by itself.
+ *
+ * The list is EMPTY, and that is the truth on this machine (D-59): the engine
+ * is `tesseract.js` and it lives in the extension's Node process - a
+ * multi-megabyte download is not what a classroom connection is for, and the
+ * project rule is no new dependency without the owner's approval (D-11). So
+ * the ladder's browser rung says it cannot run here, **with the reason**,
+ * instead of pretending (D-75).
+ */
+export const BROWSER_OCR_ENGINES: readonly OcrEngineName[] = [];
+
+/** why the browser rung cannot run, when it cannot */
+export const BROWSER_ENGINE_REASON =
+  "tesseract needs an OCR engine in the browser, and none runs there: the engine lives in the extension's Node process (D-59). Start the Excalidraw Bridge extension in VS Code.";
+
+/**
+ * Why a rung that needs the bridge cannot run, when the bridge is not there.
+ *
+ * It is the same sentence the bridge's own client uses (D-59, AC-74): the
+ * read fails **loudly**, and it says what is missing.
+ */
+export const BRIDGE_NEEDED_REASON =
+  "the bridge is not connected: start the Excalidraw Bridge extension in VS Code.";

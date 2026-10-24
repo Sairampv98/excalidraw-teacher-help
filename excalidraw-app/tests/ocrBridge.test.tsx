@@ -19,6 +19,10 @@ import React from "react";
 
 import { act, render, renderHook, waitFor } from "@testing-library/react";
 
+import { Excalidraw } from "@excalidraw/excalidraw";
+import { API } from "@excalidraw/excalidraw/tests/helpers/api";
+import { render as renderEditor } from "@excalidraw/excalidraw/tests/test-utils";
+
 import type { ExcalidrawElement } from "@excalidraw/element/types";
 
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
@@ -301,5 +305,267 @@ describe("the app's OCR", () => {
     // and the font follows the line's own height, so the text covers the line
     expect(elements[0].fontSize).toBeGreaterThan(0);
     expect(elements[0].fontSize).toBeLessThanOrEqual(32 / 2 + 1);
+  });
+});
+
+/**
+ * The **crop and the read are one action**, and the engine is a **ladder**
+ * (AC-175, D-137, D-138).
+ */
+describe("the crop-and-read action, and the engine ladder", () => {
+  /** the crop the teacher took for a panel */
+  const CROP = { x: 120, y: 640, width: 640, height: 180 };
+
+  it("AC-175 the read takes the cropped region", async () => {
+    const { api } = scene();
+
+    const requests: Omit<OcrRequest, "id">[] = [];
+
+    const requestOcr = vi.fn(
+      async (request: Omit<OcrRequest, "id">): Promise<OcrResult> => {
+        requests.push(request);
+
+        return {
+          id: "ocr-1",
+          text: "the first line",
+          lines: [
+            { text: "the first line", x: 120, y: 640, width: 400, height: 32 },
+          ],
+        };
+      },
+    );
+
+    const { result } = renderHook(() =>
+      useOcr({ api, requestOcr, bridgeConnected: true }),
+    );
+
+    // the teacher cropped the panel in the crop dialog
+    act(() => {
+      result.current.rememberCrop("panel-1", CROP);
+    });
+
+    // and the panel's own read takes that crop: one action, not two
+    await act(async () => {
+      await result.current.read({
+        image: IMAGE,
+        panelId: "panel-1",
+        placement: PLACEMENT,
+        pageId: "page-1",
+      });
+    });
+
+    expect(requests).toHaveLength(1);
+
+    // the request carries the **crop**, and not the whole picture
+    expect(requests[0].region).toEqual(CROP);
+
+    // and the panel's crop is the crop the teacher took
+    expect(result.current.cropFor("panel-1")).toEqual(CROP);
+  });
+
+  it("AC-175 the engine ladder runs indra with the bridge and paddle only as a last resort", async () => {
+    const { api } = scene();
+
+    /** the engines the machine asked for, in the order it asked */
+    const asked: string[] = [];
+
+    const requestOcr = vi.fn(
+      async (request: Omit<OcrRequest, "id">): Promise<OcrResult> => {
+        asked.push(request.engine ?? "");
+
+        if (request.engine !== "paddle") {
+          throw new Error(`${request.engine} is not available`);
+        }
+
+        return {
+          id: "ocr-1",
+          text: "",
+          lines: [],
+          engine: "paddle",
+          durationMs: 27822,
+        };
+      },
+    );
+
+    const { result } = renderHook(() =>
+      useOcr({ api, requestOcr, bridgeConnected: true }),
+    );
+
+    await act(async () => {
+      await result.current.read({
+        image: IMAGE,
+        placement: PLACEMENT,
+        pageId: "page-1",
+      });
+    });
+
+    // the ladder: **indra** first with the bridge, then **tesseract**, and
+    // **paddle** only as the last resort (D-137)
+    expect(asked).toEqual(["indra", "tesseract", "paddle"]);
+
+    // and the teacher is never asked to choose: the machine chose, and the
+    // panel says what it chose
+    expect(result.current.message).toContain("paddle");
+  });
+
+  it("AC-175 the answer says which engine ran and why the one before it did not", async () => {
+    const { api } = scene();
+
+    const requestOcr = vi.fn(
+      async (request: Omit<OcrRequest, "id">): Promise<OcrResult> => {
+        if (request.engine === "indra") {
+          throw new Error("indra is not available: pip install indra-ocr");
+        }
+
+        return {
+          id: "ocr-1",
+          text: "the first line",
+          lines: [
+            { text: "the first line", x: 60, y: 920, width: 400, height: 32 },
+          ],
+          engine: "tesseract",
+          durationMs: 278,
+        };
+      },
+    );
+
+    const { result } = renderHook(() =>
+      useOcr({ api, requestOcr, bridgeConnected: true }),
+    );
+
+    await act(async () => {
+      await result.current.read({
+        image: IMAGE,
+        placement: PLACEMENT,
+        pageId: "page-1",
+      });
+    });
+
+    // which engine ran ...
+    expect(result.current.message).toContain("tesseract");
+
+    // ... how long it took ...
+    expect(result.current.message).toContain("278 ms");
+
+    // ... and why the one before it did not (D-75, D-93, D-125): a fall-back
+    // that says nothing is a fall-back the teacher cannot trust
+    expect(result.current.message).toContain("indra");
+    expect(result.current.message).toContain("pip install indra-ocr");
+  });
+
+  it("AC-175 a slow read shows the loading state and can be cancelled", async () => {
+    const { api, state } = scene();
+
+    /** the bridge's answer, when it comes */
+    let settle: (result: OcrResult) => void = () => undefined;
+
+    const requestOcr = vi.fn(
+      async (): Promise<OcrResult> =>
+        new Promise<OcrResult>((resolve) => {
+          settle = resolve;
+        }),
+    );
+
+    const { result } = renderHook(() =>
+      useOcr({ api, requestOcr, bridgeConnected: true }),
+    );
+
+    let reading: Promise<OcrResult | null> | null = null;
+
+    act(() => {
+      reading = result.current.read({
+        image: IMAGE,
+        placement: PLACEMENT,
+        pageId: "page-1",
+      });
+    });
+
+    // the read is running, and the panel says so while it takes it (D-138)
+    await waitFor(() => expect(result.current.busy).toBe(true));
+    expect(result.current.message).toContain("Reading");
+
+    // the teacher stops it
+    act(() => {
+      result.current.cancel();
+    });
+
+    // and the panel is usable again at once
+    expect(result.current.busy).toBe(false);
+    expect(result.current.message).toContain("cancelled");
+
+    // the answer of a cancelled read is dropped: a text that lands after the
+    // teacher moved on is worse than no text at all
+    await act(async () => {
+      settle({
+        id: "ocr-1",
+        text: "the first line",
+        lines: [
+          { text: "the first line", x: 60, y: 920, width: 400, height: 32 },
+        ],
+        engine: "indra",
+        durationMs: 147,
+      });
+
+      await reading;
+    });
+
+    expect(state.elements).toHaveLength(0);
+  });
+
+  it("AC-175 the panel's own control shows the loading state and offers the cancel", async () => {
+    // a panel on the canvas - the chrome is drawn for the SELECTED panel
+    const element = API.createElement({
+      type: "panel",
+      x: 100,
+      y: 100,
+      width: 400,
+      height: 300,
+      panelKind: "image",
+      panel: {
+        source: { type: "inline", payload: null },
+        options: { naturalWidth: 400, naturalHeight: 300, captions: null },
+      },
+      posterMode: false,
+      posterFileId: null,
+    }) as unknown as ExcalidrawElement;
+
+    const onCancel = vi.fn();
+
+    const { container } = await renderEditor(
+      <Excalidraw
+        initialData={{ elements: [element] }}
+        panelOcr={{
+          message: "Reading the text…",
+          busy: true,
+          onOcr: () => undefined,
+          onCancel,
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setSelectedElements([element]);
+
+    // the control says it is reading ...
+    expect(
+      container.querySelector('[data-testid="panel-ocr-button"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="panel-ocr-spinner"]'),
+    ).not.toBeNull();
+
+    // ... and the cancel is there
+    const cancel = container.querySelector(
+      '[data-testid="panel-ocr-cancel"]',
+    ) as HTMLButtonElement | null;
+
+    expect(cancel).not.toBeNull();
+
+    await act(async () => {
+      cancel!.click();
+    });
+
+    // and it stops the read
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 });

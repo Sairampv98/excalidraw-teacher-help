@@ -33,6 +33,7 @@ import { PANEL_SCALE_PROPERTY, panelScreenChrome } from "../scene/panelChrome";
 import { t } from "../i18n";
 
 import { ScreenshotIcon } from "./icons";
+import Spinner from "./Spinner";
 
 import type {
   ExcalidrawProps,
@@ -389,6 +390,10 @@ const PanelOcrEngineDot = ({
  * bridge is needed, and it never says nothing (D-59).
  *
  * The **engine picker** sits beside the button (D-118).
+ *
+ * A read that takes time says so while it takes it: the button shows the
+ * **loading state**, and the **cancel** beside it stops the read and leaves
+ * the panel usable (D-138).
  */
 const PanelOcrButton = ({
   panel,
@@ -422,10 +427,15 @@ const PanelOcrButton = ({
           type="button"
           className="excalidraw__panel-ocr-button"
           data-testid="panel-ocr-button"
+          data-busy={ocr.busy ? "true" : undefined}
           onClick={() => ocr.onOcr?.(panel.id)}
           disabled={ocr.busy || !ocr.onOcr}
-          title={t("labels.panel.ocr")}
-          aria-label={t("labels.panel.ocr")}
+          title={
+            ocr.busy ? t("labels.ocrLadder.reading") : t("labels.panel.ocr")
+          }
+          aria-label={
+            ocr.busy ? t("labels.ocrLadder.reading") : t("labels.panel.ocr")
+          }
           style={{
             width: screen.ocrButtonWidth,
             height: screen.ocrButtonHeight,
@@ -439,11 +449,50 @@ const PanelOcrButton = ({
             // the button's size is decided (D-92): the flexbox may not take it
             // away (D-108)
             flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: screen.chromeGap,
           }}
         >
-          {t("labels.panel.ocr")}
+          {ocr.busy && (
+            /**
+             * The spinner: the sign that the read is running (D-138).
+             *
+             * It is the project's own spinner - the chrome adds no asset and no
+             * dependency.
+             */
+            <span data-testid="panel-ocr-spinner" aria-hidden="true">
+              <Spinner size={screen.ocrSpinnerSize} />
+            </span>
+          )}
+          {ocr.busy ? t("labels.ocrLadder.reading") : t("labels.panel.ocr")}
         </button>
         <PanelOcrEnginePicker panel={panel} ocr={ocr} />
+        {ocr.busy && ocr.onCancel && (
+          <button
+            type="button"
+            className="excalidraw__panel-ocr-cancel"
+            data-testid="panel-ocr-cancel"
+            onClick={() => ocr.onCancel?.()}
+            title={t("labels.ocrLadder.cancel")}
+            aria-label={t("labels.ocrLadder.cancel")}
+            style={{
+              width: screen.ocrCancelButtonWidth,
+              height: screen.ocrCancelButtonHeight,
+              fontSize: screen.buttonFontSize,
+              fontFamily: "inherit",
+              color: "inherit",
+              background: "var(--island-bg-color)",
+              border: "1px solid var(--default-border-color)",
+              borderRadius: "4px",
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            {t("labels.ocrLadder.cancel")}
+          </button>
+        )}
       </div>
       <span
         className="excalidraw__panel-ocr-message"

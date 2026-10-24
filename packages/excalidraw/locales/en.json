@@ -290,7 +290,16 @@
     "boxSelectionContain": "Wrap",
     "boxSelectionOverlap": "Overlap",
     "arrowBinding": "Arrow binding",
-    "midpointSnapping": "Snap to midpoints"
+    "midpointSnapping": "Snap to midpoints",
+    "ocrLadder": {
+      "reading": "Reading the text…",
+      "cancel": "Cancel",
+      "cancelled": "The read was cancelled.",
+      "none": "No engine could read the text.",
+      "noText": "No text was found with {{engine}}.",
+      "noTextTook": "No text was found with {{engine}} in {{ms}} ms.",
+      "skipped": "{{engine}} was not used: {{reason}}."
+    }
   },
   "elementLink": {
     "title": "Link to object",
