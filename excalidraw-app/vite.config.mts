@@ -231,7 +231,13 @@ export default defineConfig(({ mode }) => {
               },
             },
           ],
-          maximumFileSizeToCacheInBytes: 2.3 * 1024 ** 2, // 2.3MB
+          // The fork's own bundle grew past the 2.3MB this limit used to carry:
+          // the build then died in workbox ("Assets exceeding the limit"), so
+          // `yarn build` could not finish and the app could not be built and
+          // served at all. The limit only decides what the service worker
+          // precaches, so it is raised to leave room for the bundle to grow
+          // again.
+          maximumFileSizeToCacheInBytes: 5 * 1024 ** 2, // 5MB
         },
         manifest: {
           short_name: "Excalidraw",

@@ -1,9 +1,8 @@
 ---
 id: wave6d-presenter-works
 paths: excalidraw-app,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 6d — the presenter view works
@@ -82,4 +81,3 @@ was dead, not only that it works now.
 
 **The teeth check** (the kit's rule, and the only proof that matters): revert the fix and the
 AC-177 tests must FAIL. Restore the fix and they must pass again. Report both failures verbatim.
-
