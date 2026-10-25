@@ -28,8 +28,6 @@ It reports what it carries, **asks** before it installs anything, installs what 
 | `-Port <n>` | serves the app on another port (it is `4173` by default) |
 | `-PayloadRoot <dir>` | unpacks the payload somewhere else — a USB stick, or a second drive |
 
-![the offline setup reporting what it carries](images/offline-report.png)
-
 **Nothing is installed silently.** Without `-Yes` the setup asks, one question per thing, and a question that cannot be answered counts as _no_.
 
 ---
@@ -208,6 +206,41 @@ THE INTERNET, UNTOUCHED
 So `run.ps1` does not trust the setting. It **records the network as the Sandbox set it up** — the adapters, the default route, the proxy — and then says, in words, **which of the two took the internet away**: the `.wsb`, or the run itself. The `.wsb` is kept, because it is the **right** setting; nothing rests on it.
 
 Then the network is taken down from inside, by **three separate means** — an outbound firewall rule where the Sandbox has one, the **default route removed**, and the **adapter disabled** — and the record says **how many of them worked**, because one of them failed on that machine. After that the machine is **probed three ways**: a DNS lookup, a raw TCP connection to a public address, and an HTTP request. If any of them answers, the run says the proof is **not valid** — and the setup is not run at all.
+
+This is a real run, on a fresh sandbox, and it is what the machine said:
+
+```
+THE NETWORK, AS THE SANDBOX SET IT UP
+   adapter: Ethernet  Microsoft Hyper-V Network Adapter  Up
+   default route: Ethernet
+   an HTTP request to the internet ANSWERED (200)
+
+WHICH OF THE TWO TOOK THE INTERNET AWAY
+   NOT the .wsb. The Sandbox was given a network anyway: it came up with
+   a default route and the internet answered.
+
+TAKING THE NETWORK DOWN FROM INSIDE
+   the firewall rule could not be added: Invalid class
+   the default route was removed: Ethernet -> 172.23.192.1
+   1 of the three ways worked
+
+THE NETWORK, AFTER THAT
+   DNS did not resolve www.microsoft.com: it did not answer
+   a TCP connection to 1.1.1.1:443 failed: it did not answer
+   a TCP connection to 8.8.8.8:53 failed: it did not answer
+   an HTTP request to the internet failed: it did not answer
+
+THE MACHINE IS OFFLINE. Every way of asking the internet failed.
+
+THE APP
+  GET http://127.0.0.1:4173/  ->  200
+  it is the app: True
+  the app's own script /assets/index-B3WSFxBV.js -> 200  (2592011 bytes)
+
+THE PROOF IS VALID: the setup worked on a machine with no internet.
+```
+
+![the proof, as the machine said it](images/offline-report.png)
 
 ### What cannot be proved in a Sandbox
 
