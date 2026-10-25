@@ -2,7 +2,7 @@
 id: wave7l-one-file-container-guide
 paths: installer,docs,packages/vscode-bridge,Dockerfile,.dockerignore,SPEC.md,.gitignore
 base: main
-status: open
+status: merged
 ---
 
 # Wave 7l — the setup as one file, the container, and the guide

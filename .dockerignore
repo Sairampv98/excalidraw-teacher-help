@@ -5,6 +5,7 @@
 !.npmrc
 !.prettierrc
 !excalidraw-app/
+!installer/
 !package.json
 !public/
 !packages/

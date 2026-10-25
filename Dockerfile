@@ -11,6 +11,12 @@ RUN --mount=type=cache,target=/root/.cache/yarn \
 
 ARG NODE_ENV=production
 
+# The app's build needs more heap than Node's default (about 2 GB): the bundle
+# is large and the source maps are bigger. Without this the build inside the
+# container dies with "Reached heap limit - JavaScript heap out of memory",
+# while the same build on a developer's machine succeeds.
+ENV NODE_OPTIONS=--max-old-space-size=4096
+
 # The VS Code bridge runs on the HOST - the extension lives inside the
 # editor, and the editor lives on the teacher's machine. So the container
 # reaches it through Docker's name for the host, and the URL is a BUILD-time

@@ -195,6 +195,9 @@ function Get-SetupFacts {
     $facts.ExtensionBuilt = Test-Path -LiteralPath (Join-Path $RepoRoot 'packages\vscode-bridge\excalidraw-bridge-0.1.0.vsix')
     $facts.DependenciesInstalled = Test-Path -LiteralPath (Join-Path $RepoRoot 'node_modules')
     $facts.Winget = $null -ne (Get-CommandPath 'winget')
+    # Windows can always download and run the official installer itself, so the
+    # setup does not NEED a package manager to install anything.
+    $facts.DirectInstall = $true
 
     $pythonVersion = Get-ToolVersion -Name 'python' -Pattern 'Python (\d+\.\d+\.\d+)'
     $javaVersion = Get-ToolVersion -Name 'java' -Pattern 'version "([^"]+)"' -Arguments @('-version')
@@ -290,12 +293,14 @@ function Get-SetupPlan {
 
     # --- what the setup would install ----------------------------------------
     if (-not $nodeIsThere) {
+        $canInstall = $Facts.Winget -or $Facts.DirectInstall
+
         $actions += [pscustomobject]@{
             Id = 'node.install'
             Label = 'Install Node.js'
-            Detail = $(if ($Facts.Winget) { 'through winget' } else { 'winget is not on the PATH, so this one is yours to do' })
-            Automatic = $Facts.Winget
-            Instruction = $(if ($Facts.Winget) { $null } else { "Install Node.js $NodeMinimum or newer from https://nodejs.org and run this script again." })
+            Detail = $(if ($Facts.Winget) { 'through winget' } elseif ($canInstall) { 'from nodejs.org' } else { 'no package manager is available, so this one is yours to do' })
+            Automatic = $canInstall
+            Instruction = $(if ($canInstall) { $null } else { "Install Node.js $NodeMinimum or newer from https://nodejs.org and run this script again." })
         }
     }
 
@@ -331,6 +336,29 @@ function Get-SetupPlan {
                 Automatic = $true
                 Instruction = $null
             }
+        }
+    }
+
+    # The editor ITSELF, when it is not on the machine at all. A teacher with
+    # neither VS Code nor VSCodium cannot use the bridge, so the setup offers
+    # to install one - through the package manager, or from the official
+    # installer when there is no package manager.
+    foreach ($editor in @(
+        [pscustomobject]@{ Id = 'editor.install.vscode'; Label = 'VS Code'; Fact = $Facts.Vscode; From = 'code.visualstudio.com' },
+        [pscustomobject]@{ Id = 'editor.install.vscodium'; Label = 'VSCodium'; Fact = $Facts.Vscodium; From = 'vscodium.com' }
+    )) {
+        if ($editor.Fact.Path -or $editor.Fact.Cli) {
+            continue
+        }
+
+        $canInstall = $Facts.Winget -or $Facts.DirectInstall
+
+        $actions += [pscustomobject]@{
+            Id = $editor.Id
+            Label = "Install $($editor.Label)"
+            Detail = $(if ($Facts.Winget) { 'through winget' } elseif ($canInstall) { "from $($editor.From)" } else { 'no package manager is available, so this one is yours to do' })
+            Automatic = $canInstall
+            Instruction = $(if ($canInstall) { $null } else { "Install $($editor.Label) from https://$($editor.From) and run this script again." })
         }
     }
 
@@ -511,7 +539,137 @@ function Write-Step {
 }
 
 function Install-Node {
-    & winget install --id OpenJS.NodeJS --accept-source-agreements --accept-package-agreements
+    if ($Facts.Winget) {
+        & winget install --id OpenJS.NodeJS --accept-source-agreements --accept-package-agreements
+        return
+    }
+
+    Install-NodeDirect
+}
+
+# ---------------------------------------------------------------------------
+# installing without a package manager
+#
+# winget ships with every ordinary Windows 10 and 11, but it is NOT in a bare
+# image - a Windows Sandbox, a fresh server, a locked-down classroom machine.
+# There the setup downloads the OFFICIAL installer and runs it, so the promise
+# holds everywhere: it checks, and it installs.
+# ---------------------------------------------------------------------------
+
+function Get-MachineArchitecture {
+    # 'x64' or 'arm64' - the official installers are published for both.
+    if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') {
+        return 'arm64'
+    }
+
+    return 'x64'
+}
+
+function Update-PathFromMachine {
+    # An installer adds itself to the machine's PATH, but this session was
+    # started before that, so the PATH is read again from the registry.
+    $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $user = [Environment]::GetEnvironmentVariable('Path', 'User')
+
+    if ($machine) { $env:Path = "$machine;$env:Path" }
+    if ($user) { $env:Path = "$user;$env:Path" }
+}
+
+function Get-DownloadPath {
+    $dir = Join-Path $env:TEMP 'excalidraw-setup-downloads'
+
+    if (-not (Test-Path -LiteralPath $dir)) {
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    }
+
+    return $dir
+}
+
+function Install-NodeDirect {
+    $arch = Get-MachineArchitecture
+    $dir = Get-DownloadPath
+
+    # the latest LTS, from nodejs.org's own index
+    $index = Invoke-RestMethod -Uri 'https://nodejs.org/dist/index.json' -UseBasicParsing
+    $release = $index | Where-Object { $_.lts -and $_.files -contains "win-$arch-msi" } | Select-Object -First 1
+
+    if (-not $release) {
+        Write-Host '   could not find a Node.js release for this machine - install Node.js from https://nodejs.org'
+        return
+    }
+
+    # The index lists the MSI as "win-x64-msi", but the FILE it names is
+    # "node-<version>-x64.msi" - the "win-" is in the index's name, not in the
+    # file's. Getting this wrong is a 404.
+    $file = "node-$($release.version)-$arch.msi"
+    $path = Join-Path $dir $file
+
+    Write-Host "   downloading $file"
+    Invoke-WebRequest -Uri "https://nodejs.org/dist/$($release.version)/$file" -OutFile $path -UseBasicParsing
+
+    Write-Host '   installing'
+    $process = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', $path, '/qn', '/norestart') -Wait -PassThru
+
+    if ($process.ExitCode -ne 0) {
+        Write-Host "   the installer returned $($process.ExitCode) - install Node.js from https://nodejs.org"
+        return
+    }
+
+    Update-PathFromMachine
+    Write-Host "   Node.js $($release.version) installed"
+}
+
+function Install-EditorDirect {
+    param(
+        [string]$Url,
+        [string]$FileName
+    )
+
+    $dir = Get-DownloadPath
+    $path = Join-Path $dir $FileName
+
+    Write-Host "   downloading $FileName"
+    Invoke-WebRequest -Uri $Url -OutFile $path -UseBasicParsing
+
+    Write-Host '   installing'
+    # the VS Code and VSCodium installers are Inno Setup: /VERYSILENT is quiet
+    $process = Start-Process -FilePath $path -ArgumentList @('/VERYSILENT', '/NORESTART', '/MERGETASKS=!runCode', '/SP-') -Wait -PassThru
+
+    if ($process.ExitCode -ne 0) {
+        Write-Host "   the installer returned $($process.ExitCode)"
+    }
+
+    Update-PathFromMachine
+}
+
+function Install-VSCodeDirect {
+    $arch = Get-MachineArchitecture
+    Install-EditorDirect -Url "https://update.code.visualstudio.com/latest/win32-$arch-user/stable" -FileName "vscode-$arch-setup.exe"
+}
+
+function Install-VSCodiumDirect {
+    $arch = Get-MachineArchitecture
+    Install-EditorDirect -Url "https://github.com/VSCodium/vscodium/releases/latest/download/VSCodium-win32-$arch-user.exe" -FileName "vscodium-$arch-setup.exe"
+}
+
+function Install-VSCode {
+    if ($Facts.Winget) {
+        & winget install --id Microsoft.VisualStudioCode --accept-source-agreements --accept-package-agreements
+        Update-PathFromMachine
+        return
+    }
+
+    Install-VSCodeDirect
+}
+
+function Install-VSCodium {
+    if ($Facts.Winget) {
+        & winget install --id VSCodium.VSCodium --accept-source-agreements --accept-package-agreements
+        Update-PathFromMachine
+        return
+    }
+
+    Install-VSCodiumDirect
 }
 
 function Install-Python {
@@ -565,14 +723,36 @@ function Install-AppDependencies {
 
 $installed = @()
 
-foreach ($action in $Plan.Actions) {
-    if (-not $action.Automatic) {
-        Write-Step "$($action.Label) - this one is yours to do"
-        Write-Host "   $($action.Instruction)"
-        continue
+# The plan is made ONCE, from what the machine has at the start - and installing
+# Node.js changes what the machine has. So the plan is made again after the
+# first pass: the things that needed Node (Corepack, the extension's build,
+# the app's dependencies) can now be done, and they are done in THIS run
+# rather than telling the reader to come back.
+for ($pass = 1; $pass -le 2; $pass++) {
+    if ($pass -gt 1) {
+        Update-PathFromMachine
+        $Facts = Get-SetupFacts
+        $Plan = Get-SetupPlan -Facts $Facts
+
+        if ($Plan.Actions.Count -eq 0) {
+            break
+        }
+
+        Write-Host ''
+        Write-Host 'Looking again, now that Node.js is here:'
     }
 
-    switch ($action.Id) {
+    foreach ($action in $Plan.Actions) {
+        if (-not $action.Automatic) {
+            Write-Step "$($action.Label) - this one is yours to do"
+            Write-Host "   $($action.Instruction)"
+            continue
+        }
+
+        # One thing failing must not stop the others: a download that 404s is a
+        # fact about that thing, not about the whole setup.
+        try {
+            switch ($action.Id) {
         'node.install' {
             Write-Step 'Installing Node.js'
             Install-Node
@@ -598,6 +778,16 @@ foreach ($action in $Plan.Actions) {
             Install-ExtensionInto -EditorPath $Facts.Vscodium.Path -EditorCli 'codium'
             $installed += 'the extension in VSCodium'
         }
+        'editor.install.vscode' {
+            Write-Step 'Installing VS Code'
+            Install-VSCode
+            $installed += 'VS Code'
+        }
+        'editor.install.vscodium' {
+            Write-Step 'Installing VSCodium'
+            Install-VSCodium
+            $installed += 'VSCodium'
+        }
         'dependencies.install' {
             Write-Step "Installing the app's dependencies"
             Install-AppDependencies
@@ -612,6 +802,12 @@ foreach ($action in $Plan.Actions) {
             Write-Step 'Installing Java'
             Install-Java
             $installed += 'Java'
+        }
+    }
+        }
+        catch {
+            Write-Host "   it did not work: $($_.Exception.Message)"
+            Write-Host "   this one is left to you - the report above says what to do"
         }
     }
 }

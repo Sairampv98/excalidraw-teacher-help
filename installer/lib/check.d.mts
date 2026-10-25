@@ -24,6 +24,11 @@ export interface Found {
   dependenciesInstalled: boolean;
   runtimes: { node: boolean; python: boolean; java: boolean };
   winget: boolean;
+  /**
+   * The script can download and run the official installer itself, so it does
+   * not need a package manager to install anything.
+   */
+  directInstall: boolean;
 }
 
 /** One thing the setup checks. */
