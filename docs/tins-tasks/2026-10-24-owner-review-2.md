@@ -62,7 +62,19 @@ Every wave below is **merged into `main`**, and every one passed the gate **4/4*
 | 6i | yes | the virtual display is reported the way a teacher needs it: an installed-but-**detached** driver is **named** together with the click that attaches it (VDD Control → Extend); moving the editor's window is **opt-in, never by default**; a window on the virtual display can be **brought back** with its maximised state restored; every placement reports the **measured** rect. | **A silent failure found:** `SetWindowPos` on a **maximised** window returns `true` and does **nothing** (`1295x703 at 1273,-7` → unchanged). After `SW_RESTORE` (9) it lands at `1920x1080 at 1920,0`. The round trip back: `SW_RESTORE` → `SetWindowPos(0,0,1295,687)` → `SW_MAXIMIZE` (3) → `1295x687 at -7,-7`, the exact original rect. `D-146`..`D-150`, `AC-183`. |
 | 6f | yes | _"what to mirror"_: the **whole** VS Code window by default, a region the teacher crops and **re-crops**, and an optional **follow-the-cursor** mode. | **Merged** (`8246b20`). Gate **4/4**, `rowcheck --all` exit 0, **60 tests pass**. The panel's bar now carries **"Change what is mirrored"** and **"Follow the cursor"**; the region travels to the editor in the capture descriptor and comes back; the window is still found **by rule**. The five-step browser proof ran with screenshots. **The teeth check:** with the fix reverted, **5** of the AC-182 tests FAIL (3 in `packages/vscode-bridge/tests/bridge.test.ts`, 2 in `packages/excalidraw/tests/codePanel.test.tsx`); with it restored, all 60 pass. |
 
-### The engine ladder, settled
+### What the live clips found
+
+Recording the feature clips - by driving the **real** app with a **real** editor behind it - found five defects the tests had not. Two of them meant a **shipped install did not work at all**.
+
+| # | the defect | the fix |
+| --- | --- | --- |
+| 1 | the `.vsix` did not ship `media/virtual-display.ps1` - so **every** install had a **dead virtual display** | `build-vsix.mjs` copies the helper into the stage **and** adds it to the `entries` list that becomes the `.vsix` |
+| 2 | the snapshot endpoint sent **no `Access-Control-Allow-Origin`** - the page is on `localhost:3001` and the extension on `127.0.0.1:47511`, so a **stock browser refused the app's fetch**: "take a screenshot of the editor's window" and "crop and read" from the editor died with _"Failed to fetch"_ | the snapshot now answers the **same** loopback origins `isAllowedOrigin` already accepts, echoing the origin back, plus `Access-Control-Expose-Headers` for the frame's size (not CORS-safelisted, so the app read size 0) |
+| 3 | the mirror picker's choice buttons sat at **z-index 8** and the app's page bar covered them at **70** - the picker could not be worked with the mouse | a new `--zIndex-panelPicker: 90` |
+| 4 | the YouTube caption note was painted **under** the composited iframe, and its background (`var(--color-surface)`) was **not a theme variable** | a z-index above the iframe, and `var(--color-surface-high)` |
+| 5 | the input panel did `var status = document.getElementById("status")` - which collides with **`window.status`**, a string the browser owns - so the status line never showed anything | renamed to `statusLine` |
+
+Wave **6j** (`D-151`, **AC-184**, **AC-185**): gate **4/4**, `rowcheck --all` exit **0**. The teeth check: with the fix reverted, the AC-184 and AC-185 tests **FAIL**; with it restored they pass. The real proof: the built `.vsix`'s own **entry list** now carries `extension/media/virtual-display.ps1`, an install into a throwaway folder really has it, and in a **stock browser** the snapshot arrives - _"OK: the picture arrived - 14142 bytes, content-type image/jpeg, the frame's own size 640x360"_ - where the unfixed code gave the browser's own _"Failed to fetch"_.
 
 The order is **indra with the bridge → tesseract without it → paddle last**, and each rung names the reason it was tried. `D-137` is the authority.
 
