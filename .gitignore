@@ -62,3 +62,7 @@ __pycache__/
 .tins/state-*.tap
 .tins/state-gate-summary.txt
 .tins/state-gate.lock
+
+# the built setup, on Windows - rebuilt by installer/build-setup-exe.mjs
+/setup.exe
+/installer/setup.exe
