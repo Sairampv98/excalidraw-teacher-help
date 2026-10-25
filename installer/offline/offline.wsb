@@ -24,9 +24,13 @@
       The folder that holds the payload, the answers file and run.ps1.
       It is mapped in so the sandbox can read the payload, and so the result
       lands on the host's disk where it can be read afterwards.
+
+      This path is the DEFAULT - a folder the teacher can make. The launcher
+      (run-offline-proof.ps1) writes its own file for wherever the payload
+      actually is, so the proof is not tied to this path.
     -->
     <MappedFolder>
-      <HostFolder>C:\Users\user\projects\offline-test</HostFolder>
+      <HostFolder>C:\excalidraw-offline</HostFolder>
       <SandboxFolder>C:\Sandbox</SandboxFolder>
       <ReadOnly>false</ReadOnly>
     </MappedFolder>

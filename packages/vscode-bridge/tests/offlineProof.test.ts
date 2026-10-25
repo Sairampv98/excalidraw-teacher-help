@@ -72,6 +72,11 @@ describe("the offline proof: a fresh sandbox, and an honest record", () => {
     expect(wsb).toContain("<SandboxFolder>C:\\Sandbox</SandboxFolder>");
     expect(wsb).toContain("C:\\Sandbox\\run.ps1");
 
+    // and the shipped file does not name ONE MACHINE's folder - the launcher
+    // writes the file for wherever the payload is
+    expect(wsb).not.toContain("C:\\Users\\");
+    expect(wsb).toContain("run-offline-proof.ps1");
+
     // and the file says plainly that the setting alone is not trusted, so
     // nobody reads it as a promise it cannot keep
     expect(wsb).toContain("does not trust it");
@@ -140,7 +145,9 @@ describe("the offline proof: a fresh sandbox, and an honest record", () => {
     expect(run).toContain("Invoke-WebRequest");
 
     // and any probe that answers makes the proof invalid
-    expect(run).toContain("THE MACHINE IS NOT OFFLINE - THIS PROOF IS NOT VALID.");
+    expect(run).toContain(
+      "THE MACHINE IS NOT OFFLINE - THIS PROOF IS NOT VALID.",
+    );
     expect(run).toContain("THE MACHINE IS OFFLINE");
   });
 
