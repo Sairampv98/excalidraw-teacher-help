@@ -1,7 +1,6 @@
 ---
 id: wave7l-one-file-container-guide
-paths: installer,docs,packages/vscode-bridge,Dockerfile,.dockerignore,SPEC.md
-read: 
+paths: installer,docs,packages/vscode-bridge,Dockerfile,.dockerignore,SPEC.md,.gitignore
 base: main
 status: open
 ---
@@ -133,4 +132,3 @@ Revert the fix and the AC-187 test must FAIL; restore the fix and it must pass
 again. Report both failures verbatim.
 
 Do NOT close the kit session and do NOT merge - the parent owns both.
-
