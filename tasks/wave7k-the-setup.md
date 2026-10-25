@@ -2,7 +2,7 @@
 id: wave7k-the-setup
 paths: installer,docker,Dockerfile,docker-compose.yml,packages/vscode-bridge,SPEC.md,dev-docs
 base: main
-status: open
+status: merged
 ---
 
 # Wave 7k — the setup: check what is missing, and install it

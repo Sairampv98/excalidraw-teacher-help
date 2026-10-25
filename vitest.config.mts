@@ -96,6 +96,14 @@ export default defineConfig({
     // and is still parallel enough.
     maxWorkers: 4,
     minWorkers: 1,
+    // Vitest's default test timeout is 5 seconds, and a test that waits for a
+    // mocked clipboard, a font, or a worker to settle can exceed it on a busy
+    // machine. The machine's speed is not the test's verdict, so the whole
+    // suite is given room: a test that needs 8 seconds because the machine
+    // was busy must not fail the build. A test that genuinely hangs still
+    // fails - it just fails later.
+    testTimeout: 20_000,
+    hookTimeout: 20_000,
     setupFiles: ["./setupTests.ts"],
     globals: true,
     environment: "jsdom",

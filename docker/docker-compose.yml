@@ -1,0 +1,32 @@
+services:
+  excalidraw:
+    build:
+      context: ..
+      dockerfile: ../Dockerfile
+      args:
+        - NODE_ENV=development
+        # The VS Code bridge runs on the HOST - the extension lives inside the
+        # editor - so the container reaches it through Docker's name for the
+        # host. It is a BUILD-time variable: the app's bundle is built with it.
+        - VITE_APP_BRIDGE_URL=ws://host.docker.internal:47511
+    container_name: excalidraw
+    ports:
+      - "3000:80"
+    restart: on-failure
+    stdin_open: true
+    healthcheck:
+      disable: true
+    environment:
+      - NODE_ENV=development
+    # Docker Desktop knows this name already; on Linux this line is what
+    # gives the container the same name for the host.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../:/opt/node_app/app:delegated
+      - ../package.json:/opt/node_app/package.json
+      - ../yarn.lock:/opt/node_app/yarn.lock
+      - notused:/opt/node_app/app/node_modules
+
+volumes:
+  notused:
