@@ -1,9 +1,8 @@
 ---
 id: wave7m-the-offline-setup
 paths: installer,docs,packages/vscode-bridge,SPEC.md,.gitignore
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 7m — the offline setup: one file, no internet, nothing to install
@@ -205,4 +204,3 @@ Revert the fix and the AC-188 test must FAIL; restore the fix and it must pass
 again. Report both failures verbatim.
 
 Do NOT close the kit session and do NOT merge - the parent owns both.
-
