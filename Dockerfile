@@ -11,6 +11,14 @@ RUN --mount=type=cache,target=/root/.cache/yarn \
 
 ARG NODE_ENV=production
 
+# The VS Code bridge runs on the HOST - the extension lives inside the
+# editor, and the editor lives on the teacher's machine. So the container
+# reaches it through Docker's name for the host, and the URL is a BUILD-time
+# variable: the app's bundle is built with it, so it has to be an ARG and an
+# ENV here, not a runtime one (D-152).
+ARG VITE_APP_BRIDGE_URL=ws://host.docker.internal:47511
+ENV VITE_APP_BRIDGE_URL=$VITE_APP_BRIDGE_URL
+
 RUN npm_config_target_arch=${TARGETARCH} yarn build:app:docker
 
 FROM nginx:stable-alpine-slim@sha256:2c605dbeab79a6b2a63340474fe58119d0ef95bdc4b1f41df0aa689659b3d13b
