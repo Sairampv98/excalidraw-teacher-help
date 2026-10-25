@@ -1,7 +1,6 @@
 ---
 id: wave7k-the-setup
-paths: installer,docker,Dockerfile,docker-compose.yml,packages/vscode-bridge,SPEC.md
-read: 
+paths: installer,docker,Dockerfile,docker-compose.yml,packages/vscode-bridge,SPEC.md,dev-docs
 base: main
 status: open
 ---
@@ -157,4 +156,3 @@ Revert the fix and the AC-186 test must FAIL; restore the fix and it must pass
 again. Report both failures verbatim.
 
 Do NOT close the kit session and do NOT merge - the parent owns both.
-
