@@ -1,9 +1,8 @@
 ---
 id: wave7n-how-to-verify
 paths: installer,docs,packages/vscode-bridge,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 7n — how to confirm it works, and that it is the expected behaviour
@@ -178,4 +177,3 @@ Revert the fix and the AC-189 test must FAIL; restore the fix and it must pass
 again. Report both failures verbatim.
 
 Do NOT close the kit session and do NOT merge - the parent owns both.
-
