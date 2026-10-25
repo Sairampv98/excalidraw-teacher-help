@@ -66,3 +66,11 @@ __pycache__/
 # the built setup, on Windows - rebuilt by installer/build-setup-exe.mjs
 /setup.exe
 /installer/setup.exe
+
+# the offline setup: the payload it carries and the executable built from it.
+# Both are BUILD OUTPUT - the payload is downloaded by
+# installer/offline/build-payload.mjs and the executable is compiled by
+# installer/offline/build-offline-setup.mjs. Only the builder is committed.
+/installer/offline/payload/
+/installer/offline/payload.zip
+/installer/offline/OfflineSetup.exe
