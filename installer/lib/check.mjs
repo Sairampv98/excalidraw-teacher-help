@@ -49,6 +49,8 @@ export const ACTION_IDS = [
   "extension.build",
   "extension.install.vscode",
   "extension.install.vscodium",
+  "editor.install.vscode",
+  "editor.install.vscodium",
   "dependencies.install",
   "runtime.python",
   "runtime.java",
@@ -74,6 +76,8 @@ export const EXTENSION_FILE =
  * @property {boolean} dependenciesInstalled `node_modules` is at the repository root
  * @property {{node: boolean, python: boolean, java: boolean}} runtimes
  * @property {boolean} winget                winget is on the PATH
+ * @property {boolean} brew                  Homebrew is on the PATH
+ * @property {boolean} directInstall         the script can download and run the official installer itself
  */
 
 /** An editor as the scripts found it. */
@@ -98,6 +102,8 @@ const normalize = (found) => ({
     java: found?.runtimes?.java === true,
   },
   winget: found?.winget === true,
+  brew: found?.brew === true,
+  directInstall: found?.directInstall === true,
 });
 
 /**
@@ -292,14 +298,20 @@ export function buildReport(found) {
   const nodeIsThere = checks[0].present;
 
   if (!nodeIsThere) {
+    const canInstall = facts.winget || facts.brew || facts.directInstall;
+
     actions.push({
       id: "node.install",
       label: "Install Node.js",
       detail: facts.winget
         ? "through winget"
-        : "winget is not on the PATH, so this one is yours to do",
-      automatic: facts.winget,
-      instruction: facts.winget
+        : facts.brew
+        ? "through brew"
+        : canInstall
+        ? "from nodejs.org"
+        : "no package manager is available, so this one is yours to do",
+      automatic: canInstall,
+      instruction: canInstall
         ? null
         : `Install Node.js ${NODE_MINIMUM} or newer from https://nodejs.org and run this script again.`,
     });
@@ -342,6 +354,38 @@ export function buildReport(found) {
         instruction: null,
       });
     }
+  }
+
+  // The editor itself, when it is not on the machine at all. A teacher who
+  // has neither VS Code nor VSCodium cannot use the bridge, so the setup
+  // offers to install one.
+  for (const [id, label, fact, cli] of [
+    ["editor.install.vscode", "VS Code", facts.vscode, "code"],
+    ["editor.install.vscodium", "VSCodium", facts.vscodium, "codium"],
+  ]) {
+    if (fact.cli || fact.path) {
+      continue;
+    }
+
+    const canInstall = facts.winget || facts.brew || facts.directInstall;
+    const from =
+      label === "VS Code" ? "code.visualstudio.com" : "vscodium.com";
+
+    actions.push({
+      id,
+      label: `Install ${label}`,
+      detail: facts.winget
+        ? "through winget"
+        : facts.brew
+        ? "through brew"
+        : canInstall
+        ? `from ${from}`
+        : "no package manager is available, so this one is yours to do",
+      automatic: canInstall,
+      instruction: canInstall
+        ? null
+        : `Install ${label} from https://${from} and run this script again.`,
+    });
   }
 
   if (!facts.dependenciesInstalled) {

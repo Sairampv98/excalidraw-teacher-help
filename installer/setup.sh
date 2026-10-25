@@ -284,8 +284,10 @@ get_plan() {
   if [ "$node_present" != "ok" ]; then
     if [ "$winget" = "yes" ]; then
       ACTIONS+=("node.install|Install Node.js|through winget|yes|")
+    elif [ "$brew" = "yes" ]; then
+      ACTIONS+=("node.install|Install Node.js|through brew|yes|")
     else
-      ACTIONS+=("node.install|Install Node.js|winget is not on the PATH, so this one is yours to do|no|Install Node.js $NODE_MINIMUM or newer from https://nodejs.org and run this script again.")
+      ACTIONS+=("node.install|Install Node.js|no package manager is available, so this one is yours to do|no|Install Node.js $NODE_MINIMUM or newer from https://nodejs.org and run this script again.")
     fi
   fi
 
@@ -307,6 +309,27 @@ get_plan() {
 
   if [ -n "$CODIUM_PATH" ] && [ "$CODIUM_INSTALLED" != "yes" ]; then
     ACTIONS+=("extension.install.vscodium|Install the extension into VSCodium|the editor does not have it yet|yes|")
+  fi
+
+  # The editor itself, when it is not on the machine at all.
+  if [ -z "$VSCODE_PATH" ]; then
+    if [ "$brew" = "yes" ]; then
+      ACTIONS+=("editor.install.vscode|Install VS Code|through brew|yes|")
+    elif [ "$winget" = "yes" ]; then
+      ACTIONS+=("editor.install.vscode|Install VS Code|through winget|yes|")
+    else
+      ACTIONS+=("editor.install.vscode|Install VS Code|no package manager is available, so this one is yours to do|no|Install VS Code from https://code.visualstudio.com and run this script again.")
+    fi
+  fi
+
+  if [ -z "$CODIUM_PATH" ]; then
+    if [ "$brew" = "yes" ]; then
+      ACTIONS+=("editor.install.vscodium|Install VSCodium|through brew|yes|")
+    elif [ "$winget" = "yes" ]; then
+      ACTIONS+=("editor.install.vscodium|Install VSCodium|through winget|yes|")
+    else
+      ACTIONS+=("editor.install.vscodium|Install VSCodium|no package manager is available, so this one is yours to do|no|Install VSCodium from https://vscodium.com and run this script again.")
+    fi
   fi
 
   if [ "$dependencies_installed" != "yes" ]; then
@@ -507,7 +530,11 @@ for entry in "${ACTIONS[@]}"; do
 
   case "$action_id" in
     node.install)
-      winget install --id OpenJS.NodeJS --accept-source-agreements --accept-package-agreements
+      if command -v winget >/dev/null 2>&1; then
+        winget install --id OpenJS.NodeJS --accept-source-agreements --accept-package-agreements
+      else
+        brew install node
+      fi
       installed+=("Node.js")
       ;;
     yarn.corepack)
@@ -537,6 +564,22 @@ for entry in "${ACTIONS[@]}"; do
     runtime.java)
       brew install --cask temurin
       installed+=("Java")
+      ;;
+    editor.install.vscode)
+      if command -v winget >/dev/null 2>&1; then
+        winget install --id Microsoft.VisualStudioCode --accept-source-agreements --accept-package-agreements
+      else
+        brew install --cask visual-studio-code
+      fi
+      installed+=("VS Code")
+      ;;
+    editor.install.vscodium)
+      if command -v winget >/dev/null 2>&1; then
+        winget install --id VSCodium.VSCodium --accept-source-agreements --accept-package-agreements
+      else
+        brew install --cask vscodium
+      fi
+      installed+=("VSCodium")
       ;;
   esac
 done
