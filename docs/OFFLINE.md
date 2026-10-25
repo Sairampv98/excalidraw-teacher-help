@@ -191,4 +191,4 @@ And it probes **before** it takes the network down, so the record says what the 
 
 **The display driver.** It needs a reboot and a real display, and neither exists inside a Sandbox. The setup's behaviour there — asking, elevating, and saying that a reboot is needed — is the part that is shown.
 
-**The whole 780 MB payload, in a Sandbox, on a small disk.** The Sandbox's disk is a file on the host's drive, and it grows with everything written inside it: the payload, the unpacked app, and the installs. A payload of 780 MB needs more room than a laptop with a nearly full C: drive has to spare. The proof therefore ran with a **reduced payload** — the app, the extension and Node.js — and the **full** payload was proved separately, on the machine itself.
+**One thing to watch: the disk.** The Sandbox's disk is a file on the host's drive, and it grows with everything written inside it — the payload, the unpacked app, and the installs. The full payload is 780 MB, and unpacking it inside a Sandbox needs more room than a laptop with a nearly full C: drive has to spare. Put the mapped folder on a drive with room, and watch the free space while the Sandbox runs.
