@@ -231,7 +231,11 @@ export const panelPage = (): string => `<!doctype html>
   // An ACTION is the panel's own business on the teacher's machine - the
   // editor's window moving onto the virtual display (D-147). It never goes on
   // the bridge.
-  var status = document.getElementById("status");
+  // The status line's own name. NOT "status": window.status is a string the
+  // browser owns, so a "var status" here would BE that string, and every
+  // status.textContent = ... would be silently dropped onto it - the line
+  // would never show anything (D-151).
+  var statusLine = document.getElementById("status");
 
   var send = function (body, done) {
     fetch("./control", {
@@ -245,10 +249,13 @@ export const panelPage = (): string => `<!doctype html>
         });
       })
       .then(function (answer) {
-        status.textContent = answer.ok ? done(answer.body) : answer.body.reason;
+        statusLine.textContent = answer.ok
+          ? done(answer.body)
+          : answer.body.reason;
       })
       .catch(function (error) {
-        status.textContent = "the presenter did not answer: " + error.message;
+        statusLine.textContent =
+          "the presenter did not answer: " + error.message;
       });
   };
 

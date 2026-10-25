@@ -31,6 +31,13 @@
   --zIndex-eyeDropperBackdrop: 5;
   --zIndex-eyeDropperPreview: 6;
   --zIndex-hyperlinkContainer: 7;
+  // the **mirror picker** (D-143): the teacher chooses what is mirrored, and
+  // the choice must be workable with the MOUSE. The app's own chrome is drawn
+  // OVER the editor - the bottom page bar at 70, the edge docks at 80 - so a
+  // picker in the library's own plane (8) was covered by it: the three buttons
+  // were visible and dead (D-151). The picker sits above the app's chrome, in
+  // the same plane as the context menu.
+  --zIndex-panelPicker: 90;
 
   --zIndex-ui-bottom: 60;
   --zIndex-ui-context-menu: 90;
@@ -251,6 +258,11 @@ body.excalidraw-cursor-resize * {
     // over the video, not under it: the note takes no row of the panel
     // (D-131)
     position: absolute;
+    // The frame is a **composited** iframe - the browser paints it in a layer
+    // of its own - so a note with no z-index of its own ends up UNDER it, and
+    // the note was invisible as shipped (D-151). This is the number that puts
+    // the note in front of the frame it belongs to.
+    z-index: 1;
     top: 0;
     left: 0;
     right: 0;
@@ -266,8 +278,11 @@ body.excalidraw-cursor-resize * {
     // The note is one thin strip at the top edge of the picture, and the
     // player's own controls - the play button in the middle - are untouched.
     padding: calc(2px / var(--panel-scale)) calc(4px / var(--panel-scale));
-    background: var(--color-surface);
-    color: var(--color-text);
+    // A background the theme **defines**: `var(--color-surface)` is not a
+    // variable of this theme, so the whole declaration was invalid and the
+    // note had NO background at all (D-151).
+    background: var(--color-surface-high);
+    color: var(--text-primary-color);
     font-size: calc(12px / var(--panel-scale));
   }
 

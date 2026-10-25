@@ -510,6 +510,14 @@ copyFileSync(
   join(stageDir, "extension", "media", "ocr_sidecar.py"),
 );
 
+// The virtual-display helper SHIPS with the extension as well: the extension
+// resolves it inside its own installed folder, and a helper that is not in the
+// package is a feature that is DEAD in every install (D-151).
+copyFileSync(
+  join(extensionDir, "media", "virtual-display.ps1"),
+  join(stageDir, "extension", "media", "virtual-display.ps1"),
+);
+
 // The OCR engine SHIPS with the extension as FILES: it loads its worker and
 // its core from paths at run time, so bundling the extension's TypeScript is
 // not enough (D-89).
@@ -536,6 +544,12 @@ const entries = [
   {
     name: "extension/media/ocr_sidecar.py",
     data: readFileSync(join(stageDir, "extension", "media", "ocr_sidecar.py")),
+  },
+  {
+    name: "extension/media/virtual-display.ps1",
+    data: readFileSync(
+      join(stageDir, "extension", "media", "virtual-display.ps1"),
+    ),
   },
 ];
 if (existsSync(join(stageDir, "extension", "README.md"))) {

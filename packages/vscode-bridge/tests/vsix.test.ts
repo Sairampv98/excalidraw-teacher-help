@@ -329,6 +329,35 @@ describe("the .vsix", () => {
     BUILD_TIMEOUT_MS,
   );
 
+  it(
+    "AC-184 the .vsix ships the virtual-display helper",
+    () => {
+      const { entries } = buildOnce();
+      const names = entries.map((entry) => entry.name);
+
+      // The virtual-display helper SHIPS with the extension: the extension
+      // resolves it inside its own installed folder, and a helper that is not
+      // in the package is a feature that is DEAD in every install (D-151).
+      expect(names).toContain("extension/media/virtual-display.ps1");
+
+      // The check is the ENTRY LIST, not a byte search: the helper's name
+      // appears inside extension.js too (the extension resolves the helper by
+      // that relative path), so a byte search would give a false positive.
+      const helper = entries.find(
+        (entry) => entry.name === "extension/media/virtual-display.ps1",
+      );
+
+      expect(helper).toBeTruthy();
+
+      // and the entry carries the helper ITSELF, not an empty placeholder
+      expect(helper!.data.length).toBeGreaterThan(0);
+      expect(helper!.data.toString("utf8")).toContain(
+        "The virtual display helper",
+      );
+    },
+    BUILD_TIMEOUT_MS,
+  );
+
   it("AC-121 the build fails loudly when a file the engine needs is missing", () => {
     // the tree is not there at all
     const empty = mkdtempSync(join(tmpdir(), "excalidraw-bridge-empty-"));

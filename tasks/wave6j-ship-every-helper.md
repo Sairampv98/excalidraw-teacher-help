@@ -1,9 +1,8 @@
 ---
 id: wave6j-ship-every-helper
 paths: packages/excalidraw,excalidraw-app,packages/vscode-bridge,SPEC.md
-read: 
 base: main
-status: open
+status: merged
 ---
 
 # Wave 6j — five defects the live clips found
@@ -175,4 +174,3 @@ Revert the fix and the AC-184 and AC-185 tests must FAIL. Restore the fix and
 they must pass again. Report both failures verbatim.
 
 Do NOT close the kit session and do NOT merge - the parent owns both.
-

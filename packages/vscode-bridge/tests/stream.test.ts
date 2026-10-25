@@ -145,31 +145,39 @@ const fetchToEnd = async (
 /**
  * A request for the **snapshot**: one JPEG, with its headers.
  *
- * The body is read as binary, because a JPEG is not text.
+ * The body is read as binary, because a JPEG is not text. The `origin` is the
+ * page's own origin - the app is on `http://localhost:3001` and this server is
+ * on `http://127.0.0.1:47511`, so they are **different** origins and the
+ * browser's cross-origin rules apply (D-151).
  */
 const fetchSnapshot = async (
   url: string,
+  options: { origin?: string } = {},
 ): Promise<{
   status: number;
   headers: Record<string, string | string[] | undefined>;
   body: string;
 }> =>
   new Promise((resolve, reject) => {
-    const request = httpGet(url, (response) => {
-      let body = "";
+    const request = httpGet(
+      url,
+      options.origin ? { headers: { origin: options.origin } } : {},
+      (response) => {
+        let body = "";
 
-      response.setEncoding("binary");
-      response.on("data", (chunk: string) => {
-        body += chunk;
-      });
-      response.on("end", () =>
-        resolve({
-          status: response.statusCode ?? 0,
-          headers: response.headers,
-          body,
-        }),
-      );
-    });
+        response.setEncoding("binary");
+        response.on("data", (chunk: string) => {
+          body += chunk;
+        });
+        response.on("end", () =>
+          resolve({
+            status: response.statusCode ?? 0,
+            headers: response.headers,
+            body,
+          }),
+        );
+      },
+    );
 
     request.on("error", reject);
   });
@@ -355,5 +363,85 @@ describe("the MJPEG stream", () => {
     );
 
     expect(refused.status).toBe(404);
+  });
+
+  it("AC-185 the snapshot answers a loopback origin with its own origin echoed back", async () => {
+    const server = await startServer();
+    const client = await connect(server);
+
+    auth(client);
+
+    const hello = await helloOf(client);
+    const streamUrl = (hello as { streamUrl?: string }).streamUrl!;
+    const snapshotUrl = streamUrl.replace(/\/frame$/, "/snapshot");
+
+    server.publishFrame({ bytes: jpeg(4), seq: 1 });
+
+    // The app is on `http://localhost:3001` and this server is on
+    // `http://127.0.0.1:47511`: they are DIFFERENT origins, and the app
+    // fetches the picture with a plain `fetch()`. Without the answer saying
+    // which origin may read it, a **stock** browser refuses the read and the
+    // screenshot fails with "Failed to fetch" (D-151).
+    const snapshot = await fetchSnapshot(snapshotUrl, {
+      origin: "http://localhost:3001",
+    });
+
+    expect(snapshot.status).toBe(200);
+    expect(snapshot.headers["content-type"]).toBe("image/jpeg");
+
+    // the origin is echoed back - its OWN origin, not a wildcard
+    expect(snapshot.headers["access-control-allow-origin"]).toBe(
+      "http://localhost:3001",
+    );
+
+    // The picture's own size travels in the headers (D-102), and a header that
+    // is not CORS-safelisted is HIDDEN from the page's JavaScript unless the
+    // answer says it may be read - so the answer says it (D-151).
+    expect(snapshot.headers["access-control-expose-headers"]).toBe(
+      "x-frame-width, x-frame-height",
+    );
+
+    // and the loopback address is a loopback origin too
+    const other = await fetchSnapshot(snapshotUrl, {
+      origin: "http://127.0.0.1:3001",
+    });
+
+    expect(other.headers["access-control-allow-origin"]).toBe(
+      "http://127.0.0.1:3001",
+    );
+  });
+
+  it("AC-185 a foreign origin is answered with no Access-Control-Allow-Origin", async () => {
+    const server = await startServer();
+    const client = await connect(server);
+
+    auth(client);
+
+    const hello = await helloOf(client);
+    const streamUrl = (hello as { streamUrl?: string }).streamUrl!;
+    const snapshotUrl = streamUrl.replace(/\/frame$/, "/snapshot");
+
+    server.publishFrame({ bytes: jpeg(5), seq: 1 });
+
+    // A page on another site gets NO header: the browser refuses to hand it
+    // the picture, which is the same rule the websocket's upgrade uses
+    // (D-151).
+    const foreign = await fetchSnapshot(snapshotUrl, {
+      origin: "https://evil.example.com",
+    });
+
+    expect(foreign.status).toBe(200);
+    expect(foreign.headers["access-control-allow-origin"]).toBeUndefined();
+    expect(foreign.headers["access-control-expose-headers"]).toBeUndefined();
+
+    // and the capability is still the authorisation (D-86): a foreign page
+    // with a capability that was never issued gets nothing at all
+    const neverIssued = await fetchSnapshot(
+      `http://127.0.0.1:${server.port}/s/${"0".repeat(32)}/snapshot`,
+      { origin: "https://evil.example.com" },
+    );
+
+    expect(neverIssued.status).toBe(404);
+    expect(neverIssued.headers["access-control-allow-origin"]).toBeUndefined();
   });
 });
