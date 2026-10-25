@@ -11,10 +11,19 @@
 #   3. it installs what it can, from the payload, and says so.
 #
 # And it proves the FIRST thing that has to be true: that the machine really
-# has no internet. The .wsb asks for no networking, but a Sandbox that is
-# still settling can answer a request, so the network is taken down FROM
-# INSIDE as well - and then probed three ways. If any probe answers, the
-# proof says so and the proof is NOT valid.
+# has no internet.
+#
+# The .wsb asks for no networking, and on the machine this was proved on that
+# request was NOT honoured: the Sandbox came up with a "Microsoft Hyper-V
+# Network Adapter", a default route, and a working internet - even on a
+# sandbox that had just been started. So this script does not trust the
+# setting. It RECORDS the network as the Sandbox set it up, says plainly
+# which of the two took the internet away, and takes it down FROM INSIDE when
+# the setting did not - by three separate means, so the proof never rests on
+# one of them. Then it probes the machine three ways. If any probe answers,
+# the proof says so and the proof is NOT valid.
+#
+# Run it with run-offline-proof.ps1, which starts a sandbox that is FRESH.
 #
 # The answers to the setup's questions are read from answers.txt, so the run
 # is the same every time. The default answers install Node.js - the smallest
@@ -55,8 +64,21 @@ try {
     Get-NetAdapter | ForEach-Object { Say ('   adapter: ' + $_.Name + '  ' + $_.InterfaceDescription + '  ' + $_.Status) }
 } catch { Say ('   the adapters could not be listed: ' + $_.Exception.Message) }
 
+# the adapters that carry the default route, BEFORE anything is done to them.
+# This is what decides later whether the .wsb alone took the internet away.
+$routedBefore = @()
+
 try {
-    Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | ForEach-Object { Say ('   default route: ' + $_.InterfaceAlias + ' -> ' + $_.NextHop) }
+    $routedBefore = @(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty InterfaceAlias -Unique)
+
+    if ($routedBefore.Count -eq 0) {
+        Say '   default route: NONE'
+    } else {
+        foreach ($name in $routedBefore) {
+            Say ('   default route: ' + $name)
+        }
+    }
 } catch { Say ('   the routes could not be listed: ' + $_.Exception.Message) }
 
 try {
@@ -65,11 +87,34 @@ try {
 
 # was the internet there BEFORE anything was done to it? The .wsb asks for no
 # networking, and the answer belongs in the record.
+$internetBefore = $false
+
 try {
     $before = Invoke-WebRequest -Uri 'https://www.microsoft.com' -TimeoutSec 12 -UseBasicParsing -ErrorAction Stop
-    Say ('   an HTTP request to the internet ANSWERED (' + $before.StatusCode + ') - the .wsb setting alone did NOT take the internet away')
+    $internetBefore = $true
+    Say ('   an HTTP request to the internet ANSWERED (' + $before.StatusCode + ')')
 } catch {
     Say ('   an HTTP request to the internet failed: ' + $_.Exception.Message)
+}
+
+Say ''
+
+# ---------------------------------------------------------------------------
+# which of the two took the internet away: the .wsb, or this script?
+# ---------------------------------------------------------------------------
+
+Say 'WHICH OF THE TWO TOOK THE INTERNET AWAY'
+
+if ($internetBefore) {
+    Say '   NOT the .wsb. The Sandbox was given a network anyway: it came up with'
+    Say '   a default route and the internet answered. That is what this build of'
+    Say '   Windows Sandbox does on this machine, on a sandbox that was started'
+    Say '   fresh - so the .wsb alone cannot be trusted with it.'
+    Say '   The network is taken down from inside below, and the proof does not'
+    Say '   depend on the .wsb.'
+} else {
+    Say '   The .wsb. It asked for no networking, the Sandbox came up with no'
+    Say '   default route, and the internet did not answer.'
 }
 
 Say ''
@@ -80,11 +125,28 @@ Say ''
 # ---------------------------------------------------------------------------
 Say 'TAKING THE NETWORK DOWN FROM INSIDE'
 
+# Three ways, and the record says which ones worked - so the proof never rests
+# on one mechanism that might fail on one machine.
+$takenDown = 0
+
 try {
     New-NetFirewallRule -DisplayName 'offline-proof-block-all-outbound' -Direction Outbound -Action Block -Profile Any -ErrorAction Stop | Out-Null
     Say '   an outbound firewall rule was added: every outgoing packet is dropped'
+    $takenDown++
 } catch {
     Say ('   the firewall rule could not be added: ' + $_.Exception.Message)
+}
+
+try {
+    $routes = @(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue)
+
+    foreach ($route in $routes) {
+        Remove-NetRoute -DestinationPrefix $route.DestinationPrefix -NextHop $route.NextHop -InterfaceIndex $route.InterfaceIndex -Confirm:$false -ErrorAction Stop
+        Say ('   the default route was removed: ' + $route.InterfaceAlias + ' -> ' + $route.NextHop)
+        $takenDown++
+    }
+} catch {
+    Say ('   the default route could not be removed: ' + $_.Exception.Message)
 }
 
 try {
@@ -93,10 +155,13 @@ try {
     foreach ($name in $routed) {
         Disable-NetAdapter -Name $name -Confirm:$false -ErrorAction Stop
         Say ('   the adapter with the default route was disabled: ' + $name)
+        $takenDown++
     }
 } catch {
     Say ('   the routed adapter could not be disabled: ' + $_.Exception.Message)
 }
+
+Say ('   ' + $takenDown + ' of the three ways worked')
 
 Start-Sleep -Seconds 10
 Say ''

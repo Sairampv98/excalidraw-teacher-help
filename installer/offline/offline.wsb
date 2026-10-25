@@ -1,13 +1,42 @@
 <Configuration>
+  <!-- The GPU is not needed: the proof is a terminal one. -->
   <VGpu>Disable</VGpu>
+
+  <!--
+    Ask for no networking.
+
+    This is the RIGHT setting, and it is kept - but it is not the whole story,
+    and the proof does not trust it. On the machine this was proved on, Windows
+    Sandbox came up with a "Microsoft Hyper-V Network Adapter", a default route
+    and a working internet EVEN WITH THIS SETTING, and even on a sandbox that
+    had just been started. So run.ps1 records the network as the Sandbox set it
+    up, says plainly which of the two took the internet away, and takes it down
+    from inside when the setting did not.
+
+    Use run-offline-proof.ps1 to run the proof: it stops a sandbox that is
+    already running, writes this file for the folder the payload is in, and
+    prints the result.
+  -->
   <Networking>None</Networking>
+
   <MappedFolders>
+    <!--
+      The folder that holds the payload, the answers file and run.ps1.
+      It is mapped in so the sandbox can read the payload, and so the result
+      lands on the host's disk where it can be read afterwards.
+
+      This path is the DEFAULT - a folder the teacher can make. The launcher
+      (run-offline-proof.ps1) writes its own file for wherever the payload
+      actually is, so the proof is not tied to this path.
+    -->
     <MappedFolder>
-      <HostFolder>C:\Users\user\projects\offline-test</HostFolder>
+      <HostFolder>C:\excalidraw-offline</HostFolder>
       <SandboxFolder>C:\Sandbox</SandboxFolder>
       <ReadOnly>false</ReadOnly>
     </MappedFolder>
   </MappedFolders>
+
+  <!-- the proof runs itself as soon as the sandbox is ready -->
   <LogonCommand>
     <Command>powershell.exe -ExecutionPolicy Bypass -File C:\Sandbox\run.ps1</Command>
   </LogonCommand>
