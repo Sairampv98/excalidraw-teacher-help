@@ -61,6 +61,17 @@ export const STREAM_KEEPALIVE_MS = 5000;
 /** How many bytes of randomness the capability has. */
 export const STREAM_CAPABILITY_BYTES = 16;
 
+/**
+ * The headers that carry the picture's own size (D-102).
+ *
+ * They are named here because the browser HIDES a header that is not
+ * CORS-safelisted from the page's JavaScript - so the answer has to say that
+ * these two may be read (D-151).
+ */
+export const FRAME_WIDTH_HEADER = "x-frame-width";
+export const FRAME_HEIGHT_HEADER = "x-frame-height";
+export const FRAME_SIZE_HEADERS = [FRAME_WIDTH_HEADER, FRAME_HEIGHT_HEADER];
+
 /** One frame of the editor's window, ready to be written to the stream. */
 export interface MjpegFrame {
   /** the JPEG bytes, exactly as the helper wrote them */
@@ -91,6 +102,17 @@ export interface MjpegStreamOptions {
   host?: string;
   /** how long an unchanged picture waits before the last frame is re-sent */
   keepAliveMs?: number;
+  /**
+   * The rule that decides whether an origin may read the picture.
+   *
+   * It is the **same** rule the websocket's upgrade uses - `isAllowedOrigin` -
+   * and it is passed in rather than written here twice: the extension's HTTP
+   * server answers the **same loopback origins** its websocket answers
+   * (D-151). Without it the snapshot is refused by the browser as a
+   * cross-origin read, and "take a screenshot of the editor's window" fails
+   * with "Failed to fetch" in a **stock** browser.
+   */
+  isAllowedOrigin?: (origin: string | undefined) => boolean;
 }
 
 export interface MjpegStream {
@@ -144,6 +166,7 @@ const SNAPSHOT_ROUTE = new RegExp(
 export const createMjpegStream = (options: MjpegStreamOptions): MjpegStream => {
   const host = options.host ?? "127.0.0.1";
   const keepAliveMs = options.keepAliveMs ?? STREAM_KEEPALIVE_MS;
+  const originIsAllowed = options.isAllowedOrigin ?? (() => false);
 
   /** the capability -> the streams it has opened */
   const capabilities = new Map<string, Set<ServerResponse>>();
@@ -232,6 +255,38 @@ export const createMjpegStream = (options: MjpegStreamOptions): MjpegStream => {
     responses.clear();
   };
 
+  /**
+   * The CORS headers of a request.
+   *
+   * The app is on `http://localhost:3001` and this server is on
+   * `http://127.0.0.1:47511`, so the picture the app fetches with a plain
+   * `fetch()` is a **cross-origin** read - and a stock browser refuses it
+   * unless the answer says which origin may read it (D-151).
+   *
+   * The rule is the **same** rule the websocket's upgrade uses: a loopback
+   * origin gets **its own origin echoed back**, and a foreign origin gets no
+   * header at all, so the browser refuses to hand it the picture. The
+   * capability is still the authorisation (D-86) - this only decides who may
+   * READ a picture they are already entitled to.
+   */
+  const corsHeaders = (req: IncomingMessage): Record<string, string> => {
+    const origin = req.headers.origin;
+
+    // the answer depends on the origin, so a cache must not reuse it
+    const headers: Record<string, string> = { vary: "Origin" };
+
+    if (origin && originIsAllowed(origin)) {
+      headers["access-control-allow-origin"] = origin;
+      // The picture's own size travels in the headers (D-102), and a header
+      // that is not CORS-safelisted is HIDDEN from the page's JavaScript
+      // unless the answer says it may be read - so without this the app would
+      // read a size of zero for a picture it can see.
+      headers["access-control-expose-headers"] = FRAME_SIZE_HEADERS.join(", ");
+    }
+
+    return headers;
+  };
+
   const handle = (req: IncomingMessage, res: ServerResponse): boolean => {
     const path = (req.url ?? "").split("?")[0] ?? "";
     const snapshotMatch = SNAPSHOT_ROUTE.exec(path);
@@ -264,14 +319,18 @@ export const createMjpegStream = (options: MjpegStreamOptions): MjpegStream => {
         "content-type": "image/jpeg",
         "content-length": String(lastFrame.bytes.length),
         "cache-control": "no-store, no-cache, must-revalidate",
+        // The app fetches this picture with a plain `fetch()`, and the app and
+        // this server are on **different origins** - so the browser needs to be
+        // told that this origin may read it (D-151).
+        ...corsHeaders(req),
       };
 
       // The picture's own size travels in the headers: the app has to know how
       // big it is before it draws it, and it must not decode an image to learn
       // its size (D-102).
       if (lastFrame.width && lastFrame.height) {
-        headers["x-frame-width"] = String(lastFrame.width);
-        headers["x-frame-height"] = String(lastFrame.height);
+        headers[FRAME_WIDTH_HEADER] = String(lastFrame.width);
+        headers[FRAME_HEIGHT_HEADER] = String(lastFrame.height);
       }
 
       res.writeHead(200, headers);
@@ -303,6 +362,9 @@ export const createMjpegStream = (options: MjpegStreamOptions): MjpegStream => {
       connection: "close",
       // a proxy must not buffer the stream
       "x-accel-buffering": "no",
+      // the live view is an <img>, so it is fetched in "no-cors" mode and does
+      // not need this - but the same rule answers it all the same (D-151)
+      ...corsHeaders(req),
     });
 
     // The headers go out NOW, before there is a frame: the browser has to

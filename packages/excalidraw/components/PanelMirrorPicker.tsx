@@ -239,7 +239,11 @@ export const PanelMirrorPicker = ({
         left: 0,
         width: "100%",
         height: "100%",
-        zIndex: "var(--zIndex-panelFocus)",
+        // The picker's choices are drawn at the foot of the picture, and the
+        // app's bottom page bar is drawn over the editor - so a picker in the
+        // library's own plane was covered by it, and the three buttons could
+        // not be worked with the MOUSE (D-151).
+        zIndex: "var(--zIndex-panelPicker)",
       }}
     >
       {/* the dimming: the canvas behind steps back, so the choice is in front */}

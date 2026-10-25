@@ -214,8 +214,16 @@ export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
    *
    * It is served by the very same HTTP server that carries the websocket
    * upgrade: the same fixed loopback port, a different path.
+   *
+   * It answers the **same** origins the websocket answers - the very same rule
+   * decides both - so the picture the app is entitled to fetch is not refused
+   * by the browser as a cross-origin read (D-151).
    */
-  const stream = createMjpegStream({ port: () => boundPort, host });
+  const stream = createMjpegStream({
+    port: () => boundPort,
+    host,
+    isAllowedOrigin: (origin) => isAllowedOrigin(origin, allowedOrigins),
+  });
 
   const httpServer = createServer((req, res) => {
     if (req.url === "/bridge/health") {
