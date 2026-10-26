@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 100 100" role="img" aria-label="Coffee">
+  <polyline points="74,42 78.33,42.69 82.23,44.67 85.33,47.77 87.31,51.67 88,56 87.31,60.33 85.33,64.23 82.23,67.33 78.33,69.31 74,70" fill="none" stroke="#3B8CF0" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="16" y="36" width="60" height="52" rx="10" fill="#3B8CF0"/>
+  <rect x="16" y="36" width="60" height="12" rx="5" fill="#8A5A2B"/>
+  <polyline points="32,28 28,18 34,8" fill="none" stroke="#8A8F98" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="50,28 46,18 52,8" fill="none" stroke="#8A8F98" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

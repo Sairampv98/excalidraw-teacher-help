@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 100 100" role="img" aria-label="Alien">
+  <ellipse cx="50" cy="50" rx="38" ry="44" fill="#2FB563"/>
+  <ellipse cx="34" cy="46" rx="11" ry="7" fill="#1A1A1A"/>
+  <ellipse cx="66" cy="46" rx="11" ry="7" fill="#1A1A1A"/>
+  <polyline points="40,74 60,74" fill="none" stroke="#1F8A48" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

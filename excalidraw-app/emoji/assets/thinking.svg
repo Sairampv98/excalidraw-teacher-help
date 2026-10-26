@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 100 100" role="img" aria-label="Thinking">
+  <circle cx="86" cy="14" r="4" fill="#5C626B"/>
+  <circle cx="78" cy="26" r="6" fill="#5C626B"/>
+  <circle cx="50" cy="50" r="44" fill="#E0A21B"/>
+  <circle cx="50" cy="50" r="40" fill="#FFCB3D"/>
+  <circle cx="35" cy="46" r="5" fill="#1A1A1A"/>
+  <circle cx="65" cy="46" r="5" fill="#1A1A1A"/>
+  <polyline points="22,30 40,34" fill="none" stroke="#E0A21B" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="60,32 78,28" fill="none" stroke="#E0A21B" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="38,72 64,70" fill="none" stroke="#1A1A1A" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

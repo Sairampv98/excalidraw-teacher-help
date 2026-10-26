@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 100 100" role="img" aria-label="Party popper">
+  <polygon points="10,92 24,44 58,78" fill="#FFD84D"/>
+  <polyline points="17,70 36,80" fill="none" stroke="#FF8A1F" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="21,56 46,70" fill="none" stroke="#FF8A1F" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="60" cy="30" r="4" fill="#E8363D"/>
+  <rect x="76" y="26" width="8" height="8" rx="2" fill="#3B8CF0"/>
+  <circle cx="74" cy="52" r="4" fill="#2FB563"/>
+  <rect x="46" y="14" width="8" height="8" rx="2" fill="#FF7AA8"/>
+  <circle cx="88" cy="40" r="3.5" fill="#8B5CF6"/>
+  <rect x="84" y="60" width="7" height="7" rx="2" fill="#E8363D"/>
+  <polyline points="38,42 48,30" fill="none" stroke="#19B8B8" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

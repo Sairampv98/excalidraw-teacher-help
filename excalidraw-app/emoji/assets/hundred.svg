@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 100 100" role="img" aria-label="One hundred">
+  <polyline points="18,38 27,29 27,71" fill="none" stroke="#E8363D" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="61,50 60.63,55.44 59.53,60.5 57.78,64.85 55.5,68.19 52.85,70.28 50,71 47.15,70.28 44.5,68.19 42.22,64.85 40.47,60.5 39.37,55.44 39,50 39.37,44.56 40.47,39.5 42.22,35.15 44.5,31.81 47.15,29.72 50,29 52.85,29.72 55.5,31.81 57.78,35.15 59.53,39.5 60.63,44.56 61,50" fill="none" stroke="#E8363D" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="88,50 87.63,55.44 86.53,60.5 84.78,64.85 82.5,68.19 79.85,70.28 77,71 74.15,70.28 71.5,68.19 69.22,64.85 67.47,60.5 66.37,55.44 66,50 66.37,44.56 67.47,39.5 69.22,35.15 71.5,31.81 74.15,29.72 77,29 79.85,29.72 82.5,31.81 84.78,35.15 86.53,39.5 87.63,44.56 88,50" fill="none" stroke="#E8363D" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="16,84 84,84" fill="none" stroke="#E8363D" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="24,93 76,93" fill="none" stroke="#E8363D" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 100 100" role="img" aria-label="Loudly crying">
+  <circle cx="50" cy="50" r="44" fill="#E0A21B"/>
+  <circle cx="50" cy="50" r="40" fill="#FFCB3D"/>
+  <rect x="26" y="52" width="8" height="34" rx="4" fill="#9ACFFF"/>
+  <rect x="66" y="52" width="8" height="34" rx="4" fill="#9ACFFF"/>
+  <polyline points="24,33 38,42 24,51" fill="none" stroke="#1A1A1A" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="76,33 62,42 76,51" fill="none" stroke="#1A1A1A" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <ellipse cx="50" cy="70" rx="14" ry="12" fill="#1A1A1A"/>
+  <ellipse cx="50" cy="76" rx="8" ry="5" fill="#E8363D"/>
+</svg>
