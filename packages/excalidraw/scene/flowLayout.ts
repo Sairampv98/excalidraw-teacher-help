@@ -22,6 +22,20 @@ export type FlowLayoutNode = {
   box: FlowBox;
 };
 
+/**
+ * How the layers run and how far apart things are. All optional: the flow
+ * animation's auto-layout passes none of them and gets the defaults, and the
+ * flow studio (D-165) passes a direction and spacing that scale with the text.
+ */
+export type FlowLayoutOptions = {
+  /** top-to-bottom (the default) or left-to-right */
+  rankdir?: "TB" | "LR";
+  /** the gap between two shapes in the same layer */
+  nodeSeparation?: number;
+  /** the gap between two layers */
+  rankSeparation?: number;
+};
+
 export type FlowLayoutResult = {
   /** the new scene-space top-left of every node */
   positions: Map<string, { x: number; y: number }>;
@@ -114,13 +128,14 @@ export const layoutFlow = (
   nodes: readonly FlowLayoutNode[],
   edges: readonly FlowEdge[],
   origin: { x: number; y: number } = { x: 0, y: 0 },
+  options: FlowLayoutOptions = {},
 ): FlowLayoutResult => {
   const graph = new dagre.graphlib.Graph();
 
   graph.setGraph({
-    rankdir: "TB",
-    nodesep: NODE_SEPARATION,
-    ranksep: RANK_SEPARATION,
+    rankdir: options.rankdir ?? "TB",
+    nodesep: options.nodeSeparation ?? NODE_SEPARATION,
+    ranksep: options.rankSeparation ?? RANK_SEPARATION,
     marginx: MARGIN,
     marginy: MARGIN,
   });
