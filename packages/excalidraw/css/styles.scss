@@ -13,6 +13,13 @@
   --zIndex-svgLayer: 3;
   --zIndex-wysiwyg: 3;
   --zIndex-canvasButtons: 3;
+  // the **flow animation** (D-44, D-166): drawn over the canvases it points at -
+  // above the static canvas that paints the chart and the interactive canvas
+  // that paints the selection. Without a layer of its own it was in the page's
+  // base plane, UNDER the canvas, and everything it drew was in the DOM and
+  // invisible - the same "visible and dead" mistake as the crop handles (D-139).
+  // The editor's own chrome (`layerUI`) is above it, so Stop stays reachable.
+  --zIndex-flowAnimation: 3;
   // the **dimming** of the canvas behind a screenshot in focus (D-116): it is
   // BELOW the panels on purpose - a panel dims its own content (see
   // `__panel-focus-scrim`) and its own chrome - the three choices - stays

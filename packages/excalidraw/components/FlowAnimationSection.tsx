@@ -5,6 +5,8 @@ import type { ElementsMap, ExcalidrawElement } from "@excalidraw/element/types";
 import { actionFlowLayout } from "../actions/actionFlowLayout";
 import { buildFlowGraph } from "../scene/flowOrder";
 
+import { FLOW_STYLES } from "../scene/flowStyles";
+
 import { useAtomValue } from "../editor-jotai";
 import { t } from "../i18n";
 
@@ -40,10 +42,11 @@ export const FlowAnimationSection = ({
 }: FlowAnimationSectionProps) => {
   const state = useAtomValue(flowAnimationStateAtom);
 
-  const steps = useMemo(
-    () => buildFlowGraph(targetElements, elementsMap).steps,
+  const graph = useMemo(
+    () => buildFlowGraph(targetElements, elementsMap),
     [targetElements, elementsMap],
   );
+  const steps = graph.steps;
 
   // a one-element selection has no flow
   if (steps.length < 2) {
@@ -70,6 +73,34 @@ export const FlowAnimationSection = ({
           />
         </label>
         <label className="excalidraw__flow-animation-setting">
+          <span>Style</span>
+          <select
+            aria-label="Animation style"
+            value={state.style}
+            onChange={(event) =>
+              updateFlowAnimationSettings({
+                style: event.target.value as typeof state.style,
+              })
+            }
+          >
+            {FLOW_STYLES.map((style) => (
+              <option key={style.id} value={style.id}>
+                {style.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="excalidraw__flow-animation-setting">
+          <input
+            type="checkbox"
+            checked={state.camera}
+            onChange={(event) =>
+              updateFlowAnimationSettings({ camera: event.target.checked })
+            }
+          />
+          <span>Fly the view to each step</span>
+        </label>
+        <label className="excalidraw__flow-animation-setting">
           <input
             type="checkbox"
             checked={state.loop}
@@ -90,12 +121,29 @@ export const FlowAnimationSection = ({
             startFlowAnimation(steps, {
               durationMs: state.durationMs,
               loop: state.loop,
+              mode: "play",
+              graph,
             });
           }}
         >
-          {state.active
+          {state.active && state.mode === "play"
             ? t("labels.flowAnimationStop")
             : t("labels.flowAnimationPlay")}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (state.active) {
+              stopFlowAnimation();
+              return;
+            }
+
+            startFlowAnimation(steps, { mode: "present", graph });
+          }}
+        >
+          {state.active && state.mode === "present"
+            ? "Stop presenting"
+            : "Present steps"}
         </button>
         <button
           type="button"

@@ -2659,6 +2659,24 @@ class App extends React.Component<AppProps, AppState> {
                           />
                           <FlowAnimationOverlay
                             elementsMap={allElementsMap}
+                            viewport={{
+                              width: this.state.width,
+                              height: this.state.height,
+                            }}
+                            pageRect={getPageRect(
+                              this.state.pages,
+                              this.state.currentPageId,
+                            )}
+                            // the camera flight (D-170) moves only the view
+                            onCamera={(view) =>
+                              this.setState({
+                                scrollX: view.scrollX,
+                                scrollY: view.scrollY,
+                                zoom: {
+                                  value: view.zoom as NormalizedZoomValue,
+                                },
+                              })
+                            }
                             camera={{
                               zoom: this.state.zoom,
                               scrollX: this.state.scrollX,
