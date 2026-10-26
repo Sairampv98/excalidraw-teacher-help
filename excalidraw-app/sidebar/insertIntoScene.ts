@@ -596,6 +596,21 @@ const clientPointToScene = (
 ): ScenePoint => viewportToScene({ clientX, clientY }, readFrame(api, canvas));
 
 /**
+ * The scene point under a pointer, measured against the live canvas - or
+ * `undefined` when there is no canvas to measure against. A drop onto the
+ * canvas from outside the sidebar (the sticker bar) uses this.
+ */
+export const sceneAtClientPoint = (
+  api: ExcalidrawImperativeAPI,
+  clientX: number,
+  clientY: number,
+): ScenePoint | undefined => {
+  const canvas = findCanvas();
+
+  return canvas ? clientPointToScene(api, canvas, clientX, clientY) : undefined;
+};
+
+/**
  * Stashes `file` and arms a single canvas click to paste it where it was
  * clicked. The listener sits in the capture phase so it wins over the pointer
  * handlers Excalidraw installs itself, and it detaches itself before doing any

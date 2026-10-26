@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 100 100" role="img" aria-label="Angry">
+  <circle cx="50" cy="50" r="44" fill="#B3202A"/>
+  <circle cx="50" cy="50" r="40" fill="#E8363D"/>
+  <polyline points="22,28 42,40" fill="none" stroke="#1A1A1A" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="78,28 58,40" fill="none" stroke="#1A1A1A" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="35" cy="48" r="5" fill="#1A1A1A"/>
+  <circle cx="65" cy="48" r="5" fill="#1A1A1A"/>
+  <polyline points="34.96,74.53 36.74,71.05 39.29,68.11 42.49,65.87 46.13,64.48 50,64 53.87,64.48 57.51,65.87 60.71,68.11 63.26,71.05 65.04,74.53" fill="none" stroke="#1A1A1A" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 100 100" role="img" aria-label="Pumpkin">
+  <ellipse cx="50" cy="58" rx="42" ry="34" fill="#FF8A1F"/>
+  <ellipse cx="30" cy="58" rx="20" ry="32" fill="#FF8A1F"/>
+  <ellipse cx="70" cy="58" rx="20" ry="32" fill="#FF8A1F"/>
+  <rect x="46" y="14" width="8" height="14" rx="3" fill="#1F8A48"/>
+  <polygon points="28,48 42,48 35,36" fill="#1A1A1A"/>
+  <polygon points="58,48 72,48 65,36" fill="#1A1A1A"/>
+  <polygon points="28,68 40,74 50,68 60,74 72,68 66,82 50,78 34,82" fill="#1A1A1A"/>
+</svg>
