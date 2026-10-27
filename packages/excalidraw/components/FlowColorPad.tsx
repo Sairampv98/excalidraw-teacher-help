@@ -22,7 +22,7 @@ type FlowColorPadProps = {
 };
 
 /**
- * A pad of swatches to choose a colour from (D-200): the default, the
+ * A pad of swatches to choose a colour from (D-207): the default, the
  * colours, black, white and grey, and a last swatch that opens the browser's own
  * picker for anything else. The current choice is ringed, and it is one radio
  * group: the arrow keys move from swatch to swatch and choose as they go.

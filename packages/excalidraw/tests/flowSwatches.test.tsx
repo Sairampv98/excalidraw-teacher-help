@@ -1,5 +1,5 @@
 /**
- * AC-229 - the colours are chosen from a swatch pad (D-200).
+ * AC-229 - the colours are chosen from a swatch pad (D-207).
  *
  * The pad is used the way a person uses it: swatches pressed, the keyboard
  * moved along, and the setting read back from the animation's own state.

@@ -1,5 +1,5 @@
 /**
- * The colours the animation's look is chosen from (D-200, D-206).
+ * The colours the animation's look is chosen from (D-207, D-206).
  *
  * The **swatches** are the pad each colour is picked from. The **presets** set
  * the highlight and what travels together, and they are chosen by what is known
