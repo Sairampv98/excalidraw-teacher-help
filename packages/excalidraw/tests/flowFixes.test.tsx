@@ -513,10 +513,10 @@ describe("AC-210 the speed is tunable, and time-based", () => {
     flowMarksFor("token", LONG_PATH, elapsed, { speed }).dots[0].x;
 
   it("AC-210 the speed has a range and a default", () => {
-    expect(FLOW_SPEED_MIN).toBe(40);
+    expect(FLOW_SPEED_MIN).toBe(10);
     expect(FLOW_SPEED_MAX).toBe(600);
     expect(FLOW_SPEED).toBe(240);
-    expect(clampFlowSpeed(5)).toBe(40);
+    expect(clampFlowSpeed(5)).toBe(10);
     expect(clampFlowSpeed(99999)).toBe(600);
     expect(clampFlowSpeed(NaN)).toBe(240);
     // nothing said is the default
@@ -574,7 +574,7 @@ describe("AC-210 the speed is tunable, and time-based", () => {
     const slider = screen.getByLabelText("Animation speed") as HTMLInputElement;
     const shown = () => screen.getByLabelText("Animation speed value");
 
-    expect(slider.min).toBe("40");
+    expect(slider.min).toBe("10");
     expect(slider.max).toBe("600");
     expect(slider.value).toBe("240");
     expect(shown().textContent).toBe("240");

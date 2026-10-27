@@ -337,7 +337,14 @@ describe("AC-219 the highlight colour", () => {
     }
 
     expect(screen.getByLabelText("Hide arrow")).not.toBeNull();
-    expect(screen.getByLabelText("Neon glow")).not.toBeNull();
+    for (const label of [
+      "Neon shape",
+      "Neon text",
+      "Neon animation",
+      "Neon arrows",
+    ]) {
+      expect(screen.getByLabelText(label)).not.toBeNull();
+    }
     expect(screen.getByLabelText("Preview class loop")).not.toBeNull();
 
     // and a control there changes the setting

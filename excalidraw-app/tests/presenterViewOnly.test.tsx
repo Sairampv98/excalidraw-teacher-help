@@ -268,7 +268,7 @@ describe("AC-245 the view goes at the screen's rate", () => {
 
     // a flight: a new view every 10 ms for 300 ms
     for (let i = 1; i <= 30; i++) {
-      // eslint-disable-next-line no-await-in-loop
+      // eslint-disable-next-line no-await-in-loop, no-loop-func
       await act(async () => {
         publishScene!(latest.elements, {
           ...latest.appState,
