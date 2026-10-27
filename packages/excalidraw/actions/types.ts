@@ -118,6 +118,7 @@ export type ActionName =
   | "distributeVertically"
   | "flowLayout"
   | "flowResetLayout"
+  | "flowClass"
   | "flipHorizontal"
   | "flipVertical"
   | "deselect"

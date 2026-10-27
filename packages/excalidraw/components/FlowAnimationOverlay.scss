@@ -3,7 +3,8 @@
 // The keyframes live here because the library has no shared keyframes: every
 // animation carries its own, next to the component that uses it.
 
-.excalidraw__flow-animation {
+.excalidraw__flow-animation,
+.excalidraw__flow-class {
   .excalidraw__flow-animation-shape {
     position: absolute;
     top: 0;
@@ -51,7 +52,8 @@
   }
 }
 
-.excalidraw__flow-animation {
+.excalidraw__flow-animation,
+.excalidraw__flow-class {
   // what travels along the arrows (D-166, D-171): drawn in scene units, under
   // one transform, so it scales with the canvas and lands where the arrows are
   .excalidraw__flow-marks {
@@ -206,5 +208,24 @@
 
   input[type="number"] {
     width: 4.5rem;
+  }
+}
+
+// The Steps button on a chart marked for class (D-185): small, on the chart's
+// top-right corner, and the only part of the class loop that takes the pointer.
+.excalidraw__flow-class {
+  .excalidraw__flow-class-steps {
+    position: absolute;
+    padding: 0.125rem 0.5rem;
+    transform: translate(-100%, -100%);
+    border: 1px solid var(--color-border, #ccc);
+    border-radius: 0.5rem;
+    background-color: var(--island-bg-color, #fff);
+    color: var(--text-primary-color);
+    box-shadow: var(--shadow-island);
+    font: inherit;
+    font-size: 0.75rem;
+    cursor: pointer;
+    pointer-events: auto;
   }
 }

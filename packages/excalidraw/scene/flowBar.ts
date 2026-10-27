@@ -11,10 +11,13 @@
  */
 
 import { sceneCoordsToViewportCoords } from "@excalidraw/common";
+import { getCommonBounds } from "@excalidraw/element";
+
+import type { ElementsMap, ExcalidrawElement } from "@excalidraw/element/types";
 
 import type { FlowAnimationCamera } from "./flowAnimation";
 import type { FlowViewport } from "./flowCamera";
-import type { FlowBox } from "./flowOrder";
+import type { FlowBox, FlowGraph } from "./flowOrder";
 
 /** the space kept between the bar and the edge of the viewport, in pixels */
 export const FLOW_BAR_MARGIN = 8;
@@ -44,6 +47,24 @@ export const unionOfBoxes = (boxes: readonly FlowBox[]): FlowBox | null => {
 
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 };
+
+/** the box a flow fills now, read from its elements and not from the graph */
+export const flowBoxOf = (graph: FlowGraph, elementsMap: ElementsMap) =>
+  unionOfBoxes(
+    graph.steps.flatMap((step) => {
+      const elements = step.elementIds
+        .map((id) => elementsMap.get(id))
+        .filter((element): element is ExcalidrawElement => Boolean(element));
+
+      if (!elements.length) {
+        return [];
+      }
+
+      const [minX, minY, maxX, maxY] = getCommonBounds(elements, elementsMap);
+
+      return [{ x: minX, y: minY, width: maxX - minX, height: maxY - minY }];
+    }),
+  );
 
 /**
  * The bar's position in the overlay's own pixels: `left` is the **centre** of
