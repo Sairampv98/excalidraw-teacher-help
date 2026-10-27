@@ -2663,10 +2663,14 @@ class App extends React.Component<AppProps, AppState> {
                               width: this.state.width,
                               height: this.state.height,
                             }}
-                            pageRect={getPageRect(
-                              this.state.pages,
-                              this.state.currentPageId,
-                            )}
+                            pageRect={
+                              this.state.pages
+                                ? getPageRect(
+                                    this.state.pages,
+                                    this.state.currentPageId,
+                                  )
+                                : undefined
+                            }
                             // the camera flight (D-170) moves only the view
                             onCamera={(view) =>
                               this.setState({
