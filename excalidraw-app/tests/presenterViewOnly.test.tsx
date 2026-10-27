@@ -26,7 +26,10 @@ import type { OrderedExcalidrawElement } from "@excalidraw/element/types";
 
 import { PresenterView } from "../presenter/PresenterView";
 import { isViewOnlyChange } from "../presenter/presenterChannel";
+
 import { usePresenterBroadcaster } from "../presenter/usePresenterBroadcaster";
+
+import type { PresenterCamera } from "../presenter/presenterChannel";
 
 const VIEWPORT = {
   width: 1920,
@@ -305,7 +308,7 @@ describe("AC-238 pages rebuilt with the same content", () => {
       pageOffsetY: 0,
       editorWidth: 1000,
       editorHeight: 700,
-    } as const;
+    } as never as PresenterCamera;
     const elements = [] as readonly OrderedExcalidrawElement[];
 
     // the same pages, built again: only the view moved
