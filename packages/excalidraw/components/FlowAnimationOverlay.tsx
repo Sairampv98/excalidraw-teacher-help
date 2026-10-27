@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useRef } from "react";
 
-import { getCommonBounds, isTextElement } from "@excalidraw/element";
+import { isTextElement } from "@excalidraw/element";
 
 import type {
   ElementsMap,
-  ExcalidrawElement,
   ExcalidrawLinearElement,
 } from "@excalidraw/element/types";
 
@@ -22,11 +21,17 @@ import {
   reachedIndices,
 } from "../scene/flowPresent";
 import { chartScaleOf } from "../scene/flowScale";
+import {
+  highlightBoxOf,
+  highlightShapeOf,
+  nodeHighlightElements,
+} from "../scene/flowHighlight";
 import { flowMarksFor, getArrowPath } from "../scene/flowStyles";
 
 import { editorJotaiStore, useAtomValue } from "../editor-jotai";
 import { t } from "../i18n";
 
+import { ArrowCovers, NodeOutline, lookVars } from "./FlowLookParts";
 import { CloseIcon } from "./icons";
 import {
   flowAnimationStateAtom,
@@ -39,6 +44,7 @@ import {
 
 import "./FlowAnimationOverlay.scss";
 
+import type { CoverArrow } from "./FlowLookParts";
 import type { FlowAnimationCamera } from "../scene/flowAnimation";
 import type { FlowCameraState, FlowViewport } from "../scene/flowCamera";
 import type { FlowGraph, FlowStep } from "../scene/flowOrder";
@@ -78,6 +84,8 @@ type FlowAnimationOverlayProps = {
   pageRect?: PageRect;
   /** moves the view; only the camera flight calls it, and only when it is on */
   onCamera?: (camera: FlowCameraState) => void;
+  /** the page's background, for an arrow that is hidden (D-190) */
+  backgroundColor?: string;
 };
 
 /* --------------------------------------------------------------------- marks */
@@ -116,6 +124,28 @@ export const arrowsFor = (
       arrows.push({
         id: edge.arrowId,
         path: getArrowPath(element as ExcalidrawLinearElement),
+      });
+    }
+  }
+
+  return arrows;
+};
+
+/** every arrow of a flow, with the width it is drawn at (D-190) */
+export const coverArrowsFor = (
+  graph: FlowGraph | null,
+  elementsMap: ElementsMap,
+): CoverArrow[] => {
+  const arrows: CoverArrow[] = [];
+
+  for (const edge of graph?.edgeArrows ?? []) {
+    const element = elementsMap.get(edge.arrowId);
+
+    if (element && !element.isDeleted) {
+      arrows.push({
+        id: edge.arrowId,
+        path: getArrowPath(element as ExcalidrawLinearElement),
+        width: element.strokeWidth,
       });
     }
   }
@@ -203,6 +233,7 @@ export const FlowAnimationOverlay = ({
   viewport,
   pageRect,
   onCamera,
+  backgroundColor,
 }: FlowAnimationOverlayProps) => {
   const state = useAtomValue(flowAnimationStateAtom);
   const marksRef = useRef<SVGSVGElement>(null);
@@ -516,9 +547,25 @@ export const FlowAnimationOverlay = ({
     return null;
   }
 
-  const stepElements = step.elementIds
-    .map((id) => elementsMap.get(id))
-    .filter((element): element is ExcalidrawElement => Boolean(element));
+  // what is highlighted: the node, or only its label (D-191)
+  const highlighted = nodeHighlightElements(
+    step,
+    elementsMap,
+    state.nodeTarget,
+  );
+
+  // the box and the outline of a step's container, for what is drawn on a whole
+  // step - the dimming and the choices (D-192)
+  const containerShape = (step: FlowStep) => {
+    const container = elementsMap.get(step.containerId);
+
+    return container
+      ? { box: highlightBoxOf(container), shape: highlightShapeOf(container) }
+      : {
+          box: step.box,
+          shape: { kind: "rect" as const, radius: 0, angle: 0 },
+        };
+  };
 
   const reached = presenting ? reachedIndices(state.path) : null;
   const choices =
@@ -540,9 +587,12 @@ export const FlowAnimationOverlay = ({
       data-flow-arrow-style={state.arrowStyle}
       data-flow-mode={state.mode}
       data-flow-mirror={state.mirror ? "" : undefined}
-      style={
-        interactive ? HOST_STYLE : { ...HOST_STYLE, pointerEvents: "none" }
-      }
+      style={{
+        ...(interactive
+          ? HOST_STYLE
+          : { ...HOST_STYLE, pointerEvents: "none" }),
+        ...lookVars(state),
+      }}
     >
       {/* steps not reached yet are dimmed while presenting (D-167) */}
       {reached &&
@@ -554,12 +604,21 @@ export const FlowAnimationOverlay = ({
                 className="excalidraw__flow-animation-dim"
                 data-flow-dim={other.containerId}
                 style={{
-                  width: other.box.width,
-                  height: other.box.height,
-                  transform: flowBoundsTransform(other.box, camera),
+                  width: containerShape(other).box.width,
+                  height: containerShape(other).box.height,
+                  transform: flowBoundsTransform(
+                    containerShape(other).box,
+                    camera,
+                  ),
                   transformOrigin: "0 0",
                 }}
-              />
+              >
+                <NodeOutline
+                  shape={containerShape(other).shape}
+                  width={containerShape(other).box.width}
+                  height={containerShape(other).box.height}
+                />
+              </div>
             ),
         )}
 
@@ -571,6 +630,13 @@ export const FlowAnimationOverlay = ({
         height="100%"
       >
         <g style={{ transform: sceneTransform }} data-flow-scene="">
+          {/* the arrows, in their own colour or hidden (D-190) */}
+          <ArrowCovers
+            arrows={coverArrowsFor(state.graph, elementsMap)}
+            arrowColor={state.arrowColor}
+            hideArrow={state.hideArrow}
+            background={backgroundColor}
+          />
           {arrows.map((arrow) => {
             const marks = flowMarksFor(
               state.arrowStyle,
@@ -630,18 +696,10 @@ export const FlowAnimationOverlay = ({
       </svg>
 
       {state.nodeStyle !== "none" &&
-        stepElements.map((element) => {
-          const [minX, minY, maxX, maxY] = getCommonBounds(
-            [element],
-            elementsMap,
-          );
-
-          const elementBox = {
-            x: minX,
-            y: minY,
-            width: maxX - minX,
-            height: maxY - minY,
-          };
+        highlighted.map((element) => {
+          // the node's own box and outline, rotated about its centre (D-192)
+          const elementBox = highlightBoxOf(element);
+          const shape = highlightShapeOf(element);
 
           return (
             <div
@@ -669,7 +727,12 @@ export const FlowAnimationOverlay = ({
                   transformOrigin: "0 0",
                 }}
               >
-                <div className="excalidraw__flow-animation-pulse" />
+                <NodeOutline
+                  shape={shape}
+                  width={elementBox.width}
+                  height={elementBox.height}
+                  className="excalidraw__flow-animation-pulse"
+                />
               </div>
             </div>
           );
@@ -687,13 +750,22 @@ export const FlowAnimationOverlay = ({
             data-flow-choice={target.containerId}
             aria-label={`Choose ${stepLabel(target, targetIndex, elementsMap)}`}
             style={{
-              width: target.box.width,
-              height: target.box.height,
-              transform: flowBoundsTransform(target.box, camera),
+              width: containerShape(target).box.width,
+              height: containerShape(target).box.height,
+              transform: flowBoundsTransform(
+                containerShape(target).box,
+                camera,
+              ),
               transformOrigin: "0 0",
             }}
             onClick={() => presentPickBranch(targetIndex)}
-          />
+          >
+            <NodeOutline
+              shape={containerShape(target).shape}
+              width={containerShape(target).box.width}
+              height={containerShape(target).box.height}
+            />
+          </button>
         );
       })}
 

@@ -21,6 +21,7 @@ import {
   updateFlowAnimationSettings,
 } from "@excalidraw/excalidraw/components/FlowAnimationState";
 import { AnimationController } from "@excalidraw/excalidraw/renderer/animation";
+import { FLOW_LOOK_DEFAULTS } from "@excalidraw/excalidraw/scene/flowLook";
 import { buildFlowPreset } from "@excalidraw/excalidraw/scene/flowPresets";
 import { flowOfSelection } from "@excalidraw/excalidraw/scene/flowSelection";
 import { API } from "@excalidraw/excalidraw/tests/helpers/api";
@@ -111,6 +112,7 @@ const snapshotOf = (
   elements: readonly ExcalidrawElement[],
   patch: Partial<FlowAnimationSnapshot> = {},
 ): FlowAnimationSnapshot => ({
+  ...FLOW_LOOK_DEFAULTS,
   mode: "play",
   stepIds: stepIdsOf(elements),
   index: 0,

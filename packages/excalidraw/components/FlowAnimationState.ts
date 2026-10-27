@@ -24,6 +24,11 @@ import {
   presentPrevious,
   startPath,
 } from "../scene/flowPresent";
+import {
+  FLOW_LOOK_DEFAULTS,
+  readFlowColor,
+  readFlowLook,
+} from "../scene/flowLook";
 import { flowOfSelection } from "../scene/flowSelection";
 import {
   FLOW_ARROW_STYLES,
@@ -33,6 +38,7 @@ import {
   splitFlowStyle,
 } from "../scene/flowStyles";
 
+import type { FlowLook } from "../scene/flowLook";
 import type { FlowGraph, FlowStep } from "../scene/flowOrder";
 import type {
   FlowArrowStyle,
@@ -50,7 +56,7 @@ export type FlowAnimationMode =
   | "present";
 
 /** the teacher's preferences: the part of the state that outlives a session */
-export type FlowAnimationSettings = {
+export type FlowAnimationSettings = FlowLook & {
   /** how long a step is held, in milliseconds */
   durationMs: number;
   /** whether the animation loops back to the first step */
@@ -90,6 +96,7 @@ export type FlowAnimationState = FlowAnimationSettings & {
 export const FLOW_SETTINGS_STORAGE_KEY = "excalidraw-flow-animation-settings";
 
 const DEFAULT_SETTINGS: FlowAnimationSettings = {
+  ...FLOW_LOOK_DEFAULTS,
   durationMs: DEFAULT_FLOW_STEP_DURATION_MS,
   loop: true,
   nodeStyle: "focus",
@@ -108,7 +115,8 @@ const readStoredSettings = (): FlowAnimationSettings => {
       return DEFAULT_SETTINGS;
     }
 
-    const settings = { ...DEFAULT_SETTINGS };
+    // the look is read defensively: a colour that is not one is the default
+    const settings = { ...DEFAULT_SETTINGS, ...readFlowLook(stored) };
 
     if (Number.isFinite(stored.durationMs) && stored.durationMs >= 100) {
       settings.durationMs = stored.durationMs;
@@ -153,6 +161,11 @@ const storeSettings = (settings: FlowAnimationSettings) => {
 };
 
 const settingsOf = (state: FlowAnimationState): FlowAnimationSettings => ({
+  nodeColor: state.nodeColor,
+  markColor: state.markColor,
+  arrowColor: state.arrowColor,
+  hideArrow: state.hideArrow,
+  nodeTarget: state.nodeTarget,
   durationMs: state.durationMs,
   loop: state.loop,
   nodeStyle: state.nodeStyle,
@@ -197,6 +210,27 @@ const stylesOf = (options: {
   };
 };
 
+/** the look a run starts with: what it was asked for, else what is set (D-189) */
+const lookOf = (
+  options: Partial<FlowLook> | undefined,
+  current: FlowLook,
+): FlowLook => ({
+  nodeColor:
+    options && "nodeColor" in options
+      ? readFlowColor(options.nodeColor)
+      : current.nodeColor,
+  markColor:
+    options && "markColor" in options
+      ? readFlowColor(options.markColor)
+      : current.markColor,
+  arrowColor:
+    options && "arrowColor" in options
+      ? readFlowColor(options.arrowColor)
+      : current.arrowColor,
+  hideArrow: options?.hideArrow ?? current.hideArrow,
+  nodeTarget: options?.nodeTarget ?? current.nodeTarget,
+});
+
 /** starts the animation at its first step */
 export const startFlowAnimation = (
   steps: FlowStep[],
@@ -217,6 +251,7 @@ export const startFlowAnimation = (
     arrowStyle: styles.arrowStyle ?? current.arrowStyle,
     speed: clampFlowSpeed(options?.speed ?? current.speed),
     camera: options?.camera ?? current.camera,
+    ...lookOf(options, current),
     mode,
     path: mode === "present" ? [...startPath()] : [],
     graph: options?.graph ?? null,
@@ -262,6 +297,8 @@ export const updateFlowAnimationSettings = (
   const next: FlowAnimationState = {
     ...current,
     ...rest,
+    // a colour that is not one is the default, whoever asks (D-189)
+    ...lookOf(rest, current),
     ...(styles.nodeStyle ? { nodeStyle: styles.nodeStyle } : {}),
     ...(styles.arrowStyle ? { arrowStyle: styles.arrowStyle } : {}),
   };
@@ -358,7 +395,7 @@ export type FlowAnimationSnapshot = {
   nodeStyle: FlowNodeStyle;
   arrowStyle: FlowArrowStyle;
   speed: number;
-};
+} & FlowLook;
 
 /** the animation as the presenter should see it; `null` when nothing plays */
 export const getFlowAnimationSnapshot = (): FlowAnimationSnapshot | null => {
@@ -379,6 +416,11 @@ export const getFlowAnimationSnapshot = (): FlowAnimationSnapshot | null => {
     nodeStyle: state.nodeStyle,
     arrowStyle: state.arrowStyle,
     speed: state.speed,
+    nodeColor: state.nodeColor,
+    markColor: state.markColor,
+    arrowColor: state.arrowColor,
+    hideArrow: state.hideArrow,
+    nodeTarget: state.nodeTarget,
   };
 };
 
@@ -460,6 +502,7 @@ export const applyFlowAnimationSnapshot = (
     nodeStyle: snapshot.nodeStyle,
     arrowStyle: snapshot.arrowStyle,
     speed: snapshot.speed,
+    ...readFlowLook(snapshot),
     // the presenter's camera is the editor's, mirrored: it never flies its own
     camera: false,
   };
@@ -481,3 +524,16 @@ export const applyFlowAnimationSnapshot = (
 /** the ids and boxes of the steps: what makes two mirrored states the same */
 const boxesOf = (state: FlowAnimationState) =>
   state.steps.map((step) => [step.containerId, step.box]);
+
+/* ------------------------------------------------------------- the preview (D-193) */
+
+/**
+ * Whether the class loop plays in the edit view too. It is a setting of this
+ * editor only: it is **not stored** and **not sent** to the presenter, so it is
+ * an atom of its own and no part of the animation's state or of its snapshot.
+ */
+export const flowClassPreviewAtom = atom(false);
+
+export const setFlowClassPreview = (on: boolean) => {
+  editorJotaiStore.set(flowClassPreviewAtom, on);
+};

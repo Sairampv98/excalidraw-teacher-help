@@ -2665,6 +2665,7 @@ class App extends React.Component<AppProps, AppState> {
                             or a window that is only displayed (D-182, D-187).
                           */}
                           <FlowClassOverlay
+                            backgroundColor={this.state.viewBackgroundColor}
                             elements={this.scene.getNonDeletedElements()}
                             elementsMap={allElementsMap}
                             pageId={
@@ -2686,6 +2687,7 @@ class App extends React.Component<AppProps, AppState> {
                             }}
                           />
                           <FlowAnimationOverlay
+                            backgroundColor={this.state.viewBackgroundColor}
                             elementsMap={allElementsMap}
                             viewport={{
                               width: this.state.width,
