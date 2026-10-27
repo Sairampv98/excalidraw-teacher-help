@@ -6,17 +6,34 @@
  * The look is the overlay's own - nothing here changes an element.
  */
 
-/** what the highlight is drawn on: the whole node, or only the label (D-191) */
-export type FlowHighlightTarget = "shape" | "text";
+/**
+ * What the highlight is put on (D-201): the node's outline, the rectangle on
+ * the label's box, the label's letters, or an outline with one of the two.
+ */
+export type FlowHighlightTarget =
+  | "shape"
+  | "shape-box"
+  | "shape-text"
+  | "box"
+  | "letters";
+
+/** the choices, in the order the bar offers them, with the names it gives them */
+export const FLOW_HIGHLIGHT_TARGETS: readonly {
+  id: FlowHighlightTarget;
+  label: string;
+}[] = [
+  { id: "shape", label: "Shape" },
+  { id: "shape-box", label: "Shape + text box" },
+  { id: "shape-text", label: "Shape + text" },
+  { id: "box", label: "Text box" },
+  { id: "letters", label: "Text" },
+];
 
 /** the colour the highlight and the marks have always had: the accent colour */
 export const FLOW_ACCENT_COLOR = "var(--color-primary)";
 
 /** the accent as a hex value, for a colour input that has to show something */
 export const FLOW_ACCENT_HEX = "#6965db";
-
-/** the colour of a hidden arrow's cover when the page has no background */
-export const FLOW_FALLBACK_BACKGROUND = "#ffffff";
 
 /**
  * Whether a value is a colour the look accepts: a hex value, which is what a
@@ -31,19 +48,22 @@ export const isFlowColor = (value: unknown): value is string =>
 export const readFlowColor = (value: unknown): string | null =>
   isFlowColor(value) ? value : null;
 
-/** the target of the highlight; anything but "text" is the whole shape */
-export const readFlowTarget = (value: unknown): FlowHighlightTarget =>
-  value === "text" ? "text" : "shape";
+/**
+ * The target of the highlight, read defensively. A value stored before wave 7u
+ * is read as what it drew: "shape" stays, and the old "text" - which drew the
+ * rectangle on the label's box - is the text box. Anything else is the shape.
+ */
+export const readFlowTarget = (value: unknown): FlowHighlightTarget => {
+  if (FLOW_HIGHLIGHT_TARGETS.some((target) => target.id === value)) {
+    return value as FlowHighlightTarget;
+  }
+
+  return value === "text" ? "box" : "shape";
+};
 
 /** a colour input needs a value even when the setting is the default */
 export const colorInputValue = (color: string | null) =>
   color && /^#[0-9a-f]{6}$/i.test(color) ? color : FLOW_ACCENT_HEX;
-
-/** the page's background as a colour a cover can be painted in (D-190) */
-export const coverColor = (viewBackgroundColor?: string | null) =>
-  viewBackgroundColor && viewBackgroundColor !== "transparent"
-    ? viewBackgroundColor
-    : FLOW_FALLBACK_BACKGROUND;
 
 /** what the look is made of: the part of the animation that is only colour */
 export type FlowLook = {

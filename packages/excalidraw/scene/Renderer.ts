@@ -18,6 +18,9 @@ import type { Scene } from "@excalidraw/element";
 
 import { renderStaticSceneThrottled } from "../renderer/staticScene";
 
+import { elementForCanvas } from "./flowArrowLooks";
+
+import type { ArrowLooks } from "./flowArrowLooks";
 import type { RenderableElementsMap } from "./types";
 
 import type { AppState } from "../types";
@@ -37,6 +40,12 @@ type GetRenderableElementsOpts = {
   frameToHighlight: AppState["frameToHighlight"];
   /** when set, only elements belonging to this page are rendered */
   currentPageId?: string;
+  /**
+   * What an animated flow does to its arrows (D-204): the canvas is given a
+   * hidden arrow not at all, and a recoloured arrow as a copy. The elements the
+   * scene holds are never touched.
+   */
+  arrowLooks?: ArrowLooks;
 };
 
 export class Renderer {
@@ -92,10 +101,12 @@ export class Renderer {
     elements,
     editingTextElement,
     newElement,
+    arrowLooks,
   }: {
     elements: readonly NonDeletedExcalidrawElement[];
     editingTextElement: AppState["editingTextElement"];
     newElement: AppState["newElement"];
+    arrowLooks?: ArrowLooks;
   }) {
     const elementsMap = toBrandedType<RenderableElementsMap>(new Map());
     const newElementCanvasElement = newElement?.frameId ? null : newElement;
@@ -112,7 +123,12 @@ export class Renderer {
         editingTextElement.type !== "text" ||
         element.id !== editingTextElement.id
       ) {
-        elementsMap.set(element.id, element);
+        // an arrow of an animated flow may be hidden or recoloured (D-204)
+        const forCanvas = elementForCanvas(element, arrowLooks);
+
+        if (forCanvas) {
+          elementsMap.set(element.id, forCanvas);
+        }
       }
     }
     return { elementsMap, newElementCanvasElement };
@@ -171,6 +187,7 @@ export class Renderer {
       editingTextElement,
       newElement,
       currentPageId,
+      arrowLooks,
     }: Omit<
       GetRenderableElementsOpts,
       | "selectedElements"
@@ -191,6 +208,7 @@ export class Renderer {
           elements,
           editingTextElement,
           newElement,
+          arrowLooks,
         });
 
       const visibleElements = this.getVisibleCanvasElements({
@@ -234,6 +252,7 @@ export class Renderer {
       editingTextElement: opts.editingTextElement,
       newElement: opts.newElement,
       currentPageId: opts.currentPageId,
+      arrowLooks: opts.arrowLooks,
     });
 
     // if we're dragging elements over a frame, reorder the selected elements

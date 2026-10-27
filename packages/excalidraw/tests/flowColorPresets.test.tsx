@@ -1,0 +1,311 @@
+/**
+ * AC-233 - the colour presets (D-206).
+ *
+ * The rules the presets are chosen by - contrast against the page, colours that
+ * differ in hue - are computed with the WCAG formulas, so they are checked and
+ * not just believed.
+ */
+
+import React from "react";
+
+import { afterEach, describe, expect, it } from "vitest";
+
+import type { ExcalidrawElement } from "@excalidraw/element/types";
+
+import {
+  flowAnimationStateAtom,
+  setFlowClassPreview,
+  stopFlowAnimation,
+  updateFlowAnimationSettings,
+} from "../components/FlowAnimationState";
+import { editorJotaiStore } from "../editor-jotai";
+import { Excalidraw } from "../index";
+import { readFlowClass } from "../scene/flowClass";
+import { FLOW_LOOK_DEFAULTS } from "../scene/flowLook";
+import {
+  DARK_PAGE,
+  FLOW_COLOR_PRESETS,
+  LIGHT_PAGE,
+  contrastRatio,
+  hueDistance,
+  isDarkPage,
+  presetColorsFor,
+} from "../scene/flowPalette";
+import { buildFlowPreset } from "../scene/flowPresets";
+
+import { API } from "./helpers/api";
+import { act, fireEvent, render, screen, within } from "./test-utils";
+
+const { h } = window;
+
+const NAMES = [
+  "Classic",
+  "Blue and orange",
+  "Blue and vermillion",
+  "Green and purple",
+  "Cool",
+  "Warm",
+  "High contrast",
+];
+
+const lookOpen = async () => {
+  const built = buildFlowPreset("process", "Plan\nTeach\nReview", { seed: 2 });
+
+  if (!built.ok) {
+    throw new Error(built.error);
+  }
+
+  await render(
+    <Excalidraw
+      handleKeyboardGlobally={true}
+      initialData={{ elements: built.elements as never }}
+    />,
+  );
+
+  act(() => {
+    h.setState({ width: 1400, height: 900 });
+  });
+  act(() => {
+    API.setSelectedElements([
+      h.elements.find(
+        (e) => e.type !== "text" && e.type !== "arrow",
+      ) as ExcalidrawElement,
+    ]);
+  });
+  act(() => {
+    fireEvent.click(screen.getByRole("button", { name: "Look" }));
+  });
+};
+
+const preset = (name: string) =>
+  screen.getByRole("button", { name: `Colour preset: ${name}` });
+
+const state = () => editorJotaiStore.get(flowAnimationStateAtom);
+
+const shapes = () =>
+  h.elements.filter(
+    (element) =>
+      !element.isDeleted &&
+      element.type !== "arrow" &&
+      element.type !== "text" &&
+      !!element.boundElements?.length,
+  );
+
+afterEach(() => {
+  stopFlowAnimation();
+  setFlowClassPreview(false);
+  updateFlowAnimationSettings({
+    ...FLOW_LOOK_DEFAULTS,
+    nodeStyle: "focus",
+    arrowStyle: "none",
+    speed: 240,
+    camera: false,
+    loop: true,
+  });
+});
+
+describe("AC-233 the colour presets", () => {
+  it("AC-233 the Look section offers the presets", async () => {
+    await lookOpen();
+
+    const group = screen.getByRole("group", { name: "Colour presets" });
+
+    expect(
+      within(group)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(NAMES.map((name) => `Colour preset: ${name}`));
+  });
+
+  it("AC-233 a preset sets the highlight and the animation colours together", async () => {
+    await lookOpen();
+
+    act(() => {
+      fireEvent.click(preset("Blue and orange"));
+    });
+
+    // the page is light, so it is the variant that reads on a light page
+    expect(state().nodeColor).toBe("#0072B2");
+    expect(state().markColor).toBe("#B36B00");
+  });
+
+  it("AC-233 a preset leaves the arrow, the target and the speed alone", async () => {
+    await lookOpen();
+
+    act(() => {
+      updateFlowAnimationSettings({
+        arrowColor: "#111111",
+        hideArrow: true,
+        nodeTarget: "box",
+        speed: 400,
+        nodeStyle: "pulse",
+        arrowStyle: "beam",
+      });
+    });
+    act(() => {
+      fireEvent.click(preset("Green and purple"));
+    });
+
+    expect(state()).toMatchObject({
+      arrowColor: "#111111",
+      hideArrow: true,
+      nodeTarget: "box",
+      speed: 400,
+      nodeStyle: "pulse",
+      arrowStyle: "beam",
+    });
+  });
+
+  it("AC-233 the variant for the page background is applied", async () => {
+    await lookOpen();
+
+    expect(isDarkPage("#ffffff")).toBe(false);
+    expect(isDarkPage(undefined)).toBe(false);
+    expect(isDarkPage("transparent")).toBe(false);
+    expect(isDarkPage("#1e1e1e")).toBe(true);
+
+    // a dark page gets the variant that reads on a dark page
+    act(() => {
+      h.setState({ viewBackgroundColor: "#1e1e1e" });
+    });
+    act(() => {
+      fireEvent.click(preset("Blue and orange"));
+    });
+
+    expect(state().nodeColor).toBe("#56B4E9");
+    expect(state().markColor).toBe("#E69F00");
+
+    // and a light one gets the other
+    act(() => {
+      h.setState({ viewBackgroundColor: "#ffffff" });
+    });
+    act(() => {
+      fireEvent.click(preset("Blue and orange"));
+    });
+
+    expect(state().nodeColor).toBe("#0072B2");
+    expect(state().markColor).toBe("#B36B00");
+  });
+
+  it("AC-233 every colour reads on its page at 3 to 1 or better", () => {
+    for (const preset of FLOW_COLOR_PRESETS) {
+      for (const [variant, page] of [
+        [preset.light, LIGHT_PAGE],
+        [preset.dark, DARK_PAGE],
+      ] as const) {
+        for (const colour of [variant.nodeColor, variant.markColor]) {
+          if (colour === null) {
+            // the default is the accent colour, which the editor itself uses
+            continue;
+          }
+
+          expect(
+            contrastRatio(colour, page),
+            `${preset.name}: ${colour} on ${page}`,
+          ).toBeGreaterThanOrEqual(3);
+        }
+      }
+    }
+
+    // the formula is the WCAG one: black on white is 21, white on white is 1
+    expect(contrastRatio("#000000", "#ffffff")).toBeCloseTo(21, 5);
+    expect(contrastRatio("#ffffff", "#ffffff")).toBeCloseTo(1, 5);
+  });
+
+  it("AC-233 the pairs differ in hue unless they are meant to be alike", () => {
+    for (const preset of FLOW_COLOR_PRESETS) {
+      for (const variant of [preset.light, preset.dark]) {
+        const { nodeColor, markColor } = variant;
+
+        // the highlight and what travels are never the same colour
+        expect(nodeColor === markColor && nodeColor !== null).toBe(false);
+
+        if (preset.alike || nodeColor === null || markColor === null) {
+          continue;
+        }
+
+        expect(
+          hueDistance(nodeColor, markColor),
+          `${preset.name}: ${nodeColor} and ${markColor}`,
+        ).toBeGreaterThanOrEqual(60);
+      }
+    }
+  });
+
+  it("AC-233 the chosen preset shows as chosen", async () => {
+    await lookOpen();
+
+    // nothing set: Classic is the one in use
+    expect(preset("Classic").getAttribute("aria-pressed")).toBe("true");
+
+    act(() => {
+      fireEvent.click(preset("Warm"));
+    });
+
+    for (const name of NAMES) {
+      expect(preset(name).getAttribute("aria-pressed")).toBe(
+        name === "Warm" ? "true" : "false",
+      );
+    }
+
+    // a colour changed by hand is no preset's any more
+    act(() => {
+      updateFlowAnimationSettings({ nodeColor: "#123456" });
+    });
+
+    expect(
+      NAMES.filter(
+        (name) => preset(name).getAttribute("aria-pressed") === "true",
+      ),
+    ).toEqual([]);
+  });
+
+  it("AC-233 a preset writes through to a marked chart", async () => {
+    await lookOpen();
+
+    act(() => {
+      fireEvent.click(screen.getByLabelText("Show in class"));
+    });
+    act(() => {
+      fireEvent.click(preset("Blue and vermillion"));
+    });
+
+    const colors = presetColorsFor(
+      FLOW_COLOR_PRESETS.find((p) => p.id === "blue-vermillion")!,
+      "#ffffff",
+    );
+
+    expect(shapes().length).toBeGreaterThan(0);
+
+    for (const shape of shapes()) {
+      expect(readFlowClass(shape)).toMatchObject(colors);
+    }
+  });
+
+  it("AC-233 classic clears the colours", async () => {
+    await lookOpen();
+
+    act(() => {
+      fireEvent.click(screen.getByLabelText("Show in class"));
+    });
+    act(() => {
+      fireEvent.click(preset("Cool"));
+    });
+
+    expect(state().nodeColor).not.toBeNull();
+
+    act(() => {
+      fireEvent.click(preset("Classic"));
+    });
+
+    expect(state().nodeColor).toBeNull();
+    expect(state().markColor).toBeNull();
+
+    for (const shape of shapes()) {
+      expect(readFlowClass(shape)).toMatchObject({
+        nodeColor: null,
+        markColor: null,
+      });
+    }
+  });
+});

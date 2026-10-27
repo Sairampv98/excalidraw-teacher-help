@@ -30,7 +30,7 @@ import {
   writeFlowBarPlace,
 } from "../scene/flowBarPlace";
 import { flowClassOf } from "../scene/flowClass";
-import { colorInputValue } from "../scene/flowLook";
+import { FLOW_HIGHLIGHT_TARGETS } from "../scene/flowLook";
 import { flowOfSelection } from "../scene/flowSelection";
 import {
   FLOW_ARROW_STYLES,
@@ -42,6 +42,7 @@ import {
 import { useAtomValue } from "../editor-jotai";
 import { t } from "../i18n";
 
+import { FlowColorPad, FlowColorPresets } from "./FlowColorPad";
 import {
   DEFAULT_FLOW_STEP_DURATION_MS,
   flowAnimationStateAtom,
@@ -561,26 +562,22 @@ export const FlowAnimationBar = ({
           role="group"
           aria-label="Look"
         >
+          <FlowColorPresets
+            look={state}
+            background={app.state.viewBackgroundColor}
+            onPick={(colors) => change(colors)}
+          />
+          <div className="excalidraw__flow-bar-row">
+            <span className="excalidraw__flow-bar-label">Highlight</span>
+            <FlowColorPad
+              label="Highlight colour"
+              value={state.nodeColor}
+              onChange={(nodeColor) => change({ nodeColor })}
+            />
+          </div>
           <div className="excalidraw__flow-bar-row">
             <label className="excalidraw__flow-bar-field">
-              <span>Highlight</span>
-              <input
-                type="color"
-                aria-label="Highlight colour"
-                value={colorInputValue(state.nodeColor)}
-                onChange={(event) => change({ nodeColor: event.target.value })}
-              />
-            </label>
-            <button
-              type="button"
-              aria-label="Default highlight colour"
-              disabled={!state.nodeColor}
-              onClick={() => change({ nodeColor: null })}
-            >
-              Default
-            </button>
-            <label className="excalidraw__flow-bar-field">
-              <span>On</span>
+              <span>Highlight on</span>
               <select
                 aria-label="Highlight target"
                 value={state.nodeTarget}
@@ -590,48 +587,29 @@ export const FlowAnimationBar = ({
                   })
                 }
               >
-                <option value="shape">Whole shape</option>
-                <option value="text">Text only</option>
+                {FLOW_HIGHLIGHT_TARGETS.map((target) => (
+                  <option key={target.id} value={target.id}>
+                    {target.label}
+                  </option>
+                ))}
               </select>
             </label>
           </div>
           <div className="excalidraw__flow-bar-row">
-            <label className="excalidraw__flow-bar-field">
-              <span>Animation</span>
-              <input
-                type="color"
-                aria-label="Animation colour"
-                value={colorInputValue(state.markColor)}
-                onChange={(event) => change({ markColor: event.target.value })}
-              />
-            </label>
-            <button
-              type="button"
-              aria-label="Default animation colour"
-              disabled={!state.markColor}
-              onClick={() => change({ markColor: null })}
-            >
-              Default
-            </button>
+            <span className="excalidraw__flow-bar-label">Animation</span>
+            <FlowColorPad
+              label="Animation colour"
+              value={state.markColor}
+              onChange={(markColor) => change({ markColor })}
+            />
           </div>
           <div className="excalidraw__flow-bar-row">
-            <label className="excalidraw__flow-bar-field">
-              <span>Arrow</span>
-              <input
-                type="color"
-                aria-label="Arrow colour"
-                value={colorInputValue(state.arrowColor)}
-                onChange={(event) => change({ arrowColor: event.target.value })}
-              />
-            </label>
-            <button
-              type="button"
-              aria-label="Default arrow colour"
-              disabled={!state.arrowColor}
-              onClick={() => change({ arrowColor: null })}
-            >
-              Default
-            </button>
+            <span className="excalidraw__flow-bar-label">Arrow</span>
+            <FlowColorPad
+              label="Arrow colour"
+              value={state.arrowColor}
+              onChange={(arrowColor) => change({ arrowColor })}
+            />
             <label className="excalidraw__flow-bar-field">
               <input
                 type="checkbox"

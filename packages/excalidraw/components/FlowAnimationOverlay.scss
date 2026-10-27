@@ -31,6 +31,17 @@
     animation: excalidraw__flow-animation-in 400ms ease-out both;
   }
 
+  // a label drawn again over the canvas's own (D-202, D-203): the letters
+  // light up in the colour of the look, and a label of an arrow keeps its own
+  .excalidraw__flow-label {
+    pointer-events: none;
+  }
+
+  .excalidraw__flow-label--letters {
+    color: var(--flow-node-color, var(--color-primary));
+    animation: excalidraw__flow-animation-in 400ms ease-out both;
+  }
+
   .excalidraw__flow-animation-close {
     position: absolute;
     top: 0.5rem;

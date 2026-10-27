@@ -8,12 +8,16 @@
  * is pure so it is tested without a canvas.
  */
 
-import { getCornerRadius } from "@excalidraw/element";
+import { getBoundTextElement, getCornerRadius } from "@excalidraw/element";
 
-import type { ElementsMap, ExcalidrawElement } from "@excalidraw/element/types";
+import type {
+  ElementsMap,
+  ExcalidrawElement,
+  ExcalidrawTextElement,
+} from "@excalidraw/element/types";
 
 import type { FlowHighlightTarget } from "./flowLook";
-import type { FlowBox, FlowStep } from "./flowOrder";
+import type { FlowBox, FlowGraph, FlowStep } from "./flowOrder";
 
 export type HighlightShape = {
   kind: "rect" | "ellipse" | "diamond";
@@ -60,29 +64,79 @@ export const highlightBoxOf = (element: ExcalidrawElement): FlowBox => ({
   height: element.height,
 });
 
+/** what a step's highlight is drawn on (D-201) */
+export type HighlightParts = {
+  /** the node's outline: drawn in the node's own shape */
+  outline: ExcalidrawElement | null;
+  /** a rectangle on the label's own box */
+  box: ExcalidrawTextElement | null;
+  /** the label's letters, lit as letters (D-202) */
+  letters: ExcalidrawTextElement | null;
+};
+
+/** the label of a step: the text bound to its container, if it has one */
+export const labelOf = (
+  step: FlowStep,
+  elementsMap: ElementsMap,
+): ExcalidrawTextElement | null => {
+  for (const id of step.elementIds) {
+    const element = elementsMap.get(id);
+
+    if (element && element.type === "text" && id !== step.containerId) {
+      return element;
+    }
+  }
+
+  return null;
+};
+
 /**
- * The elements of a step that are highlighted (D-191): the node itself - the
- * container, with its label inside it - or, when the teacher asked for it,
- * only the label. A node with no label has no text to highlight and takes the
- * shape.
+ * What the highlight of a step is put on (D-201): the node's outline, the
+ * rectangle on the label's box, the label's letters, or an outline with one of
+ * the other two. A node with no label has no text, so every choice that names a
+ * text takes the shape.
  */
-export const nodeHighlightElements = (
+export const nodeHighlightParts = (
   step: FlowStep,
   elementsMap: ElementsMap,
   target: FlowHighlightTarget,
-): ExcalidrawElement[] => {
-  const elements = step.elementIds
-    .map((id) => elementsMap.get(id))
-    .filter((element): element is ExcalidrawElement => Boolean(element));
+): HighlightParts => {
+  const container = elementsMap.get(step.containerId) ?? null;
+  const label = labelOf(step, elementsMap);
 
-  const container = elements.find((element) => element.id === step.containerId);
-  const labels = elements.filter(
-    (element) => element.type === "text" && element.id !== step.containerId,
-  );
-
-  if (target === "text" && labels.length) {
-    return labels;
+  if (!label || target === "shape") {
+    return { outline: container, box: null, letters: null };
   }
 
-  return container ? [container] : elements;
+  switch (target) {
+    case "shape-box":
+      return { outline: container, box: label, letters: null };
+    case "shape-text":
+      return { outline: container, box: null, letters: label };
+    case "box":
+      return { outline: null, box: label, letters: null };
+    case "letters":
+      return { outline: null, box: null, letters: label };
+    default:
+      return { outline: container, box: null, letters: null };
+  }
+};
+
+/** the labels bound to the arrows of a flow: the yes and no of a decision (D-203) */
+export const arrowLabelsOf = (
+  graph: FlowGraph | null,
+  elementsMap: ElementsMap,
+): ExcalidrawTextElement[] => {
+  const labels: ExcalidrawTextElement[] = [];
+
+  for (const edge of graph?.edgeArrows ?? []) {
+    const arrow = elementsMap.get(edge.arrowId);
+    const label = arrow && getBoundTextElement(arrow, elementsMap);
+
+    if (label && !label.isDeleted) {
+      labels.push(label);
+    }
+  }
+
+  return labels;
 };

@@ -505,6 +505,10 @@ import { PanelMirrorPicker } from "./PanelMirrorPicker";
 
 import { FlowAnimationOverlay } from "./FlowAnimationOverlay";
 import { FlowAnimationBar } from "./FlowAnimationBar";
+import {
+  getFlowArrowLooks,
+  subscribeToFlowArrowLooks,
+} from "./FlowArrowLooksState";
 import { FlowClassOverlay } from "./FlowClassOverlay";
 import { isFlowAnimationActive, stopFlowAnimation } from "./FlowAnimationState";
 import BraveMeasureTextError from "./BraveMeasureTextError";
@@ -2273,6 +2277,7 @@ class App extends React.Component<AppProps, AppState> {
        * (e.g. when its zIndex isn't on top) */
       newElementCanvasElement,
     } = this.renderer.getRenderableElements({
+      arrowLooks: getFlowArrowLooks(),
       zoom: this.state.zoom,
       offsetLeft: this.state.offsetLeft,
       offsetTop: this.state.offsetTop,
@@ -2665,7 +2670,6 @@ class App extends React.Component<AppProps, AppState> {
                             or a window that is only displayed (D-182, D-187).
                           */}
                           <FlowClassOverlay
-                            backgroundColor={this.state.viewBackgroundColor}
                             elements={this.scene.getNonDeletedElements()}
                             elementsMap={allElementsMap}
                             pageId={
@@ -2687,7 +2691,6 @@ class App extends React.Component<AppProps, AppState> {
                             }}
                           />
                           <FlowAnimationOverlay
-                            backgroundColor={this.state.viewBackgroundColor}
                             elementsMap={allElementsMap}
                             viewport={{
                               width: this.state.width,
@@ -3479,8 +3482,19 @@ class App extends React.Component<AppProps, AppState> {
     });
   }
 
+  /** stops listening for what an animated flow does to its arrows (D-204) */
+  private flowArrowLooksUnsubscribe?: () => void;
+
   public async componentDidMount() {
     this.unmounted = false;
+
+    // the canvas is drawn again when an animated flow hides or recolours its
+    // arrows, and when it stops (D-204)
+    this.flowArrowLooksUnsubscribe = subscribeToFlowArrowLooks(() => {
+      if (!this.unmounted) {
+        this.forceUpdate();
+      }
+    });
     this.api = this.createExcalidrawAPI();
 
     this.excalidrawContainerValue.container =
@@ -4132,6 +4146,7 @@ class App extends React.Component<AppProps, AppState> {
     // we're recreating the api object reference so that the
     // <ExcalidrawAPIContext.Provider/> picks up on it
     this.api = { ...this.api, isDestroyed: true };
+    this.flowArrowLooksUnsubscribe?.();
 
     for (const key of Object.keys(this.api) as (keyof typeof this.api)[]) {
       if (

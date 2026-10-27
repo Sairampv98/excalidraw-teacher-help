@@ -32,7 +32,7 @@ export const FLOW_BAR_WIDTH = 440;
 export const FLOW_BAR_HEIGHT = 112;
 
 /** how much taller the bar is while its Look section is open (D-196) */
-export const FLOW_BAR_LOOK_EXTRA = 150;
+export const FLOW_BAR_LOOK_EXTRA = 230;
 
 /** about how tall a collapsed bar - a pill - is, in pixels (D-198) */
 export const FLOW_BAR_PILL_HEIGHT = 32;
