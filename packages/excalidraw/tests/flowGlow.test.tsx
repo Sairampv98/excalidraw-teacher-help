@@ -64,7 +64,7 @@ const sheet = fs.readFileSync(
 
 /** the stylesheet's block for what is drawn with the glow on */
 const glowBlock = () => {
-  const start = sheet.indexOf("[data-flow-glow] {");
+  const start = sheet.indexOf("The neon tube (D-208, D-217)");
 
   if (start < 0) {
     throw new Error("no glow block in the stylesheet");
@@ -172,19 +172,19 @@ afterEach(() => {
 
 describe("AC-234 the glow is a neon tube", () => {
   it("AC-234 glow is off by default", async () => {
-    expect(FLOW_LOOK_DEFAULTS.glow).toBe(false);
-    expect(state().glow).toBe(false);
+    expect(FLOW_LOOK_DEFAULTS.glowShape).toBe(false);
+    expect(state().glowShape).toBe(false);
 
     await mount(chart(SETTINGS), { viewModeEnabled: true });
 
     expect(document.querySelector(".excalidraw__flow-class")).not.toBeNull();
-    expect(document.querySelector("[data-flow-glow]")).toBeNull();
+    expect(document.querySelector("[data-flow-glow-shape]")).toBeNull();
   });
 
   it("AC-234 the switch turns it on", async () => {
     await lookOpen();
 
-    const glow = screen.getByLabelText("Neon glow") as HTMLInputElement;
+    const glow = screen.getByLabelText("Neon shape") as HTMLInputElement;
 
     expect(glow.checked).toBe(false);
 
@@ -192,9 +192,9 @@ describe("AC-234 the glow is a neon tube", () => {
       fireEvent.click(glow);
     });
 
-    expect(state().glow).toBe(true);
+    expect(state().glowShape).toBe(true);
     expect(
-      (screen.getByLabelText("Neon glow") as HTMLInputElement).checked,
+      (screen.getByLabelText("Neon shape") as HTMLInputElement).checked,
     ).toBe(true);
 
     // and it is on what is drawn: the animation, played from the bar
@@ -204,26 +204,26 @@ describe("AC-234 the glow is a neon tube", () => {
       startFlowAnimation(graph.steps, { mode: "play", graph });
     });
 
-    expect(document.querySelector("[data-flow-glow]")).not.toBeNull();
+    expect(document.querySelector("[data-flow-glow-shape]")).not.toBeNull();
 
     act(() => {
-      fireEvent.click(screen.getByLabelText("Neon glow"));
+      fireEvent.click(screen.getByLabelText("Neon shape"));
     });
 
-    expect(document.querySelector("[data-flow-glow]")).toBeNull();
+    expect(document.querySelector("[data-flow-glow-shape]")).toBeNull();
   });
 
   it("AC-234 the class loop carries it on a marked chart", async () => {
-    await mount(chart({ ...SETTINGS, glow: true }), {
+    await mount(chart({ ...SETTINGS, glowShape: true }), {
       viewModeEnabled: true,
     });
 
     expect(
-      document.querySelector(".excalidraw__flow-class [data-flow-glow]"),
+      document.querySelector(".excalidraw__flow-class [data-flow-glow-shape]"),
     ).not.toBeNull();
 
     for (const shape of shapes()) {
-      expect(readFlowClass(shape)?.glow).toBe(true);
+      expect(readFlowClass(shape)?.glowShape).toBe(true);
     }
   });
 
@@ -294,12 +294,12 @@ describe("AC-234 the glow is a neon tube", () => {
       fireEvent.click(screen.getByLabelText("Show in class"));
     });
     act(() => {
-      fireEvent.click(screen.getByLabelText("Neon glow"));
+      fireEvent.click(screen.getByLabelText("Neon shape"));
     });
 
     // a marked chart is written through
     for (const shape of shapes()) {
-      expect(readFlowClass(shape)?.glow).toBe(true);
+      expect(readFlowClass(shape)?.glowShape).toBe(true);
     }
 
     // and what plays is described with it, for the projector
@@ -309,7 +309,7 @@ describe("AC-234 the glow is a neon tube", () => {
       startFlowAnimation(graph.steps, { mode: "present", graph });
     });
 
-    expect(getFlowAnimationSnapshot()?.glow).toBe(true);
+    expect(getFlowAnimationSnapshot()?.glowShape).toBe(true);
   });
 
   it("AC-234 an entry from before has no glow", async () => {
@@ -321,7 +321,7 @@ describe("AC-234 the glow is a neon tube", () => {
     } as ExcalidrawElement;
 
     expect(readFlowClass(old)).toMatchObject({
-      glow: false,
+      glowShape: false,
       textColor: null,
     });
   });

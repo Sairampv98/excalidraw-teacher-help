@@ -42,7 +42,13 @@ import {
   flowClassPreviewAtom,
   startFlowAnimation,
 } from "./FlowAnimationState";
-import { LabelText, NodeOutline, lookAttrs, lookVars } from "./FlowLookParts";
+import {
+  ArrowTubes,
+  LabelText,
+  NodeOutline,
+  lookAttrs,
+  lookVars,
+} from "./FlowLookParts";
 
 import "./FlowAnimationOverlay.scss";
 
@@ -257,6 +263,7 @@ export const FlowClassOverlay = ({
           arrowsAnimated:
             flow.settings.arrow !== "none" ||
             flow.settings.hideArrow ||
+            flow.settings.glowArrow ||
             !!flow.settings.arrowColor,
         }).map((id): [string, ArrowLook] => [
           id,
@@ -303,6 +310,16 @@ export const FlowClassOverlay = ({
               style={lookVars(flow.settings)}
               {...lookAttrs(flow.settings)}
             >
+              {flow.settings.glowArrow && (
+                <ArrowTubes
+                  arrows={arrowsFor(
+                    "marching",
+                    flow.graph,
+                    flow.graph.steps[indices[flow.key] ?? 0],
+                    elementsMap,
+                  )}
+                />
+              )}
               <ClassMarks
                 flow={flow}
                 index={indices[flow.key] ?? 0}
@@ -483,6 +500,7 @@ const ClassNodes = ({
       {/* the labels of the arrows are drawn above what is animated (D-203) */}
       {(flow.settings.arrow !== "none" ||
         flow.settings.hideArrow ||
+        flow.settings.glowArrow ||
         !!flow.settings.arrowColor) &&
         arrowLabelsOf(flow.graph, elementsMap).map((label) => (
           <div
@@ -547,7 +565,10 @@ const StepsButton = ({
           durationMs: flow.settings.stepMs,
           nodeColor: flow.settings.nodeColor,
           textColor: flow.settings.textColor,
-          glow: flow.settings.glow,
+          glowShape: flow.settings.glowShape,
+          glowText: flow.settings.glowText,
+          glowMark: flow.settings.glowMark,
+          glowArrow: flow.settings.glowArrow,
           markColor: flow.settings.markColor,
           arrowColor: flow.settings.arrowColor,
           hideArrow: flow.settings.hideArrow,

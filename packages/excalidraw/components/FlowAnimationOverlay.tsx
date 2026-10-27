@@ -37,7 +37,13 @@ import { flowMarksFor, getArrowPath } from "../scene/flowStyles";
 import { editorJotaiStore, useAtomValue } from "../editor-jotai";
 import { t } from "../i18n";
 
-import { LabelText, NodeOutline, lookAttrs, lookVars } from "./FlowLookParts";
+import {
+  ArrowTubes,
+  LabelText,
+  NodeOutline,
+  lookAttrs,
+  lookVars,
+} from "./FlowLookParts";
 import { setFlowArrowLooks } from "./FlowArrowLooksState";
 import { CloseIcon } from "./icons";
 import {
@@ -542,6 +548,7 @@ export const FlowAnimationOverlay = ({
               arrowsAnimated:
                 state.arrowStyle !== "none" ||
                 state.hideArrow ||
+                state.glowArrow ||
                 !!state.arrowColor,
             }).map((id): [string, ArrowLook] => [
               id,
@@ -558,6 +565,7 @@ export const FlowAnimationOverlay = ({
       state.index,
       state.hideArrow,
       state.arrowColor,
+      state.glowArrow,
       state.arrowStyle,
       state.nodeStyle,
       state.nodeTarget,
@@ -660,6 +668,17 @@ export const FlowAnimationOverlay = ({
         height="100%"
       >
         <g style={{ transform: sceneTransform }} data-flow-scene="">
+          {/* the arrows as neon tubes, under what travels (D-217) */}
+          {state.glowArrow && (
+            <ArrowTubes
+              arrows={arrowsFor(
+                "marching",
+                state.graph,
+                state.steps[state.index],
+                elementsMap,
+              )}
+            />
+          )}
           {arrows.map((arrow) => {
             const marks = flowMarksFor(
               state.arrowStyle,
@@ -775,7 +794,10 @@ export const FlowAnimationOverlay = ({
         })}
 
       {/* the labels of the arrows are drawn above what is animated (D-203) */}
-      {(state.arrowStyle !== "none" || state.hideArrow || !!state.arrowColor) &&
+      {(state.arrowStyle !== "none" ||
+        state.hideArrow ||
+        state.glowArrow ||
+        !!state.arrowColor) &&
         arrowLabelsOf(state.graph, elementsMap).map((label) => (
           <div
             key={`arrow-label-${label.id}`}

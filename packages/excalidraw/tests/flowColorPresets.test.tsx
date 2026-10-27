@@ -30,6 +30,7 @@ import {
   hueDistance,
   isDarkPage,
   presetColorsFor,
+  presetLook,
 } from "../scene/flowPalette";
 import { buildFlowPreset } from "../scene/flowPresets";
 
@@ -130,7 +131,7 @@ describe("AC-233 the colour presets", () => {
     expect(state().markColor).toBe("#e0007a");
     // the text follows the shape, and the glow is on (D-206, D-208)
     expect(state().textColor).toBeNull();
-    expect(state().glow).toBe(true);
+    expect(state().glowShape).toBe(true);
 
     // a preset with a text colour of its own sets it
     act(() => {
@@ -303,7 +304,7 @@ describe("AC-233 the colour presets", () => {
     expect(shapes().length).toBeGreaterThan(0);
 
     for (const shape of shapes()) {
-      expect(readFlowClass(shape)).toMatchObject(colors);
+      expect(readFlowClass(shape)).toMatchObject(presetLook(colors));
     }
   });
 
@@ -326,14 +327,16 @@ describe("AC-233 the colour presets", () => {
     expect(state().nodeColor).toBeNull();
     expect(state().textColor).toBeNull();
     expect(state().markColor).toBeNull();
-    expect(state().glow).toBe(false);
+    expect(state().glowShape).toBe(false);
 
     for (const shape of shapes()) {
       expect(readFlowClass(shape)).toMatchObject({
         nodeColor: null,
         textColor: null,
         markColor: null,
-        glow: false,
+        glowShape: false,
+        glowText: false,
+        glowMark: false,
       });
     }
   });

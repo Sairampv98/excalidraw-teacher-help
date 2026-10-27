@@ -149,8 +149,14 @@ export type FlowLook = {
   arrowColor: string | null;
   /** the canvas does not draw the arrow while it plays (D-204) */
   hideArrow: boolean;
-  /** the highlight and what travels look like a neon tube (D-208) */
-  glow: boolean;
+  /** the shape's highlight is a neon tube (D-208, D-217) */
+  glowShape: boolean;
+  /** the text's highlight - box and letters - is a neon tube */
+  glowText: boolean;
+  /** what travels along the arrows is a neon tube */
+  glowMark: boolean;
+  /** the arrows themselves are drawn as neon tubes while it plays */
+  glowArrow: boolean;
   nodeTarget: FlowHighlightTarget;
 };
 
@@ -160,9 +166,15 @@ export const FLOW_LOOK_DEFAULTS: FlowLook = {
   markColor: null,
   arrowColor: null,
   hideArrow: false,
-  glow: false,
+  glowShape: false,
+  glowText: false,
+  glowMark: false,
+  glowArrow: false,
   nodeTarget: "shape",
 };
+
+const glowOf = (own: unknown, legacy: unknown) =>
+  typeof own === "boolean" ? own : legacy === true;
 
 /** a look read defensively from whatever a document or a store holds (D-188) */
 export const readFlowLook = (source: unknown): FlowLook => {
@@ -177,7 +189,12 @@ export const readFlowLook = (source: unknown): FlowLook => {
     markColor: readFlowColor(entry.markColor),
     arrowColor: readFlowColor(entry.arrowColor),
     hideArrow: typeof entry.hideArrow === "boolean" ? entry.hideArrow : false,
-    glow: typeof entry.glow === "boolean" ? entry.glow : false,
+    // an entry from before the four switches had one glow for the shape, the
+    // text and what travels (D-217)
+    glowShape: glowOf(entry.glowShape, entry.glow),
+    glowText: glowOf(entry.glowText, entry.glow),
+    glowMark: glowOf(entry.glowMark, entry.glow),
+    glowArrow: typeof entry.glowArrow === "boolean" ? entry.glowArrow : false,
     nodeTarget: readFlowTarget(entry.nodeTarget),
   };
 };
@@ -189,8 +206,10 @@ export const readFlowLook = (source: unknown): FlowLook => {
  * a colour to make them from.
  */
 export const flowLookVars = (
-  look: Pick<FlowLook, "nodeColor" | "textColor" | "markColor">,
+  look: Pick<FlowLook, "nodeColor" | "textColor" | "markColor"> &
+    Partial<Pick<FlowLook, "arrowColor">>,
 ): Record<string, string | undefined> => {
+  const arrow = look.arrowColor ?? look.markColor;
   const text = look.textColor ?? look.nodeColor;
   const pipe = look.markColor ? pipeColorsFor(look.markColor) : null;
 
@@ -201,6 +220,8 @@ export const flowLookVars = (
     "--flow-node-core": look.nodeColor ? neonCore(look.nodeColor) : undefined,
     "--flow-text-core": text ? neonCore(text) : undefined,
     "--flow-mark-core": look.markColor ? neonCore(look.markColor) : undefined,
+    "--flow-arrow-color": arrow ?? undefined,
+    "--flow-arrow-core": arrow ? neonCore(arrow) : undefined,
     "--flow-pipe-dark": pipe?.dark,
     "--flow-pipe-light": pipe?.body,
     "--flow-pipe-flow": pipe?.flow,

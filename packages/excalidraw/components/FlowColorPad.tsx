@@ -11,7 +11,7 @@ import {
 
 import "./FlowColorPad.scss";
 
-import type { FlowPresetColors } from "../scene/flowPalette";
+import type { FlowPresetColors, FlowPresetLook } from "../scene/flowPalette";
 
 type FlowColorPadProps = {
   /** what the pad is for: it names the group and every swatch in it */
@@ -114,7 +114,7 @@ export const FlowColorPad = ({ label, value, onChange }: FlowColorPadProps) => {
 };
 
 type FlowColorPresetsProps = {
-  look: FlowPresetColors;
+  look: FlowPresetLook;
   /** the page's background: it decides which variant of a preset is applied */
   background?: string | null;
   onPick: (colors: FlowPresetColors) => void;

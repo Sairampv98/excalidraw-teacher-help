@@ -39,7 +39,10 @@ export const currentFlowClassSettings = (): FlowClassSettings => {
   return {
     nodeColor: state.nodeColor,
     textColor: state.textColor,
-    glow: state.glow,
+    glowShape: state.glowShape,
+    glowText: state.glowText,
+    glowMark: state.glowMark,
+    glowArrow: state.glowArrow,
     markColor: state.markColor,
     arrowColor: state.arrowColor,
     hideArrow: state.hideArrow,

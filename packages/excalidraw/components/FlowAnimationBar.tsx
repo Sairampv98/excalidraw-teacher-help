@@ -42,6 +42,8 @@ import {
 import { useAtomValue } from "../editor-jotai";
 import { t } from "../i18n";
 
+import { presetLook } from "../scene/flowPalette";
+
 import { FlowColorPad, FlowColorPresets } from "./FlowColorPad";
 import {
   DEFAULT_FLOW_STEP_DURATION_MS,
@@ -603,7 +605,7 @@ export const FlowAnimationBar = ({
           <FlowColorPresets
             look={state}
             background={app.state.viewBackgroundColor}
-            onPick={(colors) => change(colors)}
+            onPick={(colors) => change(presetLook(colors))}
           />
           <div className="excalidraw__flow-bar-row">
             <span className="excalidraw__flow-bar-label">Shape</span>
@@ -671,10 +673,38 @@ export const FlowAnimationBar = ({
             <label className="excalidraw__flow-bar-field">
               <input
                 type="checkbox"
-                checked={state.glow}
-                onChange={(event) => change({ glow: event.target.checked })}
+                checked={state.glowShape}
+                onChange={(event) =>
+                  change({ glowShape: event.target.checked })
+                }
               />
-              <span>Neon glow</span>
+              <span>Neon shape</span>
+            </label>
+            <label className="excalidraw__flow-bar-field">
+              <input
+                type="checkbox"
+                checked={state.glowText}
+                onChange={(event) => change({ glowText: event.target.checked })}
+              />
+              <span>Neon text</span>
+            </label>
+            <label className="excalidraw__flow-bar-field">
+              <input
+                type="checkbox"
+                checked={state.glowMark}
+                onChange={(event) => change({ glowMark: event.target.checked })}
+              />
+              <span>Neon animation</span>
+            </label>
+            <label className="excalidraw__flow-bar-field">
+              <input
+                type="checkbox"
+                checked={state.glowArrow}
+                onChange={(event) =>
+                  change({ glowArrow: event.target.checked })
+                }
+              />
+              <span>Neon arrows</span>
             </label>
             <label className="excalidraw__flow-bar-field">
               <input

@@ -264,75 +264,78 @@
   }
 }
 
-// The neon tube (D-208): with glow on, the highlight and what travels are a thin
-// bright core with a halo round it in the colour itself - several soft shadows
-// of growing reach, so that it blooms - and no fill. The core is the colour
-// lightened toward white; where the look has no colour of its own, the
-// stylesheet makes it from the accent.
+/// The neon tube (D-208, D-217): with a glow on, the highlight, the text, what
+// travels and the arrows are a thin bright core with a halo round it in the
+// colour itself - several soft shadows of growing reach, so that it blooms -
+// and no fill. The core is the colour lightened toward white; where the look
+// has no colour of its own, the stylesheet makes it from the accent. Each part
+// has its own switch, and its own attribute on the host, the flow or the node.
 .excalidraw__flow-animation,
 .excalidraw__flow-class {
-  [data-flow-glow] {
+  // the shape's outline
+  [data-flow-glow-shape]
+    [data-flow-part="shape"]
     .excalidraw__flow-node-outline {
-      fill: none;
-      fill-opacity: 0;
-      stroke: var(
-        --flow-node-core,
-        color-mix(
-          in srgb,
-          var(--flow-node-color, var(--color-primary)) 25%,
-          #fff
-        )
-      );
-      filter: drop-shadow(0 0 2px var(--flow-node-color, var(--color-primary)))
-        drop-shadow(0 0 6px var(--flow-node-color, var(--color-primary)))
-        drop-shadow(0 0 14px var(--flow-node-color, var(--color-primary)))
-        drop-shadow(0 0 28px var(--flow-node-color, var(--color-primary)));
-    }
+    fill: none;
+    fill-opacity: 0;
+    stroke: var(
+      --flow-node-core,
+      color-mix(in srgb, var(--flow-node-color, var(--color-primary)) 25%, #fff)
+    );
+    filter: drop-shadow(0 0 2px var(--flow-node-color, var(--color-primary)))
+      drop-shadow(0 0 6px var(--flow-node-color, var(--color-primary)))
+      drop-shadow(0 0 14px var(--flow-node-color, var(--color-primary)))
+      drop-shadow(0 0 28px var(--flow-node-color, var(--color-primary)));
+  }
 
-    [data-flow-part="box"] .excalidraw__flow-node-outline {
-      stroke: var(
-        --flow-text-core,
-        color-mix(
-          in srgb,
+  // the rectangle on a label's box
+  [data-flow-glow-text] [data-flow-part="box"] .excalidraw__flow-node-outline {
+    fill: none;
+    fill-opacity: 0;
+    stroke: var(
+      --flow-text-core,
+      color-mix(
+        in srgb,
+        var(--flow-text-color, var(--flow-node-color, var(--color-primary))) 25%,
+        #fff
+      )
+    );
+    filter: drop-shadow(
+        0 0 2px
           var(--flow-text-color, var(--flow-node-color, var(--color-primary)))
-            25%,
-          #fff
-        )
-      );
-      filter: drop-shadow(
-          0 0 2px
-            var(--flow-text-color, var(--flow-node-color, var(--color-primary)))
-        )
-        drop-shadow(
-          0 0 6px
-            var(--flow-text-color, var(--flow-node-color, var(--color-primary)))
-        )
-        drop-shadow(
-          0 0 14px
-            var(--flow-text-color, var(--flow-node-color, var(--color-primary)))
-        );
-    }
-
-    .excalidraw__flow-label--letters {
-      color: var(
-        --flow-text-core,
-        color-mix(
-          in srgb,
-          var(--flow-text-color, var(--flow-node-color, var(--color-primary)))
-            25%,
-          #fff
-        )
-      );
-      text-shadow: 0 0 2px
-          var(--flow-text-color, var(--flow-node-color, var(--color-primary))),
+      )
+      drop-shadow(
         0 0 6px
-          var(--flow-text-color, var(--flow-node-color, var(--color-primary))),
+          var(--flow-text-color, var(--flow-node-color, var(--color-primary)))
+      )
+      drop-shadow(
         0 0 14px
-          var(--flow-text-color, var(--flow-node-color, var(--color-primary))),
-        0 0 28px
-          var(--flow-text-color, var(--flow-node-color, var(--color-primary)));
-    }
+          var(--flow-text-color, var(--flow-node-color, var(--color-primary)))
+      );
+  }
 
+  // the letters
+  [data-flow-glow-text] .excalidraw__flow-label--letters {
+    color: var(
+      --flow-text-core,
+      color-mix(
+        in srgb,
+        var(--flow-text-color, var(--flow-node-color, var(--color-primary))) 25%,
+        #fff
+      )
+    );
+    text-shadow: 0 0 2px
+        var(--flow-text-color, var(--flow-node-color, var(--color-primary))),
+      0 0 6px
+        var(--flow-text-color, var(--flow-node-color, var(--color-primary))),
+      0 0 14px
+        var(--flow-text-color, var(--flow-node-color, var(--color-primary))),
+      0 0 28px
+        var(--flow-text-color, var(--flow-node-color, var(--color-primary)));
+  }
+
+  // what travels
+  [data-flow-glow-mark] {
     .excalidraw__flow-mark--base,
     .excalidraw__flow-mark--beam,
     .excalidraw__flow-mark--dash,
@@ -373,5 +376,33 @@
       filter: drop-shadow(0 0 4px var(--flow-mark-color, var(--color-primary)))
         drop-shadow(0 0 12px var(--flow-mark-color, var(--color-primary)));
     }
+  }
+
+  // the arrows themselves (D-217): the overlay draws each as a tube, and the
+  // canvas does not draw it
+  .excalidraw__flow-arrow-tube {
+    stroke: var(
+      --flow-arrow-core,
+      color-mix(
+        in srgb,
+        var(--flow-arrow-color, var(--flow-mark-color, var(--color-primary)))
+          25%,
+        #fff
+      )
+    );
+    stroke-width: 3;
+    filter: drop-shadow(
+        0 0 2px
+          var(--flow-arrow-color, var(--flow-mark-color, var(--color-primary)))
+      )
+      drop-shadow(
+        0 0 6px
+          var(--flow-arrow-color, var(--flow-mark-color, var(--color-primary)))
+      )
+      drop-shadow(
+        0 0 14px
+          var(--flow-arrow-color, var(--flow-mark-color, var(--color-primary)))
+      );
+    pointer-events: none;
   }
 }

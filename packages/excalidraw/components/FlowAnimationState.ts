@@ -163,7 +163,10 @@ const storeSettings = (settings: FlowAnimationSettings) => {
 const settingsOf = (state: FlowAnimationState): FlowAnimationSettings => ({
   nodeColor: state.nodeColor,
   textColor: state.textColor,
-  glow: state.glow,
+  glowShape: state.glowShape,
+  glowText: state.glowText,
+  glowMark: state.glowMark,
+  glowArrow: state.glowArrow,
   markColor: state.markColor,
   arrowColor: state.arrowColor,
   hideArrow: state.hideArrow,
@@ -233,7 +236,10 @@ const lookOf = (
     options && "textColor" in options
       ? readFlowColor(options.textColor)
       : current.textColor,
-  glow: options?.glow ?? current.glow,
+  glowShape: options?.glowShape ?? current.glowShape,
+  glowText: options?.glowText ?? current.glowText,
+  glowMark: options?.glowMark ?? current.glowMark,
+  glowArrow: options?.glowArrow ?? current.glowArrow,
   hideArrow: options?.hideArrow ?? current.hideArrow,
   nodeTarget: options?.nodeTarget ?? current.nodeTarget,
 });
@@ -425,7 +431,10 @@ export const getFlowAnimationSnapshot = (): FlowAnimationSnapshot | null => {
     speed: state.speed,
     nodeColor: state.nodeColor,
     textColor: state.textColor,
-    glow: state.glow,
+    glowShape: state.glowShape,
+    glowText: state.glowText,
+    glowMark: state.glowMark,
+    glowArrow: state.glowArrow,
     markColor: state.markColor,
     arrowColor: state.arrowColor,
     hideArrow: state.hideArrow,

@@ -30,17 +30,18 @@ export const NO_ARROW_LOOKS: ArrowLooks = new Map();
 /** the looks a flow gives to its arrows, from its look (D-190, D-204) */
 export const arrowLooksFor = (
   graph: FlowGraph,
-  look: { hideArrow: boolean; arrowColor: string | null },
-): [string, ArrowLook][] =>
-  !look.hideArrow && !look.arrowColor
+  look: { hideArrow: boolean; arrowColor: string | null; glowArrow?: boolean },
+): [string, ArrowLook][] => {
+  // an arrow the overlay draws as a neon tube is not drawn by the canvas (D-217)
+  const hidden = look.hideArrow || !!look.glowArrow;
+
+  return !hidden && !look.arrowColor
     ? []
     : graph.edgeArrows.map(({ arrowId }) => [
         arrowId,
-        {
-          hidden: look.hideArrow,
-          color: look.hideArrow ? null : look.arrowColor,
-        },
+        { hidden, color: hidden ? null : look.arrowColor },
       ]);
+};
 
 type Kept = { version: number; versionNonce: number; copy: ExcalidrawElement };
 

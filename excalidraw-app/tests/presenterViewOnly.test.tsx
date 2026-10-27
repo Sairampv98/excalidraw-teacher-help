@@ -252,3 +252,38 @@ describe("AC-238 a view change alone sends the view alone", () => {
     expect(sent(editor, "presenter:camera")).toHaveLength(0);
   });
 });
+
+describe("AC-245 the view goes at the screen's rate", () => {
+  it("AC-245 camera messages go at the screen's rate", async () => {
+    const { editor } = await connect();
+
+    // past the publish interval, so that the first goes out at once
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    });
+
+    editor.posted = [];
+
+    const began = performance.now();
+
+    // a flight: a new view every 10 ms for 300 ms
+    for (let i = 1; i <= 30; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      await act(async () => {
+        publishScene!(latest.elements, {
+          ...latest.appState,
+          scrollX: latest.appState.scrollX + i * 5,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+    }
+
+    const seconds = (performance.now() - began) / 1000;
+    const cameras = sent(editor, "presenter:camera").length;
+
+    // at 25 a second a run gives at most 25 a second; the screen's rate gives well over 30
+    // it is more than half of what the frames could carry at 60
+    expect(cameras).toBeGreaterThanOrEqual(Math.floor(seconds * 30));
+    expect(sent(editor, "presenter:scene")).toHaveLength(0);
+  });
+});

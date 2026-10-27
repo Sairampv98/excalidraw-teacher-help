@@ -169,10 +169,40 @@ export const LabelText = ({
  * (D-208, D-210).
  */
 export const lookVars = (
-  look: Pick<FlowLook, "nodeColor" | "textColor" | "markColor">,
+  look: Pick<FlowLook, "nodeColor" | "textColor" | "markColor"> &
+    Partial<Pick<FlowLook, "arrowColor">>,
 ): React.CSSProperties => flowLookVars(look) as React.CSSProperties;
 
+/**
+ * The arrows of a flow drawn as neon tubes (D-217): the canvas does not draw
+ * them while this does, a thin bright core with a halo in the arrow's colour.
+ */
+export const ArrowTubes = ({
+  arrows,
+}: {
+  arrows: readonly { id: string; path: readonly { x: number; y: number }[] }[];
+}) => (
+  <>
+    {arrows.map((arrow) => (
+      <polyline
+        key={arrow.id}
+        data-flow-arrow-tube={arrow.id}
+        className="excalidraw__flow-arrow-tube"
+        points={arrow.path.map((p) => `${p.x},${p.y}`).join(" ")}
+        fill="none"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    ))}
+  </>
+);
+
 /** the attribute that turns the neon glow on for what it is put on (D-208) */
-export const lookAttrs = (look: Pick<FlowLook, "glow">) => ({
-  "data-flow-glow": look.glow ? "" : undefined,
+export const lookAttrs = (
+  look: Pick<FlowLook, "glowShape" | "glowText" | "glowMark" | "glowArrow">,
+) => ({
+  "data-flow-glow-shape": look.glowShape ? "" : undefined,
+  "data-flow-glow-text": look.glowText ? "" : undefined,
+  "data-flow-glow-mark": look.glowMark ? "" : undefined,
+  "data-flow-glow-arrow": look.glowArrow ? "" : undefined,
 });

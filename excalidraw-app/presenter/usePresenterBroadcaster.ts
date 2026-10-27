@@ -38,6 +38,13 @@ import type { PresenterPointer, PresenterScene } from "./presenterChannel";
 export const PRESENTER_PUBLISH_INTERVAL_MS = 40;
 
 /**
+ * A view that moves alone - a camera flight, a scroll, a zoom - goes at the
+ * screen's own rate, about 60 a second (D-219): it is a few numbers, and a
+ * presenter that gets it at 25 a second steps and trails the editor.
+ */
+export const PRESENTER_CAMERA_INTERVAL_MS = 16;
+
+/**
  * Idle keep-alive. The editor deliberately stops publishing while nothing
  * changes (that is what keeps the `onChange` hot path cheap), but the presenter
  * treats "no message for PRESENTER_UNRESPONSIVE_MS" as a dead editor — so
@@ -131,13 +138,33 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
     }
   }, []);
 
+  /** whether what is waiting to be sent is a move of the view alone (D-219) */
+  const isViewOnly = useCallback(() => {
+    const scene = sceneRef.current;
+    const last = lastSceneSentRef.current;
+
+    return (
+      !!scene &&
+      !!last &&
+      isViewOnlyChange(last, {
+        elements: scene.elements,
+        camera: getPresenterCamera(scene.appState, pagesEnabledRef.current),
+      })
+    );
+  }, []);
+
   // leading edge when idle (instant mirror), trailing edge while drawing
   const scheduleSend = useCallback(() => {
     if (flushTimerRef.current !== null) {
       return;
     }
 
-    if (Date.now() - lastSentAtRef.current >= PRESENTER_PUBLISH_INTERVAL_MS) {
+    // a view that moves alone is sent at the screen's rate (D-219)
+    const interval = isViewOnly()
+      ? PRESENTER_CAMERA_INTERVAL_MS
+      : PRESENTER_PUBLISH_INTERVAL_MS;
+
+    if (Date.now() - lastSentAtRef.current >= interval) {
       sendScene();
       return;
     }
@@ -145,8 +172,8 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
     flushTimerRef.current = setTimeout(() => {
       flushTimerRef.current = null;
       sendScene();
-    }, PRESENTER_PUBLISH_INTERVAL_MS);
-  }, [sendScene]);
+    }, interval);
+  }, [isViewOnly, sendScene]);
 
   const sendPointer = useCallback(() => {
     const channel = channelRef.current;

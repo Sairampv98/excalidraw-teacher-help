@@ -22,6 +22,8 @@
 
 import { isFlowColor } from "./flowLook";
 
+import type { FlowLook } from "./flowLook";
+
 export type FlowSwatch = {
   id: string;
   name: string;
@@ -241,10 +243,34 @@ export const presetColorsFor = (
 const same = (a: string | null, b: string | null) =>
   (a ?? "").toLowerCase() === (b ?? "").toLowerCase();
 
+/** what a preset sets of a look: its colours, and the glow of the three it covers (D-217) */
+export const presetLook = (colors: FlowPresetColors) => ({
+  nodeColor: colors.nodeColor,
+  textColor: colors.textColor,
+  markColor: colors.markColor,
+  glowShape: colors.glow,
+  glowText: colors.glow,
+  glowMark: colors.glow,
+  // a preset that turns the glow off turns every glow off; one that turns it
+  // on leaves the arrows as they are
+  ...(colors.glow ? {} : { glowArrow: false }),
+});
+
+/** the part of a look a preset sets */
+export type FlowPresetLook = Pick<
+  FlowLook,
+  | "nodeColor"
+  | "textColor"
+  | "markColor"
+  | "glowShape"
+  | "glowText"
+  | "glowMark"
+>;
+
 /** whether the look's colours and glow are the preset's own, on this page */
 export const presetIsChosen = (
   preset: FlowColorPreset,
-  look: FlowPresetColors,
+  look: FlowPresetLook,
   background: string | null | undefined,
 ) => {
   const colors = presetColorsFor(preset, background);
@@ -253,6 +279,8 @@ export const presetIsChosen = (
     same(look.nodeColor, colors.nodeColor) &&
     same(look.textColor, colors.textColor) &&
     same(look.markColor, colors.markColor) &&
-    look.glow === colors.glow
+    look.glowShape === colors.glow &&
+    look.glowText === colors.glow &&
+    look.glowMark === colors.glow
   );
 };

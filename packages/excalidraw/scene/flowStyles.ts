@@ -41,7 +41,7 @@ export const FLOW_STYLES: readonly { id: FlowStyle; label: string }[] = [
 export const FLOW_SPEED = 240;
 
 /** the limits of the speed setting, in scene units a second (D-179) */
-export const FLOW_SPEED_MIN = 40;
+export const FLOW_SPEED_MIN = 10;
 export const FLOW_SPEED_MAX = 600;
 
 /** a speed held between the limits */
