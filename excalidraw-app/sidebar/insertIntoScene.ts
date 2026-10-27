@@ -27,6 +27,7 @@ import type {
   BinaryFileData,
   DataURL,
   ExcalidrawImperativeAPI,
+  SceneData,
 } from "@excalidraw/excalidraw/types";
 import type { FileId } from "@excalidraw/element/types";
 import type {
@@ -53,6 +54,13 @@ export const appendElements = (
    * readable back yet (D-104).
    */
   pageId?: string,
+  /**
+   * How the insert is recorded in the undo history. Left out, it is the
+   * library's default (the insert joins the next recorded change); a caller
+   * that adds one thing the user will want to undo on its own - a whole chart
+   * (D-161) - passes `CaptureUpdateAction.IMMEDIATELY`.
+   */
+  captureUpdate?: SceneData["captureUpdate"],
 ) => {
   const existing = api.getSceneElements();
 
@@ -74,6 +82,7 @@ export const appendElements = (
       api.getAppState(),
     ),
     appState,
+    captureUpdate,
   });
 };
 

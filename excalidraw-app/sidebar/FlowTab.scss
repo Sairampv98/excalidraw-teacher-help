@@ -1,0 +1,93 @@
+/**
+ * The flow studio's tab (D-161) - the sidebar's own look: the island colours
+ * and the same small type as the Files tab.
+ */
+.flow-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  font-size: 0.8125rem;
+  color: var(--text-primary-color, var(--icon-fill-color));
+}
+
+.flow-tab__intro,
+.flow-tab__hint {
+  margin: 0;
+  opacity: 0.75;
+}
+
+.flow-tab__presets {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.flow-tab__preset {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+
+  &:hover {
+    background-color: var(--button-hover-bg, rgba(127, 127, 127, 0.14));
+  }
+
+  &[aria-checked="true"] {
+    border-color: var(--color-primary, #6965db);
+    background-color: var(--color-primary-light, rgba(105, 101, 219, 0.14));
+  }
+}
+
+.flow-tab__preset-name {
+  font-weight: 600;
+}
+
+.flow-tab__preset-description {
+  font-size: 0.75rem;
+  opacity: 0.75;
+}
+
+.flow-tab__label {
+  font-weight: 600;
+}
+
+.flow-tab__script {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background-color: var(--input-bg-color, transparent);
+  color: inherit;
+  font: inherit;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.flow-tab__insert {
+  align-self: flex-start;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 8px;
+  background-color: var(--color-primary, #6965db);
+  color: var(--color-surface-lowest, #fff);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.flow-tab__message {
+  margin: 0;
+
+  &[data-kind="error"] {
+    color: var(--color-danger, #db6965);
+  }
+}

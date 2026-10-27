@@ -51,6 +51,139 @@
   }
 }
 
+.excalidraw__flow-animation {
+  // what travels along the arrows (D-166, D-171): drawn in scene units, under
+  // one transform, so it scales with the canvas and lands where the arrows are
+  .excalidraw__flow-marks {
+    position: absolute;
+    top: 0;
+    left: 0;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  .excalidraw__flow-mark--base {
+    stroke: var(--color-primary);
+    opacity: 0.3;
+  }
+
+  .excalidraw__flow-mark--beam {
+    stroke: var(--color-primary);
+    filter: drop-shadow(0 0 6px var(--color-primary));
+  }
+
+  .excalidraw__flow-mark--dash {
+    stroke: var(--color-primary);
+  }
+
+  .excalidraw__flow-mark--pipe-dark {
+    stroke: #1e1e1e;
+  }
+
+  .excalidraw__flow-mark--pipe-light {
+    stroke: #868e96;
+  }
+
+  .excalidraw__flow-mark--pipe-flow {
+    stroke: #ffffff;
+  }
+
+  .excalidraw__flow-mark--token {
+    fill: var(--color-primary);
+    filter: drop-shadow(0 0 5px var(--color-primary));
+  }
+
+  .excalidraw__flow-mark--draw-on {
+    stroke: var(--color-primary);
+    stroke-width: 4;
+    fill: var(--color-primary);
+  }
+
+  // a step that has not been reached yet, while presenting (D-167)
+  .excalidraw__flow-animation-dim {
+    position: absolute;
+    top: 0;
+    left: 0;
+    border-radius: 0.5rem;
+    background-color: var(--island-bg-color, #fff);
+    opacity: 0.88;
+    pointer-events: none;
+  }
+
+  // a branch of the current question that can be clicked (D-172)
+  .excalidraw__flow-animation-choice {
+    position: absolute;
+    top: 0;
+    left: 0;
+    padding: 0;
+    border: 2px dashed var(--color-primary);
+    border-radius: 0.5rem;
+    background-color: transparent;
+    cursor: pointer;
+    pointer-events: auto;
+
+    &:hover,
+    &:focus-visible {
+      background-color: var(--color-primary);
+      opacity: 0.25;
+    }
+  }
+
+  // the step is only outlined by the styles that leave its size alone
+  .excalidraw__flow-animation-focus--pulse {
+    animation: excalidraw__flow-animation-glow 1200ms ease-in-out infinite;
+  }
+
+  .excalidraw__flow-animation-controls {
+    position: absolute;
+    bottom: 1rem;
+    left: 50%;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.375rem 0.625rem;
+    transform: translateX(-50%);
+    border-radius: 0.5rem;
+    background-color: var(--island-bg-color, #fff);
+    box-shadow: var(--shadow-island);
+    pointer-events: auto;
+
+    button {
+      min-width: 2rem;
+      padding: 0.25rem 0.5rem;
+      border: 1px solid var(--color-border, #ccc);
+      border-radius: 0.375rem;
+      background: transparent;
+      color: var(--text-primary-color);
+      font: inherit;
+      cursor: pointer;
+
+      &:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+    }
+  }
+
+  .excalidraw__flow-animation-counter {
+    min-width: 3rem;
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+  }
+}
+
+@keyframes excalidraw__flow-animation-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--color-primary);
+  }
+
+  50% {
+    box-shadow: 0 0 14px 4px var(--color-primary);
+  }
+}
+
 @keyframes excalidraw__flow-animation-in {
   from {
     opacity: 0;

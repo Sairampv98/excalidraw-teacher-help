@@ -61,11 +61,18 @@ export type FlowEdge = {
   to: string;
 };
 
+/** which arrow carries an edge - so an animation can draw along the arrow itself */
+export type FlowEdgeArrow = FlowEdge & {
+  arrowId: string;
+};
+
 export type FlowGraph = {
   /** the steps, in the order the animation walks them */
   steps: FlowStep[];
   /** the edges the arrows gave us */
   edges: FlowEdge[];
+  /** the arrow behind each edge (two arrows between the same steps are both listed) */
+  edgeArrows: FlowEdgeArrow[];
 };
 
 /** An item the reading order sorts. */
@@ -285,6 +292,7 @@ export const buildFlowGraph = (
   const readingIndex = new Map(reading.map((item, index) => [item.id, index]));
 
   const edges: FlowEdge[] = [];
+  const edgeArrows: FlowEdgeArrow[] = [];
   const seen = new Set<string>();
 
   for (const arrow of arrows) {
@@ -298,6 +306,8 @@ export const buildFlowGraph = (
     if (!containers.has(from) || !containers.has(to)) {
       continue;
     }
+
+    edgeArrows.push({ from, to, arrowId: arrow.id });
 
     // an unambiguous key: two different edges must not share one
     const key = JSON.stringify([from, to]);
@@ -318,5 +328,5 @@ export const buildFlowGraph = (
     box: boxes.get(containerId)!,
   }));
 
-  return { steps, edges };
+  return { steps, edges, edgeArrows };
 };
