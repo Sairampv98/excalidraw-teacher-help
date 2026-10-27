@@ -103,16 +103,15 @@ export const mixHex = (a: string, b: string, t: number) => {
 
   const clamped = Math.min(Math.max(t, 0), 1);
 
-  return (
-    "#" +
-    from
-      .map((channel, i) =>
-        Math.round(channel * (1 - clamped) + to[i] * clamped)
-          .toString(16)
-          .padStart(2, "0"),
-      )
-      .join("")
-  );
+  const hex = from
+    .map((channel, i) =>
+      Math.round(channel * (1 - clamped) + to[i] * clamped)
+        .toString(16)
+        .padStart(2, "0"),
+    )
+    .join("");
+
+  return `#${hex}`;
 };
 
 /** how far toward white the core of a neon tube is lightened (D-208) */

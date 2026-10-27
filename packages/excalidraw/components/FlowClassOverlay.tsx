@@ -17,7 +17,6 @@ import {
 import { flowBoxOf } from "../scene/flowBar";
 import { arrowLooksFor } from "../scene/flowArrowLooks";
 
-import type { ArrowLook } from "../scene/flowArrowLooks";
 import { classStepAt, markedFlowsOnPage } from "../scene/flowClass";
 import {
   drawnLabelIds,
@@ -46,6 +45,8 @@ import {
 import { LabelText, NodeOutline, lookAttrs, lookVars } from "./FlowLookParts";
 
 import "./FlowAnimationOverlay.scss";
+
+import type { ArrowLook } from "../scene/flowArrowLooks";
 
 import type { FlowAnimationCamera } from "../scene/flowAnimation";
 import type { MarkedFlow } from "../scene/flowClass";

@@ -449,7 +449,7 @@ describe("AC-240 it is clear how to exit the animation", () => {
 
   const active = () => editorJotaiStore.get(flowAnimationStateAtom).active;
 
-  const escape = (target: EventTarget = document) =>
+  const escape = (target: Document | Element = document) =>
     act(() => {
       fireEvent.keyDown(target, { key: "Escape" });
     });
@@ -577,7 +577,7 @@ describe("AC-240 it is clear how to exit the animation", () => {
 
     // nothing runs: Esc is the editor's own again, and does what it did
     act(() => {
-      h.setState({ activeTool: { ...h.state.activeTool, type: "rectangle" } });
+      h.app.setActiveTool({ type: "rectangle" });
     });
     escape();
 

@@ -2,9 +2,9 @@ import React from "react";
 
 import { getFontFamilyString, getVerticalOffset } from "@excalidraw/common";
 
-import { flowLookVars } from "../scene/flowLook";
-
 import type { ExcalidrawTextElement } from "@excalidraw/element/types";
+
+import { flowLookVars } from "../scene/flowLook";
 
 import type { HighlightShape } from "../scene/flowHighlight";
 import type { FlowLook } from "../scene/flowLook";

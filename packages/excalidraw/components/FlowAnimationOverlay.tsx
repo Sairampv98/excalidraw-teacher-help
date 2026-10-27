@@ -32,7 +32,6 @@ import {
 } from "../scene/flowHighlight";
 import { arrowLooksFor } from "../scene/flowArrowLooks";
 
-import type { ArrowLook } from "../scene/flowArrowLooks";
 import { flowMarksFor, getArrowPath } from "../scene/flowStyles";
 
 import { editorJotaiStore, useAtomValue } from "../editor-jotai";
@@ -52,6 +51,7 @@ import {
 
 import "./FlowAnimationOverlay.scss";
 
+import type { ArrowLook } from "../scene/flowArrowLooks";
 import type { FlowAnimationCamera } from "../scene/flowAnimation";
 import type { FlowCameraState, FlowViewport } from "../scene/flowCamera";
 import type { FlowGraph, FlowStep } from "../scene/flowOrder";

@@ -446,7 +446,7 @@ export const PresenterView = () => {
           break;
       }
     },
-    [applyFlow, applyPointer, applyScene, requestMissingFiles],
+    [applyCamera, applyFlow, applyPointer, applyScene, requestMissingFiles],
   );
 
   // ---------------------------------------------------------------------------
