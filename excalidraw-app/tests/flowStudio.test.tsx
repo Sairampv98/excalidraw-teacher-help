@@ -5,6 +5,9 @@
  * page they are stamped to, what survives an undo.
  */
 
+import fs from "node:fs";
+import path from "node:path";
+
 import { Excalidraw } from "@excalidraw/excalidraw";
 import { Keyboard } from "@excalidraw/excalidraw/tests/helpers/ui";
 import {
@@ -187,5 +190,90 @@ describe("the flow studio (AC-198)", () => {
     expect(live().length).toBeGreaterThan(0);
     expect(fetched).toEqual([]);
     expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("wave 7r: the tab fits any window (AC-207)", () => {
+  const stylesheet = fs.readFileSync(
+    path.resolve(__dirname, "../sidebar/FlowTab.scss"),
+    "utf8",
+  );
+
+  /** the declarations of one rule of the tab's stylesheet */
+  const rule = (selector: string) => {
+    const start = stylesheet.indexOf(`${selector} {`);
+
+    expect(start).toBeGreaterThanOrEqual(0);
+
+    return stylesheet.slice(start, stylesheet.indexOf("\n}", start) + 2);
+  };
+
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("AC-207 the button is outside the scrolling body", async () => {
+    const { getByRole, getByLabelText } = await renderStudio();
+
+    const button = getByRole("button", { name: "Insert chart" });
+
+    expect(button.closest(".flow-tab__body")).toBeNull();
+    expect(button.closest(".flow-tab__footer")).not.toBeNull();
+
+    // and what it says is with it, not inside what scrolls
+    setScript(getByLabelText, "  ");
+    fireEvent.click(button);
+
+    expect(getByRole("alert").closest(".flow-tab__footer")).not.toBeNull();
+
+    // the presets and the script are what scrolls
+    expect(getByLabelText("Script").closest(".flow-tab__body")).not.toBeNull();
+    expect(
+      getByRole("radiogroup", { name: "Kind of chart" }).closest(
+        ".flow-tab__body",
+      ),
+    ).not.toBeNull();
+  });
+
+  it("AC-207 the body scrolls and the footer does not", () => {
+    const body = rule(".flow-tab__body");
+    const footer = rule(".flow-tab__footer");
+
+    expect(body).toMatch(/overflow-y: auto/);
+    expect(body).toMatch(/flex: 1 1 auto/);
+    expect(body).toMatch(/min-height: 0/);
+
+    expect(footer).toMatch(/flex: 0 0 auto/);
+    expect(footer).not.toMatch(/overflow/);
+  });
+
+  it("AC-207 the script has a minimum height and no maximum", () => {
+    const script = rule(".flow-tab__script");
+
+    expect(script).toMatch(/min-height: *[0-9.]+rem/);
+    expect(script).not.toMatch(/max-height/);
+  });
+
+  it("AC-207 the button is clickable in a short window", async () => {
+    // a short window: the whole editor is a few lines high
+    const original = window.innerHeight;
+
+    window.innerHeight = 240;
+    window.dispatchEvent(new Event("resize"));
+
+    try {
+      const { getByRole } = await renderStudio();
+      const button = getByRole("button", {
+        name: "Insert chart",
+      }) as HTMLButtonElement;
+
+      expect(button.disabled).toBe(false);
+
+      fireEvent.click(button);
+
+      expect(live().length).toBeGreaterThan(0);
+    } finally {
+      window.innerHeight = original;
+    }
   });
 });

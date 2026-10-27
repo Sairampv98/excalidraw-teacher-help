@@ -102,6 +102,7 @@
     "flowAnimationPlay": "Play",
     "flowAnimationStop": "Stop",
     "flowAnimationLayout": "Lay this out",
+    "flowAnimationResetLayout": "Reset layout",
     "language": "Language",
     "liveCollaboration": "Live collaboration...",
     "duplicateSelection": "Duplicate",

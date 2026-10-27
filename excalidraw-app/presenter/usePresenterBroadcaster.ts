@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef } from "react";
 
 import { useExcalidrawAPI } from "@excalidraw/excalidraw";
+import {
+  getFlowAnimationSnapshot,
+  subscribeToFlowAnimation,
+} from "@excalidraw/excalidraw/components/FlowAnimationState";
 
 import type {
   AppState,
@@ -11,6 +15,8 @@ import type {
   FileId,
   OrderedExcalidrawElement,
 } from "@excalidraw/element/types";
+
+import type { FlowAnimationSnapshot } from "@excalidraw/excalidraw/components/FlowAnimationState";
 
 import {
   createPresenterChannel,
@@ -243,6 +249,38 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
     }
   }, []);
 
+  /**
+   * Hands the flow animation to the presenter (D-181): what plays, which step
+   * is current and how it is drawn. The picture is drawn by the presenter's own
+   * overlay over its own copy of the scene, so only this plain description
+   * crosses.
+   */
+  const sendFlow = useCallback((flow: FlowAnimationSnapshot | null) => {
+    const channel = channelRef.current;
+
+    if (!channel) {
+      return;
+    }
+
+    try {
+      channel.postMessage({ type: "presenter:flow", flow });
+    } catch (error) {
+      // a missed animation frame must not break the editor
+      console.error("presenter: failed to publish the flow animation", error);
+    }
+  }, []);
+
+  // sent when it changes - and nothing is sent while nobody is listening
+  useEffect(
+    () =>
+      subscribeToFlowAnimation((flow) => {
+        if (presentersRef.current.size > 0) {
+          sendFlow(flow);
+        }
+      }),
+    [sendFlow],
+  );
+
   useEffect(() => {
     if (!isPresenterSupported()) {
       return;
@@ -271,6 +309,9 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
           for (const [panelId, capture] of liveViewsRef.current) {
             sendLiveView(panelId, capture);
           }
+
+          // and so does the animation that is playing, if one is
+          sendFlow(getFlowAnimationSnapshot());
           break;
         }
         case "presenter:bye": {
@@ -312,7 +353,7 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
       channelRef.current = null;
       channel?.close();
     };
-  }, [sendFiles, sendLiveView, sendScene]);
+  }, [sendFiles, sendFlow, sendLiveView, sendScene]);
 
   const publishScene = useCallback(
     (elements: readonly OrderedExcalidrawElement[], appState: AppState) => {

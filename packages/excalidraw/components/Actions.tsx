@@ -87,7 +87,6 @@ import {
 } from "./icons";
 
 import { Island } from "./Island";
-import { FlowAnimationSection } from "./FlowAnimationSection";
 
 import type {
   AppClassProperties,
@@ -307,13 +306,6 @@ export const SelectedShapeActions = ({
             </div>
           </div>
         </fieldset>
-      )}
-      {!isEditingTextOrNewElement && (
-        <FlowAnimationSection
-          targetElements={targetElements}
-          elementsMap={elementsMap}
-          app={app}
-        />
       )}
       {!isEditingTextOrNewElement && targetElements.length > 0 && (
         <fieldset>

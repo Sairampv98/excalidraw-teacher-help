@@ -40,6 +40,17 @@ export const FLOW_STYLES: readonly { id: FlowStyle; label: string }[] = [
 /** how fast a mark travels, in scene units a second - never "a frame" (D-171) */
 export const FLOW_SPEED = 240;
 
+/** the limits of the speed setting, in scene units a second (D-179) */
+export const FLOW_SPEED_MIN = 40;
+export const FLOW_SPEED_MAX = 600;
+
+/** a speed held between the limits */
+export const clampFlowSpeed = (speed: number) =>
+  Math.min(
+    Math.max(Number.isFinite(speed) ? speed : FLOW_SPEED, FLOW_SPEED_MIN),
+    FLOW_SPEED_MAX,
+  );
+
 /** how long the beam's streak of light is, in scene units */
 export const FLOW_BEAM_LENGTH = 90;
 
@@ -171,26 +182,44 @@ export type FlowDot = PathPoint & { radius: number; role: "token" };
 
 export type FlowMarks = { strokes: FlowStroke[]; dots: FlowDot[] };
 
+/** what the marks are drawn with: the chart's size and how fast they travel */
+export type FlowMarkOptions = {
+  /** the chart scale of D-175; marks are drawn this much larger */
+  scale?: number;
+  /** scene units a second before the scale, between the limits (D-179) */
+  speed?: number;
+};
+
 /** how far along the path a mark has got `elapsedMs` after it started */
-const travelled = (elapsedMs: number) => (elapsedMs / 1000) * FLOW_SPEED;
+const travelled = (elapsedMs: number, options?: FlowMarkOptions) =>
+  (elapsedMs / 1000) *
+  clampFlowSpeed(options?.speed ?? FLOW_SPEED) *
+  (options?.scale ?? 1);
+
+/** the dash and the gap, at the chart's size */
+const dashFor = (options?: FlowMarkOptions): readonly [number, number] => [
+  FLOW_DASH[0] * (options?.scale ?? 1),
+  FLOW_DASH[1] * (options?.scale ?? 1),
+];
 
 /** the dash pattern's offset after `elapsedMs`: it runs toward the arrow's end */
-const flowingOffset = (elapsedMs: number) => {
-  const period = FLOW_DASH[0] + FLOW_DASH[1];
+const flowingOffset = (elapsedMs: number, options?: FlowMarkOptions) => {
+  const [dash, gap] = dashFor(options);
 
   // a decreasing offset moves the dashes in the direction the path is drawn
-  return -(travelled(elapsedMs) % period);
+  return -(travelled(elapsedMs, options) % (dash + gap));
 };
 
 /**
  * What a style draws along one arrow, `elapsedMs` after the animation reached
- * the step. `focus` and `pulse` draw nothing on an arrow: they are treatments
- * of the step.
+ * the step. `focus`, `pulse` and `none` draw nothing on an arrow: they are
+ * treatments of the step.
  */
 export const flowMarksFor = (
-  style: FlowStyle,
+  style: FlowStyle | "none",
   path: readonly PathPoint[],
   elapsedMs: number,
+  options?: FlowMarkOptions,
 ): FlowMarks => {
   const none: FlowMarks = { strokes: [], dots: [] };
 
@@ -199,18 +228,20 @@ export const flowMarksFor = (
   }
 
   const length = pathLength(path);
+  const scale = options?.scale ?? 1;
+  const beamLength = FLOW_BEAM_LENGTH * scale;
 
   switch (style) {
     case "beam": {
       // the streak enters at the start, crosses, and leaves at the end
-      const head = travelled(elapsedMs) % (length + FLOW_BEAM_LENGTH);
+      const head = travelled(elapsedMs, options) % (length + beamLength);
 
       return {
         strokes: [
-          { points: [...path], width: 2, role: "base" },
+          { points: [...path], width: 2 * scale, role: "base" },
           {
-            points: subPath(path, head - FLOW_BEAM_LENGTH, head),
-            width: 5,
+            points: subPath(path, head - beamLength, head),
+            width: 5 * scale,
             role: "beam",
           },
         ],
@@ -223,10 +254,10 @@ export const flowMarksFor = (
         strokes: [
           {
             points: [...path],
-            width: 3,
+            width: 3 * scale,
             role: "dash",
-            dash: FLOW_DASH,
-            dashOffset: flowingOffset(elapsedMs),
+            dash: dashFor(options),
+            dashOffset: flowingOffset(elapsedMs, options),
           },
         ],
         dots: [],
@@ -237,14 +268,14 @@ export const flowMarksFor = (
       // and a dashed highlight that runs along it (D-171)
       return {
         strokes: [
-          { points: [...path], width: 11, role: "pipe-dark" },
-          { points: [...path], width: 7, role: "pipe-light" },
+          { points: [...path], width: 11 * scale, role: "pipe-dark" },
+          { points: [...path], width: 7 * scale, role: "pipe-light" },
           {
             points: [...path],
-            width: 2,
+            width: 2 * scale,
             role: "pipe-flow",
-            dash: FLOW_DASH,
-            dashOffset: flowingOffset(elapsedMs),
+            dash: dashFor(options),
+            dashOffset: flowingOffset(elapsedMs, options),
           },
         ],
         dots: [],
@@ -253,16 +284,59 @@ export const flowMarksFor = (
     case "token": {
       const at = pointAtDistance(
         path,
-        travelled(elapsedMs) % Math.max(length, 1),
+        travelled(elapsedMs, options) % Math.max(length, 1),
       );
 
       return {
-        strokes: [{ points: [...path], width: 2, role: "base" }],
-        dots: [{ ...at, radius: FLOW_TOKEN_RADIUS, role: "token" }],
+        strokes: [{ points: [...path], width: 2 * scale, role: "base" }],
+        dots: [{ ...at, radius: FLOW_TOKEN_RADIUS * scale, role: "token" }],
       };
     }
 
     default:
       return none;
+  }
+};
+
+/* ------------------------------------------------- the two animations (D-178) */
+
+/** what the shapes do while a step is current */
+export type FlowNodeStyle = "none" | "focus" | "pulse";
+
+/** what the arrows do: the marks drawn along them */
+export type FlowArrowStyle = "none" | "beam" | "marching" | "pipe" | "token";
+
+export const FLOW_NODE_STYLES: readonly { id: FlowNodeStyle; label: string }[] =
+  [
+    { id: "none", label: "None" },
+    { id: "focus", label: "Focus" },
+    { id: "pulse", label: "Pulse" },
+  ];
+
+export const FLOW_ARROW_STYLES: readonly {
+  id: FlowArrowStyle;
+  label: string;
+}[] = [
+  { id: "none", label: "None" },
+  { id: "beam", label: "Beam" },
+  { id: "marching", label: "Marching dashes" },
+  { id: "pipe", label: "Pipe" },
+  { id: "token", label: "Token" },
+];
+
+/**
+ * A single style (D-166) read as the pair it stands for: focus and pulse treat
+ * the nodes, the other four draw on the arrows.
+ */
+export const splitFlowStyle = (
+  style: FlowStyle,
+): { node: FlowNodeStyle; arrow: FlowArrowStyle } => {
+  switch (style) {
+    case "focus":
+      return { node: "focus", arrow: "none" };
+    case "pulse":
+      return { node: "pulse", arrow: "none" };
+    default:
+      return { node: "none", arrow: style };
   }
 };

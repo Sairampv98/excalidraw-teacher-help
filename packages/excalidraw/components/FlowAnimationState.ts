@@ -1,11 +1,18 @@
 /**
- * The flow animation's state — the one thing the properties-panel section and
- * the canvas overlay talk through.
+ * The flow animation's state — the one thing the floating bar and the canvas
+ * overlay talk through.
  *
  * It is a **jotai atom** (the `PageSplitState.ts` pattern) and not `appState`,
  * so nothing about the animation is written into the application state — and
  * therefore nothing about it reaches the saved document (D-63).
+ *
+ * The **settings** (how the nodes and the arrows are animated, how fast, the
+ * camera and the loop) are remembered between sessions in the browser's own
+ * storage, and only there: they are the teacher's preferences, not part of any
+ * document (D-178).
  */
+
+import type { ElementsMap, ExcalidrawElement } from "@excalidraw/element/types";
 
 import { atom, editorJotaiStore } from "../editor-jotai";
 import {
@@ -17,9 +24,21 @@ import {
   presentPrevious,
   startPath,
 } from "../scene/flowPresent";
+import { flowOfSelection } from "../scene/flowSelection";
+import {
+  FLOW_ARROW_STYLES,
+  FLOW_NODE_STYLES,
+  FLOW_SPEED,
+  clampFlowSpeed,
+  splitFlowStyle,
+} from "../scene/flowStyles";
 
 import type { FlowGraph, FlowStep } from "../scene/flowOrder";
-import type { FlowStyle } from "../scene/flowStyles";
+import type {
+  FlowArrowStyle,
+  FlowNodeStyle,
+  FlowStyle,
+} from "../scene/flowStyles";
 
 /** how long a step is held, in milliseconds, unless the user says otherwise */
 export const DEFAULT_FLOW_STEP_DURATION_MS = 1200;
@@ -30,48 +49,152 @@ export type FlowAnimationMode =
   /** the teacher moves from step to step; nothing loops (D-167) */
   | "present";
 
-export type FlowAnimationState = {
+/** the teacher's preferences: the part of the state that outlives a session */
+export type FlowAnimationSettings = {
+  /** how long a step is held, in milliseconds */
+  durationMs: number;
+  /** whether the animation loops back to the first step */
+  loop: boolean;
+  /** what the shapes do while a step is current (D-178) */
+  nodeStyle: FlowNodeStyle;
+  /** what is drawn along the arrows (D-178) */
+  arrowStyle: FlowArrowStyle;
+  /** how fast the marks travel, in scene units a second (D-179) */
+  speed: number;
+  /** whether the view flies to each step (D-170); off unless asked for */
+  camera: boolean;
+};
+
+export type FlowAnimationState = FlowAnimationSettings & {
   /** whether the animation is playing */
   active: boolean;
   /** the steps, in the order the animation walks them */
   steps: FlowStep[];
   /** the step that is focused now */
   index: number;
-  /** how long a step is held, in milliseconds */
-  durationMs: number;
-  /** whether the animation loops back to the first step */
-  loop: boolean;
-  /** how the flow is drawn (D-166) */
-  style: FlowStyle;
-  /** whether the view flies to each step (D-170); off unless asked for */
-  camera: boolean;
   mode: FlowAnimationMode;
   /** presenting: the steps visited, in order - the current step is the last */
   path: number[];
   /** the flow's arrows and steps, for choices, ends and the paths to draw along */
   graph: FlowGraph | null;
+  /**
+   * The state is a **mirror** of another window's (the presenter, D-181): the
+   * steps are moved by that window, so this one runs no step clock, flies no
+   * camera, listens to no key and has no control to press.
+   */
+  mirror: boolean;
 };
+
+/* ------------------------------------------------------------------- settings */
+
+export const FLOW_SETTINGS_STORAGE_KEY = "excalidraw-flow-animation-settings";
+
+const DEFAULT_SETTINGS: FlowAnimationSettings = {
+  durationMs: DEFAULT_FLOW_STEP_DURATION_MS,
+  loop: true,
+  nodeStyle: "focus",
+  arrowStyle: "none",
+  speed: FLOW_SPEED,
+  camera: false,
+};
+
+/** what the browser's storage holds, kept to what is valid; never throws */
+const readStoredSettings = (): FlowAnimationSettings => {
+  try {
+    const raw = window.localStorage.getItem(FLOW_SETTINGS_STORAGE_KEY);
+    const stored = raw ? JSON.parse(raw) : null;
+
+    if (!stored || typeof stored !== "object") {
+      return DEFAULT_SETTINGS;
+    }
+
+    const settings = { ...DEFAULT_SETTINGS };
+
+    if (Number.isFinite(stored.durationMs) && stored.durationMs >= 100) {
+      settings.durationMs = stored.durationMs;
+    }
+
+    if (typeof stored.loop === "boolean") {
+      settings.loop = stored.loop;
+    }
+
+    if (typeof stored.camera === "boolean") {
+      settings.camera = stored.camera;
+    }
+
+    if (Number.isFinite(stored.speed)) {
+      settings.speed = clampFlowSpeed(stored.speed);
+    }
+
+    if (FLOW_NODE_STYLES.some((style) => style.id === stored.nodeStyle)) {
+      settings.nodeStyle = stored.nodeStyle;
+    }
+
+    if (FLOW_ARROW_STYLES.some((style) => style.id === stored.arrowStyle)) {
+      settings.arrowStyle = stored.arrowStyle;
+    }
+
+    return settings;
+  } catch {
+    // private windows and blocked storage: the defaults are fine
+    return DEFAULT_SETTINGS;
+  }
+};
+
+const storeSettings = (settings: FlowAnimationSettings) => {
+  try {
+    window.localStorage.setItem(
+      FLOW_SETTINGS_STORAGE_KEY,
+      JSON.stringify(settings),
+    );
+  } catch {
+    // nothing to do: the setting still applies for this session
+  }
+};
+
+const settingsOf = (state: FlowAnimationState): FlowAnimationSettings => ({
+  durationMs: state.durationMs,
+  loop: state.loop,
+  nodeStyle: state.nodeStyle,
+  arrowStyle: state.arrowStyle,
+  speed: state.speed,
+  camera: state.camera,
+});
 
 export const flowAnimationStateAtom = atom<FlowAnimationState>({
   active: false,
   steps: [],
   index: 0,
-  durationMs: DEFAULT_FLOW_STEP_DURATION_MS,
-  loop: true,
-  style: "focus",
-  camera: false,
+  ...readStoredSettings(),
   mode: "play",
   path: [],
   graph: null,
+  mirror: false,
 });
 
-type StartOptions = {
-  durationMs?: number;
-  loop?: boolean;
+type StartOptions = Partial<FlowAnimationSettings> & {
+  /** a single style, read as the node and arrow animations it stands for */
   style?: FlowStyle;
-  camera?: boolean;
   mode?: FlowAnimationMode;
   graph?: FlowGraph | null;
+};
+
+/** a single style turned into the pair of animations (D-178) */
+const stylesOf = (options: {
+  style?: FlowStyle;
+  nodeStyle?: FlowNodeStyle;
+  arrowStyle?: FlowArrowStyle;
+}): { nodeStyle?: FlowNodeStyle; arrowStyle?: FlowArrowStyle } => {
+  if (!options.style) {
+    return { nodeStyle: options.nodeStyle, arrowStyle: options.arrowStyle };
+  }
+
+  const { node, arrow } = splitFlowStyle(options.style);
+
+  return {
+    nodeStyle: options.nodeStyle ?? node,
+    arrowStyle: options.arrowStyle ?? arrow,
+  };
 };
 
 /** starts the animation at its first step */
@@ -81,6 +204,7 @@ export const startFlowAnimation = (
 ) => {
   const current = editorJotaiStore.get(flowAnimationStateAtom);
   const mode = options?.mode ?? "play";
+  const styles = stylesOf(options ?? {});
 
   editorJotaiStore.set(flowAnimationStateAtom, {
     active: true,
@@ -89,11 +213,14 @@ export const startFlowAnimation = (
     durationMs: options?.durationMs ?? DEFAULT_FLOW_STEP_DURATION_MS,
     // presenting does not loop
     loop: mode === "present" ? false : options?.loop ?? true,
-    style: options?.style ?? current.style,
+    nodeStyle: styles.nodeStyle ?? current.nodeStyle,
+    arrowStyle: styles.arrowStyle ?? current.arrowStyle,
+    speed: clampFlowSpeed(options?.speed ?? current.speed),
     camera: options?.camera ?? current.camera,
     mode,
     path: mode === "present" ? [...startPath()] : [],
     graph: options?.graph ?? null,
+    mirror: false,
   });
 };
 
@@ -120,15 +247,31 @@ export const isFlowPresenting = () => {
   return state.active && state.mode === "present";
 };
 
-/** changes one of the settings, without touching the playing state */
+/**
+ * Changes one of the settings, without touching the playing state - a changed
+ * speed is felt at once and does not restart the animation (D-179). The
+ * settings are remembered for the next session.
+ */
 export const updateFlowAnimationSettings = (
-  settings: Partial<
-    Pick<FlowAnimationState, "durationMs" | "loop" | "style" | "camera">
-  >,
+  settings: Partial<FlowAnimationSettings> & { style?: FlowStyle },
 ) => {
   const current = editorJotaiStore.get(flowAnimationStateAtom);
+  const { style, nodeStyle, arrowStyle, ...rest } = settings;
+  const styles = stylesOf({ style, nodeStyle, arrowStyle });
 
-  editorJotaiStore.set(flowAnimationStateAtom, { ...current, ...settings });
+  const next: FlowAnimationState = {
+    ...current,
+    ...rest,
+    ...(styles.nodeStyle ? { nodeStyle: styles.nodeStyle } : {}),
+    ...(styles.arrowStyle ? { arrowStyle: styles.arrowStyle } : {}),
+  };
+
+  if (rest.speed !== undefined) {
+    next.speed = clampFlowSpeed(rest.speed);
+  }
+
+  editorJotaiStore.set(flowAnimationStateAtom, next);
+  storeSettings(settingsOf(next));
 };
 
 /* ------------------------------------------------------------------ presenting */
@@ -196,3 +339,145 @@ export const playFromCurrentStep = () => {
     });
   }
 };
+
+/* --------------------------------------------------------- the presenter (D-181) */
+
+/**
+ * What the presenter needs to draw the same animation: plain data, no element
+ * and no graph - the presenter has its own copy of the scene, and the steps
+ * are found in it by their ids. It is what travels the presenter channel.
+ */
+export type FlowAnimationSnapshot = {
+  mode: FlowAnimationMode;
+  /** the container ids of the steps, in the order they are walked */
+  stepIds: string[];
+  index: number;
+  path: number[];
+  durationMs: number;
+  loop: boolean;
+  nodeStyle: FlowNodeStyle;
+  arrowStyle: FlowArrowStyle;
+  speed: number;
+};
+
+/** the animation as the presenter should see it; `null` when nothing plays */
+export const getFlowAnimationSnapshot = (): FlowAnimationSnapshot | null => {
+  const state = editorJotaiStore.get(flowAnimationStateAtom);
+
+  // a mirror is somebody else's animation: it is never sent on
+  if (!state.active || state.mirror || !state.steps.length) {
+    return null;
+  }
+
+  return {
+    mode: state.mode,
+    stepIds: state.steps.map((step) => step.containerId),
+    index: state.index,
+    path: [...state.path],
+    durationMs: state.durationMs,
+    loop: state.loop,
+    nodeStyle: state.nodeStyle,
+    arrowStyle: state.arrowStyle,
+    speed: state.speed,
+  };
+};
+
+/**
+ * Calls `listener` whenever what the presenter should see changes, and only
+ * then: the state also changes for reasons the presenter has no use for.
+ */
+export const subscribeToFlowAnimation = (
+  listener: (snapshot: FlowAnimationSnapshot | null) => void,
+) => {
+  let last = JSON.stringify(getFlowAnimationSnapshot());
+
+  return editorJotaiStore.sub(flowAnimationStateAtom, () => {
+    const snapshot = getFlowAnimationSnapshot();
+    const next = JSON.stringify(snapshot);
+
+    if (next !== last) {
+      last = next;
+      listener(snapshot);
+    }
+  });
+};
+
+/**
+ * Puts the editor's animation on this window's overlay, as a **mirror**.
+ *
+ * The steps are found among this window's own elements by the ids the snapshot
+ * names, so a shape that moved is followed here too. Returns `false` when they
+ * cannot be found yet (the scene has not arrived): the caller tries again with
+ * the next scene. A `null` snapshot ends a mirrored animation, and leaves an
+ * animation that is this window's own alone.
+ */
+export const applyFlowAnimationSnapshot = (
+  snapshot: FlowAnimationSnapshot | null,
+  elements: readonly ExcalidrawElement[],
+  elementsMap: ElementsMap,
+): boolean => {
+  const current = editorJotaiStore.get(flowAnimationStateAtom);
+
+  if (!snapshot) {
+    if (current.mirror && current.active) {
+      editorJotaiStore.set(flowAnimationStateAtom, {
+        ...current,
+        active: false,
+        index: 0,
+        path: [],
+      });
+    }
+
+    return true;
+  }
+
+  const graph = flowOfSelection(
+    Object.fromEntries(snapshot.stepIds.map((id) => [id, true])),
+    elements,
+    elementsMap,
+  );
+
+  const steps = graph
+    ? snapshot.stepIds
+        .map((id) => graph.steps.find((step) => step.containerId === id))
+        .filter((step): step is FlowStep => Boolean(step))
+    : [];
+
+  if (!graph || steps.length !== snapshot.stepIds.length) {
+    return false;
+  }
+
+  const next: FlowAnimationState = {
+    active: true,
+    mirror: true,
+    steps,
+    graph,
+    mode: snapshot.mode,
+    index: snapshot.index,
+    path: [...snapshot.path],
+    durationMs: snapshot.durationMs,
+    loop: snapshot.loop,
+    nodeStyle: snapshot.nodeStyle,
+    arrowStyle: snapshot.arrowStyle,
+    speed: snapshot.speed,
+    // the presenter's camera is the editor's, mirrored: it never flies its own
+    camera: false,
+  };
+
+  const same =
+    current.mirror &&
+    current.active &&
+    JSON.stringify(boxesOf(current)) === JSON.stringify(boxesOf(next)) &&
+    JSON.stringify({ ...current, steps: [], graph: null }) ===
+      JSON.stringify({ ...next, steps: [], graph: null });
+
+  if (!same) {
+    editorJotaiStore.set(flowAnimationStateAtom, next);
+  }
+
+  return true;
+};
+
+/** the ids and boxes of the steps: what makes two mirrored states the same */
+const boxesOf = (state: FlowAnimationState) =>
+  state.steps.map((step) => [step.containerId, step.box]);
