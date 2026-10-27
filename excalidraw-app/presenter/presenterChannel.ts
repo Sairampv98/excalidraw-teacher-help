@@ -16,6 +16,7 @@ import type {
   SocketId,
 } from "@excalidraw/excalidraw/types";
 import type { PanelCapture } from "@excalidraw/excalidraw";
+import type { FlowAnimationSnapshot } from "@excalidraw/excalidraw/components/FlowAnimationState";
 import type {
   FileId,
   OrderedExcalidrawElement,
@@ -164,7 +165,14 @@ export type PresenterMessage =
    * only by this origin's own pages, so the descriptor does not travel
    * further than the window the teacher opened.
    */
-  | { type: "presenter:live-view"; panelId: string; capture: PanelCapture };
+  | { type: "presenter:live-view"; panelId: string; capture: PanelCapture }
+  /**
+   * the flow animation, so the projector shows it too (D-181): plain data that
+   * names the steps by id - the presenter finds them in its own copy of the
+   * scene. `null` says that nothing is playing. It is only ever sent by the
+   * editor; the presenter never answers with one.
+   */
+  | { type: "presenter:flow"; flow: FlowAnimationSnapshot | null };
 
 /** presenters announce themselves at least this often while starved */
 export const PRESENTER_HEARTBEAT_MS = 2000;

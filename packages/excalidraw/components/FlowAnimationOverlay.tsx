@@ -21,6 +21,7 @@ import {
   isEndStep,
   reachedIndices,
 } from "../scene/flowPresent";
+import { chartScaleOf } from "../scene/flowScale";
 import { flowMarksFor, getArrowPath } from "../scene/flowStyles";
 
 import { editorJotaiStore, useAtomValue } from "../editor-jotai";
@@ -41,7 +42,12 @@ import "./FlowAnimationOverlay.scss";
 import type { FlowAnimationCamera } from "../scene/flowAnimation";
 import type { FlowCameraState, FlowViewport } from "../scene/flowCamera";
 import type { FlowGraph, FlowStep } from "../scene/flowOrder";
-import type { FlowMarks, FlowStyle, PathPoint } from "../scene/flowStyles";
+import type {
+  FlowArrowStyle,
+  FlowMarkOptions,
+  FlowMarks,
+  PathPoint,
+} from "../scene/flowStyles";
 import type { PageRect } from "../types";
 
 const ANIMATION_KEY = "flow-animation";
@@ -84,7 +90,7 @@ type MarkedArrow = { id: string; path: PathPoint[] };
  * look of **every** arrow of the flow.
  */
 const arrowsFor = (
-  style: FlowStyle,
+  style: FlowArrowStyle,
   graph: FlowGraph | null,
   step: FlowStep | undefined,
   elementsMap: ElementsMap,
@@ -133,6 +139,11 @@ const applyMarks = (group: Element, marks: FlowMarks) => {
 
     if (el) {
       el.setAttribute("points", pointsAttr(stroke.points));
+      el.setAttribute("stroke-width", String(stroke.width));
+
+      if (stroke.dash) {
+        el.setAttribute("stroke-dasharray", dashAttr(stroke.dash)!);
+      }
 
       if (stroke.dashOffset !== undefined) {
         el.setAttribute("stroke-dashoffset", String(stroke.dashOffset));
@@ -146,6 +157,7 @@ const applyMarks = (group: Element, marks: FlowMarks) => {
     if (el) {
       el.setAttribute("cx", String(dot.x));
       el.setAttribute("cy", String(dot.y));
+      el.setAttribute("r", String(dot.radius));
     }
   });
 };
@@ -204,13 +216,33 @@ export const FlowAnimationOverlay = ({
   viewportRef.current = viewport;
   const pageRectRef = useRef(pageRect);
   pageRectRef.current = pageRect;
+  const elementsMapRef = useRef(elementsMap);
+  elementsMapRef.current = elementsMap;
+
+  /**
+   * What the marks are drawn with, read **each frame**: the chart's size (D-175)
+   * follows a resize at once, and the speed (D-179) follows the slider without
+   * the animation being restarted.
+   */
+  const markOptions = (): FlowMarkOptions => {
+    const current = editorJotaiStore.get(flowAnimationStateAtom);
+
+    return {
+      scale: current.graph
+        ? chartScaleOf(current.graph, elementsMapRef.current)
+        : 1,
+      speed: current.speed,
+    };
+  };
 
   const presenting = state.active && state.mode === "present";
+  // a mirror shows the picture and nothing to press (D-181)
+  const interactive = !state.mirror;
   const step = state.active ? state.steps[state.index] : undefined;
 
   const arrows = useMemo(
-    () => arrowsFor(state.style, state.graph, step, elementsMap),
-    [state.style, state.graph, step, elementsMap],
+    () => arrowsFor(state.arrowStyle, state.graph, step, elementsMap),
+    [state.arrowStyle, state.graph, step, elementsMap],
   );
   const arrowsRef = useRef(arrows);
   arrowsRef.current = arrows;
@@ -225,8 +257,14 @@ export const FlowAnimationOverlay = ({
   /* --------------------------------------------------- the step clock (wave 6c) */
 
   useEffect(() => {
-    // presenting has no clock: the teacher moves from step to step
-    if (!state.active || state.mode !== "play" || !state.steps.length) {
+    // presenting has no clock: the teacher moves from step to step. A mirror
+    // has none either: the window it mirrors moves the steps (D-181).
+    if (
+      !state.active ||
+      state.mirror ||
+      state.mode !== "play" ||
+      !state.steps.length
+    ) {
       return;
     }
 
@@ -283,7 +321,7 @@ export const FlowAnimationOverlay = ({
     return () => {
       AnimationController.cancel(ANIMATION_KEY);
     };
-  }, [state.active, state.mode, state.steps]);
+  }, [state.active, state.mirror, state.mode, state.steps]);
 
   /* --------------------------------------------- what travels along the arrows */
 
@@ -310,7 +348,10 @@ export const FlowAnimationOverlay = ({
           );
 
           if (group) {
-            applyMarks(group, flowMarksFor(state.style, arrow.path, now));
+            applyMarks(
+              group,
+              flowMarksFor(state.arrowStyle, arrow.path, now, markOptions()),
+            );
           }
         }
 
@@ -322,7 +363,7 @@ export const FlowAnimationOverlay = ({
       AnimationController.cancel(MARKS_KEY);
     };
     // the arrows are read through the ref: a new map must not restart the clock
-  }, [state.active, state.style, state.index, state.mode, arrowKey]);
+  }, [state.active, state.arrowStyle, state.index, state.mode, arrowKey]);
 
   /* ------------------------------------------------------- the end drawn on */
 
@@ -378,7 +419,14 @@ export const FlowAnimationOverlay = ({
     const viewport = viewportRef.current;
     const pageRect = pageRectRef.current;
 
-    if (!state.active || !state.camera || !step || !viewport || !pageRect) {
+    if (
+      !state.active ||
+      state.mirror ||
+      !state.camera ||
+      !step ||
+      !viewport ||
+      !pageRect
+    ) {
       return;
     }
 
@@ -429,13 +477,14 @@ export const FlowAnimationOverlay = ({
     };
     // the step is the trigger: the viewport, the page and the camera are read
     // through refs, so a new object for any of them does not restart the flight
-  }, [state.active, state.camera, state.index, stepId]);
+  }, [state.active, state.mirror, state.camera, state.index, stepId]);
 
   /* ------------------------------------------------------------------ the keys */
 
   useEffect(() => {
-    // the arrow keys are the overlay's only while it is presenting
-    if (!presenting) {
+    // the arrow keys are the overlay's only while it is presenting - and only
+    // in the window that is presenting, never in its mirror
+    if (!presenting || !interactive) {
       return;
     }
 
@@ -459,7 +508,7 @@ export const FlowAnimationOverlay = ({
     return () => {
       window.removeEventListener("keydown", onKeyDown, true);
     };
-  }, [presenting]);
+  }, [presenting, interactive]);
 
   /* ---------------------------------------------------------------- the picture */
 
@@ -473,7 +522,9 @@ export const FlowAnimationOverlay = ({
 
   const reached = presenting ? reachedIndices(state.path) : null;
   const choices =
-    presenting && state.graph ? choicesAt(state.graph, state.index) : [];
+    presenting && interactive && state.graph
+      ? choicesAt(state.graph, state.index)
+      : [];
 
   // the origin of the scene on the screen, and the zoom: the one transform
   // everything that is drawn in scene units sits under
@@ -485,9 +536,13 @@ export const FlowAnimationOverlay = ({
   return (
     <div
       className="excalidraw__flow-animation"
-      data-flow-style={state.style}
+      data-flow-node-style={state.nodeStyle}
+      data-flow-arrow-style={state.arrowStyle}
       data-flow-mode={state.mode}
-      style={HOST_STYLE}
+      data-flow-mirror={state.mirror ? "" : undefined}
+      style={
+        interactive ? HOST_STYLE : { ...HOST_STYLE, pointerEvents: "none" }
+      }
     >
       {/* steps not reached yet are dimmed while presenting (D-167) */}
       {reached &&
@@ -517,7 +572,12 @@ export const FlowAnimationOverlay = ({
       >
         <g style={{ transform: sceneTransform }} data-flow-scene="">
           {arrows.map((arrow) => {
-            const marks = flowMarksFor(state.style, arrow.path, 0);
+            const marks = flowMarksFor(
+              state.arrowStyle,
+              arrow.path,
+              0,
+              markOptions(),
+            );
 
             return (
               <g key={`${state.index}-${arrow.id}`} data-flow-arrow={arrow.id}>
@@ -569,50 +629,51 @@ export const FlowAnimationOverlay = ({
         </g>
       </svg>
 
-      {stepElements.map((element) => {
-        const [minX, minY, maxX, maxY] = getCommonBounds(
-          [element],
-          elementsMap,
-        );
+      {state.nodeStyle !== "none" &&
+        stepElements.map((element) => {
+          const [minX, minY, maxX, maxY] = getCommonBounds(
+            [element],
+            elementsMap,
+          );
 
-        const elementBox = {
-          x: minX,
-          y: minY,
-          width: maxX - minX,
-          height: maxY - minY,
-        };
+          const elementBox = {
+            x: minX,
+            y: minY,
+            width: maxX - minX,
+            height: maxY - minY,
+          };
 
-        return (
-          <div
-            // the index is part of the key so that the entrance animation
-            // restarts on every step, the loop included
-            key={`${state.index}-${element.id}`}
-            className="excalidraw__flow-animation-shape"
-            style={{
-              width: elementBox.width,
-              height: elementBox.height,
-              transform: flowBoundsTransform(elementBox, camera),
-              transformOrigin: "0 0",
-            }}
-          >
+          return (
             <div
-              className={`excalidraw__flow-animation-focus excalidraw__flow-animation-focus--${state.style}`}
+              // the index is part of the key so that the entrance animation
+              // restarts on every step, the loop included
+              key={`${state.index}-${element.id}`}
+              className="excalidraw__flow-animation-shape"
               style={{
-                // only the focus style enlarges the step: the others leave it
-                // its own size so that what travels along its arrows is seen
-                transform: flowFocusTransform(
-                  step.box,
-                  elementBox,
-                  state.style === "focus" ? undefined : 1,
-                ),
+                width: elementBox.width,
+                height: elementBox.height,
+                transform: flowBoundsTransform(elementBox, camera),
                 transformOrigin: "0 0",
               }}
             >
-              <div className="excalidraw__flow-animation-pulse" />
+              <div
+                className={`excalidraw__flow-animation-focus excalidraw__flow-animation-focus--${state.nodeStyle}`}
+                style={{
+                  // only the focus style enlarges the step: the others leave it
+                  // its own size so that what travels along its arrows is seen
+                  transform: flowFocusTransform(
+                    step.box,
+                    elementBox,
+                    state.nodeStyle === "focus" ? undefined : 1,
+                  ),
+                  transformOrigin: "0 0",
+                }}
+              >
+                <div className="excalidraw__flow-animation-pulse" />
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
 
       {/* at a question, its branches can be clicked (D-172) */}
       {choices.map((targetIndex) => {
@@ -636,7 +697,7 @@ export const FlowAnimationOverlay = ({
         );
       })}
 
-      {presenting && (
+      {presenting && interactive && (
         <div className="excalidraw__flow-animation-controls">
           <button
             type="button"
@@ -667,15 +728,17 @@ export const FlowAnimationOverlay = ({
         </div>
       )}
 
-      <button
-        type="button"
-        className="excalidraw__flow-animation-close"
-        onClick={() => stopFlowAnimation()}
-        title={t("buttons.close")}
-        aria-label={t("buttons.close")}
-      >
-        {CloseIcon}
-      </button>
+      {interactive && (
+        <button
+          type="button"
+          className="excalidraw__flow-animation-close"
+          onClick={() => stopFlowAnimation()}
+          title={t("buttons.close")}
+          aria-label={t("buttons.close")}
+        >
+          {CloseIcon}
+        </button>
+      )}
     </div>
   );
 };

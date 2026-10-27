@@ -20,6 +20,13 @@
   // invisible - the same "visible and dead" mistake as the crop handles (D-139).
   // The editor's own chrome (`layerUI`) is above it, so Stop stays reachable.
   --zIndex-flowAnimation: 3;
+  // the **floating bar** of the flow animation (D-177): above the bars the app
+  // puts at the bottom of the window (the emoji bar and the page bar are fixed,
+  // at 70), because it follows the chart and a chart low in the window is
+  // exactly where those bars are - under them its controls were in the DOM and
+  // could not be pressed. It is a small, transient control, and it stays below
+  // the context menu, the popups, the menus and the dialogs.
+  --zIndex-flowBar: 80;
   // the **dimming** of the canvas behind a screenshot in focus (D-116): it is
   // BELOW the panels on purpose - a panel dims its own content (see
   // `__panel-focus-scrim`) and its own chrome - the three choices - stays

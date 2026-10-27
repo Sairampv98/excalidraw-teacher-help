@@ -110,66 +110,74 @@ export const FlowTab = () => {
 
   return (
     <div className="flow-tab">
-      <p className="flow-tab__intro">
-        Pick a kind of chart, write one line for each part of it, and add it to
-        this page. It is made of ordinary shapes and arrows, so you can change
-        it afterwards.
-      </p>
+      {/*
+        The body scrolls and the footer does not (D-176): the Insert button is
+        always in reach, whatever the height of the window.
+      */}
+      <div className="flow-tab__body">
+        <p className="flow-tab__intro">
+          Pick a kind of chart, write one line for each part of it, and add it
+          to this page. It is made of ordinary shapes and arrows, so you can
+          change it afterwards.
+        </p>
 
-      <div
-        className="flow-tab__presets"
-        role="radiogroup"
-        aria-label="Kind of chart"
-      >
-        {FLOW_PRESETS.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            role="radio"
-            aria-checked={p.id === presetId}
-            className="flow-tab__preset"
-            onClick={() => choose(p.id)}
-          >
-            <span className="flow-tab__preset-name">{p.name}</span>
-            <span className="flow-tab__preset-description">
-              {p.description}
-            </span>
-          </button>
-        ))}
+        <div
+          className="flow-tab__presets"
+          role="radiogroup"
+          aria-label="Kind of chart"
+        >
+          {FLOW_PRESETS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              role="radio"
+              aria-checked={p.id === presetId}
+              className="flow-tab__preset"
+              onClick={() => choose(p.id)}
+            >
+              <span className="flow-tab__preset-name">{p.name}</span>
+              <span className="flow-tab__preset-description">
+                {p.description}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <label className="flow-tab__label" htmlFor="flow-tab-script">
+          Script
+        </label>
+        <textarea
+          id="flow-tab-script"
+          className="flow-tab__script"
+          rows={8}
+          value={script}
+          spellCheck={false}
+          onChange={(event) => {
+            setScript(event.target.value);
+            setEdited(true);
+            setMessage(null);
+          }}
+          // the canvas has single-key shortcuts; typing a script must not use them
+          onKeyDown={(event) => event.stopPropagation()}
+        />
+        <p className="flow-tab__hint">{SCRIPT_HINTS[presetId]}</p>
       </div>
 
-      <label className="flow-tab__label" htmlFor="flow-tab-script">
-        Script
-      </label>
-      <textarea
-        id="flow-tab-script"
-        className="flow-tab__script"
-        rows={8}
-        value={script}
-        spellCheck={false}
-        onChange={(event) => {
-          setScript(event.target.value);
-          setEdited(true);
-          setMessage(null);
-        }}
-        // the canvas has single-key shortcuts; typing a script must not use them
-        onKeyDown={(event) => event.stopPropagation()}
-      />
-      <p className="flow-tab__hint">{SCRIPT_HINTS[presetId]}</p>
+      <div className="flow-tab__footer">
+        <button type="button" className="flow-tab__insert" onClick={insert}>
+          Insert chart
+        </button>
 
-      <button type="button" className="flow-tab__insert" onClick={insert}>
-        Insert chart
-      </button>
-
-      {message && (
-        <p
-          className="flow-tab__message"
-          data-kind={message.kind}
-          role={message.kind === "error" ? "alert" : "status"}
-        >
-          {message.text}
-        </p>
-      )}
+        {message && (
+          <p
+            className="flow-tab__message"
+            data-kind={message.kind}
+            role={message.kind === "error" ? "alert" : "status"}
+          >
+            {message.text}
+          </p>
+        )}
+      </div>
     </div>
   );
 };

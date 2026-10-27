@@ -567,6 +567,10 @@ const buildElements = (
     let bound: ExcalidrawArrowElement = {
       ...arrow,
       id: arrowId,
+      // the constructor leaves the size at zero, and a resize scales the points
+      // by it: an arrow that says it is zero wide is scaled down to nothing
+      width: Math.abs(end.x - start.x),
+      height: Math.abs(end.y - start.y),
       startBinding: {
         elementId: shapeIds.get(edge.from)!,
         fixedPoint: FIXED_POINT[fromSide],

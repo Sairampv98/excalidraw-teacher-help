@@ -5,10 +5,32 @@
 .flow-tab {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px;
+  // the tab fills the sidebar, and it is the body that gives way (D-176)
+  height: 100%;
+  min-height: 0;
   font-size: 0.8125rem;
   color: var(--text-primary-color, var(--icon-fill-color));
+}
+
+// the presets and the script: they take the room that is left and scroll in it
+.flow-tab__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+// the button and what it says: never scrolled away, never squeezed
+.flow-tab__footer {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--color-border);
 }
 
 .flow-tab__intro,
@@ -69,6 +91,9 @@
   color: inherit;
   font: inherit;
   line-height: 1.4;
+  // a few lines always show, and nothing stops it growing: the body scrolls
+  min-height: 6rem;
+  flex: 0 0 auto;
   resize: vertical;
 }
 

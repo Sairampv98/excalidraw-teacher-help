@@ -44,9 +44,9 @@ export type FlowLayoutResult = {
 };
 
 /** how far apart dagre puts two shapes on the same rank */
-const NODE_SEPARATION = 40;
+export const NODE_SEPARATION = 40;
 /** how far apart dagre puts two ranks */
-const RANK_SEPARATION = 80;
+export const RANK_SEPARATION = 80;
 /** the margin around the whole laid-out graph */
 const MARGIN = 20;
 

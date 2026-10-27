@@ -504,6 +504,7 @@ import { PanelScreenshotWireframe } from "./PanelScreenshotWireframe";
 import { PanelMirrorPicker } from "./PanelMirrorPicker";
 
 import { FlowAnimationOverlay } from "./FlowAnimationOverlay";
+import { FlowAnimationBar } from "./FlowAnimationBar";
 import { isFlowAnimationActive, stopFlowAnimation } from "./FlowAnimationState";
 import BraveMeasureTextError from "./BraveMeasureTextError";
 import { ContextMenu, CONTEXT_MENU_SEPARATOR } from "./ContextMenu";
@@ -2681,6 +2682,29 @@ class App extends React.Component<AppProps, AppState> {
                                 },
                               })
                             }
+                            camera={{
+                              zoom: this.state.zoom,
+                              scrollX: this.state.scrollX,
+                              scrollY: this.state.scrollY,
+                              offsetLeft: this.state.offsetLeft,
+                              offsetTop: this.state.offsetTop,
+                            }}
+                          />
+                          {/*
+                            The bar that drives the flow animation (D-177): it
+                            follows the chart it controls, and it comes after the
+                            overlay so it is painted above it.
+                          */}
+                          <FlowAnimationBar
+                            app={this}
+                            elements={this.scene.getNonDeletedElements()}
+                            elementsMap={allElementsMap}
+                            selectedElementIds={this.state.selectedElementIds}
+                            hidden={this.state.viewModeEnabled}
+                            viewport={{
+                              width: this.state.width,
+                              height: this.state.height,
+                            }}
                             camera={{
                               zoom: this.state.zoom,
                               scrollX: this.state.scrollX,
