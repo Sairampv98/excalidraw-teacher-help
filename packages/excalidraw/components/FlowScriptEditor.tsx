@@ -34,7 +34,11 @@ import {
 import { flowPagesOf, planChartPages } from "../scene/flowPagesFor";
 import { listFlowPresets } from "../scene/flowPresets";
 import { FLOW_FIT_MODES } from "../scene/flowChart";
-import { FLOW_NODE_SHAPES } from "../scene/flowScript";
+import {
+  FLOW_NODE_SHAPES,
+  parseFlowScript,
+  withNodeShape,
+} from "../scene/flowScript";
 import {
   getPageIndex,
   getPageRect,
@@ -60,7 +64,11 @@ import type { FlowFitMode } from "../scene/flowChart";
 import type { ResolvedChart } from "../scene/flowChartOf";
 import type { FlowCustomPreset } from "../scene/flowCustomPresets";
 import type { FlowChartShape } from "../scene/flowPresets";
-import type { FlowPresetId } from "../scene/flowScript";
+import type {
+  FlowNodeShape,
+  FlowPresetId,
+  FlowScriptNode,
+} from "../scene/flowScript";
 import type { AppClassProperties } from "../types";
 
 type FlowScriptEditorProps = {
@@ -284,80 +292,181 @@ const EditorPanel = ({
     [builtIn, script, options],
   );
 
-  const apply = useCallback(() => {
-    if (!check.ok) {
-      return;
-    }
+  const applyText = useCallback(
+    (text: string) => {
+      const checked = checkFlowScript(builtIn, text, options);
 
-    const sceneElements = app.scene.getElementsIncludingDeleted();
-    let base: readonly ExcalidrawElement[] = sceneElements;
-    let plan: ReturnType<typeof planChartPages> | null = null;
+      if (!checked.ok) {
+        setMessage({
+          kind: "error",
+          text: checked.reason ?? "That script cannot be applied.",
+        });
+        return;
+      }
 
-    // a chart spread over pages goes on the pages that follow, made when missing
-    if (fit === "spread" && pageId && pages.length) {
-      plan = planChartPages({
-        pages,
-        currentPageId: pageId,
-        count: check.pages,
+      const sceneElements = app.scene.getElementsIncludingDeleted();
+      let base: readonly ExcalidrawElement[] = sceneElements;
+      let plan: ReturnType<typeof planChartPages> | null = null;
+
+      // a chart spread over pages goes on the pages that follow, made when missing
+      if (fit === "spread" && pageId && pages.length) {
+        plan = planChartPages({
+          pages,
+          currentPageId: pageId,
+          count: checked.pages,
+        });
+
+        if (plan.created > 0) {
+          base = translateContentForPageLayout({
+            elements: sceneElements,
+            previousPages: pages,
+            nextPages: plan.pages,
+          });
+        }
+      }
+
+      const result = applyFlowScript({
+        elements: base,
+        chartId: chart.chartId,
+        preset: builtIn,
+        script: text,
+        fit,
+        shape,
+        custom,
+        page: pageRect,
+        pageId,
+        pageNumber,
+        pages: plan ? flowPagesOf(plan) : undefined,
+        legacyElementIds: chart.legacyElementIds,
       });
 
-      if (plan.created > 0) {
-        base = translateContentForPageLayout({
-          elements: sceneElements,
-          previousPages: pages,
-          nextPages: plan.pages,
-        });
+      if (!result.ok) {
+        setMessage({ kind: "error", text: result.error });
+        return;
+      }
+
+      // one step: the change and the pages it needed are one undo
+      app.api.updateScene({
+        elements: result.elements,
+        appState: plan && plan.created > 0 ? { pages: plan.pages } : undefined,
+        captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+      });
+      clearFlowScriptDraft(chart.key);
+
+      setMessage({
+        kind: "ok",
+        text: result.rebuilt
+          ? "The chart was made again from the script."
+          : `Applied: ${result.kept} kept, ${result.added} added, ${result.removed} removed.`,
+      });
+    },
+    [
+      app,
+      builtIn,
+      chart,
+      custom,
+      fit,
+      options,
+      pageId,
+      pageNumber,
+      pageRect,
+      pages,
+      shape,
+    ],
+  );
+
+  const apply = useCallback(() => applyText(script), [applyText, script]);
+
+  /* ------------------------------------------------- the shape of a node (D-230) */
+
+  const parsedDraft = useMemo(
+    () => parseFlowScript(builtIn, script),
+    [builtIn, script],
+  );
+
+  // the nodes of the chart that are selected, found in the script by their words
+  const selectedNodes = (() => {
+    if (!parsedDraft.ok) {
+      return [] as FlowScriptNode[];
+    }
+
+    const byId = app.scene.getNonDeletedElementsMap();
+    const containers = new Set<string>();
+
+    for (const id of Object.keys(app.state.selectedElementIds)) {
+      const element = byId.get(id);
+      const container =
+        element?.type === "text" && element.containerId
+          ? byId.get(element.containerId)
+          : element;
+
+      if (
+        container &&
+        container.type !== "arrow" &&
+        container.type !== "text" &&
+        container.customData?.flow?.role === "node" &&
+        (container.customData.flow.chartId === chart.chartId ||
+          chart.legacyElementIds.includes(container.id))
+      ) {
+        containers.add(container.id);
       }
     }
 
-    const result = applyFlowScript({
-      elements: base,
-      chartId: chart.chartId,
-      preset: builtIn,
-      script,
-      fit,
-      shape,
-      custom,
-      page: pageRect,
-      pageId,
-      pageNumber,
-      pages: plan ? flowPagesOf(plan) : undefined,
-      legacyElementIds: chart.legacyElementIds,
-    });
+    const taken = new Set<string>();
+    const found: FlowScriptNode[] = [];
 
-    if (!result.ok) {
-      setMessage({ kind: "error", text: result.error });
-      return;
+    for (const id of containers) {
+      const container = byId.get(id)!;
+      const text = (container.boundElements ?? [])
+        .map((bound) => byId.get(bound.id))
+        .find((bound) => bound?.type === "text");
+      const words =
+        text && text.type === "text" ? text.originalText ?? text.text : "";
+      const label =
+        builtIn === "steps" ? words.replace(/^\d+\.\s+/, "") : words;
+      const node = parsedDraft.nodes.find(
+        (candidate) => !taken.has(candidate.id) && candidate.label === label,
+      );
+
+      if (node) {
+        taken.add(node.id);
+        found.push(node);
+      }
     }
 
-    // one step: the change and the pages it needed are one undo
-    app.api.updateScene({
-      elements: result.elements,
-      appState: plan && plan.created > 0 ? { pages: plan.pages } : undefined,
-      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
-    });
-    clearFlowScriptDraft(chart.key);
+    return found;
+  })();
 
-    setMessage({
-      kind: "ok",
-      text: result.rebuilt
-        ? "The chart was made again from the script."
-        : `Applied: ${result.kept} kept, ${result.added} added, ${result.removed} removed.`,
-    });
-  }, [
-    app,
-    builtIn,
-    chart,
-    check,
-    custom,
-    fit,
-    pageId,
-    pageNumber,
-    pageRect,
-    pages,
-    script,
-    shape,
-  ]);
+  const ownShapes = new Set(selectedNodes.map((node) => node.shape ?? ""));
+  const nodeShapeValue =
+    ownShapes.size === 1
+      ? [...ownShapes][0]
+      : ownShapes.size > 1
+      ? "mixed"
+      : "";
+
+  /** gives the selected nodes a shape of their own, or back to the chart's: one change, applied */
+  const setNodeShape = (value: string) => {
+    const next = value === "" ? null : (value as FlowNodeShape);
+    // the last piece of the script first, so that the places of the others hold
+    const ordered = [...selectedNodes].sort(
+      (a, b) =>
+        (b.source?.line ?? 0) - (a.source?.line ?? 0) ||
+        (b.source?.start ?? 0) - (a.source?.start ?? 0),
+    );
+    let text = script;
+
+    for (const node of ordered) {
+      const rewritten = withNodeShape(text, node, next);
+
+      if (rewritten !== null) {
+        text = rewritten;
+      }
+    }
+
+    setScript(text);
+    applyText(text);
+  };
 
   /* ------------------------------------------------------------- the place */
 
@@ -513,6 +622,36 @@ const EditorPanel = ({
           </select>
         </label>
       </div>
+
+      {selectedNodes.length > 0 && (
+        <div className="excalidraw__flow-editor-row">
+          <label>
+            <span>
+              This node's shape
+              {selectedNodes.length > 1
+                ? ` (${selectedNodes.length} nodes)`
+                : ""}
+            </span>
+            <select
+              aria-label="This node's shape"
+              value={nodeShapeValue}
+              onChange={(event) => setNodeShape(event.target.value)}
+            >
+              {nodeShapeValue === "mixed" && (
+                <option value="mixed" disabled>
+                  Different shapes
+                </option>
+              )}
+              <option value="">The chart's shape</option>
+              {FLOW_NODE_SHAPES.map((s) => (
+                <option key={s} value={s}>
+                  {SHAPE_LABELS[s]}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
 
       <textarea
         className="excalidraw__flow-editor-script"

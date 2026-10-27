@@ -181,6 +181,17 @@ describe("AC-251 a script guide for every kind of chart", () => {
       expect(shapes.textContent).toContain(shape);
     }
 
+    // and the keywords that say the same in words (D-230)
+    for (const keyword of [
+      "@rectangle",
+      "@rounded",
+      "@ellipse",
+      "@circle",
+      "@diamond",
+    ]) {
+      expect(shapes.textContent).toContain(keyword);
+    }
+
     const fit = guide.querySelector('[data-guide-section="fit"]')!;
 
     for (const mode of [

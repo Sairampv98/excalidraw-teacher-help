@@ -88,12 +88,42 @@ export const GUIDE_OF_LAYOUT: Record<FlowCustomLayout, FlowPresetId> = {
 };
 
 /** the shape marks (D-229) */
-export const SHAPE_MARKS: { mark: string; shape: string; example: string }[] = [
-  { mark: "[ ]", shape: "rectangle", example: "[Plan]" },
-  { mark: "( )", shape: "rounded rectangle", example: "(Teach)" },
-  { mark: "(( ))", shape: "ellipse", example: "((Review))" },
-  { mark: "{ }", shape: "circle", example: "{Practise}" },
-  { mark: "< >", shape: "diamond", example: "<Check>" },
+export const SHAPE_MARKS: {
+  mark: string;
+  shape: string;
+  example: string;
+  keyword: string;
+}[] = [
+  {
+    mark: "[ ]",
+    shape: "rectangle",
+    example: "[Plan]",
+    keyword: "@rectangle Plan",
+  },
+  {
+    mark: "( )",
+    shape: "rounded rectangle",
+    example: "(Teach)",
+    keyword: "@rounded Teach",
+  },
+  {
+    mark: "(( ))",
+    shape: "ellipse",
+    example: "((Review))",
+    keyword: "@ellipse Review",
+  },
+  {
+    mark: "{ }",
+    shape: "circle",
+    example: "{Practise}",
+    keyword: "@circle Practise",
+  },
+  {
+    mark: "< >",
+    shape: "diamond",
+    example: "<Check>",
+    keyword: "@diamond Check",
+  },
 ];
 
 /** the fit modes (D-226) */

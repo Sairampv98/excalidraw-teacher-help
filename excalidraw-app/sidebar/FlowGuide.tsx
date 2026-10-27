@@ -89,14 +89,18 @@ export const FlowGuide = ({
       <ul>
         {SHAPE_MARKS.map((mark) => (
           <li key={mark.mark}>
-            <code>{mark.example}</code> is a {mark.shape}.
+            <code>{mark.example}</code> or <code>{mark.keyword}</code> is a{" "}
+            {mark.shape}.
           </li>
         ))}
       </ul>
       <p>
         The marks go with the rest of the script: <code>? (Ready?)</code> is a
         question in a rounded box, and <code>[A] -&gt; {"{B}"}</code> joins a
-        rectangle to a circle. A box grows to hold its words.
+        rectangle to a circle. The word after @ is the shape: rectangle,
+        rounded, ellipse, circle or diamond. A box grows to hold its words. To
+        change one box later, select it and use This node's shape in Edit
+        script.
       </p>
     </section>
 
