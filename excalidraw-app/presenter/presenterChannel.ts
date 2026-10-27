@@ -145,6 +145,14 @@ export const pointerCollaborators = (
  * view needs to cross - sending the whole scene on every frame of a fly-to is
  * what made the projector follow in lagging jumps.
  */
+/**
+ * Whether two lists of pages are the same pages. They are compared by what is
+ * in them, not by identity: a list that was built again with the same pages is
+ * no change, and must not turn a move of the view into a whole scene (D-212).
+ */
+const samePages = (a: PresenterCamera["pages"], b: PresenterCamera["pages"]) =>
+  a === b || JSON.stringify(a) === JSON.stringify(b);
+
 export const isViewOnlyChange = (
   previous: PresenterScene | null,
   next: PresenterScene,
@@ -161,7 +169,7 @@ export const isViewOnlyChange = (
     a.gridModeEnabled === b.gridModeEnabled &&
     a.gridSize === b.gridSize &&
     a.pagesEnabled === b.pagesEnabled &&
-    a.pages === b.pages &&
+    samePages(a.pages, b.pages) &&
     a.currentPageId === b.currentPageId
   );
 };

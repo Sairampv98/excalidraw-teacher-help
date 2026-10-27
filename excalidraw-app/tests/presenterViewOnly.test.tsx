@@ -25,6 +25,7 @@ import type { AppState } from "@excalidraw/excalidraw/types";
 import type { OrderedExcalidrawElement } from "@excalidraw/element/types";
 
 import { PresenterView } from "../presenter/PresenterView";
+import { isViewOnlyChange } from "../presenter/presenterChannel";
 import { usePresenterBroadcaster } from "../presenter/usePresenterBroadcaster";
 
 const VIEWPORT = {
@@ -285,5 +286,52 @@ describe("AC-245 the view goes at the screen's rate", () => {
     // it is more than half of what the frames could carry at 60
     expect(cameras).toBeGreaterThanOrEqual(Math.floor(seconds * 30));
     expect(sent(editor, "presenter:scene")).toHaveLength(0);
+  });
+});
+
+describe("AC-238 pages rebuilt with the same content", () => {
+  it("AC-238 pages rebuilt with the same content are no change", () => {
+    const camera = {
+      scrollX: 0,
+      scrollY: 0,
+      zoomValue: 1,
+      viewBackgroundColor: "#ffffff",
+      gridModeEnabled: false,
+      gridSize: null,
+      pagesEnabled: true,
+      pages: [{ id: "p1", name: "Page 1" }],
+      currentPageId: "p1",
+      pageOffsetX: 0,
+      pageOffsetY: 0,
+      editorWidth: 1000,
+      editorHeight: 700,
+    } as const;
+    const elements = [] as readonly OrderedExcalidrawElement[];
+
+    // the same pages, built again: only the view moved
+    expect(
+      isViewOnlyChange(
+        { elements, camera },
+        {
+          elements,
+          camera: {
+            ...camera,
+            scrollX: 40,
+            pages: [{ id: "p1", name: "Page 1" }],
+          },
+        },
+      ),
+    ).toBe(true);
+
+    // another page, or another name, is a change of the scene
+    expect(
+      isViewOnlyChange(
+        { elements, camera },
+        {
+          elements,
+          camera: { ...camera, pages: [{ id: "p1", name: "Renamed" }] },
+        },
+      ),
+    ).toBe(false);
   });
 });
