@@ -37,6 +37,11 @@ export const currentFlowClassSettings = (): FlowClassSettings => {
   const state = editorJotaiStore.get(flowAnimationStateAtom);
 
   return {
+    nodeColor: state.nodeColor,
+    markColor: state.markColor,
+    arrowColor: state.arrowColor,
+    hideArrow: state.hideArrow,
+    nodeTarget: state.nodeTarget,
     node: state.nodeStyle,
     arrow: state.arrowStyle,
     speed: state.speed,

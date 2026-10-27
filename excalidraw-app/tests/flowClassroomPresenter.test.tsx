@@ -18,6 +18,7 @@ import {
 } from "@excalidraw/excalidraw/components/FlowAnimationState";
 import { AnimationController } from "@excalidraw/excalidraw/renderer/animation";
 import { withFlowClass } from "@excalidraw/excalidraw/scene/flowClass";
+import { FLOW_LOOK_DEFAULTS } from "@excalidraw/excalidraw/scene/flowLook";
 import { buildFlowPreset } from "@excalidraw/excalidraw/scene/flowPresets";
 import { flowOfSelection } from "@excalidraw/excalidraw/scene/flowSelection";
 import { API } from "@excalidraw/excalidraw/tests/helpers/api";
@@ -69,6 +70,7 @@ const camera = {
 } as const;
 
 const SETTINGS: FlowClassSettings = {
+  ...FLOW_LOOK_DEFAULTS,
   node: "pulse",
   arrow: "token",
   speed: 240,
@@ -158,6 +160,7 @@ const mirror = () =>
   document.querySelector(".excalidraw__flow-animation[data-flow-mirror]");
 
 const snapshotOf = (elements: ExcalidrawElement[]): FlowAnimationSnapshot => ({
+  ...FLOW_LOOK_DEFAULTS,
   mode: "present",
   stepIds: stepIdsOf(elements),
   index: 1,

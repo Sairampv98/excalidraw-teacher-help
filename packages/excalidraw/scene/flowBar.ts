@@ -31,6 +31,12 @@ export const FLOW_BAR_WIDTH = 440;
 /** about how tall the bar is, in pixels: two rows of controls */
 export const FLOW_BAR_HEIGHT = 112;
 
+/** how much taller the bar is while its Look section is open (D-196) */
+export const FLOW_BAR_LOOK_EXTRA = 150;
+
+/** about how tall a collapsed bar - a pill - is, in pixels (D-198) */
+export const FLOW_BAR_PILL_HEIGHT = 32;
+
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), Math.max(min, max));
 
@@ -74,10 +80,13 @@ export const flowBarPosition = ({
   box,
   camera,
   viewport,
+  barHeight = FLOW_BAR_HEIGHT,
 }: {
   box: FlowBox;
   camera: FlowAnimationCamera;
   viewport: FlowViewport;
+  /** how tall the bar is now: the Look section makes it taller (D-196) */
+  barHeight?: number;
 }) => {
   const { x, y } = sceneCoordsToViewportCoords(
     { sceneX: box.x + box.width / 2, sceneY: box.y + box.height },
@@ -99,7 +108,7 @@ export const flowBarPosition = ({
     top: clamp(
       y - camera.offsetTop + FLOW_BAR_GAP,
       FLOW_BAR_MARGIN,
-      viewport.height - FLOW_BAR_HEIGHT - FLOW_BAR_MARGIN,
+      viewport.height - barHeight - FLOW_BAR_MARGIN,
     ),
   };
 };

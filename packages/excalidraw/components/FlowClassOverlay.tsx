@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { sceneCoordsToViewportCoords } from "@excalidraw/common";
-import { getCommonBounds, getSceneVersion } from "@excalidraw/element";
+import { getSceneVersion } from "@excalidraw/element";
 
 import type { ElementsMap, ExcalidrawElement } from "@excalidraw/element/types";
 
@@ -12,6 +12,11 @@ import {
 } from "../scene/flowAnimation";
 import { flowBoxOf } from "../scene/flowBar";
 import { classStepAt, markedFlowsOnPage } from "../scene/flowClass";
+import {
+  highlightBoxOf,
+  highlightShapeOf,
+  nodeHighlightElements,
+} from "../scene/flowHighlight";
 import { chartScaleOf } from "../scene/flowScale";
 import { flowMarksFor } from "../scene/flowStyles";
 
@@ -20,13 +25,16 @@ import { useAtomValue } from "../editor-jotai";
 import {
   applyMarks,
   arrowsFor,
+  coverArrowsFor,
   dashAttr,
   pointsAttr,
 } from "./FlowAnimationOverlay";
 import {
   flowAnimationStateAtom,
+  flowClassPreviewAtom,
   startFlowAnimation,
 } from "./FlowAnimationState";
+import { ArrowCovers, NodeOutline, lookVars } from "./FlowLookParts";
 
 import "./FlowAnimationOverlay.scss";
 
@@ -58,6 +66,8 @@ type FlowClassOverlayProps = {
   active: boolean;
   /** a window that is shown and not operated has no Steps button (D-187) */
   displayOnly: boolean;
+  /** the page's background, for an arrow that is hidden (D-190) */
+  backgroundColor?: string;
 };
 
 /**
@@ -81,8 +91,14 @@ export const FlowClassOverlay = ({
   pageId,
   active,
   displayOnly,
+  backgroundColor,
 }: FlowClassOverlayProps) => {
   const animation = useAtomValue(flowAnimationStateAtom);
+  // the editor can preview what the class gets, in the edit view (D-193)
+  const preview = useAtomValue(flowClassPreviewAtom);
+  const playing = active || preview;
+  // the Steps buttons are the class view's, never the preview's (D-185, D-193)
+  const showSteps = active && !displayOnly;
   const marksRef = useRef<SVGSVGElement>(null);
 
   // an element is changed in place (a mark put on or taken off, a setting
@@ -90,9 +106,9 @@ export const FlowClassOverlay = ({
   const sceneVersion = getSceneVersion(elements);
 
   const marked = useMemo(
-    () => (active ? markedFlowsOnPage(elements, elementsMap, pageId) : []),
+    () => (playing ? markedFlowsOnPage(elements, elementsMap, pageId) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [active, elements, elementsMap, pageId, sceneVersion],
+    [playing, elements, elementsMap, pageId, sceneVersion],
   );
 
   // the chart the animation overlay has is not ours to draw
@@ -245,7 +261,15 @@ export const FlowClassOverlay = ({
               key={flow.key}
               data-flow-class-flow={flow.key}
               data-flow-class-index={indices[flow.key] ?? 0}
+              // the flow's own colours (D-195)
+              style={lookVars(flow.settings)}
             >
+              <ArrowCovers
+                arrows={coverArrowsFor(flow.graph, elementsMap)}
+                arrowColor={flow.settings.arrowColor}
+                hideArrow={flow.settings.hideArrow}
+                background={backgroundColor}
+              />
               <ClassMarks
                 flow={flow}
                 index={indices[flow.key] ?? 0}
@@ -266,7 +290,7 @@ export const FlowClassOverlay = ({
         />
       ))}
 
-      {!displayOnly &&
+      {showSteps &&
         flows.map((flow) => (
           <StepsButton
             key={flow.key}
@@ -363,20 +387,11 @@ const ClassNodes = ({
 
   return (
     <>
-      {step.elementIds
-        .map((id) => elementsMap.get(id))
-        .filter((element): element is ExcalidrawElement => Boolean(element))
-        .map((element) => {
-          const [minX, minY, maxX, maxY] = getCommonBounds(
-            [element],
-            elementsMap,
-          );
-          const box = {
-            x: minX,
-            y: minY,
-            width: maxX - minX,
-            height: maxY - minY,
-          };
+      {nodeHighlightElements(step, elementsMap, flow.settings.nodeTarget).map(
+        (element) => {
+          // the node's own box and outline, rotated about its centre (D-192)
+          const box = highlightBoxOf(element);
+          const shape = highlightShapeOf(element);
 
           return (
             <div
@@ -389,6 +404,7 @@ const ClassNodes = ({
                 height: box.height,
                 transform: flowBoundsTransform(box, camera),
                 transformOrigin: "0 0",
+                ...lookVars(flow.settings),
               }}
             >
               <div
@@ -402,11 +418,17 @@ const ClassNodes = ({
                   transformOrigin: "0 0",
                 }}
               >
-                <div className="excalidraw__flow-animation-pulse" />
+                <NodeOutline
+                  shape={shape}
+                  width={box.width}
+                  height={box.height}
+                  className="excalidraw__flow-animation-pulse"
+                />
               </div>
             </div>
           );
-        })}
+        },
+      )}
     </>
   );
 };
@@ -453,6 +475,11 @@ const StepsButton = ({
           arrowStyle: flow.settings.arrow,
           speed: flow.settings.speed,
           durationMs: flow.settings.stepMs,
+          nodeColor: flow.settings.nodeColor,
+          markColor: flow.settings.markColor,
+          arrowColor: flow.settings.arrowColor,
+          hideArrow: flow.settings.hideArrow,
+          nodeTarget: flow.settings.nodeTarget,
         })
       }
     >

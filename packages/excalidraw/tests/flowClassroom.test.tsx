@@ -30,6 +30,7 @@ import {
   readFlowClass,
   withFlowClass,
 } from "../scene/flowClass";
+import { FLOW_LOOK_DEFAULTS } from "../scene/flowLook";
 import { buildFlowPreset } from "../scene/flowPresets";
 import { FLOW_TOKEN_RADIUS } from "../scene/flowStyles";
 
@@ -47,6 +48,7 @@ const PAGES = [
 ];
 
 const SETTINGS: FlowClassSettings = {
+  ...FLOW_LOOK_DEFAULTS,
   node: "pulse",
   arrow: "token",
   speed: 240,
@@ -230,6 +232,7 @@ describe("AC-214 show in class writes the animation into the chart", () => {
 
     for (const shape of shapes()) {
       expect(readFlowClass(shape)).toEqual({
+        ...FLOW_LOOK_DEFAULTS,
         node: "pulse",
         arrow: "pipe",
         speed: 240,

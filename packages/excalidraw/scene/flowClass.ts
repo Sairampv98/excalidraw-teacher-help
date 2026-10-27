@@ -10,6 +10,7 @@
 
 import type { ElementsMap, ExcalidrawElement } from "@excalidraw/element/types";
 
+import { FLOW_LOOK_DEFAULTS, readFlowLook } from "./flowLook";
 import { allFlows } from "./flowSelection";
 import {
   FLOW_ARROW_STYLES,
@@ -18,11 +19,12 @@ import {
   clampFlowSpeed,
 } from "./flowStyles";
 
+import type { FlowLook } from "./flowLook";
 import type { FlowGraph } from "./flowOrder";
 import type { FlowArrowStyle, FlowNodeStyle } from "./flowStyles";
 
 /** what a class loop plays: the bar's settings, minus the camera (D-183) */
-export type FlowClassSettings = {
+export type FlowClassSettings = FlowLook & {
   node: FlowNodeStyle;
   arrow: FlowArrowStyle;
   /** scene units a second, before the chart scale (D-179) */
@@ -34,6 +36,7 @@ export type FlowClassSettings = {
 };
 
 export const FLOW_CLASS_DEFAULTS: FlowClassSettings = {
+  ...FLOW_LOOK_DEFAULTS,
   node: "focus",
   arrow: "none",
   speed: FLOW_SPEED,
@@ -59,6 +62,8 @@ export const readFlowClass = (
   }
 
   return {
+    // an entry from before the look has none of it: the defaults (D-195)
+    ...readFlowLook(entry),
     node: FLOW_NODE_STYLES.some((style) => style.id === entry.node)
       ? entry.node
       : FLOW_CLASS_DEFAULTS.node,

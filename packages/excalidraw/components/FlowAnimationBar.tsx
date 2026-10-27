@@ -1,4 +1,10 @@
-import React, { useMemo } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import type { ElementsMap, ExcalidrawElement } from "@excalidraw/element/types";
 
@@ -8,8 +14,23 @@ import {
   actionFlowResetLayout,
   flowResetLayoutPredicate,
 } from "../actions/actionFlowLayout";
-import { flowBarPosition, flowBoxOf } from "../scene/flowBar";
+import {
+  FLOW_BAR_HEIGHT,
+  FLOW_BAR_LOOK_EXTRA,
+  FLOW_BAR_PILL_HEIGHT,
+  flowBarPosition,
+  flowBoxOf,
+} from "../scene/flowBar";
+import {
+  FLOW_BAR_DRAG_THRESHOLD,
+  clampFlowBarPlace,
+  readFlowBarPlace,
+  snapFlowBarPlace,
+  usableFlowBarPlace,
+  writeFlowBarPlace,
+} from "../scene/flowBarPlace";
 import { flowClassOf } from "../scene/flowClass";
+import { colorInputValue } from "../scene/flowLook";
 import { flowOfSelection } from "../scene/flowSelection";
 import {
   FLOW_ARROW_STYLES,
@@ -24,6 +45,8 @@ import { t } from "../i18n";
 import {
   DEFAULT_FLOW_STEP_DURATION_MS,
   flowAnimationStateAtom,
+  flowClassPreviewAtom,
+  setFlowClassPreview,
   startFlowAnimation,
   stopFlowAnimation,
   updateFlowAnimationSettings,
@@ -32,6 +55,7 @@ import {
 import "./FlowAnimationBar.scss";
 
 import type { FlowAnimationCamera } from "../scene/flowAnimation";
+import type { FlowBarPlace } from "../scene/flowBarPlace";
 import type { FlowViewport } from "../scene/flowCamera";
 import type { AppClassProperties, AppState } from "../types";
 
@@ -47,6 +71,47 @@ type FlowAnimationBarProps = {
   hidden?: boolean;
 };
 
+/** a press on the grip or the pill, until it is released */
+type Press = {
+  kind: "grip" | "pill";
+  startX: number;
+  startY: number;
+  /** where the bar was when it was pressed: its top-left */
+  origin: { x: number; y: number };
+  size: { width: number; height: number };
+  moved: boolean;
+};
+
+const GripIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+    <g fill="currentColor">
+      <circle cx="4.6" cy="2.6" r="1.35" />
+      <circle cx="9.4" cy="2.6" r="1.35" />
+      <circle cx="4.6" cy="7" r="1.35" />
+      <circle cx="9.4" cy="7" r="1.35" />
+      <circle cx="4.6" cy="11.4" r="1.35" />
+      <circle cx="9.4" cy="11.4" r="1.35" />
+    </g>
+  </svg>
+);
+
+const CollapseIcon = () => (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <path d="M18 6L6 18M6 6l12 12" />
+  </svg>
+);
+
 /**
  * The floating bar that drives the flow animation (D-177).
  *
@@ -54,6 +119,10 @@ type FlowAnimationBarProps = {
  * sits just below the chart and follows it. It is shown while a shape or an
  * arrow of a flow is selected, and while a flow plays (D-180), and the whole
  * connected flow is what it controls.
+ *
+ * It is also a **movable pill**, like the toolbar and the properties panel
+ * (D-197, D-198): a grip to move it, a collapse button to turn it into a pill,
+ * and a place that is remembered. Moving it never touches the canvas (D-199).
  *
  * Nothing it does touches `appState`: the settings and the playing state live
  * in a jotai atom, so nothing about the animation reaches the saved document
@@ -69,6 +138,19 @@ export const FlowAnimationBar = ({
   hidden,
 }: FlowAnimationBarProps) => {
   const state = useAtomValue(flowAnimationStateAtom);
+  const preview = useAtomValue(flowClassPreviewAtom);
+
+  const [lookOpen, setLookOpen] = useState(false);
+  const [place, setPlace] = useState<FlowBarPlace>(readFlowBarPlace);
+  const [dragging, setDragging] = useState(false);
+
+  const barRef = useRef<HTMLElement | null>(null);
+  const pressRef = useRef<Press | null>(null);
+  // the latest of these, for the window listeners that outlive a render
+  const placeRef = useRef(place);
+  placeRef.current = place;
+  const viewportRef = useRef(viewport);
+  viewportRef.current = viewport;
 
   const selectedFlow = useMemo(
     () => flowOfSelection(selectedElementIds, elements, elementsMap),
@@ -79,11 +161,121 @@ export const FlowAnimationBar = ({
   const graph = state.active && state.graph ? state.graph : selectedFlow;
   const box = graph ? flowBoxOf(graph, elementsMap) : null;
 
+  // a remembered place that cannot be used in this window is ignored (D-197)
+  const placed = usableFlowBarPlace(place.placed, viewport);
+
+  const remember = useCallback((next: FlowBarPlace) => {
+    setPlace(next);
+    writeFlowBarPlace(next);
+  }, []);
+
+  // moving the bar, and dropping it (D-197, D-199): one set of listeners
+  useEffect(() => {
+    const onMove = (event: PointerEvent) => {
+      const press = pressRef.current;
+
+      if (!press) {
+        return;
+      }
+
+      if (!press.moved) {
+        const travelled = Math.hypot(
+          event.clientX - press.startX,
+          event.clientY - press.startY,
+        );
+
+        if (travelled < FLOW_BAR_DRAG_THRESHOLD) {
+          return;
+        }
+
+        press.moved = true;
+        setDragging(true);
+      }
+
+      const next = clampFlowBarPlace(
+        {
+          x: press.origin.x + (event.clientX - press.startX),
+          y: press.origin.y + (event.clientY - press.startY),
+        },
+        press.size,
+        viewportRef.current,
+      );
+
+      setPlace((current) => ({ ...current, placed: next }));
+    };
+
+    const onUp = () => {
+      const press = pressRef.current;
+
+      if (!press) {
+        return;
+      }
+
+      pressRef.current = null;
+      setDragging(false);
+
+      if (!press.moved) {
+        // pressed and let go: on the pill that opens the bar
+        if (press.kind === "pill") {
+          remember({ ...placeRef.current, collapsed: false });
+        }
+
+        return;
+      }
+
+      const dropped = placeRef.current.placed;
+
+      if (dropped) {
+        remember({
+          ...placeRef.current,
+          placed: snapFlowBarPlace(dropped, press.size, viewportRef.current),
+        });
+      }
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [remember]);
+
+  // the window changed size: a placed bar is brought back inside it (D-199)
+  useEffect(() => {
+    if (!placed) {
+      return;
+    }
+
+    const element = barRef.current;
+    const size = {
+      width: element?.offsetWidth ?? 0,
+      height: element?.offsetHeight ?? 0,
+    };
+    const next = clampFlowBarPlace(placed, size, viewport);
+
+    if (next.x !== placed.x || next.y !== placed.y) {
+      remember({ ...placeRef.current, placed: next });
+    }
+    // only a change of the window's size brings it back; the place is the
+    // teacher's the rest of the time
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewport.width, viewport.height]);
+
   if (hidden || !graph || !box) {
     return null;
   }
 
-  const { left, top } = flowBarPosition({ box, camera, viewport });
+  const barHeight = place.collapsed
+    ? FLOW_BAR_PILL_HEIGHT
+    : lookOpen
+    ? FLOW_BAR_HEIGHT + FLOW_BAR_LOOK_EXTRA
+    : FLOW_BAR_HEIGHT;
+
+  const follow = flowBarPosition({ box, camera, viewport, barHeight });
   const marked = !!flowClassOf(graph, elementsMap);
 
   // a setting the class plays is brought up to date in the chart as well, while
@@ -100,21 +292,89 @@ export const FlowAnimationBar = ({
       });
     }
   };
+
+  /** presses the grip or the pill: not a click on the canvas (D-199) */
+  const startPress = (
+    event: React.PointerEvent<HTMLElement>,
+    kind: Press["kind"],
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
+
+    const element = barRef.current;
+    const size = {
+      width: element?.offsetWidth ?? 0,
+      height: element?.offsetHeight ?? 0,
+    };
+
+    pressRef.current = {
+      kind,
+      startX: event.clientX,
+      startY: event.clientY,
+      // where the bar is now: its place, or where it follows the chart to
+      origin: placed ?? { x: follow.left - size.width / 2, y: follow.top },
+      size,
+      moved: false,
+    };
+  };
+
+  const style = placed
+    ? { left: placed.x, top: placed.y }
+    : { left: follow.left, top: follow.top };
+
+  if (place.collapsed) {
+    return (
+      <button
+        type="button"
+        ref={(node) => {
+          barRef.current = node;
+        }}
+        className="excalidraw__flow-bar-pill"
+        data-testid="flow-bar-pill"
+        data-flow-bar-placed={placed ? "" : undefined}
+        data-dragging={dragging ? "" : undefined}
+        aria-label="Animation, collapsed"
+        title="Animation - click to open, drag to move"
+        style={style}
+        onPointerDown={(event) => startPress(event, "pill")}
+      >
+        <GripIcon />
+        <span>Animation</span>
+      </button>
+    );
+  }
+
   const playing = state.active && state.mode === "play";
   const presenting = state.active && state.mode === "present";
 
   return (
     <div
+      ref={(node) => {
+        barRef.current = node;
+      }}
       className="excalidraw__flow-bar"
       role="toolbar"
       aria-label={t("labels.flowAnimation")}
       data-testid="flow-bar"
-      style={{ left, top }}
+      data-flow-bar-placed={placed ? "" : undefined}
+      data-dragging={dragging ? "" : undefined}
+      style={style}
       // the bar is not part of the canvas: a click on it is not a click on the
       // scene, so nothing under it is deselected
       onPointerDown={(event) => event.stopPropagation()}
     >
       <div className="excalidraw__flow-bar-row">
+        <button
+          type="button"
+          className="excalidraw__flow-bar-grip"
+          aria-label="Move the animation bar"
+          title="Drag to move, double-click to follow the chart"
+          onPointerDown={(event) => startPress(event, "grip")}
+          onDoubleClick={() => remember({ ...place, placed: null })}
+        >
+          <GripIcon />
+        </button>
         <button
           type="button"
           onClick={() => {
@@ -166,6 +426,22 @@ export const FlowAnimationBar = ({
             {t("labels.flowAnimationResetLayout")}
           </button>
         )}
+        <button
+          type="button"
+          aria-expanded={lookOpen}
+          onClick={() => setLookOpen((open) => !open)}
+        >
+          Look
+        </button>
+        <button
+          type="button"
+          className="excalidraw__flow-bar-collapse"
+          aria-label="Collapse the animation bar into a pill"
+          title="Collapse into a pill"
+          onClick={() => remember({ ...place, collapsed: true })}
+        >
+          <CollapseIcon />
+        </button>
       </div>
 
       <div className="excalidraw__flow-bar-row">
@@ -255,11 +531,17 @@ export const FlowAnimationBar = ({
           <input
             type="checkbox"
             checked={marked}
-            onChange={(event) =>
+            onChange={(event) => {
               app.actionManager.executeAction(actionFlowClass, "ui", {
                 enabled: event.target.checked,
-              })
-            }
+              });
+
+              // marking a chart has a visible effect: the class loop is
+              // previewed in the editor, once (D-193)
+              if (event.target.checked) {
+                setFlowClassPreview(true);
+              }
+            }}
           />
           <span>{t("labels.flowAnimationClass")}</span>
         </label>
@@ -272,6 +554,107 @@ export const FlowAnimationBar = ({
           <span>{t("labels.flowAnimationLoop")}</span>
         </label>
       </div>
+
+      {lookOpen && (
+        <div
+          className="excalidraw__flow-bar-look"
+          role="group"
+          aria-label="Look"
+        >
+          <div className="excalidraw__flow-bar-row">
+            <label className="excalidraw__flow-bar-field">
+              <span>Highlight</span>
+              <input
+                type="color"
+                aria-label="Highlight colour"
+                value={colorInputValue(state.nodeColor)}
+                onChange={(event) => change({ nodeColor: event.target.value })}
+              />
+            </label>
+            <button
+              type="button"
+              aria-label="Default highlight colour"
+              disabled={!state.nodeColor}
+              onClick={() => change({ nodeColor: null })}
+            >
+              Default
+            </button>
+            <label className="excalidraw__flow-bar-field">
+              <span>On</span>
+              <select
+                aria-label="Highlight target"
+                value={state.nodeTarget}
+                onChange={(event) =>
+                  change({
+                    nodeTarget: event.target.value as typeof state.nodeTarget,
+                  })
+                }
+              >
+                <option value="shape">Whole shape</option>
+                <option value="text">Text only</option>
+              </select>
+            </label>
+          </div>
+          <div className="excalidraw__flow-bar-row">
+            <label className="excalidraw__flow-bar-field">
+              <span>Animation</span>
+              <input
+                type="color"
+                aria-label="Animation colour"
+                value={colorInputValue(state.markColor)}
+                onChange={(event) => change({ markColor: event.target.value })}
+              />
+            </label>
+            <button
+              type="button"
+              aria-label="Default animation colour"
+              disabled={!state.markColor}
+              onClick={() => change({ markColor: null })}
+            >
+              Default
+            </button>
+          </div>
+          <div className="excalidraw__flow-bar-row">
+            <label className="excalidraw__flow-bar-field">
+              <span>Arrow</span>
+              <input
+                type="color"
+                aria-label="Arrow colour"
+                value={colorInputValue(state.arrowColor)}
+                onChange={(event) => change({ arrowColor: event.target.value })}
+              />
+            </label>
+            <button
+              type="button"
+              aria-label="Default arrow colour"
+              disabled={!state.arrowColor}
+              onClick={() => change({ arrowColor: null })}
+            >
+              Default
+            </button>
+            <label className="excalidraw__flow-bar-field">
+              <input
+                type="checkbox"
+                checked={state.hideArrow}
+                onChange={(event) =>
+                  change({ hideArrow: event.target.checked })
+                }
+              />
+              <span>Hide arrow</span>
+            </label>
+          </div>
+          <div className="excalidraw__flow-bar-row">
+            <label className="excalidraw__flow-bar-field">
+              <input
+                type="checkbox"
+                checked={preview}
+                onChange={(event) => setFlowClassPreview(event.target.checked)}
+              />
+              <span>Preview class loop</span>
+            </label>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
