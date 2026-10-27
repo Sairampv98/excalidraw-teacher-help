@@ -480,15 +480,16 @@ describe("flow presets fit the page (AC-197)", () => {
       }
     }
 
-    // a small chart keeps the full size; a bigger one is shrunk, not cut
+    // a small chart keeps the full size; a bigger one is shrunk, not cut (a long
+    // run of steps wraps into rows instead, D-227)
     expect(build("process", "a\nb").fontSize).toBe(BASE_FLOW_FONT_SIZE);
-    expect(build("process", scriptFor("process", 10)).fontSize).toBeLessThan(
+    expect(build("cycle", scriptFor("cycle", 18)).fontSize).toBeLessThan(
       BASE_FLOW_FONT_SIZE,
     );
   });
 
   it("AC-197 a script too big for the floor is reported", () => {
-    const result = buildFlowPreset("process", scriptFor("process", 100), {
+    const result = buildFlowPreset("cycle", scriptFor("cycle", 100), {
       page: DEFAULT_PAGE,
     });
 

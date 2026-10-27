@@ -116,3 +116,144 @@
     color: var(--color-danger, #db6965);
   }
 }
+
+// the tools above the presets, the fit and shape choices, and the problems (D-224, D-226, D-228, D-229)
+.flow-tab__tools,
+.flow-tab__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+
+  button,
+  select {
+    padding: 4px 8px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+  }
+}
+
+.flow-tab__options label {
+  display: flex;
+  flex: 1 1 8rem;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.flow-tab__problems {
+  margin: 0;
+  padding-left: 1rem;
+  color: var(--color-danger, #c92a2a);
+}
+
+.flow-tab__edit {
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.flow-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  h3,
+  h4,
+  p,
+  ul {
+    margin: 0;
+  }
+
+  ul {
+    padding-left: 1rem;
+  }
+
+  &__header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  &__preset,
+  &__marks,
+  &__fit {
+    padding: 8px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+  }
+
+  &__example {
+    margin: 4px 0;
+    padding: 6px;
+    border-radius: 6px;
+    background: var(--button-hover-bg, rgba(127, 127, 127, 0.14));
+    white-space: pre-wrap;
+  }
+
+  button {
+    padding: 4px 8px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+}
+
+.flow-preset-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  label,
+  fieldset {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  input:not([type="color"]),
+  textarea,
+  select {
+    padding: 4px 6px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+  }
+
+  &__colours {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  &__buttons {
+    display: flex;
+    gap: 6px;
+
+    button {
+      padding: 6px 10px;
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+    }
+  }
+}

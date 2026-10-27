@@ -44,6 +44,8 @@ import { t } from "../i18n";
 
 import { presetLook } from "../scene/flowPalette";
 
+import { openFlowScriptEditor } from "./FlowScriptEditorState";
+
 import { FlowColorPad, FlowColorPresets } from "./FlowColorPad";
 import {
   DEFAULT_FLOW_STEP_DURATION_MS,
@@ -467,6 +469,14 @@ export const FlowAnimationBar = ({
             Stop {runningLabel.toLowerCase()}
           </button>
         )}
+        <button
+          type="button"
+          className="excalidraw__flow-bar-edit-script"
+          title="Edit the chart's script"
+          onClick={() => openFlowScriptEditor(graph.steps[0].containerId)}
+        >
+          Edit script
+        </button>
         <button
           type="button"
           aria-expanded={lookOpen}

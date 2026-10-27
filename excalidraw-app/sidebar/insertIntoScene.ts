@@ -61,6 +61,11 @@ export const appendElements = (
    * (D-161) - passes `CaptureUpdateAction.IMMEDIATELY`.
    */
   captureUpdate?: SceneData["captureUpdate"],
+  /**
+   * The elements already say which page each is on (a chart spread over pages,
+   * D-226): they are not all stamped with the one page.
+   */
+  keepPageIds = false,
 ) => {
   const existing = api.getSceneElements();
 
@@ -70,10 +75,9 @@ export const appendElements = (
   // helper the library's own insertion paths use. Without it, an image (or a
   // code card) inserted while a later page was active landed on page 1 and was
   // invisible on the canvas even though it was in the document.
-  const stamped = stampCurrentPage(
-    added,
-    pageId ?? api.getAppState().currentPageId,
-  );
+  const stamped = keepPageIds
+    ? added
+    : stampCurrentPage(added, pageId ?? api.getAppState().currentPageId);
 
   api.updateScene({
     elements: reconcileElements(

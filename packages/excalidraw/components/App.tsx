@@ -505,6 +505,7 @@ import { PanelMirrorPicker } from "./PanelMirrorPicker";
 
 import { FlowAnimationOverlay } from "./FlowAnimationOverlay";
 import { FlowAnimationBar } from "./FlowAnimationBar";
+import { FlowScriptEditor } from "./FlowScriptEditor";
 import {
   getFlowArrowLooks,
   subscribeToFlowArrowLooks,
@@ -2732,6 +2733,23 @@ class App extends React.Component<AppProps, AppState> {
                             elements={this.scene.getNonDeletedElements()}
                             elementsMap={allElementsMap}
                             selectedElementIds={this.state.selectedElementIds}
+                            hidden={this.state.viewModeEnabled}
+                            viewport={{
+                              width: this.state.width,
+                              height: this.state.height,
+                            }}
+                            camera={{
+                              zoom: this.state.zoom,
+                              scrollX: this.state.scrollX,
+                              scrollY: this.state.scrollY,
+                              offsetLeft: this.state.offsetLeft,
+                              offsetTop: this.state.offsetTop,
+                            }}
+                          />
+                          <FlowScriptEditor
+                            app={this}
+                            elements={this.scene.getNonDeletedElements()}
+                            elementsMap={allElementsMap}
                             hidden={this.state.viewModeEnabled}
                             viewport={{
                               width: this.state.width,

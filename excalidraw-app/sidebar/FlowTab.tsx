@@ -1,18 +1,46 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import {
   CaptureUpdateAction,
   getPageRect,
+  reconcileElements,
+  translateContentForPageLayout,
   useExcalidrawAPI,
 } from "@excalidraw/excalidraw";
-import { randomInteger } from "@excalidraw/common";
+import { randomId, randomInteger } from "@excalidraw/common";
+import { openFlowScriptEditor } from "@excalidraw/excalidraw/components/FlowScriptEditorState";
+import { checkFlowScript } from "@excalidraw/excalidraw/scene/flowCheck";
+import { FLOW_FIT_MODES } from "@excalidraw/excalidraw/scene/flowChart";
 import {
-  FLOW_PRESETS,
+  BUILT_IN_OF_LAYOUT,
+  buildSettingsOfCustom,
+  duplicateCustomPreset,
+  exportCustomPresets,
+  importCustomPresets,
+  readStoredCustomPresets,
+  uniquePresetId,
+  uniquePresetName,
+  writeStoredCustomPresets,
+} from "@excalidraw/excalidraw/scene/flowCustomPresets";
+import {
+  flowPagesOf,
+  planChartPages,
+} from "@excalidraw/excalidraw/scene/flowPagesFor";
+import {
   buildFlowPreset,
+  listFlowPresets,
 } from "@excalidraw/excalidraw/scene/flowPresets";
+import { FLOW_NODE_SHAPES } from "@excalidraw/excalidraw/scene/flowScript";
+import { getPageIndex } from "@excalidraw/excalidraw/scene/pages";
 
-import type { FlowPresetId } from "@excalidraw/excalidraw/scene/flowPresets";
+import type { RemoteExcalidrawElement } from "@excalidraw/excalidraw/data/reconcile";
+import type { FlowFitMode } from "@excalidraw/excalidraw/scene/flowChart";
+import type { FlowCustomPreset } from "@excalidraw/excalidraw/scene/flowCustomPresets";
+import type { FlowChartShape } from "@excalidraw/excalidraw/scene/flowPresets";
+import type { FlowPresetId } from "@excalidraw/excalidraw/scene/flowScript";
 
+import { FlowGuide } from "./FlowGuide";
+import { FlowPresetForm } from "./FlowPresetForm";
 import { appendElements, placementFor } from "./insertIntoScene";
 
 import "./FlowTab.scss";
@@ -32,37 +60,110 @@ const SCRIPT_HINTS: Record<FlowPresetId, string> = {
     "One line for each node, or A -> B to join two. A node is made the first time its name appears.",
 };
 
+const FIT_LABELS: Record<FlowFitMode, string> = {
+  page: "Fit to page",
+  spread: "Spread over pages",
+  larger: "Allow larger than page",
+};
+
+const SHAPE_LABELS: Record<FlowChartShape, string> = {
+  own: "Preset's own",
+  rectangle: "Rectangle",
+  rounded: "Rounded",
+  ellipse: "Ellipse",
+  circle: "Circle",
+  diamond: "Diamond",
+};
+
 type Message = { kind: "error" | "ok"; text: string };
+
+type View = "chart" | "guide" | "form";
+
+/** hands a file to the browser to save */
+const downloadFile = (name: string, text: string) => {
+  const url = URL.createObjectURL(
+    new Blob([text], { type: "application/json" }),
+  );
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+};
 
 /**
  * The flow studio (D-161): presets for a chart that is made of ordinary shapes
  * and arrows, filled from a script of one line for each node.
  *
  * It does not draw anything itself: it asks `buildFlowPreset` for the elements
- * and puts them on the page the teacher is on, in one step that one undo takes
- * back.
+ * and puts them on the page the teacher is on - and on the pages after it when
+ * the chart is spread (D-226) - in one step that one undo takes back.
  */
 export const FlowTab = () => {
   const excalidrawAPI = useExcalidrawAPI();
 
-  const [presetId, setPresetId] = useState<FlowPresetId>("process");
-  const preset = FLOW_PRESETS.find((p) => p.id === presetId)!;
+  const [customs, setCustoms] = useState<FlowCustomPreset[]>(
+    readStoredCustomPresets,
+  );
+  const listing = useMemo(() => listFlowPresets(customs), [customs]);
+
+  const [presetId, setPresetId] = useState<string>("process");
+  const preset = listing.find((p) => p.id === presetId) ?? listing[0];
+  const custom = customs.find((c) => c.id === presetId);
+  const builtIn: FlowPresetId = custom
+    ? BUILT_IN_OF_LAYOUT[custom.layout]
+    : (presetId as FlowPresetId);
 
   const [script, setScript] = useState(preset.example);
   // a script the teacher has not touched follows the preset they pick
   const [edited, setEdited] = useState(false);
+  const [fit, setFit] = useState<FlowFitMode>("page");
+  const [shape, setShape] = useState<FlowChartShape>("own");
   const [message, setMessage] = useState<Message | null>(null);
+  const [view, setView] = useState<View>("chart");
+  const [editing, setEditing] = useState<FlowCustomPreset | null>(null);
+
+  const fileInput = useRef<HTMLInputElement | null>(null);
 
   const choose = useCallback(
-    (id: FlowPresetId) => {
+    (id: string) => {
+      const next = listing.find((p) => p.id === id);
+      const picked = customs.find((c) => c.id === id);
+
       setPresetId(id);
       setMessage(null);
+      // a preset brings the shape it was made with
+      setShape(picked ? picked.shape : "own");
 
-      if (!edited) {
-        setScript(FLOW_PRESETS.find((p) => p.id === id)!.example);
+      if (!edited && next) {
+        setScript(next.example);
       }
     },
-    [edited],
+    [edited, listing, customs],
+  );
+
+  const options = useMemo(() => {
+    const state =
+      excalidrawAPI && !excalidrawAPI.isDestroyed
+        ? excalidrawAPI.getAppState()
+        : null;
+    const page = state?.pages?.length
+      ? getPageRect(state.pages, state.currentPageId)
+      : undefined;
+
+    return {
+      page,
+      fit,
+      ...(custom ? buildSettingsOfCustom(custom).options : {}),
+      shape,
+    };
+  }, [excalidrawAPI, fit, shape, custom]);
+
+  // the script is checked as it is typed (D-224)
+  const check = useMemo(
+    () => checkFlowScript(builtIn, script, options),
+    [builtIn, script, options],
   );
 
   const insert = useCallback(() => {
@@ -70,16 +171,33 @@ export const FlowTab = () => {
       return;
     }
 
-    const { pages, currentPageId } = excalidrawAPI.getAppState();
+    const state = excalidrawAPI.getAppState();
+    const { pages, currentPageId } = state;
     const page = getPageRect(pages, currentPageId);
+    const settings = custom ? buildSettingsOfCustom(custom).options : {};
 
-    const result = buildFlowPreset(presetId, script, {
+    // a spread chart goes on the pages that follow, made when they are missing
+    const plan =
+      fit === "spread" && check.pages > 1
+        ? planChartPages({ pages, currentPageId, count: check.pages })
+        : null;
+
+    const result = buildFlowPreset(builtIn, script, {
+      ...settings,
       page,
       // the middle of what the teacher can see, kept on the page by the builder
-      center: placementFor(excalidrawAPI, { width: 0, height: 0 }),
+      center: plan
+        ? undefined
+        : placementFor(excalidrawAPI, { width: 0, height: 0 }),
       pageId: currentPageId,
+      pageNumber: getPageIndex(pages, currentPageId) + 1,
+      pages: plan ? flowPagesOf(plan) : undefined,
       // a second chart on the same page must not reuse the first one's ids
       seed: randomInteger(),
+      chartId: `chart-${randomId()}`,
+      fit,
+      custom,
+      shape,
     });
 
     if (!result.ok) {
@@ -87,26 +205,166 @@ export const FlowTab = () => {
       return;
     }
 
-    appendElements(
-      excalidrawAPI,
-      result.elements,
-      {
-        // the shapes and arrows: their labels come with them
-        selectedElementIds: Object.fromEntries(
-          result.elements
-            .filter((el) => el.type !== "text")
-            .map((el) => [el.id, true as const]),
+    const selected = {
+      // the shapes and arrows: their labels come with them
+      selectedElementIds: Object.fromEntries(
+        result.elements
+          .filter((el) => el.type !== "text")
+          .map((el) => [el.id, true as const]),
+      ),
+    };
+
+    if (plan && plan.created > 0) {
+      // the pages that were made, and what they push along, are one step with the chart
+      const translated = translateContentForPageLayout({
+        elements: excalidrawAPI.getSceneElementsIncludingDeleted(),
+        previousPages: pages,
+        nextPages: plan.pages,
+      });
+
+      excalidrawAPI.updateScene({
+        elements: reconcileElements(
+          translated as RemoteExcalidrawElement[],
+          [...translated, ...result.elements] as RemoteExcalidrawElement[],
+          state,
         ),
-      },
-      currentPageId,
-      CaptureUpdateAction.IMMEDIATELY,
-    );
+        appState: { ...selected, pages: plan.pages },
+        captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+      });
+    } else {
+      appendElements(
+        excalidrawAPI,
+        result.elements,
+        selected,
+        currentPageId,
+        CaptureUpdateAction.IMMEDIATELY,
+        result.pages > 1,
+      );
+    }
 
     setMessage({
       kind: "ok",
-      text: `Added a ${preset.name.toLowerCase()} chart to this page.`,
+      text:
+        result.pages > 1
+          ? `Added a ${preset.name.toLowerCase()} chart over ${
+              result.pages
+            } pages.`
+          : `Added a ${preset.name.toLowerCase()} chart to this page.`,
     });
-  }, [excalidrawAPI, presetId, script, preset.name]);
+  }, [
+    builtIn,
+    check.pages,
+    custom,
+    excalidrawAPI,
+    fit,
+    preset.name,
+    script,
+    shape,
+  ]);
+
+  const editScript = useCallback(() => {
+    if (!excalidrawAPI || excalidrawAPI.isDestroyed) {
+      return;
+    }
+
+    const [first] = Object.keys(excalidrawAPI.getAppState().selectedElementIds);
+
+    if (!first) {
+      setMessage({
+        kind: "error",
+        text: "Select a chart on the page first, then press Edit script.",
+      });
+      return;
+    }
+
+    openFlowScriptEditor(first);
+  }, [excalidrawAPI]);
+
+  /* --------------------------------------------------------- custom presets */
+
+  const keep = (next: FlowCustomPreset[]) => {
+    setCustoms(next);
+    writeStoredCustomPresets(next);
+  };
+
+  const savePreset = (saved: Omit<FlowCustomPreset, "id">) => {
+    if (editing) {
+      keep(
+        customs.map((c) => (c.id === editing.id ? { ...saved, id: c.id } : c)),
+      );
+    } else {
+      const name = uniquePresetName(
+        saved.name,
+        new Set(customs.map((c) => c.name)),
+      );
+      const id = uniquePresetId(name, new Set(customs.map((c) => c.id)));
+
+      keep([...customs, { ...saved, name, id }]);
+      choose(id);
+    }
+
+    setEditing(null);
+    setView("chart");
+  };
+
+  const importFile = async (file: File | undefined) => {
+    if (!file) {
+      return;
+    }
+
+    const imported = importCustomPresets(await file.text(), customs);
+
+    if (!imported.ok) {
+      // all of the file or none of it: what the teacher has is as it was
+      setMessage({ kind: "error", text: imported.error });
+      return;
+    }
+
+    keep([...customs, ...imported.presets]);
+    setMessage({
+      kind: "ok",
+      text: `Added ${imported.presets.length} preset${
+        imported.presets.length === 1 ? "" : "s"
+      }.`,
+    });
+  };
+
+  if (view === "guide") {
+    return (
+      <div className="flow-tab">
+        <div className="flow-tab__body">
+          <FlowGuide
+            presets={listing}
+            customs={customs}
+            onBack={() => setView("chart")}
+            onUse={(id, example) => {
+              choose(id);
+              setScript(example);
+              setEdited(true);
+              setView("chart");
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "form") {
+    return (
+      <div className="flow-tab">
+        <div className="flow-tab__body">
+          <FlowPresetForm
+            initial={editing ?? undefined}
+            onSave={savePreset}
+            onCancel={() => {
+              setEditing(null);
+              setView("chart");
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flow-tab">
@@ -121,12 +379,50 @@ export const FlowTab = () => {
           change it afterwards.
         </p>
 
+        <div className="flow-tab__tools">
+          <button type="button" onClick={() => setView("guide")}>
+            Guide
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setEditing(null);
+              setView("form");
+            }}
+          >
+            New preset
+          </button>
+          <button type="button" onClick={() => fileInput.current?.click()}>
+            Import
+          </button>
+          <button
+            type="button"
+            disabled={customs.length === 0}
+            onClick={() =>
+              downloadFile("flow-presets.json", exportCustomPresets(customs))
+            }
+          >
+            Export
+          </button>
+          <input
+            ref={fileInput}
+            type="file"
+            accept="application/json,.json"
+            hidden
+            aria-label="Import presets"
+            onChange={(event) => {
+              void importFile(event.target.files?.[0]);
+              event.target.value = "";
+            }}
+          />
+        </div>
+
         <div
           className="flow-tab__presets"
           role="radiogroup"
           aria-label="Kind of chart"
         >
-          {FLOW_PRESETS.map((p) => (
+          {listing.map((p) => (
             <button
               key={p.id}
               type="button"
@@ -141,6 +437,73 @@ export const FlowTab = () => {
               </span>
             </button>
           ))}
+        </div>
+
+        {custom && (
+          <div className="flow-tab__tools" aria-label="Your preset">
+            <button
+              type="button"
+              onClick={() => {
+                setEditing(custom);
+                setView("form");
+              }}
+            >
+              Edit preset
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const copy = duplicateCustomPreset(custom, customs);
+
+                keep([...customs, copy]);
+                choose(copy.id);
+              }}
+            >
+              Duplicate
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                keep(customs.filter((c) => c.id !== custom.id));
+                choose("process");
+              }}
+            >
+              Delete preset
+            </button>
+          </div>
+        )}
+
+        <div className="flow-tab__options">
+          <label>
+            Fit
+            <select
+              aria-label="Fit mode"
+              value={fit}
+              onChange={(event) => setFit(event.target.value as FlowFitMode)}
+            >
+              {FLOW_FIT_MODES.map((mode) => (
+                <option key={mode} value={mode}>
+                  {FIT_LABELS[mode]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Shape
+            <select
+              aria-label="Node shape"
+              value={shape}
+              onChange={(event) =>
+                setShape(event.target.value as FlowChartShape)
+              }
+            >
+              {(["own", ...FLOW_NODE_SHAPES] as FlowChartShape[]).map((s) => (
+                <option key={s} value={s}>
+                  {SHAPE_LABELS[s]}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
 
         <label className="flow-tab__label" htmlFor="flow-tab-script">
@@ -160,12 +523,39 @@ export const FlowTab = () => {
           // the canvas has single-key shortcuts; typing a script must not use them
           onKeyDown={(event) => event.stopPropagation()}
         />
-        <p className="flow-tab__hint">{SCRIPT_HINTS[presetId]}</p>
+        <p className="flow-tab__hint">{SCRIPT_HINTS[builtIn]}</p>
+
+        {check.problems.length > 0 && (
+          <ul
+            className="flow-tab__problems"
+            aria-label="Problems in the script"
+          >
+            {check.problems.map((problem, index) => (
+              <li key={index} data-line={problem.line}>
+                Line {problem.line}: {problem.message}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="flow-tab__hint" data-testid="flow-tab-counts">
+          {check.nodes} nodes, {check.arrows} arrows
+          {check.fontSize !== null ? `, text size ${check.fontSize}` : ""}
+          {check.pages > 1 ? `, ${check.pages} pages` : ""}
+        </p>
       </div>
 
       <div className="flow-tab__footer">
-        <button type="button" className="flow-tab__insert" onClick={insert}>
+        <button
+          type="button"
+          className="flow-tab__insert"
+          disabled={check.problems.length > 0}
+          title={check.problems.length > 0 ? check.reason ?? "" : undefined}
+          onClick={insert}
+        >
           Insert chart
+        </button>
+        <button type="button" className="flow-tab__edit" onClick={editScript}>
+          Edit script
         </button>
 
         {message && (

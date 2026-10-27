@@ -25,21 +25,25 @@ import type {
   ExcalidrawTextElement,
 } from "@excalidraw/element/types";
 
-import { PAGE_HEIGHT, PAGE_WIDTH } from "../types";
+import { PAGE_HEIGHT, PAGE_SPACING, PAGE_WIDTH } from "../types";
 
+import { stampChart } from "./flowChart";
 import { layoutFlow } from "./flowLayout";
 import { parseFlowScript } from "./flowScript";
 
+import type { FlowFitMode } from "./flowChart";
+import type { FlowCustomPreset } from "./flowCustomPresets";
 import type { FlowBox } from "./flowOrder";
 import type {
   FlowNodeKind,
+  FlowNodeShape,
   FlowPresetId,
   FlowScriptEdge,
   FlowScriptNode,
   ParsedFlow,
 } from "./flowScript";
 
-export type { FlowPresetId } from "./flowScript";
+export type { FlowNodeShape, FlowPresetId } from "./flowScript";
 
 /* ---------------------------------------------------------------- the presets */
 
@@ -101,6 +105,28 @@ export const FLOW_PRESETS: readonly FlowPreset[] = [
   },
 ];
 
+/** a preset as the Flow tab lists it: the built-in seven first, then the teacher's own (D-228) */
+export type FlowPresetListing = {
+  id: string;
+  name: string;
+  description: string;
+  example: string;
+  custom: boolean;
+};
+
+export const listFlowPresets = (
+  custom: readonly FlowCustomPreset[],
+): FlowPresetListing[] => [
+  ...FLOW_PRESETS.map((preset) => ({ ...preset, custom: false })),
+  ...custom.map((preset) => ({
+    id: preset.id,
+    name: preset.name,
+    description: preset.description,
+    example: preset.example,
+    custom: true,
+  })),
+];
+
 /* ------------------------------------------------------------------ constants */
 
 /** the text size a chart starts at, before it is shrunk to fit */
@@ -124,6 +150,37 @@ const WRAP_CHARS = 18;
 
 const STROKE = "#1e1e1e";
 
+/** the colour of a chart's outlines, its text and its arrows */
+const outlineOf = (options: Pick<BuildFlowOptions, "palette">) =>
+  options.palette?.outline ?? STROKE;
+
+/** the fill of a node of this kind (D-228): the palette's, in the built-in order */
+const fillOf = (
+  kind: FlowNodeKind,
+  isNoBranch: boolean,
+  options: Pick<BuildFlowOptions, "palette">,
+) => {
+  const fills = options.palette?.fills;
+
+  if (!fills || fills.length === 0) {
+    return isNoBranch ? NO_BRANCH_FILL : FILL[kind];
+  }
+
+  const at = (i: number) => fills[i % fills.length];
+
+  if (isNoBranch) {
+    return at(3);
+  }
+
+  return {
+    step: at(0),
+    branch: at(1),
+    question: at(2),
+    spoke: at(3),
+    hub: at(4),
+  }[kind];
+};
+
 const FILL: Record<FlowNodeKind, string> = {
   step: "#a5d8ff",
   question: "#ffec99",
@@ -144,7 +201,38 @@ export type FlowPageRect = {
   height: number;
 };
 
+/** the shape every node of a chart takes: the preset's own, or one for all (D-229) */
+export type FlowChartShape = "own" | FlowNodeShape;
+
+/** the colours a chart is drawn in: five fills and an outline (D-228) */
+export type FlowPalette = {
+  /** the fills, in the order the built-in presets use them */
+  fills: readonly string[];
+  /** the colour of every outline, and of the text and the arrows */
+  outline: string;
+};
+
+export const DEFAULT_FLOW_PALETTE: FlowPalette = {
+  fills: ["#a5d8ff", "#b2f2bb", "#ffec99", "#ffd8a8", "#d0bfff"],
+  outline: "#1e1e1e",
+};
+
 export type BuildFlowOptions = {
+  /** the custom preset the chart is made from, which it remembers by value (D-228) */
+  custom?: FlowCustomPreset;
+  /** the colours of the chart; the built-in presets' own when there are none (D-228) */
+  palette?: FlowPalette;
+  /** the direction a chart that is laid out in layers runs in; the one that fits the page best when there is none (D-228) */
+  direction?: "TB" | "LR";
+  /** the shape of every node that its script line does not mark (D-229) */
+  shape?: FlowChartShape;
+  /**
+   * The chart's id. When it is given the chart remembers how it was made - its
+   * preset, script, fit mode and shape - on its own elements (D-221).
+   */
+  chartId?: string;
+  /** how a chart that is too big for its page is handled (D-226) */
+  fit?: FlowFitMode;
   /** the page the chart has to fit; defaults to the first page's rect */
   page?: FlowPageRect;
   /** where the chart's centre should be (clamped so it stays on the page); defaults to the page's centre */
@@ -153,6 +241,16 @@ export type BuildFlowOptions = {
   seed?: number;
   /** the page the elements belong to, when the caller already knows it */
   pageId?: string;
+  /**
+   * The pages a spread chart goes on (D-226): the current page first, then the
+   * ones that follow it. A chart that needs more pages than are given goes on
+   * pages of the same size after the last one, which the caller makes.
+   */
+  pages?: { rect: FlowPageRect; pageId?: string }[];
+  /** the number of the current page, 1 for the first, for "continues on page N" */
+  pageNumber?: number;
+  /** told apart from other groups of a spread chart, so that ids never repeat */
+  idSalt?: string;
 };
 
 export type BuiltFlow = {
@@ -162,6 +260,8 @@ export type BuiltFlow = {
   fontSize: number;
   /** the chart's bounding box, in scene coordinates */
   bounds: FlowPageRect;
+  /** how many pages the chart is on: 1 unless it was spread (D-226) */
+  pages: number;
 };
 
 export type BuildFlowFailure = {
@@ -185,7 +285,7 @@ type Sized = {
 
 type Placed = Sized & { x: number; y: number };
 
-const wrapLabel = (label: string, maxChars = WRAP_CHARS) => {
+export const wrapFlowLabel = (label: string, maxChars = WRAP_CHARS) => {
   const lines: string[] = [];
   let line = "";
 
@@ -202,11 +302,35 @@ const wrapLabel = (label: string, maxChars = WRAP_CHARS) => {
   return lines.join("\n");
 };
 
-const shapeTypeFor = (kind: FlowNodeKind) => {
+/** what each kind of node is drawn as when nothing says otherwise */
+const ownShapeOf = (kind: FlowNodeKind): FlowNodeShape => {
   switch (kind) {
     case "question":
-      return "diamond" as const;
+      return "diamond";
     case "hub":
+      return "ellipse";
+    default:
+      return "rounded";
+  }
+};
+
+/**
+ * The shape of a node (D-229): the mark on its script line, else the chart's
+ * shape, else what its kind is drawn as.
+ */
+export const shapeOfNode = (
+  node: FlowScriptNode,
+  chart: FlowChartShape = "own",
+): FlowNodeShape =>
+  node.shape ?? (chart === "own" ? ownShapeOf(node.kind) : chart);
+
+/** the element type a shape is drawn as; a circle is an ellipse (D-229) */
+const elementTypeOf = (shape: FlowNodeShape) => {
+  switch (shape) {
+    case "diamond":
+      return "diamond" as const;
+    case "ellipse":
+    case "circle":
       return "ellipse" as const;
     default:
       return "rectangle" as const;
@@ -214,7 +338,7 @@ const shapeTypeFor = (kind: FlowNodeKind) => {
 };
 
 /** the text's own size, measured with the library's own text element */
-const measure = (text: string, fontSize: number) => {
+export const measureFlowText = (text: string, fontSize: number) => {
   const probe = newTextElement({ text, fontSize, x: 0, y: 0 });
 
   return { width: probe.width, height: probe.height };
@@ -224,9 +348,11 @@ const sizeNode = (
   node: FlowScriptNode,
   label: string,
   fontSize: number,
+  chart: FlowChartShape,
 ): Sized => {
-  const text = wrapLabel(label);
-  const metrics = measure(text, fontSize);
+  const shape = shapeOfNode(node, chart);
+  const text = wrapFlowLabel(label);
+  const metrics = measureFlowText(text, fontSize);
   const padX = fontSize * 1.2;
   const padY = fontSize * 0.8;
   const minWidth = fontSize * 5;
@@ -235,14 +361,18 @@ const sizeNode = (
   let width = Math.max(minWidth, metrics.width + padX * 2);
   let height = Math.max(minHeight, metrics.height + padY * 2);
 
-  // the text sits in the inscribed rectangle of a diamond and an ellipse, which
-  // is a fraction of the shape's own box
-  if (node.kind === "question") {
-    width *= 1.8;
-    height *= 1.8;
-  } else if (node.kind === "hub") {
-    width *= 1.4;
-    height *= 1.5;
+  // The text and its room lie in the inscribed rectangle of a diamond or an
+  // ellipse, which is smaller than the shape's own box: a diamond needs twice
+  // the room on each axis and an ellipse the square root of two. A circle is an
+  // ellipse of equal sides, wide enough for the diagonal of that room (D-229).
+  if (shape === "diamond") {
+    width *= 2;
+    height *= 2;
+  } else if (shape === "ellipse") {
+    width *= Math.SQRT2;
+    height *= Math.SQRT2;
+  } else if (shape === "circle") {
+    width = height = Math.hypot(width, height);
   }
 
   return { node, text, width, height };
@@ -254,8 +384,17 @@ const layoutLayers = (
   edges: FlowScriptEdge[],
   fontSize: number,
   page: FlowPageRect,
+  direction?: "TB" | "LR",
 ): Placed[] => {
-  const attempts = (["TB", "LR"] as const).map((rankdir) => {
+  // both directions are tried for a small chart; a large one is laid out in the
+  // direction its page is longer in, because laying it out twice is slow
+  const directions: readonly ("TB" | "LR")[] = direction
+    ? [direction]
+    : sized.length <= 40
+    ? ["TB", "LR"]
+    : [page.width >= page.height ? "LR" : "TB"];
+
+  const attempts = directions.map((rankdir) => {
     const { positions } = layoutFlow(
       sized.map((s) => ({
         id: s.node.id,
@@ -282,6 +421,18 @@ const layoutLayers = (
 
   return attempts.sort((a, b) => a.need - b.need)[0].placed;
 };
+
+/**
+ * Whether the shapes could not fit the room even if they were packed with
+ * nothing between them: their areas add up to more than the room's. Then there
+ * is no need to lay them out to find that out.
+ */
+const cannotFit = (
+  sized: readonly Sized[],
+  room: { width: number; height: number },
+) =>
+  sized.reduce((sum, s) => sum + s.width * s.height, 0) >
+  room.width * room.height;
 
 const boundsOf = (placed: readonly Placed[]): FlowPageRect => {
   const left = Math.min(...placed.map((p) => p.x));
@@ -328,10 +479,14 @@ const placeOnRing = (
   });
 };
 
+const chartShape = (s: Sized, chart: FlowChartShape) =>
+  shapeOfNode(s.node, chart);
+
 const layoutTiers = (
   sized: Sized[],
   tiers: string[][],
   fontSize: number,
+  chart: FlowChartShape,
 ): Placed[] => {
   const byId = new Map(sized.map((s) => [s.node.id, s]));
   const gap = fontSize * 1.2;
@@ -353,12 +508,20 @@ const layoutTiers = (
     const itemWidth = (width - gap * (row.length - 1)) / row.length;
 
     row.forEach((s, i) => {
+      const cell = { width: itemWidth, height: rowHeight[index] };
+
+      // a circle keeps its equal sides in the middle of its cell (D-229)
+      const circle = chartShape(s, chart) === "circle";
+      const side = Math.min(cell.width, cell.height);
+      const width = circle ? side : cell.width;
+      const height = circle ? side : cell.height;
+
       placed.push({
         ...s,
-        width: itemWidth,
-        height: rowHeight[index],
-        x: i * (itemWidth + gap),
-        y,
+        width,
+        height,
+        x: i * (itemWidth + gap) + (cell.width - width) / 2,
+        y: y + (cell.height - height) / 2,
       });
     });
 
@@ -368,15 +531,74 @@ const layoutTiers = (
   return placed;
 };
 
+/** a chain longer than this is laid out in rows when there is no room for it in a line (D-227) */
+const SNAKE_AFTER = 8;
+
+/**
+ * A run of steps that goes back and forth in rows, like a snake: each row runs
+ * the other way, so the arrow from one row to the next is short and straight
+ * down (D-227). Every step has the same cell, so nothing overlaps.
+ */
+const layoutSnake = (
+  sized: Sized[],
+  fontSize: number,
+  room: { width: number; height: number },
+  constrained: boolean,
+): Placed[] => {
+  const cellW = Math.max(...sized.map((s) => s.width));
+  const cellH = Math.max(...sized.map((s) => s.height));
+  const gap = fontSize * 1.6;
+  const rowGap = fontSize * 2.4;
+  const fitsAcross = Math.max(
+    1,
+    Math.floor((room.width + gap) / (cellW + gap)),
+  );
+
+  let perRow = fitsAcross;
+
+  if (constrained) {
+    // the fewest rows that fit the room, so the chart is as large as it can be
+    for (let rows = 1; rows <= sized.length; rows++) {
+      const across = Math.ceil(sized.length / rows);
+
+      if (
+        across * (cellW + gap) - gap <= room.width &&
+        rows * (cellH + rowGap) - rowGap <= room.height
+      ) {
+        perRow = across;
+        break;
+      }
+    }
+  }
+
+  return sized.map((s, i) => {
+    const row = Math.floor(i / perRow);
+    const along = i % perRow;
+    const column = row % 2 === 0 ? along : perRow - 1 - along;
+
+    return {
+      ...s,
+      x: column * (cellW + gap) + (cellW - s.width) / 2,
+      y: row * (cellH + rowGap) + (cellH - s.height) / 2,
+    };
+  });
+};
+
 const layoutFor = (
   flow: Extract<ParsedFlow, { ok: true }>,
   sized: Sized[],
   fontSize: number,
   page: FlowPageRect,
+  chart: FlowChartShape,
+  held: {
+    room: { width: number; height: number };
+    constrained: boolean;
+    direction?: "TB" | "LR";
+  },
 ): Placed[] => {
   switch (flow.preset) {
     case "tiers":
-      return layoutTiers(sized, flow.tiers ?? [], fontSize);
+      return layoutTiers(sized, flow.tiers ?? [], fontSize, chart);
 
     case "cycle":
       return placeOnRing(sized, fontSize);
@@ -403,8 +625,40 @@ const layoutFor = (
       return [hubPlaced, ...placeOnRing(spokes, fontSize, clearance)];
     }
 
+    case "process":
+    case "steps": {
+      // a short chain, or one that fits the page in a line or a column, is laid
+      // out in layers; a longer one goes in rows (D-227). The line is measured
+      // by adding the shapes up, so a long chain is not laid out to be thrown away
+      if (sized.length <= SNAKE_AFTER || held.constrained) {
+        const gap = fontSize * 1.6;
+        const across =
+          sized.reduce((sum, s) => sum + s.width, 0) + gap * (sized.length - 1);
+        const down =
+          sized.reduce((sum, s) => sum + s.height, 0) +
+          gap * (sized.length - 1);
+        const widest = Math.max(...sized.map((s) => s.width));
+        const tallest = Math.max(...sized.map((s) => s.height));
+        const inALine =
+          (across <= held.room.width && tallest <= held.room.height) ||
+          (down <= held.room.height && widest <= held.room.width);
+
+        if (sized.length <= SNAKE_AFTER || inALine) {
+          return layoutLayers(
+            sized,
+            flow.edges,
+            fontSize,
+            page,
+            held.direction,
+          );
+        }
+      }
+
+      return layoutSnake(sized, fontSize, held.room, held.constrained);
+    }
+
     default:
-      return layoutLayers(sized, flow.edges, fontSize, page);
+      return layoutLayers(sized, flow.edges, fontSize, page, held.direction);
   }
 };
 
@@ -440,11 +694,11 @@ const facingSides = (from: FlowBox, to: FlowBox): [Side, Side] => {
 };
 
 /** a deterministic stream of ids and rough seeds, so the same input is the same chart */
-const createIds = (seed: number) => {
+export const createIds = (seed: number, salt = "") => {
   let counter = 0;
 
   return {
-    id: (kind: string) => `flow${seed}-${kind}${counter++}`,
+    id: (kind: string) => `flow${seed}${salt}-${kind}${counter++}`,
     roughSeed: () => {
       counter++;
       return (Math.imul(seed + counter, 2654435761) >>> 0) % 2 ** 31;
@@ -460,6 +714,97 @@ const withBound = (
   boundElements: [...(element.boundElements ?? []), bound],
 });
 
+/**
+ * The arrow that joins two shapes, and its label, with the arrow bound to both
+ * by the sides that face each other (D-173). It is what a chart's edges are
+ * made with, and what Apply makes new edges with (D-223): the caller names the
+ * arrow on each shape's `boundElements`.
+ */
+export const buildEdge = (
+  fromBox: FlowBox,
+  toBox: FlowBox,
+  fromShapeId: string,
+  toShapeId: string,
+  edge: { from: string; to: string; label?: string },
+  fontSize: number,
+  ids: { id: (kind: string) => string; roughSeed: () => number },
+  options: Pick<BuildFlowOptions, "pageId" | "palette">,
+): { arrowId: string; elements: ExcalidrawElement[] } => {
+  const [fromSide, toSide] = facingSides(fromBox, toBox);
+  const start = sidePoint(fromBox, fromSide);
+  const end = sidePoint(toBox, toSide);
+
+  const arrowId = ids.id("arrow");
+  const arrow = newArrowElement({
+    type: "arrow",
+    seed: ids.roughSeed(),
+    x: start.x,
+    y: start.y,
+    points: [
+      pointFrom<LocalPoint>(0, 0),
+      pointFrom<LocalPoint>(end.x - start.x, end.y - start.y),
+    ],
+    endArrowhead: "arrow",
+    strokeColor: outlineOf(options),
+    customData: { flow: { role: "edge", from: edge.from, to: edge.to } },
+    pageId: options.pageId,
+  });
+
+  let bound: ExcalidrawArrowElement = {
+    ...arrow,
+    id: arrowId,
+    // the constructor leaves the size at zero, and a resize scales the points
+    // by it: an arrow that says it is zero wide is scaled down to nothing
+    width: Math.abs(end.x - start.x),
+    height: Math.abs(end.y - start.y),
+    startBinding: {
+      elementId: fromShapeId,
+      fixedPoint: FIXED_POINT[fromSide],
+      mode: "orbit",
+    },
+    endBinding: {
+      elementId: toShapeId,
+      fixedPoint: FIXED_POINT[toSide],
+      mode: "orbit",
+    },
+  };
+
+  if (!edge.label) {
+    return { arrowId, elements: [bound] };
+  }
+
+  const labelSize = Math.max(12, Math.round(fontSize * 0.8));
+  const labelId = ids.id("text");
+  const label = newTextElement({
+    text: edge.label,
+    fontSize: labelSize,
+    textAlign: "center",
+    verticalAlign: "middle",
+    containerId: arrowId,
+    x: 0,
+    y: 0,
+    seed: ids.roughSeed(),
+    strokeColor: outlineOf(options),
+    customData: { flow: { role: "edge-label" } },
+    pageId: options.pageId,
+  });
+
+  bound = { ...bound, boundElements: [{ id: labelId, type: "text" }] };
+
+  return {
+    arrowId,
+    elements: [
+      bound,
+      {
+        ...label,
+        id: labelId,
+        x: (start.x + end.x) / 2 - label.width / 2,
+        y: (start.y + end.y) / 2 - label.height / 2,
+      },
+    ],
+  };
+};
+
 const buildElements = (
   flow: Extract<ParsedFlow, { ok: true }>,
   placed: Placed[],
@@ -467,7 +812,7 @@ const buildElements = (
   origin: { x: number; y: number },
   options: BuildFlowOptions,
 ): ExcalidrawElement[] => {
-  const ids = createIds(options.seed ?? 1);
+  const ids = createIds(options.seed ?? 1, options.idSalt ?? "");
   const boxes = new Map<string, FlowBox>();
   const shapeIds = new Map<string, string>();
   const shapes = new Map<string, ExcalidrawElement>();
@@ -487,7 +832,9 @@ const buildElements = (
       flow.edges.some((e) => e.to === p.node.id && e.label === "no");
     const tierFill =
       p.node.tier !== undefined
-        ? TIER_FILLS[p.node.tier % TIER_FILLS.length]
+        ? (options.palette?.fills ?? TIER_FILLS)[
+            p.node.tier % (options.palette?.fills ?? TIER_FILLS).length
+          ]
         : undefined;
 
     // the constructors do not take an id, so it is set on what they return -
@@ -497,15 +844,21 @@ const buildElements = (
 
     const shape: ExcalidrawElement = {
       ...newElement({
-        type: shapeTypeFor(p.node.kind),
+        type: elementTypeOf(shapeOfNode(p.node, options.shape)),
         seed: ids.roughSeed(),
         ...box,
-        strokeColor: STROKE,
-        backgroundColor:
-          tierFill ?? (isNoBranch ? NO_BRANCH_FILL : FILL[p.node.kind]),
+        strokeColor: outlineOf(options),
+        backgroundColor: tierFill ?? fillOf(p.node.kind, isNoBranch, options),
         fillStyle: "solid",
-        roundness: p.node.kind === "question" ? null : { type: 3 },
-        customData: { flow: { role: "node", nodeId: p.node.id } },
+        roundness:
+          shapeOfNode(p.node, options.shape) === "rounded" ? { type: 3 } : null,
+        customData: {
+          flow: {
+            role: "node",
+            nodeId: p.node.id,
+            shape: shapeOfNode(p.node, options.shape),
+          },
+        },
         pageId: options.pageId,
       }),
       id: shapeId,
@@ -521,7 +874,7 @@ const buildElements = (
       x: box.x + box.width / 2,
       y: box.y + box.height / 2,
       seed: ids.roughSeed(),
-      strokeColor: STROKE,
+      strokeColor: outlineOf(options),
       customData: { flow: { role: "label", nodeId: p.node.id } },
       pageId: options.pageId,
     });
@@ -542,88 +895,28 @@ const buildElements = (
   const arrows: ExcalidrawElement[] = [];
 
   for (const edge of flow.edges) {
-    const fromBox = boxes.get(edge.from)!;
-    const toBox = boxes.get(edge.to)!;
-    const [fromSide, toSide] = facingSides(fromBox, toBox);
-    const start = sidePoint(fromBox, fromSide);
-    const end = sidePoint(toBox, toSide);
-
-    const arrowId = ids.id("arrow");
-    const arrow = newArrowElement({
-      type: "arrow",
-      seed: ids.roughSeed(),
-      x: start.x,
-      y: start.y,
-      points: [
-        pointFrom<LocalPoint>(0, 0),
-        pointFrom<LocalPoint>(end.x - start.x, end.y - start.y),
-      ],
-      endArrowhead: "arrow",
-      strokeColor: STROKE,
-      customData: { flow: { role: "edge", from: edge.from, to: edge.to } },
-      pageId: options.pageId,
-    });
-
-    let bound: ExcalidrawArrowElement = {
-      ...arrow,
-      id: arrowId,
-      // the constructor leaves the size at zero, and a resize scales the points
-      // by it: an arrow that says it is zero wide is scaled down to nothing
-      width: Math.abs(end.x - start.x),
-      height: Math.abs(end.y - start.y),
-      startBinding: {
-        elementId: shapeIds.get(edge.from)!,
-        fixedPoint: FIXED_POINT[fromSide],
-        mode: "orbit",
-      },
-      endBinding: {
-        elementId: shapeIds.get(edge.to)!,
-        fixedPoint: FIXED_POINT[toSide],
-        mode: "orbit",
-      },
-    };
+    const made = buildEdge(
+      boxes.get(edge.from)!,
+      boxes.get(edge.to)!,
+      shapeIds.get(edge.from)!,
+      shapeIds.get(edge.to)!,
+      edge,
+      fontSize,
+      ids,
+      options,
+    );
 
     // both sides of the binding: the shapes name the arrow back
     shapes.set(
       edge.from,
-      withBound(shapes.get(edge.from)!, { id: arrowId, type: "arrow" }),
+      withBound(shapes.get(edge.from)!, { id: made.arrowId, type: "arrow" }),
     );
     shapes.set(
       edge.to,
-      withBound(shapes.get(edge.to)!, { id: arrowId, type: "arrow" }),
+      withBound(shapes.get(edge.to)!, { id: made.arrowId, type: "arrow" }),
     );
 
-    if (edge.label) {
-      const labelSize = Math.max(12, Math.round(fontSize * 0.8));
-      const labelId = ids.id("text");
-      const label = newTextElement({
-        text: edge.label,
-        fontSize: labelSize,
-        textAlign: "center",
-        verticalAlign: "middle",
-        containerId: arrowId,
-        x: 0,
-        y: 0,
-        seed: ids.roughSeed(),
-        strokeColor: STROKE,
-        customData: { flow: { role: "edge-label" } },
-        pageId: options.pageId,
-      });
-
-      bound = {
-        ...bound,
-        boundElements: [{ id: labelId, type: "text" }],
-      };
-
-      arrows.push(bound, {
-        ...label,
-        id: labelId,
-        x: (start.x + end.x) / 2 - label.width / 2,
-        y: (start.y + end.y) / 2 - label.height / 2,
-      });
-    } else {
-      arrows.push(bound);
-    }
+    arrows.push(...made.elements);
   }
 
   // shapes (each followed by its label), then the arrows and their labels
@@ -646,16 +939,498 @@ const numbered = (flow: Extract<ParsedFlow, { ok: true }>) =>
       }))
     : flow.nodes;
 
+/** the chart's record is put on its elements when it has an id (D-221) */
+const remembered = (
+  elements: ExcalidrawElement[],
+  preset: FlowPresetId,
+  script: string,
+  options: BuildFlowOptions,
+) =>
+  options.chartId
+    ? stampChart(elements, {
+        id: options.chartId,
+        preset: options.custom?.id ?? preset,
+        script,
+        ...(options.custom ? { custom: options.custom } : {}),
+        fit: options.fit ?? "page",
+        shape: options.shape ?? "own",
+      })
+    : elements;
+
 const TOO_BIG_ERROR =
-  "That is too much for one page at a size that can be read from the back of the room. Split it across two pages.";
+  "That is too much for one page at a size that can be read from the back of the room. Spread it over pages, or allow it to be larger than the page.";
+
+type Parsed = Extract<ParsedFlow, { ok: true }>;
+type Labelled = ReturnType<typeof numbered>;
+
+/** the text size of a chart that is spread over pages or allowed to be large (D-226) */
+const LARGE_FONT_SIZE = 18;
+
+/** the room a stub needs round a spread chart's shapes, in scene units */
+const STUB_ROOM = 40;
+
+/**
+ * One group of a chart's nodes laid out on one page and turned into elements.
+ * It returns `null` when `constrained` and the group does not fit the page at
+ * any of the sizes; when it is not constrained the group is centred on the page
+ * and may be larger than it.
+ */
+const buildGroup = (
+  parsed: Parsed,
+  nodes: Labelled,
+  page: FlowPageRect,
+  options: BuildFlowOptions,
+  fontSizes: readonly number[],
+  constrained: boolean,
+  margin = PAGE_MARGIN,
+): BuiltFlow | null => {
+  const room = {
+    width: page.width - margin * 2,
+    height: page.height - margin * 2,
+  };
+  const shape = options.shape ?? "own";
+
+  // when the shapes at the smallest size do not fit even packed edge to edge,
+  // no size does: nothing is laid out to find that out
+  if (constrained && fontSizes.length > 1) {
+    const smallest = Math.min(...fontSizes);
+
+    if (
+      cannotFit(
+        nodes.map((node) => sizeNode(node, node.label, smallest, shape)),
+        room,
+      )
+    ) {
+      return null;
+    }
+  }
+
+  for (const fontSize of fontSizes) {
+    const sized = nodes.map((node) =>
+      sizeNode(node, node.label, fontSize, shape),
+    );
+    if (constrained && cannotFit(sized, room)) {
+      continue;
+    }
+
+    const placed = layoutFor(parsed, sized, fontSize, page, shape, {
+      room,
+      constrained,
+      direction: options.direction,
+    });
+    const bounds = boundsOf(placed);
+
+    if (
+      constrained &&
+      (bounds.width > room.width || bounds.height > room.height)
+    ) {
+      continue;
+    }
+
+    // centred where the caller asked, but never off the page when it is held to it
+    const centre = options.center ?? {
+      x: page.x + page.width / 2,
+      y: page.y + page.height / 2,
+    };
+    const clamp = (value: number, min: number, max: number) =>
+      constrained ? Math.min(Math.max(value, min), max) : value;
+    const origin = {
+      x:
+        clamp(
+          centre.x - bounds.width / 2,
+          page.x + margin,
+          page.x + page.width - margin - bounds.width,
+        ) - bounds.x,
+      y:
+        clamp(
+          centre.y - bounds.height / 2,
+          page.y + margin,
+          page.y + page.height - margin - bounds.height,
+        ) - bounds.y,
+    };
+
+    return {
+      ok: true,
+      elements: buildElements(parsed, placed, fontSize, origin, options),
+      fontSize,
+      bounds: {
+        x: bounds.x + origin.x,
+        y: bounds.y + origin.y,
+        width: bounds.width,
+        height: bounds.height,
+      },
+      pages: 1,
+    };
+  }
+
+  return null;
+};
+
+/** the nodes of a chart that are in `ids`, and the edges between them */
+const subFlow = (parsed: Parsed, ids: ReadonlySet<string>): Parsed => ({
+  ...parsed,
+  nodes: parsed.nodes.filter((node) => ids.has(node.id)),
+  edges: parsed.edges.filter((e) => ids.has(e.from) && ids.has(e.to)),
+  tiers: parsed.tiers
+    ?.map((tier) => tier.filter((id) => ids.has(id)))
+    .filter((tier) => tier.length > 0),
+});
+
+/** the page the k-th group goes on: the ones the caller has, then the same size beyond them */
+const pageAt = (
+  options: BuildFlowOptions,
+  page: FlowPageRect,
+  index: number,
+) => {
+  const given = options.pages?.[index];
+
+  if (given) {
+    return given;
+  }
+
+  const last = options.pages?.[options.pages.length - 1];
+  const base = last?.rect ?? page;
+  const from = options.pages?.length ? options.pages.length - 1 : 0;
+
+  return {
+    rect: {
+      x: base.x + (base.width + PAGE_SPACING) * (index - from),
+      y: base.y,
+      width: base.width,
+      height: base.height,
+    },
+    pageId: undefined,
+  };
+};
+
+/** a short arrow and a label at a shape's corner, for an edge that goes to another page (D-226) */
+const stubElements = (
+  box: FlowBox,
+  shapeId: string,
+  direction: "out" | "in",
+  pageNumber: number,
+  fontSize: number,
+  ids: ReturnType<typeof createIds>,
+  options: BuildFlowOptions,
+): { arrow: ExcalidrawElement; label: ExcalidrawElement; bound: string } => {
+  const reach = 16;
+  const corner =
+    direction === "out"
+      ? { x: box.x + box.width, y: box.y }
+      : { x: box.x, y: box.y };
+  const far =
+    direction === "out"
+      ? { x: corner.x + reach, y: corner.y - reach }
+      : { x: corner.x - reach, y: corner.y - reach };
+  const start = direction === "out" ? corner : far;
+  const end = direction === "out" ? far : corner;
+  const arrowId = ids.id("stub");
+  const labelSize = Math.max(12, Math.round(fontSize * 0.75));
+  const label = newTextElement({
+    text:
+      direction === "out"
+        ? `continues on page ${pageNumber}`
+        : `from page ${pageNumber}`,
+    fontSize: labelSize,
+    textAlign: direction === "out" ? "left" : "right",
+    x: 0,
+    y: 0,
+    seed: ids.roughSeed(),
+    strokeColor: outlineOf(options),
+    customData: { flow: { role: "stub-label" } },
+    pageId: options.pageId,
+  });
+
+  const arrow: ExcalidrawElement = {
+    ...newArrowElement({
+      type: "arrow",
+      seed: ids.roughSeed(),
+      x: start.x,
+      y: start.y,
+      points: [
+        pointFrom<LocalPoint>(0, 0),
+        pointFrom<LocalPoint>(end.x - start.x, end.y - start.y),
+      ],
+      endArrowhead: direction === "in" ? "arrow" : "arrow",
+      strokeColor: outlineOf(options),
+      customData: { flow: { role: "stub" } },
+      pageId: options.pageId,
+    }),
+    id: arrowId,
+    width: Math.abs(end.x - start.x),
+    height: Math.abs(end.y - start.y),
+    ...(direction === "out"
+      ? {
+          startBinding: {
+            elementId: shapeId,
+            fixedPoint: [1, 0] as [number, number],
+            mode: "orbit" as const,
+          },
+        }
+      : {
+          endBinding: {
+            elementId: shapeId,
+            fixedPoint: [0, 0] as [number, number],
+            mode: "orbit" as const,
+          },
+        }),
+  };
+
+  return {
+    arrow,
+    label: {
+      ...label,
+      id: ids.id("text"),
+      x: direction === "out" ? far.x + 3 : far.x - label.width - 3,
+      y: far.y - label.height / 2,
+    },
+    bound: arrowId,
+  };
+};
+
+/** the chart cut into pages, in the order of its script, with stubs where an arrow crosses (D-226) */
+const buildSpread = (
+  parsed: Parsed,
+  nodes: Labelled,
+  page: FlowPageRect,
+  options: BuildFlowOptions,
+): BuiltFlow => {
+  const fontSize = LARGE_FONT_SIZE;
+  const shape = options.shape ?? "own";
+  const margin = PAGE_MARGIN + STUB_ROOM;
+  const room = {
+    width: page.width - margin * 2,
+    height: page.height - margin * 2,
+  };
+
+  const sizedAll = new Map(
+    nodes.map((node) => [node.id, sizeNode(node, node.label, fontSize, shape)]),
+  );
+
+  const areaOf = (id: string) => {
+    const size = sizedAll.get(id)!;
+
+    return size.width * size.height;
+  };
+
+  /** lays a group out on one page: whether it fits, and the room its shapes take */
+  const trial = (ids: string[]) => {
+    const set = new Set(ids);
+    const flow = subFlow(parsed, set);
+    const sized = flow.nodes.map((node) => sizedAll.get(node.id)!);
+
+    if (cannotFit(sized, room)) {
+      return { fits: false, share: 0 };
+    }
+
+    const bounds = boundsOf(
+      layoutFor(flow, sized, fontSize, page, shape, {
+        room,
+        constrained: true,
+        direction: options.direction,
+      }),
+    );
+
+    return {
+      fits: bounds.width <= room.width && bounds.height <= room.height,
+      share:
+        sized.reduce((sum, s) => sum + s.width * s.height, 0) /
+        (room.width * room.height),
+    };
+  };
+
+  // In the order of the script, as many to a page as fit. The count is guessed
+  // from the share of a page that the shapes of the last group took, and made
+  // smaller until the group fits, so a long script is laid out about twice for
+  // each page and not once for every node.
+  const groups: string[][] = [];
+  let start = 0;
+  // the share of a page that shapes can take: a guess, then what was learned
+  let density = 0.15;
+
+  while (start < nodes.length) {
+    const begin = start;
+    const left = nodes.length - begin;
+    const idsOf = (count: number) =>
+      nodes.slice(begin, begin + count).map((node) => node.id);
+
+    let count = 1;
+    let area = areaOf(nodes[begin].id);
+
+    while (
+      count < left &&
+      area + areaOf(nodes[begin + count].id) <=
+        room.width * room.height * density
+    ) {
+      area += areaOf(nodes[begin + count].id);
+      count++;
+    }
+
+    let result = trial(idsOf(count));
+
+    while (!result.fits && count > 1) {
+      count = Math.max(1, Math.floor(count * 0.88));
+      density *= 0.88;
+      result = trial(idsOf(count));
+    }
+
+    if (result.fits) {
+      // a little more than this group took: the next one is guessed from it
+      density = result.share * 1.1;
+    }
+
+    groups.push(idsOf(count));
+    start += count;
+  }
+
+  const pageOf = new Map<string, number>();
+
+  groups.forEach((ids, index) => ids.forEach((id) => pageOf.set(id, index)));
+
+  const first = options.pageNumber ?? 1;
+  const elements: ExcalidrawElement[] = [];
+  const all: FlowPageRect[] = [];
+
+  groups.forEach((ids, index) => {
+    const target = pageAt(options, page, index);
+    const set = new Set(ids);
+    const flow = subFlow(parsed, set);
+    const groupOptions: BuildFlowOptions = {
+      ...options,
+      idSalt: `p${index}`,
+      pageId: target.pageId,
+      // each group is centred on its own page
+      center: undefined,
+    };
+    const built =
+      buildGroup(
+        flow,
+        nodes.filter((node) => set.has(node.id)),
+        target.rect,
+        groupOptions,
+        [fontSize],
+        true,
+        margin,
+      ) ??
+      buildGroup(
+        flow,
+        nodes.filter((node) => set.has(node.id)),
+        target.rect,
+        groupOptions,
+        [fontSize],
+        false,
+        margin,
+      )!;
+
+    // the stubs: an arrow that leaves this page, and one that arrives on it
+    const ids2 = createIds(options.seed ?? 1, `s${index}`);
+    const byNode = new Map(
+      built.elements
+        .filter(
+          (element) =>
+            element.type !== "text" &&
+            element.type !== "arrow" &&
+            element.customData?.flow?.role === "node",
+        )
+        .map((element) => [element.customData!.flow.nodeId as string, element]),
+    );
+    const extra: ExcalidrawElement[] = [];
+    const boundTo = new Map<string, { id: string; type: "arrow" }[]>();
+
+    for (const edge of parsed.edges) {
+      const fromPage = pageOf.get(edge.from)!;
+      const toPage = pageOf.get(edge.to)!;
+
+      if (fromPage === toPage || (fromPage !== index && toPage !== index)) {
+        continue;
+      }
+
+      const direction = fromPage === index ? "out" : "in";
+      const nodeId = direction === "out" ? edge.from : edge.to;
+      const shapeEl = byNode.get(nodeId)!;
+      const other = direction === "out" ? toPage : fromPage;
+      const stub = stubElements(
+        {
+          x: shapeEl.x,
+          y: shapeEl.y,
+          width: shapeEl.width,
+          height: shapeEl.height,
+        },
+        shapeEl.id,
+        direction,
+        first + other,
+        fontSize,
+        ids2,
+        groupOptions,
+      );
+
+      extra.push(stub.arrow, stub.label);
+      boundTo.set(shapeEl.id, [
+        ...(boundTo.get(shapeEl.id) ?? []),
+        { id: stub.bound, type: "arrow" },
+      ]);
+    }
+
+    for (const element of built.elements) {
+      const more = boundTo.get(element.id);
+
+      elements.push(
+        more
+          ? {
+              ...element,
+              boundElements: [...(element.boundElements ?? []), ...more],
+            }
+          : element,
+      );
+    }
+
+    elements.push(...extra);
+
+    // each element says which of the chart's pages it is on
+    for (
+      let i = elements.length - built.elements.length - extra.length;
+      i < elements.length;
+      i++
+    ) {
+      const element = elements[i];
+
+      elements[i] = {
+        ...element,
+        ...(target.pageId ? { pageId: target.pageId } : {}),
+        customData: {
+          ...element.customData,
+          flow: { ...element.customData?.flow, pageIndex: index },
+        },
+      };
+    }
+
+    all.push(built.bounds);
+  });
+
+  const left = Math.min(...all.map((b) => b.x));
+  const top = Math.min(...all.map((b) => b.y));
+  const right = Math.max(...all.map((b) => b.x + b.width));
+  const bottom = Math.max(...all.map((b) => b.y + b.height));
+
+  return {
+    ok: true,
+    elements,
+    fontSize,
+    bounds: { x: left, y: top, width: right - left, height: bottom - top },
+    pages: groups.length,
+  };
+};
 
 /**
  * Builds a chart from a preset and a script (D-162).
  *
- * The chart is **scaled to fit the page** (D-165): the text is shrunk, step by
- * step, until the whole chart is inside the page's rect with its margin - and
- * if it does not fit even at the smallest readable text size, nothing is built
- * and the failure says so, rather than shrinking past readable.
+ * With **Fit to page** (D-165, the default) the chart is **scaled to fit the
+ * page**: the text is shrunk, step by step, until the whole chart is inside the
+ * page's rect with its margin - and if it does not fit even at the smallest
+ * readable text size, nothing is built and the failure says so, rather than
+ * shrinking past readable. **Spread over pages** and **Allow larger than page**
+ * are the other two ways of letting a large chart be built at a readable size
+ * (D-226).
  */
 export const buildFlowPreset = (
   preset: FlowPresetId,
@@ -674,53 +1449,41 @@ export const buildFlowPreset = (
     width: PAGE_WIDTH,
     height: PAGE_HEIGHT,
   };
-  const room = {
-    width: page.width - PAGE_MARGIN * 2,
-    height: page.height - PAGE_MARGIN * 2,
-  };
   const nodes = numbered(parsed);
+  const fit = options.fit ?? "page";
 
-  for (const fontSize of FONT_SIZES) {
-    const sized = nodes.map((node) => sizeNode(node, node.label, fontSize));
-    const placed = layoutFor(parsed, sized, fontSize, page);
-    const bounds = boundsOf(placed);
+  // a chart that fits its page is built the same way in every mode
+  const onePage = buildGroup(parsed, nodes, page, options, FONT_SIZES, true);
 
-    if (bounds.width > room.width || bounds.height > room.height) {
-      continue;
-    }
-
-    // centred where the caller asked, but never off the page
-    const centre = options.center ?? {
-      x: page.x + page.width / 2,
-      y: page.y + page.height / 2,
+  if (onePage) {
+    return {
+      ...onePage,
+      elements: remembered(onePage.elements, preset, script, options),
     };
-    const clamp = (value: number, min: number, max: number) =>
-      Math.min(Math.max(value, min), max);
-    const origin = {
-      x:
-        clamp(
-          centre.x - bounds.width / 2,
-          page.x + PAGE_MARGIN,
-          page.x + page.width - PAGE_MARGIN - bounds.width,
-        ) - bounds.x,
-      y:
-        clamp(
-          centre.y - bounds.height / 2,
-          page.y + PAGE_MARGIN,
-          page.y + page.height - PAGE_MARGIN - bounds.height,
-        ) - bounds.y,
-    };
+  }
+
+  if (fit === "larger") {
+    const large = buildGroup(
+      parsed,
+      nodes,
+      page,
+      options,
+      [LARGE_FONT_SIZE],
+      false,
+    )!;
 
     return {
-      ok: true,
-      elements: buildElements(parsed, placed, fontSize, origin, options),
-      fontSize,
-      bounds: {
-        x: bounds.x + origin.x,
-        y: bounds.y + origin.y,
-        width: bounds.width,
-        height: bounds.height,
-      },
+      ...large,
+      elements: remembered(large.elements, preset, script, options),
+    };
+  }
+
+  if (fit === "spread") {
+    const spread = buildSpread(parsed, nodes, page, options);
+
+    return {
+      ...spread,
+      elements: remembered(spread.elements, preset, script, options),
     };
   }
 
