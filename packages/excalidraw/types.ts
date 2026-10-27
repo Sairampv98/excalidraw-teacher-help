@@ -882,6 +882,12 @@ export interface ExcalidrawProps {
    */
   pagesEnabled?: boolean;
   /**
+   * A window that shows the board and is not operated - the presenter. It plays
+   * the class loop of the flows marked for class, and has no Steps button
+   * (D-187).
+   */
+  flowDisplayOnly?: boolean;
+  /**
    * Width of the docked sidebar in css px. Drives `--right-sidebar-width`,
    * which the sidebar box and the canvas wrapper (`100% - sidebar width`) both
    * size themselves from — so changing it reflows the canvas.

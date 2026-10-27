@@ -89,6 +89,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
     detectScroll = true,
     handleKeyboardGlobally = false,
     pagesEnabled = false,
+    flowDisplayOnly = false,
     sidebarWidth,
     onLibraryChange,
     autoFocus = false,
@@ -220,6 +221,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
           detectScroll={detectScroll}
           handleKeyboardGlobally={handleKeyboardGlobally}
           pagesEnabled={pagesEnabled}
+          flowDisplayOnly={flowDisplayOnly}
           sidebarWidth={sidebarWidth}
           onLibraryChange={onLibraryChange}
           autoFocus={autoFocus}

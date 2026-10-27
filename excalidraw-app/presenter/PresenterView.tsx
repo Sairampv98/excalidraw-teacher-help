@@ -665,6 +665,7 @@ export const PresenterView = () => {
       <div className="excalidraw-app__presenter-canvas" ref={hostRef}>
         <Excalidraw
           viewModeEnabled
+          flowDisplayOnly
           handleKeyboardGlobally
           detectScroll={false}
           autoFocus

@@ -108,3 +108,56 @@ export const flowOfSelection = (
 
   return null;
 };
+
+/**
+ * Every flow among `elements`: each connected set of shapes, arrows and labels
+ * that makes at least two steps. The class view (D-184) plays the marked ones.
+ */
+export const allFlows = (
+  elements: readonly ExcalidrawElement[],
+  elementsMap: ElementsMap,
+): FlowGraph[] => {
+  const { find, join } = makeGroups();
+  const live = elements.filter((element) => !element.isDeleted);
+
+  for (const element of live) {
+    if (element.type === "text" && element.containerId) {
+      join(element.id, element.containerId);
+    }
+
+    if (element.type === "arrow") {
+      if (element.startBinding) {
+        join(element.id, element.startBinding.elementId);
+      }
+
+      if (element.endBinding) {
+        join(element.id, element.endBinding.elementId);
+      }
+    }
+  }
+
+  const groups = new Map<string, ExcalidrawElement[]>();
+
+  for (const element of live) {
+    const root = find(element.id);
+
+    groups.set(root, [...(groups.get(root) ?? []), element]);
+  }
+
+  const flows: FlowGraph[] = [];
+
+  for (const members of groups.values()) {
+    // a lone shape or a lone arrow cannot be a flow: skip the work for it
+    if (members.length < 3) {
+      continue;
+    }
+
+    const graph = buildFlowGraph(members, elementsMap);
+
+    if (graph.steps.length > 1) {
+      flows.push(graph);
+    }
+  }
+
+  return flows;
+};

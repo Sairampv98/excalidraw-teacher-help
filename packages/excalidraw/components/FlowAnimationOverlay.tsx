@@ -82,14 +82,14 @@ type FlowAnimationOverlayProps = {
 
 /* --------------------------------------------------------------------- marks */
 
-type MarkedArrow = { id: string; path: PathPoint[] };
+export type MarkedArrow = { id: string; path: PathPoint[] };
 
 /**
  * The arrows a style draws on (D-166): the beam and the token travel the arrows
  * that **leave the current step**; the marching dashes and the pipe are the
  * look of **every** arrow of the flow.
  */
-const arrowsFor = (
+export const arrowsFor = (
   style: FlowArrowStyle,
   graph: FlowGraph | null,
   step: FlowStep | undefined,
@@ -123,14 +123,14 @@ const arrowsFor = (
   return arrows;
 };
 
-const pointsAttr = (points: readonly PathPoint[]) =>
+export const pointsAttr = (points: readonly PathPoint[]) =>
   points.map((p) => `${p.x},${p.y}`).join(" ");
 
-const dashAttr = (dash: readonly [number, number] | undefined) =>
+export const dashAttr = (dash: readonly [number, number] | undefined) =>
   dash ? `${dash[0]} ${dash[1]}` : undefined;
 
 /** puts a frame's marks on the arrow's own elements - no React state (D-63) */
-const applyMarks = (group: Element, marks: FlowMarks) => {
+export const applyMarks = (group: Element, marks: FlowMarks) => {
   const strokes = group.querySelectorAll("polyline");
   const dots = group.querySelectorAll("circle");
 

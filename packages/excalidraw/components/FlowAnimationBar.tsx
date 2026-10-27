@@ -1,15 +1,15 @@
 import React, { useMemo } from "react";
 
-import { getCommonBounds } from "@excalidraw/element";
-
 import type { ElementsMap, ExcalidrawElement } from "@excalidraw/element/types";
 
+import { actionFlowClass } from "../actions/actionFlowClass";
 import {
   actionFlowLayout,
   actionFlowResetLayout,
   flowResetLayoutPredicate,
 } from "../actions/actionFlowLayout";
-import { flowBarPosition, unionOfBoxes } from "../scene/flowBar";
+import { flowBarPosition, flowBoxOf } from "../scene/flowBar";
+import { flowClassOf } from "../scene/flowClass";
 import { flowOfSelection } from "../scene/flowSelection";
 import {
   FLOW_ARROW_STYLES,
@@ -33,7 +33,6 @@ import "./FlowAnimationBar.scss";
 
 import type { FlowAnimationCamera } from "../scene/flowAnimation";
 import type { FlowViewport } from "../scene/flowCamera";
-import type { FlowGraph } from "../scene/flowOrder";
 import type { AppClassProperties, AppState } from "../types";
 
 type FlowAnimationBarProps = {
@@ -47,24 +46,6 @@ type FlowAnimationBarProps = {
   /** a view-only editor (the presenter) has no controls to show */
   hidden?: boolean;
 };
-
-/** the box a flow fills now, read from its elements and not from the graph */
-const flowBox = (graph: FlowGraph, elementsMap: ElementsMap) =>
-  unionOfBoxes(
-    graph.steps.flatMap((step) => {
-      const elements = step.elementIds
-        .map((id) => elementsMap.get(id))
-        .filter((element): element is ExcalidrawElement => Boolean(element));
-
-      if (!elements.length) {
-        return [];
-      }
-
-      const [minX, minY, maxX, maxY] = getCommonBounds(elements, elementsMap);
-
-      return [{ x: minX, y: minY, width: maxX - minX, height: maxY - minY }];
-    }),
-  );
 
 /**
  * The floating bar that drives the flow animation (D-177).
@@ -96,13 +77,29 @@ export const FlowAnimationBar = ({
 
   // a flow that is playing stays the bar's flow whatever is selected (D-180)
   const graph = state.active && state.graph ? state.graph : selectedFlow;
-  const box = graph ? flowBox(graph, elementsMap) : null;
+  const box = graph ? flowBoxOf(graph, elementsMap) : null;
 
   if (hidden || !graph || !box) {
     return null;
   }
 
   const { left, top } = flowBarPosition({ box, camera, viewport });
+  const marked = !!flowClassOf(graph, elementsMap);
+
+  // a setting the class plays is brought up to date in the chart as well, while
+  // the chart is marked: what the bar shows is what the class gets (D-183)
+  const change = (
+    settings: Parameters<typeof updateFlowAnimationSettings>[0],
+  ) => {
+    updateFlowAnimationSettings(settings);
+
+    if (marked) {
+      app.actionManager.executeAction(actionFlowClass, "ui", {
+        enabled: true,
+        writeThrough: true,
+      });
+    }
+  };
   const playing = state.active && state.mode === "play";
   const presenting = state.active && state.mode === "present";
 
@@ -178,7 +175,7 @@ export const FlowAnimationBar = ({
             aria-label="Node animation"
             value={state.nodeStyle}
             onChange={(event) =>
-              updateFlowAnimationSettings({
+              change({
                 nodeStyle: event.target.value as typeof state.nodeStyle,
               })
             }
@@ -196,7 +193,7 @@ export const FlowAnimationBar = ({
             aria-label="Arrow animation"
             value={state.arrowStyle}
             onChange={(event) =>
-              updateFlowAnimationSettings({
+              change({
                 arrowStyle: event.target.value as typeof state.arrowStyle,
               })
             }
@@ -217,9 +214,7 @@ export const FlowAnimationBar = ({
             max={FLOW_SPEED_MAX}
             step={10}
             value={state.speed}
-            onChange={(event) =>
-              updateFlowAnimationSettings({ speed: Number(event.target.value) })
-            }
+            onChange={(event) => change({ speed: Number(event.target.value) })}
           />
           <span
             className="excalidraw__flow-bar-value"
@@ -239,7 +234,7 @@ export const FlowAnimationBar = ({
             step={100}
             value={state.durationMs}
             onChange={(event) =>
-              updateFlowAnimationSettings({
+              change({
                 durationMs:
                   Number(event.target.value) || DEFAULT_FLOW_STEP_DURATION_MS,
               })
@@ -259,10 +254,20 @@ export const FlowAnimationBar = ({
         <label className="excalidraw__flow-bar-field">
           <input
             type="checkbox"
-            checked={state.loop}
+            checked={marked}
             onChange={(event) =>
-              updateFlowAnimationSettings({ loop: event.target.checked })
+              app.actionManager.executeAction(actionFlowClass, "ui", {
+                enabled: event.target.checked,
+              })
             }
+          />
+          <span>{t("labels.flowAnimationClass")}</span>
+        </label>
+        <label className="excalidraw__flow-bar-field">
+          <input
+            type="checkbox"
+            checked={state.loop}
+            onChange={(event) => change({ loop: event.target.checked })}
           />
           <span>{t("labels.flowAnimationLoop")}</span>
         </label>

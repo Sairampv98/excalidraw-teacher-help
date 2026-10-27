@@ -505,6 +505,7 @@ import { PanelMirrorPicker } from "./PanelMirrorPicker";
 
 import { FlowAnimationOverlay } from "./FlowAnimationOverlay";
 import { FlowAnimationBar } from "./FlowAnimationBar";
+import { FlowClassOverlay } from "./FlowClassOverlay";
 import { isFlowAnimationActive, stopFlowAnimation } from "./FlowAnimationState";
 import BraveMeasureTextError from "./BraveMeasureTextError";
 import { ContextMenu, CONTEXT_MENU_SEPARATOR } from "./ContextMenu";
@@ -2657,6 +2658,32 @@ class App extends React.Component<AppProps, AppState> {
                               height: this.state.height,
                             }}
                             onChoose={this.choosePanelMirror}
+                          />
+                          {/*
+                            The class loop (D-184): the flows marked for class
+                            animate by themselves in the class view - view mode,
+                            or a window that is only displayed (D-182, D-187).
+                          */}
+                          <FlowClassOverlay
+                            elements={this.scene.getNonDeletedElements()}
+                            elementsMap={allElementsMap}
+                            pageId={
+                              this.pagesEnabled
+                                ? this.state.currentPageId
+                                : undefined
+                            }
+                            active={
+                              this.state.viewModeEnabled ||
+                              !!this.props.flowDisplayOnly
+                            }
+                            displayOnly={!!this.props.flowDisplayOnly}
+                            camera={{
+                              zoom: this.state.zoom,
+                              scrollX: this.state.scrollX,
+                              scrollY: this.state.scrollY,
+                              offsetLeft: this.state.offsetLeft,
+                              offsetTop: this.state.offsetTop,
+                            }}
                           />
                           <FlowAnimationOverlay
                             elementsMap={allElementsMap}
