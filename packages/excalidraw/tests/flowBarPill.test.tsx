@@ -14,6 +14,8 @@ import type { ExcalidrawElement } from "@excalidraw/element/types";
 
 import {
   flowAnimationStateAtom,
+  flowClassPreviewAtom,
+  setFlowClassPreview,
   stopFlowAnimation,
   updateFlowAnimationSettings,
 } from "../components/FlowAnimationState";
@@ -429,5 +431,172 @@ describe("AC-228 moving the bar does not touch the canvas", () => {
 
     expect(placeOf().left).toBeLessThanOrEqual(600 - 8);
     expect(placeOf().top).toBeLessThanOrEqual(400 - 8);
+  });
+});
+
+describe("AC-240 it is clear how to exit the animation", () => {
+  const collapse = () =>
+    act(() => {
+      fireEvent.click(
+        screen.getByLabelText("Collapse the animation bar into a pill"),
+      );
+    });
+
+  const play = () =>
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "Play" }));
+    });
+
+  const active = () => editorJotaiStore.get(flowAnimationStateAtom).active;
+
+  const escape = (target: EventTarget = document) =>
+    act(() => {
+      fireEvent.keyDown(target, { key: "Escape" });
+    });
+
+  it("AC-240 the pill says what is running and has a Stop button", async () => {
+    await mount();
+    select([shapes()[1]]);
+
+    // nothing runs: the pill is just the pill
+    collapse();
+    expect(pill()!.textContent).not.toMatch(/Playing/);
+    expect(screen.queryByTestId("flow-bar-pill-stop")).toBeNull();
+
+    // press it open, play, and minimise again
+    pointer(pill()!, "pointerdown", 300, 300);
+    pointer(window, "pointerup", 300, 300);
+    play();
+    collapse();
+
+    expect(pill()!.textContent).toMatch(/Playing/);
+    expect(screen.getByTestId("flow-bar-pill-stop")).not.toBeNull();
+  });
+
+  it("AC-240 the bar says what runs and has a Stop button too", async () => {
+    await mount();
+    select([shapes()[1]]);
+
+    expect(screen.queryByTestId("flow-bar-stop")).toBeNull();
+
+    play();
+
+    expect(screen.getByTestId("flow-bar-stop")).not.toBeNull();
+
+    act(() => {
+      fireEvent.click(screen.getByTestId("flow-bar-stop"));
+    });
+
+    expect(active()).toBe(false);
+    expect(screen.queryByTestId("flow-bar-stop")).toBeNull();
+  });
+
+  it("AC-240 Stop on the pill ends the animation", async () => {
+    await mount();
+    select([shapes()[1]]);
+    play();
+    collapse();
+
+    expect(active()).toBe(true);
+
+    act(() => {
+      fireEvent.click(screen.getByTestId("flow-bar-pill-stop"));
+    });
+
+    expect(active()).toBe(false);
+    expect(document.querySelector(".excalidraw__flow-animation")).toBeNull();
+    // the pill stays, and it says nothing is running
+    expect(pill()).not.toBeNull();
+    expect(screen.queryByTestId("flow-bar-pill-stop")).toBeNull();
+  });
+
+  it("AC-240 Minimise only collapses and the animation goes on", async () => {
+    await mount();
+    select([shapes()[1]]);
+    play();
+
+    expect(
+      screen
+        .getByLabelText("Collapse the animation bar into a pill")
+        .getAttribute("title"),
+    ).toMatch(/Minimise/);
+
+    collapse();
+
+    expect(pill()).not.toBeNull();
+    expect(active()).toBe(true);
+    expect(
+      document.querySelector(".excalidraw__flow-animation"),
+    ).not.toBeNull();
+  });
+
+  it("AC-240 Stop switches the preview off", async () => {
+    await mount();
+    select([shapes()[1]]);
+
+    act(() => {
+      setFlowClassPreview(true);
+    });
+
+    expect(editorJotaiStore.get(flowClassPreviewAtom)).toBe(true);
+
+    // the preview is a running thing, and the bar says so
+    const stop = screen.getByTestId("flow-bar-stop");
+
+    expect(stop.textContent).toMatch(/preview/i);
+
+    act(() => {
+      fireEvent.click(stop);
+    });
+
+    expect(editorJotaiStore.get(flowClassPreviewAtom)).toBe(false);
+    expect(screen.queryByTestId("flow-bar-stop")).toBeNull();
+  });
+
+  it("AC-240 Esc exits whatever is running", async () => {
+    await mount();
+    select([shapes()[1]]);
+
+    // the animation
+    play();
+    expect(active()).toBe(true);
+    escape();
+    expect(active()).toBe(false);
+
+    // and the preview
+    act(() => {
+      setFlowClassPreview(true);
+    });
+    escape();
+    expect(editorJotaiStore.get(flowClassPreviewAtom)).toBe(false);
+  });
+
+  it("AC-240 Esc leaves other modes and text editing alone", async () => {
+    await mount();
+    select([shapes()[1]]);
+
+    // nothing runs: Esc is the editor's own again, and does what it did
+    act(() => {
+      h.setState({ activeTool: { ...h.state.activeTool, type: "rectangle" } });
+    });
+    escape();
+
+    expect(active()).toBe(false);
+    expect(h.state.activeTool.type).toBe("selection");
+
+    // typing in a field is not an exit: the animation goes on
+    select([shapes()[1]]);
+    play();
+
+    const field = document.createElement("input");
+
+    document.body.appendChild(field);
+    act(() => {
+      fireEvent.keyDown(field, { key: "Escape" });
+    });
+
+    expect(active()).toBe(true);
+
+    field.remove();
   });
 });

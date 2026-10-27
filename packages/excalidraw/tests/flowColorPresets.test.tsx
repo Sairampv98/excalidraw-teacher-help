@@ -40,11 +40,12 @@ const { h } = window;
 
 const NAMES = [
   "Classic",
-  "Blue and orange",
-  "Blue and vermillion",
+  "Cyan and pink",
   "Green and purple",
-  "Cool",
-  "Warm",
+  "Yellow and blue",
+  "Orange and cyan",
+  "Pink and lime",
+  "Fire and ice",
   "High contrast",
 ];
 
@@ -117,16 +118,28 @@ describe("AC-233 the colour presets", () => {
     ).toEqual(NAMES.map((name) => `Colour preset: ${name}`));
   });
 
-  it("AC-233 a preset sets the highlight and the animation colours together", async () => {
+  it("AC-233 a preset sets the shape, text and animation colours and the glow together", async () => {
     await lookOpen();
 
     act(() => {
-      fireEvent.click(preset("Blue and orange"));
+      fireEvent.click(preset("Cyan and pink"));
     });
 
     // the page is light, so it is the variant that reads on a light page
-    expect(state().nodeColor).toBe("#0072B2");
-    expect(state().markColor).toBe("#B36B00");
+    expect(state().nodeColor).toBe("#008ba3");
+    expect(state().markColor).toBe("#e0007a");
+    // the text follows the shape, and the glow is on (D-206, D-208)
+    expect(state().textColor).toBeNull();
+    expect(state().glow).toBe(true);
+
+    // a preset with a text colour of its own sets it
+    act(() => {
+      fireEvent.click(preset("Fire and ice"));
+    });
+
+    expect(state().nodeColor).toBe("#e60023");
+    expect(state().textColor).toBe("#1e1e1e");
+    expect(state().markColor).toBe("#1f51ff");
   });
 
   it("AC-233 a preset leaves the arrow, the target and the speed alone", async () => {
@@ -169,22 +182,22 @@ describe("AC-233 the colour presets", () => {
       h.setState({ viewBackgroundColor: "#1e1e1e" });
     });
     act(() => {
-      fireEvent.click(preset("Blue and orange"));
+      fireEvent.click(preset("Cyan and pink"));
     });
 
-    expect(state().nodeColor).toBe("#56B4E9");
-    expect(state().markColor).toBe("#E69F00");
+    expect(state().nodeColor).toBe("#00f0ff");
+    expect(state().markColor).toBe("#ff2bd6");
 
     // and a light one gets the other
     act(() => {
       h.setState({ viewBackgroundColor: "#ffffff" });
     });
     act(() => {
-      fireEvent.click(preset("Blue and orange"));
+      fireEvent.click(preset("Cyan and pink"));
     });
 
-    expect(state().nodeColor).toBe("#0072B2");
-    expect(state().markColor).toBe("#B36B00");
+    expect(state().nodeColor).toBe("#008ba3");
+    expect(state().markColor).toBe("#e0007a");
   });
 
   it("AC-233 every colour reads on its page at 3 to 1 or better", () => {
@@ -193,7 +206,11 @@ describe("AC-233 the colour presets", () => {
         [preset.light, LIGHT_PAGE],
         [preset.dark, DARK_PAGE],
       ] as const) {
-        for (const colour of [variant.nodeColor, variant.markColor]) {
+        for (const colour of [
+          variant.nodeColor,
+          variant.textColor,
+          variant.markColor,
+        ]) {
           if (colour === null) {
             // the default is the accent colour, which the editor itself uses
             continue;
@@ -220,7 +237,15 @@ describe("AC-233 the colour presets", () => {
         // the highlight and what travels are never the same colour
         expect(nodeColor === markColor && nodeColor !== null).toBe(false);
 
-        if (preset.alike || nodeColor === null || markColor === null) {
+        // black and white have no hue to tell apart
+        const achromatic = ["#000000", "#ffffff"];
+
+        if (
+          preset.alike ||
+          nodeColor === null ||
+          markColor === null ||
+          achromatic.includes(nodeColor.toLowerCase())
+        ) {
           continue;
         }
 
@@ -239,12 +264,12 @@ describe("AC-233 the colour presets", () => {
     expect(preset("Classic").getAttribute("aria-pressed")).toBe("true");
 
     act(() => {
-      fireEvent.click(preset("Warm"));
+      fireEvent.click(preset("Pink and lime"));
     });
 
     for (const name of NAMES) {
       expect(preset(name).getAttribute("aria-pressed")).toBe(
-        name === "Warm" ? "true" : "false",
+        name === "Pink and lime" ? "true" : "false",
       );
     }
 
@@ -267,11 +292,11 @@ describe("AC-233 the colour presets", () => {
       fireEvent.click(screen.getByLabelText("Show in class"));
     });
     act(() => {
-      fireEvent.click(preset("Blue and vermillion"));
+      fireEvent.click(preset("Green and purple"));
     });
 
     const colors = presetColorsFor(
-      FLOW_COLOR_PRESETS.find((p) => p.id === "blue-vermillion")!,
+      FLOW_COLOR_PRESETS.find((p) => p.id === "green-purple")!,
       "#ffffff",
     );
 
@@ -289,7 +314,7 @@ describe("AC-233 the colour presets", () => {
       fireEvent.click(screen.getByLabelText("Show in class"));
     });
     act(() => {
-      fireEvent.click(preset("Cool"));
+      fireEvent.click(preset("Orange and cyan"));
     });
 
     expect(state().nodeColor).not.toBeNull();
@@ -299,12 +324,16 @@ describe("AC-233 the colour presets", () => {
     });
 
     expect(state().nodeColor).toBeNull();
+    expect(state().textColor).toBeNull();
     expect(state().markColor).toBeNull();
+    expect(state().glow).toBe(false);
 
     for (const shape of shapes()) {
       expect(readFlowClass(shape)).toMatchObject({
         nodeColor: null,
+        textColor: null,
         markColor: null,
+        glow: false,
       });
     }
   });

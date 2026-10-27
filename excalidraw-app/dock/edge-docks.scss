@@ -161,3 +161,10 @@
     background-color: var(--color-gray-30);
   }
 }
+
+// the emoji bar centres itself with a transform and sits on the bottom edge;
+// once it is a dock the dock places it by left and top (D-216)
+.excalidraw-sticker-bar.excalidraw-dock-target {
+  bottom: auto;
+  transform: none;
+}

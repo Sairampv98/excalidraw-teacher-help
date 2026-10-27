@@ -17,6 +17,7 @@ export class LaserTrails implements Trail {
   constructor(private app: App) {
     this.localTrail = new AnimatedTrail(app, {
       ...this.getTrailOptions(),
+      neon: true,
       fill: () => DEFAULT_LASER_COLOR,
     });
   }
@@ -96,6 +97,7 @@ export class LaserTrails implements Trail {
       if (!trail) {
         trail = new AnimatedTrail(this.app, {
           ...this.getTrailOptions(),
+          neon: true,
           fill: () =>
             collaborator.pointer?.laserColor ||
             getClientColor(key, collaborator),

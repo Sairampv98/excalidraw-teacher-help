@@ -16,8 +16,11 @@ import {
 } from "../scene/flowAnimation";
 import { flowBoxOf } from "../scene/flowBar";
 import { arrowLooksFor } from "../scene/flowArrowLooks";
+
+import type { ArrowLook } from "../scene/flowArrowLooks";
 import { classStepAt, markedFlowsOnPage } from "../scene/flowClass";
 import {
+  drawnLabelIds,
   highlightBoxOf,
   highlightShapeOf,
   arrowLabelsOf,
@@ -40,7 +43,7 @@ import {
   flowClassPreviewAtom,
   startFlowAnimation,
 } from "./FlowAnimationState";
-import { LabelText, NodeOutline, lookVars } from "./FlowLookParts";
+import { LabelText, NodeOutline, lookAttrs, lookVars } from "./FlowLookParts";
 
 import "./FlowAnimationOverlay.scss";
 
@@ -240,8 +243,26 @@ export const FlowClassOverlay = ({
   // what the flows of the class loop do to their arrows is told to the
   // editor's canvas (D-204)
   const arrowLooks = useMemo(
-    () => flows.flatMap((flow) => arrowLooksFor(flow.graph, flow.settings)),
-    [flows],
+    () =>
+      flows.flatMap((flow) => [
+        ...arrowLooksFor(flow.graph, flow.settings),
+        // a label the overlay draws again is not drawn by the canvas (D-213)
+        ...drawnLabelIds({
+          graph: flow.graph,
+          step: flow.graph.steps[indices[flow.key] ?? 0],
+          elementsMap,
+          nodeStyle: flow.settings.node,
+          nodeTarget: flow.settings.nodeTarget,
+          arrowsAnimated:
+            flow.settings.arrow !== "none" ||
+            flow.settings.hideArrow ||
+            !!flow.settings.arrowColor,
+        }).map((id): [string, ArrowLook] => [
+          id,
+          { hidden: true, color: null },
+        ]),
+      ]),
+    [flows, indices, elementsMap],
   );
 
   useEffect(() => {
@@ -279,6 +300,7 @@ export const FlowClassOverlay = ({
               data-flow-class-index={indices[flow.key] ?? 0}
               // the flow's own colours (D-195)
               style={lookVars(flow.settings)}
+              {...lookAttrs(flow.settings)}
             >
               <ClassMarks
                 flow={flow}
@@ -418,6 +440,7 @@ const ClassNodes = ({
             key={`${index}-${element.id}-${letters ? "letters" : "outline"}`}
             className="excalidraw__flow-animation-shape"
             data-flow-class-node={flow.settings.node}
+            {...lookAttrs(flow.settings)}
             style={{
               width: box.width,
               height: box.height,
@@ -430,7 +453,7 @@ const ClassNodes = ({
               className={`excalidraw__flow-animation-focus excalidraw__flow-animation-focus--${flow.settings.node}`}
               style={{
                 transform: flowFocusTransform(
-                  step.box,
+                  element.type === "text" ? box : step.box,
                   box,
                   flow.settings.node === "focus" ? undefined : 1,
                 ),
@@ -445,6 +468,7 @@ const ClassNodes = ({
               ) : (
                 <NodeOutline
                   shape={highlightShapeOf(element)}
+                  part={element.type === "text" ? "box" : "shape"}
                   width={box.width}
                   height={box.height}
                   className="excalidraw__flow-animation-pulse"
@@ -521,6 +545,8 @@ const StepsButton = ({
           speed: flow.settings.speed,
           durationMs: flow.settings.stepMs,
           nodeColor: flow.settings.nodeColor,
+          textColor: flow.settings.textColor,
+          glow: flow.settings.glow,
           markColor: flow.settings.markColor,
           arrowColor: flow.settings.arrowColor,
           hideArrow: flow.settings.hideArrow,

@@ -192,8 +192,15 @@ describe("AC-232 the presenter does the same", () => {
       expect(drawn().has(id)).toBe(false);
     }
 
-    // everything else is drawn
-    for (const element of elements.filter((e) => e.type !== "arrow")) {
+    // everything else is drawn, but the labels of the arrows: the overlay
+    // draws those above what is animated (D-203, D-213)
+    const ids = new Set(arrowIds(elements));
+
+    for (const element of elements.filter(
+      (e) =>
+        e.type !== "arrow" &&
+        !(e.type === "text" && e.containerId && ids.has(e.containerId)),
+    )) {
       expect(drawn().has(element.id)).toBe(true);
     }
   });
@@ -269,5 +276,28 @@ describe("AC-232 the presenter does the same", () => {
     }
 
     expect(document.querySelector("[data-flow-arrow-label]")).toBeNull();
+  });
+});
+
+describe("AC-239 the presenter never sees a label twice", () => {
+  it("AC-239 the presenter does the same", async () => {
+    const elements = chart(SETTINGS);
+    const ids = new Set(arrowIds(elements));
+    const labels = elements.filter(
+      (e) => e.type === "text" && e.containerId && ids.has(e.containerId),
+    );
+    const { sendScene, drawn } = await presenter();
+
+    await sendScene(elements);
+
+    // the yes and the no: the overlay's copies are there, the canvas's are not
+    expect(labels.length).toBeGreaterThanOrEqual(2);
+    expect(document.querySelectorAll("[data-flow-arrow-label]")).toHaveLength(
+      labels.length,
+    );
+
+    for (const label of labels) {
+      expect(drawn().has(label.id)).toBe(false);
+    }
   });
 });

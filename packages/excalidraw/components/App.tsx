@@ -510,7 +510,7 @@ import {
   subscribeToFlowArrowLooks,
 } from "./FlowArrowLooksState";
 import { FlowClassOverlay } from "./FlowClassOverlay";
-import { isFlowAnimationActive, stopFlowAnimation } from "./FlowAnimationState";
+import { isFlowRunning, stopFlowEverything } from "./FlowAnimationState";
 import BraveMeasureTextError from "./BraveMeasureTextError";
 import { ContextMenu, CONTEXT_MENU_SEPARATOR } from "./ContextMenu";
 import { activeEyeDropperAtom } from "./EyeDropper";
@@ -6229,8 +6229,8 @@ class App extends React.Component<AppProps, AppState> {
       if (!isInputLike(event.target)) {
         // the flow animation takes the canvas over while it plays; Escape ends
         // it and gives the canvas back
-        if (event.key === KEYS.ESCAPE && isFlowAnimationActive()) {
-          stopFlowAnimation();
+        if (event.key === KEYS.ESCAPE && isFlowRunning()) {
+          stopFlowEverything();
           return;
         }
 

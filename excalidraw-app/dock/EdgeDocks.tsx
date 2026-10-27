@@ -51,6 +51,7 @@ type DockRuntime = {
 const DOCK_PILL_TINT: Record<DockId, number> = {
   toolbar: 0.62,
   properties: 0.3,
+  stickers: 0.45,
 };
 
 const hexToRgb = (hex: string): [number, number, number] | null => {

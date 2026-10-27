@@ -50,6 +50,7 @@ import {
   setFlowClassPreview,
   startFlowAnimation,
   stopFlowAnimation,
+  stopFlowEverything,
   updateFlowAnimationSettings,
 } from "./FlowAnimationState";
 
@@ -324,30 +325,56 @@ export const FlowAnimationBar = ({
     ? { left: placed.x, top: placed.y }
     : { left: follow.left, top: follow.top };
 
-  if (place.collapsed) {
-    return (
-      <button
-        type="button"
-        ref={(node) => {
-          barRef.current = node;
-        }}
-        className="excalidraw__flow-bar-pill"
-        data-testid="flow-bar-pill"
-        data-flow-bar-placed={placed ? "" : undefined}
-        data-dragging={dragging ? "" : undefined}
-        aria-label="Animation, collapsed"
-        title="Animation - click to open, drag to move"
-        style={style}
-        onPointerDown={(event) => startPress(event, "pill")}
-      >
-        <GripIcon />
-        <span>Animation</span>
-      </button>
-    );
-  }
-
   const playing = state.active && state.mode === "play";
   const presenting = state.active && state.mode === "present";
+  const running = state.active || preview;
+  const runningLabel = presenting
+    ? "Stepping"
+    : playing
+    ? "Playing"
+    : preview
+    ? "Preview"
+    : "";
+
+  if (place.collapsed) {
+    return (
+      <div
+        className="excalidraw__flow-bar-pill-wrap"
+        data-flow-bar-placed={placed ? "" : undefined}
+        style={style}
+      >
+        <button
+          type="button"
+          ref={(node) => {
+            barRef.current = node;
+          }}
+          className="excalidraw__flow-bar-pill"
+          data-testid="flow-bar-pill"
+          data-flow-bar-placed={placed ? "" : undefined}
+          data-dragging={dragging ? "" : undefined}
+          aria-label="Animation, collapsed"
+          title="Animation - click to open, drag to move"
+          onPointerDown={(event) => startPress(event, "pill")}
+        >
+          <GripIcon />
+          <span>Animation{running ? ` · ${runningLabel}` : ""}</span>
+        </button>
+        {running && (
+          <button
+            type="button"
+            className="excalidraw__flow-bar-pill-stop"
+            data-testid="flow-bar-pill-stop"
+            aria-label="Stop the animation"
+            title="Stop the animation"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={stopFlowEverything}
+          >
+            Stop
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -427,6 +454,17 @@ export const FlowAnimationBar = ({
             {t("labels.flowAnimationResetLayout")}
           </button>
         )}
+        {running && (
+          <button
+            type="button"
+            className="excalidraw__flow-bar-stop"
+            data-testid="flow-bar-stop"
+            title="Stop the animation (Esc)"
+            onClick={stopFlowEverything}
+          >
+            Stop {runningLabel.toLowerCase()}
+          </button>
+        )}
         <button
           type="button"
           aria-expanded={lookOpen}
@@ -438,7 +476,7 @@ export const FlowAnimationBar = ({
           type="button"
           className="excalidraw__flow-bar-collapse"
           aria-label="Collapse the animation bar into a pill"
-          title="Collapse into a pill"
+          title="Minimise - the animation keeps running; Stop ends it"
           onClick={() => remember({ ...place, collapsed: true })}
         >
           <CollapseIcon />
@@ -568,11 +606,19 @@ export const FlowAnimationBar = ({
             onPick={(colors) => change(colors)}
           />
           <div className="excalidraw__flow-bar-row">
-            <span className="excalidraw__flow-bar-label">Highlight</span>
+            <span className="excalidraw__flow-bar-label">Shape</span>
             <FlowColorPad
-              label="Highlight colour"
+              label="Shape colour"
               value={state.nodeColor}
               onChange={(nodeColor) => change({ nodeColor })}
+            />
+          </div>
+          <div className="excalidraw__flow-bar-row">
+            <span className="excalidraw__flow-bar-label">Text</span>
+            <FlowColorPad
+              label="Text colour"
+              value={state.textColor}
+              onChange={(textColor) => change({ textColor })}
             />
           </div>
           <div className="excalidraw__flow-bar-row">
@@ -622,6 +668,14 @@ export const FlowAnimationBar = ({
             </label>
           </div>
           <div className="excalidraw__flow-bar-row">
+            <label className="excalidraw__flow-bar-field">
+              <input
+                type="checkbox"
+                checked={state.glow}
+                onChange={(event) => change({ glow: event.target.checked })}
+              />
+              <span>Neon glow</span>
+            </label>
             <label className="excalidraw__flow-bar-field">
               <input
                 type="checkbox"

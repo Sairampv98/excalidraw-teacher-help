@@ -216,8 +216,15 @@ describe("AC-220 the arrow is hidden and recoloured by the canvas", () => {
       expect(drawn.has(arrow.id)).toBe(false);
     }
 
-    // and nothing else is missing
-    for (const element of live().filter((e) => e.type !== "arrow")) {
+    // and nothing else is missing, but the labels of the arrows, which the
+    // overlay draws above what is animated (D-203, D-213)
+    const arrowIds = new Set(arrows().map((arrow) => arrow.id));
+
+    for (const element of live().filter(
+      (e) =>
+        e.type !== "arrow" &&
+        !(e.type === "text" && e.containerId && arrowIds.has(e.containerId)),
+    )) {
       expect(drawn.has(element.id)).toBe(true);
     }
   });
@@ -291,28 +298,6 @@ describe("AC-220 the arrow is hidden and recoloured by the canvas", () => {
     expect(after.strokeWidth).toBe(arrows()[0].strokeWidth);
   });
 
-  it("AC-220 the labels of a hidden arrow stay", async () => {
-    await mount(chart({ ...SETTINGS, hideArrow: true }));
-
-    const spy = spyOnRenderer();
-
-    viewMode(true);
-
-    const drawn = lastDrawn(spy);
-    const labels = live().filter(
-      (element) =>
-        element.type === "text" &&
-        arrows().some((arrow) => arrow.id === element.containerId),
-    );
-
-    // the yes and the no of the decision
-    expect(labels.length).toBeGreaterThanOrEqual(2);
-
-    for (const label of labels) {
-      expect(drawn.get(label.id)).toBe(label);
-    }
-  });
-
   it("AC-220 the arrow is drawn again when the animation stops", async () => {
     await mount(chart({ ...SETTINGS, hideArrow: true }));
 
@@ -354,27 +339,6 @@ describe("AC-220 the arrow is hidden and recoloured by the canvas", () => {
     // while the arrows are hidden on the canvas, the export is the same
     expect(getFlowArrowLooks().size).toBeGreaterThan(0);
     expect(await exported()).toBe(before);
-  });
-
-  it("AC-220 the pipe keeps its own strokes", async () => {
-    await mount(
-      chart({ ...SETTINGS, node: "none", arrow: "pipe", markColor: "#00aa00" }),
-      { viewModeEnabled: true },
-    );
-
-    expect(
-      document.querySelectorAll('[data-flow-mark="pipe-dark"]').length,
-    ).toBeGreaterThan(0);
-
-    // the dark and light strokes are not touched by the colour; only the
-    // highlight that runs along the pipe is
-    const scss = styleSheet("../components/FlowAnimationOverlay.scss");
-
-    expect(scss).toMatch(/flow-mark--pipe-dark \{\s*stroke: #1e1e1e;/);
-    expect(scss).toMatch(/flow-mark--pipe-light \{\s*stroke: #868e96;/);
-    expect(scss).toMatch(
-      /flow-mark--pipe-flow \{\s*stroke: var\(--flow-mark-color, #ffffff\)/,
-    );
   });
 });
 

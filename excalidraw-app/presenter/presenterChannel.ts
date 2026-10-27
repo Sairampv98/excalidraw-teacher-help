@@ -139,6 +139,33 @@ export const pointerCollaborators = (
     ],
   ]);
 
+/**
+ * Whether the editor's view moved and nothing else changed (D-212): the same
+ * elements, and everything of the camera but where the view is. Then only the
+ * view needs to cross - sending the whole scene on every frame of a fly-to is
+ * what made the projector follow in lagging jumps.
+ */
+export const isViewOnlyChange = (
+  previous: PresenterScene | null,
+  next: PresenterScene,
+): boolean => {
+  if (!previous || previous.elements !== next.elements) {
+    return false;
+  }
+
+  const a = previous.camera;
+  const b = next.camera;
+
+  return (
+    a.viewBackgroundColor === b.viewBackgroundColor &&
+    a.gridModeEnabled === b.gridModeEnabled &&
+    a.gridSize === b.gridSize &&
+    a.pagesEnabled === b.pagesEnabled &&
+    a.pages === b.pages &&
+    a.currentPageId === b.currentPageId
+  );
+};
+
 export type PresenterMessage =
   /** presenter announces itself, editor replies with a full snapshot */
   | { type: "presenter:hello"; presenterId: string }
@@ -146,6 +173,8 @@ export type PresenterMessage =
   | { type: "presenter:bye"; presenterId: string }
   /** scene + camera update */
   | { type: "presenter:scene"; scene: PresenterScene }
+  /** only the view moved (D-212): the presenter moves its view and nothing else */
+  | { type: "presenter:camera"; camera: PresenterCamera }
   /** pointer update — this is what drives the mirrored laser trail */
   | { type: "presenter:pointer"; pointer: PresenterPointer }
   /** presenter is missing binary files (images) it does not have yet */

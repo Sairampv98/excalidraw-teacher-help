@@ -311,7 +311,7 @@ describe("AC-219 the highlight colour", () => {
     select([shapes()[0]]);
 
     // closed until it is opened: the bar is as small as it was
-    expect(screen.queryByLabelText("Highlight colour")).toBeNull();
+    expect(screen.queryByLabelText("Shape colour")).toBeNull();
     expect(
       screen
         .getByRole("button", { name: "Look" })
@@ -327,7 +327,8 @@ describe("AC-219 the highlight colour", () => {
     ).toBe("true");
 
     for (const label of [
-      "Highlight colour",
+      "Shape colour",
+      "Text colour",
       "Animation colour",
       "Arrow colour",
       "Highlight target",
@@ -336,16 +337,17 @@ describe("AC-219 the highlight colour", () => {
     }
 
     expect(screen.getByLabelText("Hide arrow")).not.toBeNull();
+    expect(screen.getByLabelText("Neon glow")).not.toBeNull();
     expect(screen.getByLabelText("Preview class loop")).not.toBeNull();
 
     // and a control there changes the setting
     // a swatch sets the colour
     act(() => {
-      fireEvent.click(screen.getByLabelText("Highlight colour: Red"));
+      fireEvent.click(screen.getByLabelText("Shape colour: Red"));
     });
 
     expect(editorJotaiStore.get(flowAnimationStateAtom).nodeColor).toBe(
-      "#e03131",
+      "#ff3131",
     );
   });
 });
@@ -565,7 +567,8 @@ describe("AC-222 the highlight has the node's own shape", () => {
 
     expect(outline().getAttribute("data-flow-outline")).toBe("diamond");
     expect(outline().querySelector("polygon")!.getAttribute("points")).toBe(
-      `${w / 2},0 ${w},${h2 / 2} ${w / 2},${h2} 0,${h2 / 2}`,
+      // inside the node's box, half a stroke in from every edge (D-211)
+      `${w / 2},1 ${w - 1},${h2 / 2} ${w / 2},${h2 - 1} 1,${h2 / 2}`,
     );
   });
 

@@ -22,12 +22,13 @@ import {
   createPresenterChannel,
   getPresenterCamera,
   isPresenterFileWithinLimit,
+  isViewOnlyChange,
   isPresenterSupported,
   presenterFileTooLargeMessage,
   PRESENTER_STALE_MS,
 } from "./presenterChannel";
 
-import type { PresenterPointer } from "./presenterChannel";
+import type { PresenterPointer, PresenterScene } from "./presenterChannel";
 
 /**
  * ~25fps. Drawing updates are coalesced down to this rate so that the editor's
@@ -80,6 +81,8 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
   } | null>(null);
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSentAtRef = useRef(0);
+  // what the presenter has been given of the scene, to tell a view-only move (D-212)
+  const lastSceneSentRef = useRef<PresenterScene | null>(null);
   const pointerRef = useRef<PresenterPointer | null>(null);
   const pointerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPointerSentAtRef = useRef(0);
@@ -91,7 +94,7 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
 
   const hasPresenters = () => presentersRef.current.size > 0;
 
-  const sendScene = useCallback(() => {
+  const sendScene = useCallback((force = false) => {
     const channel = channelRef.current;
     const api = apiRef.current;
 
@@ -106,14 +109,20 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
       appState: api.getAppState(),
     };
 
+    const next: PresenterScene = {
+      elements: scene.elements,
+      camera: getPresenterCamera(scene.appState, pagesEnabledRef.current),
+    };
+
     try {
-      channel.postMessage({
-        type: "presenter:scene",
-        scene: {
-          elements: scene.elements,
-          camera: getPresenterCamera(scene.appState, pagesEnabledRef.current),
-        },
-      });
+      if (!force && isViewOnlyChange(lastSceneSentRef.current, next)) {
+        // only the view moved: just the view crosses (D-212)
+        channel.postMessage({ type: "presenter:camera", camera: next.camera });
+      } else {
+        channel.postMessage({ type: "presenter:scene", scene: next });
+      }
+
+      lastSceneSentRef.current = next;
       lastSentAtRef.current = Date.now();
     } catch (error) {
       // structured clone can throw on unexpectedly exotic elements — dropping a
@@ -300,8 +309,9 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
           }
 
           // answer immediately so a freshly opened (or reloaded) presenter
-          // window does not have to wait for the next edit
-          sendScene();
+          // window does not have to wait for the next edit - with the whole
+          // scene, whatever was sent before
+          sendScene(true);
 
           // and the live view's descriptor goes with it: a presenter that
           // connects after the bridge is already streaming would otherwise
@@ -349,6 +359,7 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
       // in-flight publish can't resurrect a disconnected presenter
       presentersRef.current = new Map();
       sceneRef.current = null;
+      lastSceneSentRef.current = null;
       liveViewsRef.current = new Map();
       channelRef.current = null;
       channel?.close();

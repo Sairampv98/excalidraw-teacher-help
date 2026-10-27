@@ -162,6 +162,8 @@ const storeSettings = (settings: FlowAnimationSettings) => {
 
 const settingsOf = (state: FlowAnimationState): FlowAnimationSettings => ({
   nodeColor: state.nodeColor,
+  textColor: state.textColor,
+  glow: state.glow,
   markColor: state.markColor,
   arrowColor: state.arrowColor,
   hideArrow: state.hideArrow,
@@ -227,6 +229,11 @@ const lookOf = (
     options && "arrowColor" in options
       ? readFlowColor(options.arrowColor)
       : current.arrowColor,
+  textColor:
+    options && "textColor" in options
+      ? readFlowColor(options.textColor)
+      : current.textColor,
+  glow: options?.glow ?? current.glow,
   hideArrow: options?.hideArrow ?? current.hideArrow,
   nodeTarget: options?.nodeTarget ?? current.nodeTarget,
 });
@@ -417,6 +424,8 @@ export const getFlowAnimationSnapshot = (): FlowAnimationSnapshot | null => {
     arrowStyle: state.arrowStyle,
     speed: state.speed,
     nodeColor: state.nodeColor,
+    textColor: state.textColor,
+    glow: state.glow,
     markColor: state.markColor,
     arrowColor: state.arrowColor,
     hideArrow: state.hideArrow,
@@ -536,4 +545,14 @@ export const flowClassPreviewAtom = atom(false);
 
 export const setFlowClassPreview = (on: boolean) => {
   editorJotaiStore.set(flowClassPreviewAtom, on);
+};
+
+/** whether anything of the animation runs in this editor: it plays, or the class loop is previewed (D-214) */
+export const isFlowRunning = () =>
+  isFlowAnimationActive() || editorJotaiStore.get(flowClassPreviewAtom);
+
+/** ends whatever runs - the animation and the preview - and gives the canvas back (D-214) */
+export const stopFlowEverything = () => {
+  stopFlowAnimation();
+  setFlowClassPreview(false);
 };

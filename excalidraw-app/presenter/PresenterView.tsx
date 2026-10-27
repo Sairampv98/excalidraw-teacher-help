@@ -243,12 +243,18 @@ export const PresenterView = () => {
    * the page.
    */
   const applyCamera = useCallback(
-    (camera: PresenterCamera) => {
+    (camera: PresenterCamera, { unmeasured = false } = {}) => {
       const api = apiRef.current;
 
       measureViewport();
 
-      if (!api || api.isDestroyed || !viewportRef.current.width) {
+      // a resize has nothing to do until the window is measured; a view that
+      // moved is applied as the scene's own camera is, measured or not (D-212)
+      if (
+        !api ||
+        api.isDestroyed ||
+        (!unmeasured && !viewportRef.current.width)
+      ) {
         return;
       }
 
@@ -375,6 +381,18 @@ export const PresenterView = () => {
           if (flowRef.current) {
             applyFlow();
           }
+          break;
+        }
+        case "presenter:camera": {
+          // only the view moved (D-212): move this window's view, nothing else
+          if (lastSceneRef.current) {
+            lastSceneRef.current = {
+              ...lastSceneRef.current,
+              camera: message.camera,
+            };
+          }
+
+          applyCamera(message.camera, { unmeasured: true });
           break;
         }
         case "presenter:pointer": {

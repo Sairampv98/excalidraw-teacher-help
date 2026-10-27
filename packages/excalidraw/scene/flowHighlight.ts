@@ -140,3 +140,42 @@ export const arrowLabelsOf = (
 
   return labels;
 };
+
+/**
+ * The labels the overlay draws again for a flow's current step (D-213): the
+ * labels of its arrows when something is animated along them, and the letters
+ * of the step's own label when they are lit. The canvas does not draw these, so
+ * a label is never seen twice - the overlay's copy is the one on the screen.
+ */
+export const drawnLabelIds = ({
+  graph,
+  step,
+  elementsMap,
+  nodeStyle,
+  nodeTarget,
+  arrowsAnimated,
+}: {
+  graph: FlowGraph | null;
+  step: FlowStep | undefined;
+  elementsMap: ElementsMap;
+  nodeStyle: string;
+  nodeTarget: FlowHighlightTarget;
+  /** something is animated along the arrows: marks, a colour, or hidden */
+  arrowsAnimated: boolean;
+}): string[] => {
+  const ids: string[] = [];
+
+  if (arrowsAnimated) {
+    ids.push(...arrowLabelsOf(graph, elementsMap).map((label) => label.id));
+  }
+
+  if (step && nodeStyle !== "none") {
+    const letters = nodeHighlightParts(step, elementsMap, nodeTarget).letters;
+
+    if (letters) {
+      ids.push(letters.id);
+    }
+  }
+
+  return ids;
+};

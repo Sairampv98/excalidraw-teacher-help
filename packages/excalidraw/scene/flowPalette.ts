@@ -1,19 +1,21 @@
 /**
  * The colours the animation's look is chosen from (D-207, D-206).
  *
- * The **swatches** are the pad each colour is picked from. The **presets** set
- * the highlight and what travels together, and they are chosen by what is known
- * about colours that read on a projected board:
+ * The **swatches** are the pad each colour is picked from, and they are **neon**:
+ * saturated, bright colours that read as light and not as paint. The **presets**
+ * set the colours of the whole animation together - the shape, the text and
+ * what travels - and turn the glow on, and they are held to two rules that are
+ * computed and not believed:
  *
- *  - the pairs come from the **Okabe-Ito** palette (Okabe and Ito; the
- *    colour-blind-safe set that Nature Methods recommends), so the highlight and
- *    what travels differ in more than their lightness;
- *  - every colour is held to at least **3 : 1 contrast against the page** it is
- *    for, the WCAG 2.1 bound for graphics (SC 1.4.11), because pale colours wash
- *    out on a projector;
- *  - the Okabe-Ito colours that read on a light page do not read on a dark one
- *    (the yellow and the sky blue are nearly white), so every preset has a
- *    **light-page** and a **dark-page** variant.
+ *  - every colour reaches at least **3 : 1 contrast against the page** it is
+ *    for, the WCAG 2.1 bound for graphics (SC 1.4.11);
+ *  - the shape colour and the colour of what travels differ in **hue** by at
+ *    least 60 degrees, so the two never blur into one.
+ *
+ * A neon yellow or green cannot be seen on a white page at any glow, so every
+ * preset has two variants: the **pure neon** for a dark page and a **deep neon**
+ * - the most vivid colour that still reaches 3 : 1 against white - for a light
+ * one.
  *
  * Everything is pure, so the rules above are checked by tests and not by eye.
  */
@@ -30,16 +32,16 @@ export type FlowSwatch = {
 /** the pad: the default first, then the colours, then black, white and grey */
 export const FLOW_SWATCHES: readonly FlowSwatch[] = [
   { id: "default", name: "Default", color: null },
-  { id: "red", name: "Red", color: "#e03131" },
-  { id: "orange", name: "Orange", color: "#e8590c" },
-  { id: "yellow", name: "Yellow", color: "#f59f00" },
-  { id: "green", name: "Green", color: "#2f9e44" },
-  { id: "teal", name: "Teal", color: "#0c8599" },
-  { id: "blue", name: "Blue", color: "#1971c2" },
-  { id: "purple", name: "Purple", color: "#6741d9" },
-  { id: "pink", name: "Pink", color: "#c2255c" },
-  { id: "black", name: "Black", color: "#1e1e1e" },
+  { id: "red", name: "Red", color: "#ff3131" },
+  { id: "orange", name: "Orange", color: "#ff9100" },
+  { id: "yellow", name: "Yellow", color: "#fff01f" },
+  { id: "green", name: "Green", color: "#39ff14" },
+  { id: "cyan", name: "Cyan", color: "#00f0ff" },
+  { id: "blue", name: "Blue", color: "#3d7bff" },
+  { id: "purple", name: "Purple", color: "#bc13fe" },
+  { id: "pink", name: "Pink", color: "#ff2bd6" },
   { id: "white", name: "White", color: "#ffffff" },
+  { id: "black", name: "Black", color: "#1e1e1e" },
   { id: "grey", name: "Grey", color: "#868e96" },
 ];
 
@@ -152,10 +154,14 @@ export const isDarkPage = (background: string | null | undefined) =>
 /* ---------------------------------------------------------------------- presets */
 
 export type FlowPresetColors = {
-  /** the highlight colour; `null` is the accent colour */
+  /** the shape's colour; `null` is the accent colour */
   nodeColor: string | null;
+  /** the text's colour; `null` follows the shape (D-209) */
+  textColor: string | null;
   /** the colour of what travels; `null` is the accent colour */
   markColor: string | null;
+  /** the neon glow (D-208) */
+  glow: boolean;
 };
 
 export type FlowColorPreset = {
@@ -163,55 +169,66 @@ export type FlowColorPreset = {
   name: string;
   /** the colours are meant to be alike (a family), so they need not differ in hue */
   alike?: boolean;
+  /** the deep neon, for a light page */
   light: FlowPresetColors;
+  /** the pure neon, for a dark page */
   dark: FlowPresetColors;
 };
+
+const neon = (
+  nodeColor: string,
+  markColor: string,
+  textColor: string | null = null,
+): FlowPresetColors => ({ nodeColor, textColor, markColor, glow: true });
 
 export const FLOW_COLOR_PRESETS: readonly FlowColorPreset[] = [
   {
     id: "classic",
     name: "Classic",
-    light: { nodeColor: null, markColor: null },
-    dark: { nodeColor: null, markColor: null },
+    light: { nodeColor: null, textColor: null, markColor: null, glow: false },
+    dark: { nodeColor: null, textColor: null, markColor: null, glow: false },
   },
   {
-    id: "blue-orange",
-    name: "Blue and orange",
-    light: { nodeColor: "#0072B2", markColor: "#B36B00" },
-    dark: { nodeColor: "#56B4E9", markColor: "#E69F00" },
-  },
-  {
-    id: "blue-vermillion",
-    name: "Blue and vermillion",
-    light: { nodeColor: "#0072B2", markColor: "#D55E00" },
-    dark: { nodeColor: "#56B4E9", markColor: "#D55E00" },
+    id: "cyan-pink",
+    name: "Cyan and pink",
+    light: neon("#008ba3", "#e0007a"),
+    dark: neon("#00f0ff", "#ff2bd6"),
   },
   {
     id: "green-purple",
     name: "Green and purple",
-    light: { nodeColor: "#008060", markColor: "#7A3E9D" },
-    dark: { nodeColor: "#009E73", markColor: "#CC79A7" },
+    light: neon("#00a35a", "#9d00ff"),
+    dark: neon("#39ff14", "#bc13fe"),
   },
   {
-    id: "cool",
-    name: "Cool",
-    alike: true,
-    light: { nodeColor: "#0072B2", markColor: "#008060" },
-    dark: { nodeColor: "#56B4E9", markColor: "#009E73" },
+    id: "yellow-blue",
+    name: "Yellow and blue",
+    light: neon("#b38f00", "#1f51ff"),
+    dark: neon("#fff01f", "#3d7bff"),
   },
   {
-    id: "warm",
-    name: "Warm",
-    alike: true,
-    light: { nodeColor: "#C25400", markColor: "#B36B00" },
-    dark: { nodeColor: "#D55E00", markColor: "#F0E442" },
+    id: "orange-cyan",
+    name: "Orange and cyan",
+    light: neon("#e65c00", "#008ba3"),
+    dark: neon("#ff9100", "#00f0ff"),
+  },
+  {
+    id: "pink-lime",
+    name: "Pink and lime",
+    light: neon("#d400b3", "#4c9a00"),
+    dark: neon("#ff2bd6", "#b6ff00"),
+  },
+  {
+    id: "fire-ice",
+    name: "Fire and ice",
+    light: neon("#e60023", "#1f51ff", "#1e1e1e"),
+    dark: neon("#ff3131", "#00f0ff", "#ffffff"),
   },
   {
     id: "high-contrast",
     name: "High contrast",
-    alike: true,
-    light: { nodeColor: "#000000", markColor: "#D55E00" },
-    dark: { nodeColor: "#FFFFFF", markColor: "#F0E442" },
+    light: neon("#000000", "#1f51ff", "#e65c00"),
+    dark: neon("#ffffff", "#00f0ff", "#fff01f"),
   },
 ];
 
@@ -224,7 +241,7 @@ export const presetColorsFor = (
 const same = (a: string | null, b: string | null) =>
   (a ?? "").toLowerCase() === (b ?? "").toLowerCase();
 
-/** whether the look's two colours are the preset's own, on this page */
+/** whether the look's colours and glow are the preset's own, on this page */
 export const presetIsChosen = (
   preset: FlowColorPreset,
   look: FlowPresetColors,
@@ -234,6 +251,8 @@ export const presetIsChosen = (
 
   return (
     same(look.nodeColor, colors.nodeColor) &&
-    same(look.markColor, colors.markColor)
+    same(look.textColor, colors.textColor) &&
+    same(look.markColor, colors.markColor) &&
+    look.glow === colors.glow
   );
 };

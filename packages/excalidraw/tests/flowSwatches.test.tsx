@@ -32,7 +32,8 @@ import { act, fireEvent, render, screen, within } from "./test-utils";
 const { h } = window;
 
 const PADS = [
-  { label: "Highlight colour", key: "nodeColor" },
+  { label: "Shape colour", key: "nodeColor" },
+  { label: "Text colour", key: "textColor" },
   { label: "Animation colour", key: "markColor" },
   { label: "Arrow colour", key: "arrowColor" },
 ] as const;
@@ -108,14 +109,14 @@ describe("AC-229 the colours are chosen from a swatch pad", () => {
         fireEvent.click(swatch(label, "Blue"));
       });
 
-      expect(state()[key]).toBe("#1971c2");
+      expect(state()[key]).toBe("#3d7bff");
     }
   });
 
   it("AC-229 the current choice is ringed", async () => {
     await lookOpen();
 
-    const label = "Highlight colour";
+    const label = "Shape colour";
 
     // nothing chosen: the default is the choice
     expect(swatch(label, "Default").getAttribute("aria-checked")).toBe("true");
@@ -149,7 +150,7 @@ describe("AC-229 the colours are chosen from a swatch pad", () => {
       fireEvent.click(swatch("Animation colour", "Green"));
     });
 
-    expect(state().markColor).toBe("#2f9e44");
+    expect(state().markColor).toBe("#39ff14");
 
     act(() => {
       fireEvent.click(swatch("Animation colour", "Default"));
@@ -189,15 +190,15 @@ describe("AC-229 the colours are chosen from a swatch pad", () => {
     await lookOpen();
 
     const custom = screen.getByLabelText(
-      "Highlight colour: custom",
+      "Shape colour: custom",
     ) as HTMLInputElement;
 
     act(() => {
       // the picker gives lower case; a stored value may not
-      fireEvent.change(custom, { target: { value: "#e03131" } });
+      fireEvent.change(custom, { target: { value: "#ff3131" } });
     });
 
-    expect(swatch("Highlight colour", "Red").getAttribute("aria-checked")).toBe(
+    expect(swatch("Shape colour", "Red").getAttribute("aria-checked")).toBe(
       "true",
     );
     expect(
@@ -205,13 +206,13 @@ describe("AC-229 the colours are chosen from a swatch pad", () => {
     ).toBe(false);
 
     // upper case is the same colour
-    expect(swatchOf("#E03131")?.id).toBe("red");
+    expect(swatchOf("#FF3131")?.id).toBe("red");
   });
 
   it("AC-229 the pad is a radio group reachable by keyboard", async () => {
     await lookOpen();
 
-    const label = "Highlight colour";
+    const label = "Shape colour";
     const radios = () => within(pad(label)).getAllByRole("radio");
 
     // one stop for the tab key: the choice
@@ -228,14 +229,14 @@ describe("AC-229 the colours are chosen from a swatch pad", () => {
       fireEvent.keyDown(first, { key: "ArrowRight" });
     });
 
-    expect(state().nodeColor).toBe("#e03131");
+    expect(state().nodeColor).toBe("#ff3131");
     expect(document.activeElement).toBe(swatch(label, "Red"));
 
     act(() => {
       fireEvent.keyDown(swatch(label, "Red"), { key: "ArrowRight" });
     });
 
-    expect(state().nodeColor).toBe("#e8590c");
+    expect(state().nodeColor).toBe("#ff9100");
 
     // and it wraps: left from the first is the last
     act(() => {

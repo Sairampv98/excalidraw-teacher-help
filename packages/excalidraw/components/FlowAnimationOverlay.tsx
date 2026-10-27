@@ -25,17 +25,20 @@ import {
 import { chartScaleOf } from "../scene/flowScale";
 import {
   highlightBoxOf,
+  drawnLabelIds,
   highlightShapeOf,
   arrowLabelsOf,
   nodeHighlightParts,
 } from "../scene/flowHighlight";
 import { arrowLooksFor } from "../scene/flowArrowLooks";
+
+import type { ArrowLook } from "../scene/flowArrowLooks";
 import { flowMarksFor, getArrowPath } from "../scene/flowStyles";
 
 import { editorJotaiStore, useAtomValue } from "../editor-jotai";
 import { t } from "../i18n";
 
-import { LabelText, NodeOutline, lookVars } from "./FlowLookParts";
+import { LabelText, NodeOutline, lookAttrs, lookVars } from "./FlowLookParts";
 import { setFlowArrowLooks } from "./FlowArrowLooksState";
 import { CloseIcon } from "./icons";
 import {
@@ -526,10 +529,40 @@ export const FlowAnimationOverlay = ({
   // the editor, whose canvas draws them so (D-204); nothing is painted over
   const arrowLooks = useMemo(
     () =>
-      state.active && state.graph ? arrowLooksFor(state.graph, state) : [],
+      state.active && state.graph
+        ? [
+            ...arrowLooksFor(state.graph, state),
+            // a label the overlay draws again is not drawn by the canvas (D-213)
+            ...drawnLabelIds({
+              graph: state.graph,
+              step: state.steps[state.index],
+              elementsMap,
+              nodeStyle: state.nodeStyle,
+              nodeTarget: state.nodeTarget,
+              arrowsAnimated:
+                state.arrowStyle !== "none" ||
+                state.hideArrow ||
+                !!state.arrowColor,
+            }).map((id): [string, ArrowLook] => [
+              id,
+              { hidden: true, color: null },
+            ]),
+          ]
+        : [],
     // the look is the part of the state that decides it
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.active, state.graph, state.hideArrow, state.arrowColor],
+    [
+      state.active,
+      state.graph,
+      state.steps,
+      state.index,
+      state.hideArrow,
+      state.arrowColor,
+      state.arrowStyle,
+      state.nodeStyle,
+      state.nodeTarget,
+      elementsMap,
+    ],
   );
 
   useEffect(() => {
@@ -583,6 +616,7 @@ export const FlowAnimationOverlay = ({
       data-flow-arrow-style={state.arrowStyle}
       data-flow-mode={state.mode}
       data-flow-mirror={state.mirror ? "" : undefined}
+      {...lookAttrs(state)}
       style={{
         ...(interactive
           ? HOST_STYLE
@@ -713,7 +747,7 @@ export const FlowAnimationOverlay = ({
                   // only the focus style enlarges the step: the others leave it
                   // its own size so that what travels along its arrows is seen
                   transform: flowFocusTransform(
-                    step.box,
+                    element.type === "text" ? elementBox : step.box,
                     elementBox,
                     state.nodeStyle === "focus" ? undefined : 1,
                   ),
@@ -729,6 +763,7 @@ export const FlowAnimationOverlay = ({
                 ) : (
                   <NodeOutline
                     shape={highlightShapeOf(element)}
+                    part={element.type === "text" ? "box" : "shape"}
                     width={elementBox.width}
                     height={elementBox.height}
                     className="excalidraw__flow-animation-pulse"

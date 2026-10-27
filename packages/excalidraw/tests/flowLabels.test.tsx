@@ -9,10 +9,11 @@
 
 import React from "react";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   getFontFamilyString,
+  getVerticalOffset,
   sceneCoordsToViewportCoords,
 } from "@excalidraw/common";
 
@@ -29,15 +30,19 @@ import {
 } from "../components/FlowAnimationState";
 import { Excalidraw } from "../index";
 import { AnimationController } from "../renderer/animation";
+import { exportToSvg } from "../scene/export";
+import { flowFocusTransform } from "../scene/flowAnimation";
 import { withFlowClass } from "../scene/flowClass";
+import { highlightBoxOf } from "../scene/flowHighlight";
 import { FLOW_LOOK_DEFAULTS } from "../scene/flowLook";
 import { buildFlowPreset } from "../scene/flowPresets";
 import { flowOfSelection } from "../scene/flowSelection";
 
 import { API } from "./helpers/api";
-import { act, render } from "./test-utils";
+import { act, cleanup, render } from "./test-utils";
 
 import type { FlowClassSettings } from "../scene/flowClass";
+import type { Renderer } from "../scene/Renderer";
 
 const { h } = window;
 
@@ -136,12 +141,32 @@ const letters = () =>
 const arrowLabelCopies = () =>
   [...document.querySelectorAll("[data-flow-arrow-label]")] as HTMLElement[];
 
+const renderer = () => (h.app as unknown as { renderer: Renderer }).renderer;
+
+const spyOnRenderer = () => vi.spyOn(renderer(), "getRenderableElements");
+
+/** what the canvas was given in the last render the editor made */
+const lastDrawn = (spy: ReturnType<typeof spyOnRenderer>) =>
+  (
+    spy.mock.results.at(-1)?.value as {
+      elementsMap: Map<string, ExcalidrawElement>;
+    }
+  ).elementsMap;
+
+/** the lines of a copy, as the canvas would place them (D-211) */
+const baselinesOf = (copy: Element) =>
+  [...copy.querySelectorAll("tspan")].map((tspan) => ({
+    x: parseFloat(tspan.getAttribute("x")!),
+    y: parseFloat(tspan.getAttribute("y")!),
+  }));
+
 const viewMode = (on: boolean) =>
   act(() => {
     h.setState({ viewModeEnabled: on });
   });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   stopFlowAnimation();
   setFlowClassPreview(false);
   updateFlowAnimationSettings({
@@ -176,7 +201,9 @@ describe("AC-230 the label's letters are highlighted as letters", () => {
 
     expect(letters()).toHaveLength(1);
     expect(letters()[0].textContent).toBe(firstLabel().text);
-    expect(letters()[0].className).toContain("excalidraw__flow-label--letters");
+    expect(letters()[0].getAttribute("class")).toContain(
+      "excalidraw__flow-label--letters",
+    );
 
     // the colour is the look's, set for the stylesheet to draw the letters with
     const shape = letters()[0].closest(
@@ -192,13 +219,15 @@ describe("AC-230 the label's letters are highlighted as letters", () => {
     const label = firstLabel();
     const copy = letters()[0];
 
-    expect(copy.style.fontSize).toBe(`${label.fontSize}px`);
-    expect(copy.style.fontFamily).toBe(
+    const text = copy.querySelector("text") as SVGTextElement;
+
+    expect(text.style.fontSize).toBe(`${label.fontSize}px`);
+    expect(text.style.fontFamily).toBe(
       getFontFamilyString({ fontFamily: label.fontFamily }),
     );
-    expect(parseFloat(copy.style.width)).toBeCloseTo(label.width);
-    expect(parseFloat(copy.style.height)).toBeCloseTo(label.height);
-    expect(copy.style.whiteSpace).toBe("pre");
+    expect(parseFloat(copy.getAttribute("width")!)).toBeCloseTo(label.width);
+    expect(parseFloat(copy.getAttribute("height")!)).toBeCloseTo(label.height);
+    expect(text.style.whiteSpace).toBe("pre");
 
     // where it is: the oracle's place for the label's own corner
     const { x, y } = sceneCoordsToViewportCoords(
@@ -290,8 +319,10 @@ describe("AC-231 the labels of arrows are above the animation", () => {
     )!;
     const inner = copy.querySelector("[data-flow-label]") as HTMLElement;
 
-    expect(inner.style.fontSize).toBe(`${label.fontSize}px`);
-    expect(inner.style.fontFamily).toBe(
+    const text = inner.querySelector("text") as SVGTextElement;
+
+    expect(text.style.fontSize).toBe(`${label.fontSize}px`);
+    expect(text.style.fontFamily).toBe(
       getFontFamilyString({ fontFamily: label.fontFamily }),
     );
 
@@ -355,5 +386,242 @@ describe("AC-231 the labels of arrows are above the animation", () => {
     });
 
     expect(arrowLabelCopies()).toHaveLength(0);
+  });
+});
+
+/** the first label gets two lines, so that the second line's place shows too */
+const twoLines = (element: ExcalidrawElement) =>
+  element.type === "text" && element.text === "Start"
+    ? ({ ...element, text: "Go\non", originalText: "Go\non" } as never)
+    : element;
+
+describe("AC-237 what the overlay draws lines up with the canvas", () => {
+  const LETTERS: FlowClassSettings = {
+    ...SETTINGS,
+    nodeTarget: "letters",
+    nodeColor: "#ff0000",
+  };
+
+  it("AC-237 the letters are drawn at the canvas's baselines", async () => {
+    await mount(chart(LETTERS, twoLines), { viewModeEnabled: true });
+
+    const label = firstLabel();
+    const lineHeightPx = label.fontSize * label.lineHeight;
+    const offset = getVerticalOffset(
+      label.fontFamily,
+      label.fontSize,
+      lineHeightPx,
+    );
+    const lines = baselinesOf(letters()[0]);
+
+    expect(lines).toHaveLength(2);
+
+    lines.forEach((line, index) => {
+      // the canvas's rule: the line's index times the line height, and the
+      // font's own offset down to the baseline
+      expect(line.y).toBeCloseTo(index * lineHeightPx + offset, 5);
+      // a centred label is drawn about the middle of its box
+      expect(line.x).toBeCloseTo(label.width / 2, 5);
+    });
+  });
+
+  it("AC-237 arrow labels use the same rule", async () => {
+    await mount(chart(SETTINGS), { viewModeEnabled: true });
+
+    for (const label of arrowLabels()) {
+      const copy = arrowLabelCopies().find(
+        (c) => c.getAttribute("data-flow-arrow-label") === label.id,
+      )!;
+      const lineHeightPx = label.fontSize * label.lineHeight;
+      const offset = getVerticalOffset(
+        label.fontFamily,
+        label.fontSize,
+        lineHeightPx,
+      );
+
+      expect(baselinesOf(copy)[0].y).toBeCloseTo(offset, 5);
+    }
+  });
+
+  it("AC-237 a text highlight lifts about its own centre", async () => {
+    await mount(
+      // the label is off the node's centre, so its own centre is not the node's
+      chart({ ...LETTERS, node: "focus" }, (element) =>
+        element.type === "text" && element.text === "Start"
+          ? ({ ...element, x: element.x + 20 } as never)
+          : element,
+      ),
+      { viewModeEnabled: true },
+    );
+
+    const label = firstLabel();
+    const focus = letters()[0].closest(
+      ".excalidraw__flow-animation-focus",
+    ) as HTMLElement;
+
+    const probe = document.createElement("div");
+
+    probe.style.transform = flowFocusTransform(
+      highlightBoxOf(label),
+      highlightBoxOf(label),
+    );
+
+    expect(focus.style.transform).toBe(probe.style.transform);
+  });
+
+  it("AC-237 the outline is inside the node's box", async () => {
+    const OUTLINE: FlowClassSettings = { ...SETTINGS, nodeTarget: "shape" };
+
+    for (const kind of ["rectangle", "ellipse", "diamond"] as const) {
+      await mount(
+        chart(OUTLINE, (element) =>
+          element.type !== "arrow" &&
+          element.type !== "text" &&
+          element.boundElements?.length
+            ? ({ ...element, type: kind } as never)
+            : element,
+        ),
+        { viewModeEnabled: true },
+      );
+
+      const svg = document.querySelector(
+        ".excalidraw__flow-class [data-flow-outline]",
+      )!;
+      const w = parseFloat(svg.getAttribute("width")!);
+      const h2 = parseFloat(svg.getAttribute("height")!);
+      const edge = (n: string | null) => parseFloat(n!);
+
+      if (kind === "rectangle") {
+        const rect = svg.querySelector("rect")!;
+
+        expect(edge(rect.getAttribute("x"))).toBeGreaterThanOrEqual(1);
+        expect(edge(rect.getAttribute("y"))).toBeGreaterThanOrEqual(1);
+        expect(
+          edge(rect.getAttribute("x")) + edge(rect.getAttribute("width")),
+        ).toBeLessThanOrEqual(w - 1);
+        expect(
+          edge(rect.getAttribute("y")) + edge(rect.getAttribute("height")),
+        ).toBeLessThanOrEqual(h2 - 1);
+      } else if (kind === "ellipse") {
+        const e = svg.querySelector("ellipse")!;
+
+        expect(edge(e.getAttribute("rx"))).toBeLessThanOrEqual(w / 2 - 1);
+        expect(edge(e.getAttribute("ry"))).toBeLessThanOrEqual(h2 / 2 - 1);
+      } else {
+        const points = svg
+          .querySelector("polygon")!
+          .getAttribute("points")!
+          .split(" ")
+          .map((p) => p.split(",").map(Number));
+
+        for (const [x, y] of points) {
+          expect(x).toBeGreaterThanOrEqual(1);
+          expect(x).toBeLessThanOrEqual(w - 1);
+          expect(y).toBeGreaterThanOrEqual(1);
+          expect(y).toBeLessThanOrEqual(h2 - 1);
+        }
+      }
+
+      cleanup();
+    }
+  });
+});
+
+describe("AC-239 a label is never seen twice", () => {
+  it("AC-239 the canvas does not draw a label the overlay draws again", async () => {
+    await mount(chart(SETTINGS));
+
+    const spy = spyOnRenderer();
+
+    viewMode(true);
+
+    const drawn = lastDrawn(spy);
+
+    // the yes and the no are the overlay's: once, above what is animated
+    expect(arrowLabels().length).toBeGreaterThanOrEqual(2);
+
+    for (const label of arrowLabels()) {
+      expect(drawn.has(label.id)).toBe(false);
+    }
+
+    expect(arrowLabelCopies()).toHaveLength(arrowLabels().length);
+
+    // what is not redrawn stays: the node's own label
+    expect(drawn.has(firstLabel().id)).toBe(true);
+  });
+
+  it("AC-239 lit letters are the overlay's, and the canvas leaves them out", async () => {
+    await mount(chart({ ...SETTINGS, nodeTarget: "letters" }));
+
+    const spy = spyOnRenderer();
+
+    viewMode(true);
+
+    expect(lastDrawn(spy).has(firstLabel().id)).toBe(false);
+    expect(letters()).toHaveLength(1);
+  });
+
+  it("AC-239 the canvas draws it again when the overlay stops", async () => {
+    await mount(chart(SETTINGS));
+
+    const spy = spyOnRenderer();
+
+    viewMode(true);
+    viewMode(false);
+
+    const drawn = lastDrawn(spy);
+
+    for (const label of arrowLabels()) {
+      expect(drawn.get(label.id)).toBe(label);
+    }
+
+    expect(arrowLabelCopies()).toHaveLength(0);
+  });
+
+  it("AC-239 moving the chart keeps one set of labels", async () => {
+    await mount(chart(SETTINGS), { viewModeEnabled: true });
+
+    const spy = spyOnRenderer();
+
+    act(() => {
+      for (const element of live()) {
+        API.updateElement(element, { x: element.x + 150, y: element.y + 40 });
+      }
+    });
+
+    expect(arrowLabelCopies()).toHaveLength(arrowLabels().length);
+
+    for (const label of arrowLabels()) {
+      expect(lastDrawn(spy).has(label.id)).toBe(false);
+    }
+  });
+
+  it("AC-239 the document and an exported image keep the label", async () => {
+    await mount(chart(SETTINGS));
+
+    const exported = async () =>
+      (
+        await exportToSvg(
+          h.app.scene.getNonDeletedElements(),
+          {
+            exportBackground: true,
+            viewBackgroundColor: h.state.viewBackgroundColor,
+          },
+          {},
+        )
+      ).outerHTML;
+
+    const before = await exported();
+    const document_ = JSON.stringify(h.elements);
+
+    viewMode(true);
+
+    expect(arrowLabelCopies().length).toBeGreaterThan(0);
+    expect(JSON.stringify(h.elements)).toBe(document_);
+    expect(await exported()).toBe(before);
+
+    for (const label of arrowLabels()) {
+      expect(before).toContain(label.text);
+    }
   });
 });
