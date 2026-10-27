@@ -30,7 +30,7 @@ import {
   writeFlowBarPlace,
 } from "../scene/flowBarPlace";
 import { flowClassOf } from "../scene/flowClass";
-import { colorInputValue } from "../scene/flowLook";
+import { FLOW_HIGHLIGHT_TARGETS } from "../scene/flowLook";
 import { flowOfSelection } from "../scene/flowSelection";
 import {
   FLOW_ARROW_STYLES,
@@ -42,6 +42,9 @@ import {
 import { useAtomValue } from "../editor-jotai";
 import { t } from "../i18n";
 
+import { presetLook } from "../scene/flowPalette";
+
+import { FlowColorPad, FlowColorPresets } from "./FlowColorPad";
 import {
   DEFAULT_FLOW_STEP_DURATION_MS,
   flowAnimationStateAtom,
@@ -49,6 +52,7 @@ import {
   setFlowClassPreview,
   startFlowAnimation,
   stopFlowAnimation,
+  stopFlowEverything,
   updateFlowAnimationSettings,
 } from "./FlowAnimationState";
 
@@ -323,30 +327,56 @@ export const FlowAnimationBar = ({
     ? { left: placed.x, top: placed.y }
     : { left: follow.left, top: follow.top };
 
-  if (place.collapsed) {
-    return (
-      <button
-        type="button"
-        ref={(node) => {
-          barRef.current = node;
-        }}
-        className="excalidraw__flow-bar-pill"
-        data-testid="flow-bar-pill"
-        data-flow-bar-placed={placed ? "" : undefined}
-        data-dragging={dragging ? "" : undefined}
-        aria-label="Animation, collapsed"
-        title="Animation - click to open, drag to move"
-        style={style}
-        onPointerDown={(event) => startPress(event, "pill")}
-      >
-        <GripIcon />
-        <span>Animation</span>
-      </button>
-    );
-  }
-
   const playing = state.active && state.mode === "play";
   const presenting = state.active && state.mode === "present";
+  const running = state.active || preview;
+  const runningLabel = presenting
+    ? "Stepping"
+    : playing
+    ? "Playing"
+    : preview
+    ? "Preview"
+    : "";
+
+  if (place.collapsed) {
+    return (
+      <div
+        className="excalidraw__flow-bar-pill-wrap"
+        data-flow-bar-placed={placed ? "" : undefined}
+        style={style}
+      >
+        <button
+          type="button"
+          ref={(node) => {
+            barRef.current = node;
+          }}
+          className="excalidraw__flow-bar-pill"
+          data-testid="flow-bar-pill"
+          data-flow-bar-placed={placed ? "" : undefined}
+          data-dragging={dragging ? "" : undefined}
+          aria-label="Animation, collapsed"
+          title="Animation - click to open, drag to move"
+          onPointerDown={(event) => startPress(event, "pill")}
+        >
+          <GripIcon />
+          <span>Animation{running ? ` · ${runningLabel}` : ""}</span>
+        </button>
+        {running && (
+          <button
+            type="button"
+            className="excalidraw__flow-bar-pill-stop"
+            data-testid="flow-bar-pill-stop"
+            aria-label="Stop the animation"
+            title="Stop the animation"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={stopFlowEverything}
+          >
+            Stop
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -426,6 +456,17 @@ export const FlowAnimationBar = ({
             {t("labels.flowAnimationResetLayout")}
           </button>
         )}
+        {running && (
+          <button
+            type="button"
+            className="excalidraw__flow-bar-stop"
+            data-testid="flow-bar-stop"
+            title="Stop the animation (Esc)"
+            onClick={stopFlowEverything}
+          >
+            Stop {runningLabel.toLowerCase()}
+          </button>
+        )}
         <button
           type="button"
           aria-expanded={lookOpen}
@@ -437,7 +478,7 @@ export const FlowAnimationBar = ({
           type="button"
           className="excalidraw__flow-bar-collapse"
           aria-label="Collapse the animation bar into a pill"
-          title="Collapse into a pill"
+          title="Minimise - the animation keeps running; Stop ends it"
           onClick={() => remember({ ...place, collapsed: true })}
         >
           <CollapseIcon />
@@ -561,26 +602,30 @@ export const FlowAnimationBar = ({
           role="group"
           aria-label="Look"
         >
+          <FlowColorPresets
+            look={state}
+            background={app.state.viewBackgroundColor}
+            onPick={(colors) => change(presetLook(colors))}
+          />
+          <div className="excalidraw__flow-bar-row">
+            <span className="excalidraw__flow-bar-label">Shape</span>
+            <FlowColorPad
+              label="Shape colour"
+              value={state.nodeColor}
+              onChange={(nodeColor) => change({ nodeColor })}
+            />
+          </div>
+          <div className="excalidraw__flow-bar-row">
+            <span className="excalidraw__flow-bar-label">Text</span>
+            <FlowColorPad
+              label="Text colour"
+              value={state.textColor}
+              onChange={(textColor) => change({ textColor })}
+            />
+          </div>
           <div className="excalidraw__flow-bar-row">
             <label className="excalidraw__flow-bar-field">
-              <span>Highlight</span>
-              <input
-                type="color"
-                aria-label="Highlight colour"
-                value={colorInputValue(state.nodeColor)}
-                onChange={(event) => change({ nodeColor: event.target.value })}
-              />
-            </label>
-            <button
-              type="button"
-              aria-label="Default highlight colour"
-              disabled={!state.nodeColor}
-              onClick={() => change({ nodeColor: null })}
-            >
-              Default
-            </button>
-            <label className="excalidraw__flow-bar-field">
-              <span>On</span>
+              <span>Highlight on</span>
               <select
                 aria-label="Highlight target"
                 value={state.nodeTarget}
@@ -590,48 +635,29 @@ export const FlowAnimationBar = ({
                   })
                 }
               >
-                <option value="shape">Whole shape</option>
-                <option value="text">Text only</option>
+                {FLOW_HIGHLIGHT_TARGETS.map((target) => (
+                  <option key={target.id} value={target.id}>
+                    {target.label}
+                  </option>
+                ))}
               </select>
             </label>
           </div>
           <div className="excalidraw__flow-bar-row">
-            <label className="excalidraw__flow-bar-field">
-              <span>Animation</span>
-              <input
-                type="color"
-                aria-label="Animation colour"
-                value={colorInputValue(state.markColor)}
-                onChange={(event) => change({ markColor: event.target.value })}
-              />
-            </label>
-            <button
-              type="button"
-              aria-label="Default animation colour"
-              disabled={!state.markColor}
-              onClick={() => change({ markColor: null })}
-            >
-              Default
-            </button>
+            <span className="excalidraw__flow-bar-label">Animation</span>
+            <FlowColorPad
+              label="Animation colour"
+              value={state.markColor}
+              onChange={(markColor) => change({ markColor })}
+            />
           </div>
           <div className="excalidraw__flow-bar-row">
-            <label className="excalidraw__flow-bar-field">
-              <span>Arrow</span>
-              <input
-                type="color"
-                aria-label="Arrow colour"
-                value={colorInputValue(state.arrowColor)}
-                onChange={(event) => change({ arrowColor: event.target.value })}
-              />
-            </label>
-            <button
-              type="button"
-              aria-label="Default arrow colour"
-              disabled={!state.arrowColor}
-              onClick={() => change({ arrowColor: null })}
-            >
-              Default
-            </button>
+            <span className="excalidraw__flow-bar-label">Arrow</span>
+            <FlowColorPad
+              label="Arrow colour"
+              value={state.arrowColor}
+              onChange={(arrowColor) => change({ arrowColor })}
+            />
             <label className="excalidraw__flow-bar-field">
               <input
                 type="checkbox"
@@ -644,6 +670,42 @@ export const FlowAnimationBar = ({
             </label>
           </div>
           <div className="excalidraw__flow-bar-row">
+            <label className="excalidraw__flow-bar-field">
+              <input
+                type="checkbox"
+                checked={state.glowShape}
+                onChange={(event) =>
+                  change({ glowShape: event.target.checked })
+                }
+              />
+              <span>Neon shape</span>
+            </label>
+            <label className="excalidraw__flow-bar-field">
+              <input
+                type="checkbox"
+                checked={state.glowText}
+                onChange={(event) => change({ glowText: event.target.checked })}
+              />
+              <span>Neon text</span>
+            </label>
+            <label className="excalidraw__flow-bar-field">
+              <input
+                type="checkbox"
+                checked={state.glowMark}
+                onChange={(event) => change({ glowMark: event.target.checked })}
+              />
+              <span>Neon animation</span>
+            </label>
+            <label className="excalidraw__flow-bar-field">
+              <input
+                type="checkbox"
+                checked={state.glowArrow}
+                onChange={(event) =>
+                  change({ glowArrow: event.target.checked })
+                }
+              />
+              <span>Neon arrows</span>
+            </label>
             <label className="excalidraw__flow-bar-field">
               <input
                 type="checkbox"

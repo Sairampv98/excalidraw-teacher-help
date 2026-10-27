@@ -25,7 +25,14 @@ export interface AnimatedTrailOptions {
   fill: (trail: AnimatedTrail) => string;
   stroke?: (trail: AnimatedTrail) => string;
   animateTrail?: boolean;
+  /** drawn as a neon tube: a bright core inside a coloured halo (D-215) */
+  neon?: boolean;
 }
+
+/** how far the core of a neon tube is lightened toward white (D-208, D-215) */
+const NEON_CORE_PERCENT_OF_COLOR = 25;
+/** the halo: soft shadows of growing reach, so the tube blooms */
+const NEON_HALO = [2, 6, 14, 28];
 
 export class AnimatedTrail implements Trail {
   private currentTrail?: LaserPointer;
@@ -33,6 +40,8 @@ export class AnimatedTrail implements Trail {
 
   private container?: SVGSVGElement;
   private trailElement: SVGPathElement;
+  /** the bright core on top of the halo, only for a neon trail (D-215) */
+  private coreElement?: SVGPathElement;
   private trailAnimation?: SVGAnimateElement;
   private key: string;
 
@@ -45,6 +54,13 @@ export class AnimatedTrail implements Trail {
   ) {
     this.key = `animated-trail-${AnimatedTrail.counter++}`;
     this.trailElement = document.createElementNS(SVG_NS, "path");
+
+    if (this.options.neon) {
+      this.trailElement.setAttribute("data-neon-halo", "");
+      this.coreElement = document.createElementNS(SVG_NS, "path");
+      this.coreElement.setAttribute("data-neon-core", "");
+      this.coreElement.setAttribute("stroke", "none");
+    }
     if (this.options.animateTrail) {
       this.trailAnimation = document.createElementNS(SVG_NS, "animate");
       // TODO: make this configurable
@@ -81,6 +97,10 @@ export class AnimatedTrail implements Trail {
     if (this.trailElement.parentNode === this.container) {
       this.container?.removeChild(this.trailElement);
     }
+
+    if (this.coreElement && this.coreElement.parentNode === this.container) {
+      this.container?.removeChild(this.coreElement);
+    }
   }
 
   start(container?: SVGSVGElement) {
@@ -90,6 +110,15 @@ export class AnimatedTrail implements Trail {
 
     if (this.trailElement.parentNode !== this.container && this.container) {
       this.container.appendChild(this.trailElement);
+    }
+
+    if (
+      this.coreElement &&
+      this.coreElement.parentNode !== this.container &&
+      this.container
+    ) {
+      // above the halo
+      this.container.appendChild(this.coreElement);
     }
 
     if (!AnimationController.running(this.key)) {
@@ -175,12 +204,31 @@ export class AnimatedTrail implements Trail {
     if (paths.length === 0) {
       // Clean up the SVG path if there are no trails to render
       this.trailElement.setAttribute("d", "");
+      this.coreElement?.setAttribute("d", "");
 
       return false;
     }
 
     const svgPaths = paths.join(" ").trim();
     this.trailElement.setAttribute("d", svgPaths);
+
+    if (this.coreElement) {
+      const color = (this.options.fill ?? (() => "black"))(this);
+      const halo = NEON_HALO.map(
+        (blur) => `drop-shadow(0 0 ${blur}px ${color})`,
+      ).join(" ");
+
+      this.coreElement.setAttribute("d", svgPaths);
+      this.coreElement.setAttribute(
+        "fill",
+        `color-mix(in srgb, ${color} ${NEON_CORE_PERCENT_OF_COLOR}%, #fff)`,
+      );
+      // the rim of the tube and its bloom are the halo's: the colour itself
+      this.trailElement.setAttribute("stroke", color);
+      this.trailElement.setAttribute("stroke-width", "4");
+      this.trailElement.setAttribute("stroke-linejoin", "round");
+      this.trailElement.style.filter = halo;
+    }
 
     if (this.trailAnimation) {
       this.trailElement.setAttribute(

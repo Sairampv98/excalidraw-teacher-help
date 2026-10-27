@@ -152,7 +152,10 @@ describe("laser tool interactions", () => {
       h.app.updateScene({ collaborators });
     });
 
-    expect(svgLayer.querySelectorAll("path")).toHaveLength(1);
+    // one laser is one neon tube: a halo and a core above it (D-215)
+    expect(svgLayer.querySelectorAll("path[data-neon-halo]")).toHaveLength(1);
+    expect(svgLayer.querySelectorAll("path[data-neon-core]")).toHaveLength(1);
+    expect(svgLayer.querySelectorAll("path")).toHaveLength(2);
 
     act(() => {
       h.app.updateScene({ collaborators: new Map() });

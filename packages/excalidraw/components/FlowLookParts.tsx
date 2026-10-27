@@ -1,30 +1,16 @@
 import React from "react";
 
-import { coverColor } from "../scene/flowLook";
+import { getFontFamilyString, getVerticalOffset } from "@excalidraw/common";
+
+import type { ExcalidrawTextElement } from "@excalidraw/element/types";
+
+import { flowLookVars } from "../scene/flowLook";
 
 import type { HighlightShape } from "../scene/flowHighlight";
-import type { PathPoint } from "../scene/flowStyles";
+import type { FlowLook } from "../scene/flowLook";
 
-/** how far an arrowhead reaches back from the end of an arrow, in scene units */
-const ARROWHEAD_REACH = 14;
-
-/**
- * Where the cover of an arrowhead is centred: **back along the arrow** from its
- * tip, so that it covers the head and not the border of the node the arrow ends
- * on.
- */
-const arrowheadCover = (path: readonly { x: number; y: number }[]) => {
-  const end = path[path.length - 1];
-  const before = path[path.length - 2] ?? end;
-  const length = Math.hypot(end.x - before.x, end.y - before.y) || 1;
-  const back = ARROWHEAD_REACH * 0.85;
-
-  return {
-    x: end.x - ((end.x - before.x) / length) * back,
-    y: end.y - ((end.y - before.y) / length) * back,
-    r: ARROWHEAD_REACH * 1.05,
-  };
-};
+/** the width of the outline's stroke, in scene units: the stylesheet's (D-211) */
+export const OUTLINE_STROKE = 2;
 
 /**
  * An outline in the shape of a node (D-192): a rectangle with its own corner
@@ -39,14 +25,20 @@ export const NodeOutline = ({
   width,
   height,
   className,
+  part,
 }: {
   shape: HighlightShape;
   width: number;
   height: number;
   className?: string;
+  /** whose outline this is: the node's, or the rectangle on the label's box */
+  part?: "shape" | "box";
 }) => {
   const w = Math.max(width, 1);
   const h = Math.max(height, 1);
+  // the stroke is centred on the line it follows, so the line is drawn half a
+  // stroke inside the box and the stroke does not reach past the edge (D-211)
+  const inset = OUTLINE_STROKE / 2;
 
   return (
     <svg
@@ -55,6 +47,7 @@ export const NodeOutline = ({
       height={h}
       viewBox={`0 0 ${w} ${h}`}
       data-flow-outline={shape.kind}
+      data-flow-part={part}
       data-flow-outline-radius={
         shape.kind === "rect" ? shape.radius : undefined
       }
@@ -70,101 +63,146 @@ export const NodeOutline = ({
           className="excalidraw__flow-node-outline"
           cx={w / 2}
           cy={h / 2}
-          rx={w / 2}
-          ry={h / 2}
+          rx={Math.max(w / 2 - inset, 0)}
+          ry={Math.max(h / 2 - inset, 0)}
         />
       )}
       {shape.kind === "diamond" && (
         <polygon
           className="excalidraw__flow-node-outline"
-          points={`${w / 2},0 ${w},${h / 2} ${w / 2},${h} 0,${h / 2}`}
+          points={`${w / 2},${inset} ${w - inset},${h / 2} ${w / 2},${
+            h - inset
+          } ${inset},${h / 2}`}
         />
       )}
       {shape.kind === "rect" && (
         <rect
           className="excalidraw__flow-node-outline"
-          x={0}
-          y={0}
-          width={w}
-          height={h}
-          rx={shape.radius}
-          ry={shape.radius}
+          x={inset}
+          y={inset}
+          width={Math.max(w - OUTLINE_STROKE, 0)}
+          height={Math.max(h - OUTLINE_STROKE, 0)}
+          rx={Math.max(shape.radius - inset, 0)}
+          ry={Math.max(shape.radius - inset, 0)}
         />
       )}
     </svg>
   );
 };
 
-export type CoverArrow = { id: string; path: PathPoint[]; width: number };
-
 /**
- * The arrows drawn over while the animation plays (D-190): in a colour of
- * their own, or - when hidden - in the page's background colour, so that only
- * what travels along them is seen.
- *
- * It is drawn by the overlay, over the arrow and under the marks: the arrow in
- * the document is not touched, and it is back the moment the overlay is gone.
+ * A label's letters, drawn again in the overlay (D-202, D-203, D-211): as SVG
+ * text, with the **canvas's own rule** - the same font, size and line height,
+ * and for every line the same baseline offset the canvas uses - so each letter
+ * lands on the letter the canvas would have drawn. `color` is the highlight's,
+ * or the label's own when none is given. The box it is drawn in is the label's
+ * own, and the caller places it.
  */
-export const ArrowCovers = ({
-  arrows,
-  arrowColor,
-  hideArrow,
-  background,
+export const LabelText = ({
+  element,
+  color,
+  className,
 }: {
-  arrows: readonly CoverArrow[];
-  arrowColor: string | null;
-  hideArrow: boolean;
-  background?: string | null;
+  element: ExcalidrawTextElement;
+  color?: string | null;
+  className?: string;
 }) => {
-  if (!hideArrow && !arrowColor) {
-    return null;
-  }
-
-  const color = hideArrow ? coverColor(background) : arrowColor!;
+  const lines = element.text.replace(/\r\n?/g, "\n").split("\n");
+  const lineHeightPx = element.fontSize * element.lineHeight;
+  const verticalOffset = getVerticalOffset(
+    element.fontFamily,
+    element.fontSize,
+    lineHeightPx,
+  );
+  const x =
+    element.textAlign === "center"
+      ? element.width / 2
+      : element.textAlign === "right"
+      ? element.width
+      : 0;
 
   return (
-    <g data-flow-covers="" data-flow-covers-hidden={hideArrow ? "" : undefined}>
-      {arrows.map((arrow) => {
-        const end = arrow.path[arrow.path.length - 1];
-
-        return (
-          <g key={arrow.id} data-flow-cover={arrow.id}>
-            <polyline
-              data-flow-mark="arrow-cover"
-              points={arrow.path.map((p) => `${p.x},${p.y}`).join(" ")}
-              fill="none"
-              stroke={color}
-              // a hidden arrow is covered a little wider than it is drawn
-              strokeWidth={arrow.width + (hideArrow ? 4 : 1)}
-              // butt ends: a round cap would reach onto the border of the node
-              strokeLinecap="butt"
-              strokeLinejoin="round"
-            />
-            {hideArrow && end && (
-              <circle
-                data-flow-mark="arrow-cover-head"
-                cx={arrowheadCover(arrow.path).x}
-                cy={arrowheadCover(arrow.path).y}
-                r={arrowheadCover(arrow.path).r}
-                fill={color}
-              />
-            )}
-          </g>
-        );
-      })}
-    </g>
+    <svg
+      className={className}
+      data-flow-label={element.id}
+      width={element.width}
+      height={element.height}
+      viewBox={`0 0 ${element.width} ${element.height}`}
+      style={{
+        display: "block",
+        overflow: "visible",
+        color: color ?? undefined,
+        transform: element.angle ? `rotate(${element.angle}rad)` : undefined,
+        transformOrigin: "50% 50%",
+        pointerEvents: "none",
+      }}
+    >
+      <text
+        fill="currentColor"
+        style={{
+          fontFamily: getFontFamilyString({ fontFamily: element.fontFamily }),
+          fontSize: element.fontSize,
+          whiteSpace: "pre",
+        }}
+        textAnchor={
+          element.textAlign === "center"
+            ? "middle"
+            : element.textAlign === "right"
+            ? "end"
+            : "start"
+        }
+      >
+        {lines.map((line, index) => (
+          <tspan key={index} x={x} y={index * lineHeightPx + verticalOffset}>
+            {line}
+          </tspan>
+        ))}
+      </text>
+    </svg>
   );
 };
 
 /**
  * The colours of the look as CSS variables, for the stylesheet to use: unset
- * means the stylesheet's own default, which is the accent colour (D-189).
+ * means the stylesheet's own default, which is the accent colour (D-189). The
+ * cores of the neon tubes and the pipe's shades are made from the colours here
+ * (D-208, D-210).
  */
-export const lookVars = (look: {
-  nodeColor: string | null;
-  markColor: string | null;
-}): React.CSSProperties =>
-  ({
-    "--flow-node-color": look.nodeColor ?? undefined,
-    "--flow-mark-color": look.markColor ?? undefined,
-  } as React.CSSProperties);
+export const lookVars = (
+  look: Pick<FlowLook, "nodeColor" | "textColor" | "markColor"> &
+    Partial<Pick<FlowLook, "arrowColor">>,
+): React.CSSProperties => flowLookVars(look) as React.CSSProperties;
+
+/**
+ * The arrows of a flow drawn as neon tubes (D-217): the canvas does not draw
+ * them while this does, a thin bright core with a halo in the arrow's colour.
+ */
+export const ArrowTubes = ({
+  arrows,
+}: {
+  arrows: readonly { id: string; path: readonly { x: number; y: number }[] }[];
+}) => (
+  <>
+    {arrows.map((arrow) => (
+      <polyline
+        key={arrow.id}
+        data-flow-arrow-tube={arrow.id}
+        className="excalidraw__flow-arrow-tube"
+        points={arrow.path.map((p) => `${p.x},${p.y}`).join(" ")}
+        fill="none"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    ))}
+  </>
+);
+
+/** the attribute that turns the neon glow on for what it is put on (D-208) */
+export const lookAttrs = (
+  look: Pick<FlowLook, "glowShape" | "glowText" | "glowMark" | "glowArrow">,
+) => ({
+  "data-flow-glow-shape": look.glowShape ? "" : undefined,
+  "data-flow-glow-text": look.glowText ? "" : undefined,
+  "data-flow-glow-mark": look.glowMark ? "" : undefined,
+  "data-flow-glow-arrow": look.glowArrow ? "" : undefined,
+});

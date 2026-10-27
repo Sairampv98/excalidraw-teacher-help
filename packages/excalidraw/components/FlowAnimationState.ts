@@ -162,6 +162,11 @@ const storeSettings = (settings: FlowAnimationSettings) => {
 
 const settingsOf = (state: FlowAnimationState): FlowAnimationSettings => ({
   nodeColor: state.nodeColor,
+  textColor: state.textColor,
+  glowShape: state.glowShape,
+  glowText: state.glowText,
+  glowMark: state.glowMark,
+  glowArrow: state.glowArrow,
   markColor: state.markColor,
   arrowColor: state.arrowColor,
   hideArrow: state.hideArrow,
@@ -227,6 +232,14 @@ const lookOf = (
     options && "arrowColor" in options
       ? readFlowColor(options.arrowColor)
       : current.arrowColor,
+  textColor:
+    options && "textColor" in options
+      ? readFlowColor(options.textColor)
+      : current.textColor,
+  glowShape: options?.glowShape ?? current.glowShape,
+  glowText: options?.glowText ?? current.glowText,
+  glowMark: options?.glowMark ?? current.glowMark,
+  glowArrow: options?.glowArrow ?? current.glowArrow,
   hideArrow: options?.hideArrow ?? current.hideArrow,
   nodeTarget: options?.nodeTarget ?? current.nodeTarget,
 });
@@ -417,6 +430,11 @@ export const getFlowAnimationSnapshot = (): FlowAnimationSnapshot | null => {
     arrowStyle: state.arrowStyle,
     speed: state.speed,
     nodeColor: state.nodeColor,
+    textColor: state.textColor,
+    glowShape: state.glowShape,
+    glowText: state.glowText,
+    glowMark: state.glowMark,
+    glowArrow: state.glowArrow,
     markColor: state.markColor,
     arrowColor: state.arrowColor,
     hideArrow: state.hideArrow,
@@ -536,4 +554,14 @@ export const flowClassPreviewAtom = atom(false);
 
 export const setFlowClassPreview = (on: boolean) => {
   editorJotaiStore.set(flowClassPreviewAtom, on);
+};
+
+/** whether anything of the animation runs in this editor: it plays, or the class loop is previewed (D-214) */
+export const isFlowRunning = () =>
+  isFlowAnimationActive() || editorJotaiStore.get(flowClassPreviewAtom);
+
+/** ends whatever runs - the animation and the preview - and gives the canvas back (D-214) */
+export const stopFlowEverything = () => {
+  stopFlowAnimation();
+  setFlowClassPreview(false);
 };

@@ -3,7 +3,11 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { sceneCoordsToViewportCoords } from "@excalidraw/common";
 import { getSceneVersion } from "@excalidraw/element";
 
-import type { ElementsMap, ExcalidrawElement } from "@excalidraw/element/types";
+import type {
+  ElementsMap,
+  ExcalidrawElement,
+  ExcalidrawTextElement,
+} from "@excalidraw/element/types";
 
 import { AnimationController } from "../renderer/animation";
 import {
@@ -11,11 +15,15 @@ import {
   flowFocusTransform,
 } from "../scene/flowAnimation";
 import { flowBoxOf } from "../scene/flowBar";
+import { arrowLooksFor } from "../scene/flowArrowLooks";
+
 import { classStepAt, markedFlowsOnPage } from "../scene/flowClass";
 import {
+  drawnLabelIds,
   highlightBoxOf,
   highlightShapeOf,
-  nodeHighlightElements,
+  arrowLabelsOf,
+  nodeHighlightParts,
 } from "../scene/flowHighlight";
 import { chartScaleOf } from "../scene/flowScale";
 import { flowMarksFor } from "../scene/flowStyles";
@@ -25,18 +33,26 @@ import { useAtomValue } from "../editor-jotai";
 import {
   applyMarks,
   arrowsFor,
-  coverArrowsFor,
   dashAttr,
   pointsAttr,
 } from "./FlowAnimationOverlay";
+import { setFlowArrowLooks } from "./FlowArrowLooksState";
 import {
   flowAnimationStateAtom,
   flowClassPreviewAtom,
   startFlowAnimation,
 } from "./FlowAnimationState";
-import { ArrowCovers, NodeOutline, lookVars } from "./FlowLookParts";
+import {
+  ArrowTubes,
+  LabelText,
+  NodeOutline,
+  lookAttrs,
+  lookVars,
+} from "./FlowLookParts";
 
 import "./FlowAnimationOverlay.scss";
+
+import type { ArrowLook } from "../scene/flowArrowLooks";
 
 import type { FlowAnimationCamera } from "../scene/flowAnimation";
 import type { MarkedFlow } from "../scene/flowClass";
@@ -66,8 +82,6 @@ type FlowClassOverlayProps = {
   active: boolean;
   /** a window that is shown and not operated has no Steps button (D-187) */
   displayOnly: boolean;
-  /** the page's background, for an arrow that is hidden (D-190) */
-  backgroundColor?: string;
 };
 
 /**
@@ -91,7 +105,6 @@ export const FlowClassOverlay = ({
   pageId,
   active,
   displayOnly,
-  backgroundColor,
 }: FlowClassOverlayProps) => {
   const animation = useAtomValue(flowAnimationStateAtom);
   // the editor can preview what the class gets, in the edit view (D-193)
@@ -234,6 +247,38 @@ export const FlowClassOverlay = ({
     // the flows are read through a ref: a moved chart must not restart the clock
   }, [flowKeys]);
 
+  // what the flows of the class loop do to their arrows is told to the
+  // editor's canvas (D-204)
+  const arrowLooks = useMemo(
+    () =>
+      flows.flatMap((flow) => [
+        ...arrowLooksFor(flow.graph, flow.settings),
+        // a label the overlay draws again is not drawn by the canvas (D-213)
+        ...drawnLabelIds({
+          graph: flow.graph,
+          step: flow.graph.steps[indices[flow.key] ?? 0],
+          elementsMap,
+          nodeStyle: flow.settings.node,
+          nodeTarget: flow.settings.nodeTarget,
+          arrowsAnimated:
+            flow.settings.arrow !== "none" ||
+            flow.settings.hideArrow ||
+            flow.settings.glowArrow ||
+            !!flow.settings.arrowColor,
+        }).map((id): [string, ArrowLook] => [
+          id,
+          { hidden: true, color: null },
+        ]),
+      ]),
+    [flows, indices, elementsMap],
+  );
+
+  useEffect(() => {
+    setFlowArrowLooks("class", arrowLooks);
+
+    return () => setFlowArrowLooks("class", []);
+  }, [arrowLooks]);
+
   if (!flows.length) {
     return null;
   }
@@ -263,13 +308,18 @@ export const FlowClassOverlay = ({
               data-flow-class-index={indices[flow.key] ?? 0}
               // the flow's own colours (D-195)
               style={lookVars(flow.settings)}
+              {...lookAttrs(flow.settings)}
             >
-              <ArrowCovers
-                arrows={coverArrowsFor(flow.graph, elementsMap)}
-                arrowColor={flow.settings.arrowColor}
-                hideArrow={flow.settings.hideArrow}
-                background={backgroundColor}
-              />
+              {flow.settings.glowArrow && (
+                <ArrowTubes
+                  arrows={arrowsFor(
+                    "marching",
+                    flow.graph,
+                    flow.graph.steps[indices[flow.key] ?? 0],
+                    elementsMap,
+                  )}
+                />
+              )}
               <ClassMarks
                 flow={flow}
                 index={indices[flow.key] ?? 0}
@@ -381,54 +431,92 @@ const ClassNodes = ({
 }) => {
   const step = flow.graph.steps[index];
 
-  if (!step || flow.settings.node === "none") {
+  if (!step) {
     return null;
   }
 
+  // what is highlighted: the outline, the box of the label, its letters (D-201)
+  const parts =
+    flow.settings.node === "none"
+      ? { outline: null, box: null, letters: null }
+      : nodeHighlightParts(step, elementsMap, flow.settings.nodeTarget);
+
   return (
     <>
-      {nodeHighlightElements(step, elementsMap, flow.settings.nodeTarget).map(
-        (element) => {
-          // the node's own box and outline, rotated about its centre (D-192)
-          const box = highlightBoxOf(element);
-          const shape = highlightShapeOf(element);
+      {[
+        ...[parts.outline, parts.box]
+          .filter((element): element is ExcalidrawElement => Boolean(element))
+          .map((element) => ({ element, letters: false })),
+        ...(parts.letters ? [{ element: parts.letters, letters: true }] : []),
+      ].map(({ element, letters }) => {
+        // the node's own box and outline, rotated about its centre (D-192)
+        const box = highlightBoxOf(element);
 
-          return (
+        return (
+          <div
+            // the index is in the key so the entrance restarts on every step
+            key={`${index}-${element.id}-${letters ? "letters" : "outline"}`}
+            className="excalidraw__flow-animation-shape"
+            data-flow-class-node={flow.settings.node}
+            {...lookAttrs(flow.settings)}
+            style={{
+              width: box.width,
+              height: box.height,
+              transform: flowBoundsTransform(box, camera),
+              transformOrigin: "0 0",
+              ...lookVars(flow.settings),
+            }}
+          >
             <div
-              // the index is in the key so the entrance restarts on every step
-              key={`${index}-${element.id}`}
-              className="excalidraw__flow-animation-shape"
-              data-flow-class-node={flow.settings.node}
+              className={`excalidraw__flow-animation-focus excalidraw__flow-animation-focus--${flow.settings.node}`}
               style={{
-                width: box.width,
-                height: box.height,
-                transform: flowBoundsTransform(box, camera),
+                transform: flowFocusTransform(
+                  element.type === "text" ? box : step.box,
+                  box,
+                  flow.settings.node === "focus" ? undefined : 1,
+                ),
                 transformOrigin: "0 0",
-                ...lookVars(flow.settings),
               }}
             >
-              <div
-                className={`excalidraw__flow-animation-focus excalidraw__flow-animation-focus--${flow.settings.node}`}
-                style={{
-                  transform: flowFocusTransform(
-                    step.box,
-                    box,
-                    flow.settings.node === "focus" ? undefined : 1,
-                  ),
-                  transformOrigin: "0 0",
-                }}
-              >
+              {letters ? (
+                <LabelText
+                  element={element as ExcalidrawTextElement}
+                  className="excalidraw__flow-label excalidraw__flow-label--letters"
+                />
+              ) : (
                 <NodeOutline
-                  shape={shape}
+                  shape={highlightShapeOf(element)}
+                  part={element.type === "text" ? "box" : "shape"}
                   width={box.width}
                   height={box.height}
                   className="excalidraw__flow-animation-pulse"
                 />
-              </div>
+              )}
             </div>
-          );
-        },
-      )}
+          </div>
+        );
+      })}
+
+      {/* the labels of the arrows are drawn above what is animated (D-203) */}
+      {(flow.settings.arrow !== "none" ||
+        flow.settings.hideArrow ||
+        flow.settings.glowArrow ||
+        !!flow.settings.arrowColor) &&
+        arrowLabelsOf(flow.graph, elementsMap).map((label) => (
+          <div
+            key={`arrow-label-${label.id}`}
+            className="excalidraw__flow-animation-shape"
+            data-flow-arrow-label={label.id}
+            style={{
+              width: label.width,
+              height: label.height,
+              transform: flowBoundsTransform(highlightBoxOf(label), camera),
+              transformOrigin: "0 0",
+            }}
+          >
+            <LabelText element={label} color={label.strokeColor} />
+          </div>
+        ))}
     </>
   );
 };
@@ -476,6 +564,11 @@ const StepsButton = ({
           speed: flow.settings.speed,
           durationMs: flow.settings.stepMs,
           nodeColor: flow.settings.nodeColor,
+          textColor: flow.settings.textColor,
+          glowShape: flow.settings.glowShape,
+          glowText: flow.settings.glowText,
+          glowMark: flow.settings.glowMark,
+          glowArrow: flow.settings.glowArrow,
           markColor: flow.settings.markColor,
           arrowColor: flow.settings.arrowColor,
           hideArrow: flow.settings.hideArrow,

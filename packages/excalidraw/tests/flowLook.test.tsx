@@ -45,7 +45,7 @@ import { highlightShapeOf } from "../scene/flowHighlight";
 import {
   FLOW_ACCENT_COLOR,
   FLOW_LOOK_DEFAULTS,
-  coverColor,
+  FLOW_HIGHLIGHT_TARGETS,
   isFlowColor,
   readFlowLook,
 } from "../scene/flowLook";
@@ -54,7 +54,7 @@ import { flowOfSelection } from "../scene/flowSelection";
 
 import { API } from "./helpers/api";
 import { Keyboard } from "./helpers/ui";
-import { act, fireEvent, render, screen, waitFor } from "./test-utils";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "./test-utils";
 
 import type { FlowClassSettings } from "../scene/flowClass";
 
@@ -241,18 +241,24 @@ describe("AC-219 the highlight colour", () => {
   });
 
   it("AC-219 the colour is remembered between sessions", () => {
-    updateFlowAnimationSettings({ nodeColor: "#123456", nodeTarget: "text" });
+    updateFlowAnimationSettings({
+      nodeColor: "#123456",
+      nodeTarget: "letters",
+    });
 
     const stored = JSON.parse(
       window.localStorage.getItem(FLOW_SETTINGS_STORAGE_KEY)!,
     );
 
-    expect(stored).toMatchObject({ nodeColor: "#123456", nodeTarget: "text" });
+    expect(stored).toMatchObject({
+      nodeColor: "#123456",
+      nodeTarget: "letters",
+    });
 
     // what storage holds is read back defensively
     expect(readFlowLook(stored)).toMatchObject({
       nodeColor: "#123456",
-      nodeTarget: "text",
+      nodeTarget: "letters",
     });
     expect(
       readFlowLook({ nodeColor: 42, nodeTarget: "elsewhere" }),
@@ -268,7 +274,7 @@ describe("AC-219 the highlight colour", () => {
         markColor: "#654321",
         arrowColor: "#abcdef",
         hideArrow: true,
-        nodeTarget: "text",
+        nodeTarget: "letters",
       });
     });
     select([shapes()[1]]);
@@ -280,7 +286,7 @@ describe("AC-219 the highlight colour", () => {
         markColor: "#654321",
         arrowColor: "#abcdef",
         hideArrow: true,
-        nodeTarget: "text",
+        nodeTarget: "letters",
       });
     }
 
@@ -296,7 +302,7 @@ describe("AC-219 the highlight colour", () => {
       markColor: "#654321",
       arrowColor: "#abcdef",
       hideArrow: true,
-      nodeTarget: "text",
+      nodeTarget: "letters",
     });
   });
 
@@ -305,7 +311,7 @@ describe("AC-219 the highlight colour", () => {
     select([shapes()[0]]);
 
     // closed until it is opened: the bar is as small as it was
-    expect(screen.queryByLabelText("Highlight colour")).toBeNull();
+    expect(screen.queryByLabelText("Shape colour")).toBeNull();
     expect(
       screen
         .getByRole("button", { name: "Look" })
@@ -321,7 +327,8 @@ describe("AC-219 the highlight colour", () => {
     ).toBe("true");
 
     for (const label of [
-      "Highlight colour",
+      "Shape colour",
+      "Text colour",
       "Animation colour",
       "Arrow colour",
       "Highlight target",
@@ -330,138 +337,24 @@ describe("AC-219 the highlight colour", () => {
     }
 
     expect(screen.getByLabelText("Hide arrow")).not.toBeNull();
+    for (const label of [
+      "Neon shape",
+      "Neon text",
+      "Neon animation",
+      "Neon arrows",
+    ]) {
+      expect(screen.getByLabelText(label)).not.toBeNull();
+    }
     expect(screen.getByLabelText("Preview class loop")).not.toBeNull();
 
     // and a control there changes the setting
-    fireEvent.change(screen.getByLabelText("Highlight colour"), {
-      target: { value: "#ff0000" },
+    // a swatch sets the colour
+    act(() => {
+      fireEvent.click(screen.getByLabelText("Shape colour: Red"));
     });
 
     expect(editorJotaiStore.get(flowAnimationStateAtom).nodeColor).toBe(
-      "#ff0000",
-    );
-  });
-});
-
-/* ------------------------------------------------------------------ AC-220 */
-
-describe("AC-220 the arrow and what travels along it", () => {
-  const flowGroup = () =>
-    document.querySelector("[data-flow-class-flow]") as SVGGElement;
-
-  const covers = () => [
-    ...document.querySelectorAll('[data-flow-mark="arrow-cover"]'),
-  ];
-
-  it("AC-220 what travels along an arrow is drawn in the mark colour", async () => {
-    await mount(
-      chart({
-        ...SETTINGS,
-        node: "none",
-        arrow: "marching",
-        markColor: "#00aa00",
-      }),
-      { viewModeEnabled: true },
-    );
-
-    expect(flowGroup().style.getPropertyValue("--flow-mark-color")).toBe(
-      "#00aa00",
-    );
-
-    // the stylesheet draws the marks with it
-    const scss = styleSheet("../components/FlowAnimationOverlay.scss");
-
-    for (const mark of ["dash", "beam", "token", "base"]) {
-      expect(scss).toMatch(
-        new RegExp(
-          `flow-mark--${mark} \\{[^}]*var\\(--flow-mark-color, var\\(--color-primary\\)\\)`,
-        ),
-      );
-    }
-  });
-
-  it("AC-220 the arrow can be drawn in a colour of its own while it plays", async () => {
-    await mount(chart({ ...SETTINGS, arrowColor: "#ff00ff" }), {
-      viewModeEnabled: true,
-    });
-
-    // one cover for each of the three arrows of a four-step chart
-    expect(covers()).toHaveLength(3);
-
-    for (const cover of covers()) {
-      expect(cover.getAttribute("stroke")).toBe("#ff00ff");
-    }
-
-    expect(
-      document.querySelector('[data-flow-mark="arrow-cover-head"]'),
-    ).toBeNull();
-  });
-
-  it("AC-220 a hidden arrow is painted in the page background colour", async () => {
-    await mount(chart({ ...SETTINGS, hideArrow: true }), {
-      viewModeEnabled: true,
-    });
-
-    act(() => {
-      h.setState({ viewBackgroundColor: "#112233" });
-    });
-
-    expect(covers()).toHaveLength(3);
-
-    for (const cover of covers()) {
-      expect(cover.getAttribute("stroke")).toBe("#112233");
-    }
-
-    // the arrowhead is covered too
-    expect(
-      document.querySelectorAll('[data-flow-mark="arrow-cover-head"]'),
-    ).toHaveLength(3);
-
-    // a page with no background is covered in white
-    expect(coverColor("transparent")).toBe("#ffffff");
-    expect(coverColor(undefined)).toBe("#ffffff");
-    expect(coverColor("#abcdef")).toBe("#abcdef");
-  });
-
-  it("AC-220 the arrow in the document is not changed", async () => {
-    await mount(chart({ ...SETTINGS, hideArrow: true, arrowColor: "#ff00ff" }));
-
-    const before = JSON.stringify(h.elements);
-
-    act(() => {
-      h.setState({ viewModeEnabled: true });
-    });
-
-    expect(covers().length).toBeGreaterThan(0);
-    expect(JSON.stringify(h.elements)).toBe(before);
-
-    // and when the animation is gone, so is what covered the arrows
-    act(() => {
-      h.setState({ viewModeEnabled: false });
-    });
-
-    expect(covers()).toHaveLength(0);
-    expect(JSON.stringify(h.elements)).toBe(before);
-  });
-
-  it("AC-220 the pipe keeps its own strokes", async () => {
-    await mount(
-      chart({ ...SETTINGS, node: "none", arrow: "pipe", markColor: "#00aa00" }),
-      { viewModeEnabled: true },
-    );
-
-    expect(
-      document.querySelectorAll('[data-flow-mark="pipe-dark"]').length,
-    ).toBeGreaterThan(0);
-
-    // the dark and light strokes are not touched by the colour; only the
-    // highlight that runs along the pipe is
-    const scss = styleSheet("../components/FlowAnimationOverlay.scss");
-
-    expect(scss).toMatch(/flow-mark--pipe-dark \{\s*stroke: #1e1e1e;/);
-    expect(scss).toMatch(/flow-mark--pipe-light \{\s*stroke: #868e96;/);
-    expect(scss).toMatch(
-      /flow-mark--pipe-flow \{\s*stroke: var\(--flow-mark-color, #ffffff\)/,
+      "#ff3131",
     );
   });
 });
@@ -489,44 +382,139 @@ const STAY: FlowClassSettings = { ...SETTINGS, node: "focus", stepMs: 100000 };
 const highlighted = () =>
   [...document.querySelectorAll("[data-flow-class-node]")] as HTMLElement[];
 
-describe("AC-221 the highlight can be on the text only", () => {
-  it("AC-221 the shape setting highlights the whole node", async () => {
-    await mount(chart({ ...STAY, nodeTarget: "shape" }), {
-      viewModeEnabled: true,
-    });
+describe("AC-221 the highlight has five targets", () => {
+  /** what is drawn for the step: outlines of boxes, and the letters */
+  const drawn = () => {
+    const wrappers = highlighted();
 
-    // the node, and not a second box for its label
-    expect(highlighted()).toHaveLength(1);
-    expect(parseFloat(highlighted()[0].style.width)).toBeCloseTo(
-      shapes()[0].width,
-    );
-  });
+    return {
+      outlines: wrappers
+        .filter((wrapper) => wrapper.querySelector("[data-flow-outline]"))
+        .map((wrapper) => parseFloat(wrapper.style.width)),
+      letters: wrappers.filter((wrapper) =>
+        wrapper.querySelector("[data-flow-label]"),
+      ).length,
+    };
+  };
 
-  it("AC-221 the text setting highlights only the label", async () => {
-    await mount(chart({ ...STAY, nodeTarget: "text" }), {
-      viewModeEnabled: true,
-    });
-
-    const label = live().find(
+  const label = () =>
+    live().find(
       (element): element is ExcalidrawTextElement =>
         element.type === "text" && element.containerId === shapes()[0].id,
     )!;
 
-    expect(highlighted()).toHaveLength(1);
-    expect(parseFloat(highlighted()[0].style.width)).toBeCloseTo(label.width);
-    // and it is the label's box, which is smaller than the node it is in
-    expect(label.width).toBeLessThan(shapes()[0].width);
-  });
-
-  it("AC-221 a node without a label takes the shape", async () => {
-    await mount(withoutLabels(chart({ ...STAY, nodeTarget: "text" })), {
+  it("AC-221 shape highlights the outline only", async () => {
+    await mount(chart({ ...STAY, nodeTarget: "shape" }), {
       viewModeEnabled: true,
     });
 
-    expect(highlighted()).toHaveLength(1);
-    expect(parseFloat(highlighted()[0].style.width)).toBeCloseTo(
-      shapes()[0].width,
+    expect(drawn().letters).toBe(0);
+    expect(drawn().outlines).toHaveLength(1);
+    expect(drawn().outlines[0]).toBeCloseTo(shapes()[0].width);
+  });
+
+  it("AC-221 shape and text box highlights the outline and the box", async () => {
+    await mount(chart({ ...STAY, nodeTarget: "shape-box" }), {
+      viewModeEnabled: true,
+    });
+
+    expect(drawn().letters).toBe(0);
+    expect(drawn().outlines).toHaveLength(2);
+    expect(drawn().outlines[0]).toBeCloseTo(shapes()[0].width);
+    expect(drawn().outlines[1]).toBeCloseTo(label().width);
+  });
+
+  it("AC-221 shape and text highlights the outline and the letters", async () => {
+    await mount(chart({ ...STAY, nodeTarget: "shape-text" }), {
+      viewModeEnabled: true,
+    });
+
+    expect(drawn().outlines).toHaveLength(1);
+    expect(drawn().outlines[0]).toBeCloseTo(shapes()[0].width);
+    expect(drawn().letters).toBe(1);
+  });
+
+  it("AC-221 text box highlights only the box", async () => {
+    await mount(chart({ ...STAY, nodeTarget: "box" }), {
+      viewModeEnabled: true,
+    });
+
+    expect(drawn().letters).toBe(0);
+    expect(drawn().outlines).toHaveLength(1);
+    expect(drawn().outlines[0]).toBeCloseTo(label().width);
+    expect(label().width).toBeLessThan(shapes()[0].width);
+  });
+
+  it("AC-221 text highlights only the letters", async () => {
+    await mount(chart({ ...STAY, nodeTarget: "letters" }), {
+      viewModeEnabled: true,
+    });
+
+    // the letters, and nothing round them: no outline, no box
+    expect(drawn().outlines).toHaveLength(0);
+    expect(drawn().letters).toBe(1);
+  });
+
+  it("AC-221 a node without a label takes the shape", async () => {
+    for (const nodeTarget of [
+      "shape-box",
+      "shape-text",
+      "box",
+      "letters",
+    ] as const) {
+      await mount(withoutLabels(chart({ ...STAY, nodeTarget })), {
+        viewModeEnabled: true,
+      });
+
+      expect(drawn().letters).toBe(0);
+      expect(drawn().outlines).toHaveLength(1);
+      expect(drawn().outlines[0]).toBeCloseTo(shapes()[0].width);
+
+      cleanup();
+    }
+  });
+
+  it("AC-221 an old stored target is read as what it drew", async () => {
+    // wave 7t's "text" drew the rectangle on the label's box
+    expect(readFlowLook({ nodeTarget: "text" }).nodeTarget).toBe("box");
+    expect(readFlowLook({ nodeTarget: "shape" }).nodeTarget).toBe("shape");
+    expect(readFlowLook({ nodeTarget: "elsewhere" }).nodeTarget).toBe("shape");
+
+    for (const target of FLOW_HIGHLIGHT_TARGETS) {
+      expect(readFlowLook({ nodeTarget: target.id }).nodeTarget).toBe(
+        target.id,
+      );
+    }
+
+    // and a chart saved with it draws the box, not the letters
+    await mount(
+      chart(null).map((element) =>
+        element.type !== "arrow" &&
+        element.type !== "text" &&
+        element.boundElements?.length
+          ? ({
+              ...element,
+              customData: {
+                flow: {
+                  class: {
+                    node: "focus",
+                    arrow: "none",
+                    speed: 240,
+                    stepMs: 100000,
+                    loop: true,
+                    nodeTarget: "text",
+                  },
+                },
+              },
+            } as ExcalidrawElement)
+          : element,
+      ),
+      { viewModeEnabled: true },
     );
+
+    expect(drawn().letters).toBe(0);
+    expect(drawn().outlines).toHaveLength(1);
+    expect(drawn().outlines[0]).toBeCloseTo(label().width);
   });
 });
 
@@ -586,7 +574,8 @@ describe("AC-222 the highlight has the node's own shape", () => {
 
     expect(outline().getAttribute("data-flow-outline")).toBe("diamond");
     expect(outline().querySelector("polygon")!.getAttribute("points")).toBe(
-      `${w / 2},0 ${w},${h2 / 2} ${w / 2},${h2} 0,${h2 / 2}`,
+      // inside the node's box, half a stroke in from every edge (D-211)
+      `${w / 2},1 ${w - 1},${h2 / 2} ${w / 2},${h2 - 1} 1,${h2 / 2}`,
     );
   });
 
@@ -823,7 +812,7 @@ describe("AC-225 the look travels with the flow", () => {
     markColor: "#222222",
     arrowColor: "#333333",
     hideArrow: true,
-    nodeTarget: "text",
+    nodeTarget: "letters",
   };
 
   it("AC-225 the class entry carries the look", () => {
@@ -837,7 +826,7 @@ describe("AC-225 the look travels with the flow", () => {
     expect(marked.customData!.flow.class).toMatchObject({
       nodeColor: "#111111",
       hideArrow: true,
-      nodeTarget: "text",
+      nodeTarget: "letters",
     });
   });
 
@@ -893,7 +882,7 @@ describe("AC-225 the look travels with the flow", () => {
         markColor: "#222222",
         arrowColor: "#333333",
         hideArrow: true,
-        nodeTarget: "text",
+        nodeTarget: "letters",
       });
       startFlowAnimation(graph.steps, { mode: "present", graph });
     });
@@ -905,7 +894,7 @@ describe("AC-225 the look travels with the flow", () => {
       markColor: "#222222",
       arrowColor: "#333333",
       hideArrow: true,
-      nodeTarget: "text",
+      nodeTarget: "letters",
     });
 
     // the other window puts it on its own state, as a mirror
@@ -926,7 +915,7 @@ describe("AC-225 the look travels with the flow", () => {
       markColor: "#222222",
       arrowColor: "#333333",
       hideArrow: true,
-      nodeTarget: "text",
+      nodeTarget: "letters",
     });
   });
 
@@ -939,7 +928,7 @@ describe("AC-225 the look travels with the flow", () => {
         markColor: "#222222",
         arrowColor: "#333333",
         hideArrow: true,
-        nodeTarget: "text",
+        nodeTarget: "letters",
       });
     });
     select([shapes()[0]]);
@@ -966,7 +955,7 @@ describe("AC-225 the look travels with the flow", () => {
         markColor: "#222222",
         arrowColor: "#333333",
         hideArrow: true,
-        nodeTarget: "text",
+        nodeTarget: "letters",
       });
     }
   });
