@@ -166,14 +166,15 @@ export const DocumentViewer = ({
         return;
       }
 
-      setPicked(text);
-
       try {
         await navigator.clipboard.writeText(text);
       } catch (error) {
         console.error(error);
         api?.setToast({ message: "Clipboard was blocked", closable: true });
       }
+
+      // the bar is offered whether or not the copy went through
+      setPicked(text);
     };
 
     const onSelectionEnd = () => {
