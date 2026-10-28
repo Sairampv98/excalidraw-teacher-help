@@ -60,11 +60,13 @@ import { serializeAsJSON } from "../data/json";
 import { Fonts } from "../fonts";
 
 import { renderStaticScene } from "../renderer/staticScene";
+import { paperToSvg } from "../renderer/paperSvg";
 import { renderSceneToSvg } from "../renderer/staticSvgScene";
 
 import type { RenderableElementsMap } from "./types";
 
 import type { AppState, BinaryFiles, PageDecoration, PageRect } from "../types";
+import type { PagePaperDraw } from "./paper";
 
 const truncateText = (element: ExcalidrawTextElement, maxWidth: number) => {
   if (element.width <= maxWidth) {
@@ -326,6 +328,8 @@ export const exportToSvg = async (
     exportingFrame?: ExcalidrawFrameLikeElement | null;
     skipInliningFonts?: true;
     reuseImages?: boolean;
+    /** the paper of the page that is exported (D-243): the picture is the page */
+    pagePaper?: PagePaperDraw | null;
   },
 ): Promise<SVGSVGElement> => {
   const frameRendering = getFrameRenderingConfig(
@@ -350,14 +354,23 @@ export const exportToSvg = async (
     frameRendering,
   });
 
-  if (exportingFrame) {
+  const pagePaper = opts?.pagePaper ?? null;
+
+  if (exportingFrame || pagePaper) {
     exportPadding = 0;
   }
 
-  const [minX, minY, width, height] = getCanvasSize(
-    exportingFrame ? [exportingFrame] : getRootElements(elementsForRender),
-    exportPadding,
-  );
+  const [minX, minY, width, height] = pagePaper
+    ? [
+        pagePaper.rect.x,
+        pagePaper.rect.y,
+        pagePaper.rect.width,
+        pagePaper.rect.height,
+      ]
+    : getCanvasSize(
+        exportingFrame ? [exportingFrame] : getRootElements(elementsForRender),
+        exportPadding,
+      );
 
   const offsetX = -minX + exportPadding;
   const offsetY = -minY + exportPadding;
@@ -484,6 +497,19 @@ export const exportToSvg = async (
         : viewBackgroundColor,
     );
     svgRoot.appendChild(rect);
+  }
+
+  // the page's paper (D-243), under the elements
+  if (pagePaper) {
+    svgRoot.appendChild(
+      paperToSvg(
+        svgRoot.ownerDocument,
+        defsElement,
+        pagePaper,
+        offsetX,
+        offsetY,
+      ),
+    );
   }
 
   // ---------------------------------------------------------------------------

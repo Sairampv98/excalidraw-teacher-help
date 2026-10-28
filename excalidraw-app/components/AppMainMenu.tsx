@@ -17,7 +17,8 @@ import { saveDebugState } from "./DebugCanvas";
 
 /**
  * The left menu (D-242): three groups, so that it fits without scrolling and the
- * canvas background is in the second, where the look of the board is chosen.
+ * canvas background and the page and its paper are in the second, where the look
+ * of the board is chosen.
  */
 export const AppMainMenu: React.FC<{
   theme: Theme | "system";
@@ -45,6 +46,7 @@ export const AppMainMenu: React.FC<{
         Presenter view
       </MainMenu.Item>
       <MainMenu.DefaultItems.ChangeCanvasBackground />
+      <MainMenu.DefaultItems.PageLook />
       <MainMenu.DefaultItems.ToggleTheme
         allowSystemTheme
         theme={props.theme}

@@ -1,0 +1,82 @@
+.excalidraw {
+  .PageLookDialog__body {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    max-height: 70vh;
+    overflow-y: auto;
+
+    h3 {
+      margin: 0 0 0.5rem;
+      font-size: 0.95rem;
+    }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      margin-top: 0.5rem;
+      font-size: 0.85rem;
+    }
+
+    select,
+    input[type="number"] {
+      width: 100%;
+    }
+  }
+
+  .PageLookDialog__pair {
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  .PageLookDialog__looks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+
+    button,
+    .PageLookDialog__all {
+      padding: 0.4rem 0.75rem;
+      border: 1px solid var(--default-border-color);
+      border-radius: var(--border-radius-lg);
+      background: var(--island-bg-color);
+      color: var(--text-primary-color);
+      cursor: pointer;
+    }
+  }
+
+  .PageLookDialog__colors {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.75rem;
+  }
+
+  .PageLookDialog__color {
+    width: 1.75rem;
+    height: 1.75rem;
+    border: 1px solid var(--default-border-color);
+    border-radius: 50%;
+    cursor: pointer;
+
+    &.is-canvas {
+      background: repeating-conic-gradient(#ccc 0 25%, #fff 0 50%) 0 0 / 8px 8px;
+    }
+
+    &.is-active {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 2px;
+    }
+  }
+
+  .PageLookDialog__all {
+    margin-top: 0.75rem;
+    padding: 0.4rem 0.75rem;
+    border: 1px solid var(--default-border-color);
+    border-radius: var(--border-radius-lg);
+    background: var(--island-bg-color);
+    color: var(--text-primary-color);
+    cursor: pointer;
+  }
+}

@@ -29,6 +29,11 @@ import {
 import { t } from "../i18n";
 import { getSelectedElements, isSomeElementSelected } from "../scene";
 import { exportToCanvas, exportToSvg } from "../scene/export";
+import {
+  getPageDecoration,
+  getPageRect,
+  isElementInsidePageRect,
+} from "../scene/pages";
 
 import { canvasToBlob } from "./blob";
 import { fileSave } from "./filesystem";
@@ -96,6 +101,32 @@ export const prepareElementsForExport = (
   };
 };
 
+/**
+ * The current page, when what is exported lies on it and it has a paper: an
+ * image of it is the whole page on its paper (D-243). Otherwise null, and an
+ * export is what it always was.
+ */
+const pageOnPaper = (elements: ExportedElements, appState: AppState) => {
+  if (!appState.pages?.length) {
+    return null;
+  }
+
+  const decoration = getPageDecoration({
+    pages: appState.pages,
+    pageId: appState.currentPageId,
+  });
+
+  if (!decoration.paper) {
+    return null;
+  }
+
+  const rect = getPageRect(appState.pages, appState.currentPageId);
+
+  return elements.every((element) => isElementInsidePageRect(element, rect))
+    ? { rect, decoration, paper: decoration.paper }
+    : null;
+};
+
 export const exportCanvas = async (
   type: Omit<ExportType, "backend">,
   elements: ExportedElements,
@@ -121,6 +152,9 @@ export const exportCanvas = async (
   if (elements.length === 0) {
     throw new Error(t("alerts.cannotExportEmptyCanvas"));
   }
+  // an image of what is on a page that has a paper is the page, on its paper (D-243)
+  const onPaper = pageOnPaper(elements, appState);
+
   if (type === "svg" || type === "clipboard-svg") {
     const svgPromise = exportToSvg(
       elements,
@@ -133,7 +167,7 @@ export const exportCanvas = async (
         exportEmbedScene: appState.exportEmbedScene && type === "svg",
       },
       files,
-      { exportingFrame },
+      { exportingFrame, pagePaper: exportingFrame ? null : onPaper?.paper },
     );
 
     if (type === "svg") {
@@ -169,6 +203,9 @@ export const exportCanvas = async (
     viewBackgroundColor,
     exportPadding,
     exportingFrame,
+    ...(onPaper && !exportingFrame
+      ? { pageRect: onPaper.rect, pageDecoration: onPaper.decoration }
+      : {}),
   });
 
   if (type === "png") {

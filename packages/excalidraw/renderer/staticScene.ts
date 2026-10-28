@@ -37,6 +37,7 @@ import {
 import { PAGE_NUMBER_FONT_SIZE } from "../scene/pages";
 
 import { bootstrapCanvas, getNormalizedCanvasDimensions } from "./helpers";
+import { drawPagePaper } from "./paperRender";
 
 import type {
   StaticCanvasRenderConfig,
@@ -443,6 +444,16 @@ const _renderStaticScene = ({
       appState.currentPageRect,
       appState.zoom,
       renderConfig.theme,
+    );
+  }
+
+  // the page's paper (D-243), under the content
+  if (appState.currentPageDecoration?.paper) {
+    drawPagePaper(
+      context,
+      appState.currentPageDecoration.paper,
+      appState.scrollX,
+      appState.scrollY,
     );
   }
 
