@@ -134,7 +134,14 @@ export const withWords = (
       ...at,
       customData: customDataWithCaption(text.customData, {
         of: node.id,
-        at: { nx: shape.x, ny: shape.y, cx: at.x, cy: at.y },
+        at: {
+          nx: shape.x,
+          ny: shape.y,
+          cx: at.x,
+          cy: at.y,
+          nw: shape.width,
+          nh: shape.height,
+        },
       }),
     } as never);
     shape = newElementWith(shape, {
@@ -179,17 +186,42 @@ export const followCaptions = (
       return element;
     }
 
-    const { nx, ny, cx, cy } = caption.at;
+    const { nx, ny, cx, cy, nw, nh } = caption.at;
     const nodeMoved =
       Math.abs(node.x - nx) > 0.01 || Math.abs(node.y - ny) > 0.01;
     const captionMoved =
       Math.abs(element.x - cx) > 0.01 || Math.abs(element.y - cy) > 0.01;
+    const resized =
+      nw !== undefined &&
+      nh !== undefined &&
+      (Math.abs(node.width - nw) > 0.01 || Math.abs(node.height - nh) > 0.01);
 
-    if (!nodeMoved && !captionMoved) {
+    if (!nodeMoved && !captionMoved && !resized) {
       return element;
     }
 
     changed = true;
+
+    // the node changed its size (its shape was changed, say): a caption that was
+    // where it was put is put under it again, and not left under the picture
+    if (resized && !captionMoved && !caption.placed) {
+      const place = captionPlace(node, element);
+
+      return newElementWith(element, {
+        ...place,
+        customData: customDataWithCaption(element.customData, {
+          of: caption.of,
+          at: {
+            nx: node.x,
+            ny: node.y,
+            cx: place.x,
+            cy: place.y,
+            nw: node.width,
+            nh: node.height,
+          },
+        }),
+      } as never);
+    }
 
     // the node moved by itself: its caption goes with it
     const x = nodeMoved && !captionMoved ? cx + (node.x - nx) : element.x;
@@ -200,7 +232,18 @@ export const followCaptions = (
       y,
       customData: customDataWithCaption(element.customData, {
         of: caption.of,
-        at: { nx: node.x, ny: node.y, cx: x, cy: y },
+        // moved by the teacher by itself: it stays where it is put
+        ...(caption.placed || (captionMoved && !nodeMoved)
+          ? { placed: true }
+          : {}),
+        at: {
+          nx: node.x,
+          ny: node.y,
+          cx: x,
+          cy: y,
+          nw: node.width,
+          nh: node.height,
+        },
       }),
     } as never);
   });

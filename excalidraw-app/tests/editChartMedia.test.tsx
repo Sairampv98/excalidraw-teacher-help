@@ -30,7 +30,12 @@ import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { closeMediaCrop, mediaCropNode } from "../sidebar/mediaCropState";
 import { NodeMediaDrop } from "../sidebar/NodeMediaPanel";
 import { FlowTab } from "../sidebar/FlowTab";
-import { addMediaToNode, mediaElementsOfNode } from "../sidebar/nodeMedia";
+import {
+  addMediaToNode,
+  mediaElementsOfNode,
+  nodeOfSelection,
+} from "../sidebar/nodeMedia";
+import { wordsOf } from "../sidebar/nodeWords";
 
 class FakeImage {
   naturalWidth = 400;
@@ -194,5 +199,79 @@ describe("AC-285 the picture of a node is edited in the Edit chart panel", () =>
 
     await screen.findByRole("dialog", { name: "Edit chart" });
     expect(await screen.findByTestId("node-media-crop")).not.toBeNull();
+  });
+
+  it("AC-285 the panel is there when the whole group of the node is selected", async () => {
+    await mount(null);
+
+    const node = firstNode();
+
+    await act(async () => {
+      await addMediaToNode(
+        api,
+        node.id,
+        new File(["x"], "a.png", { type: "image/png" }),
+      );
+    });
+
+    const [picture] = mediaElementsOfNode(live(), node.id);
+    const note = wordsOf(live(), node)!;
+
+    // clicking the node selects its group: the node, the picture and the caption together
+    act(() => {
+      API.setSelectedElements([node, picture, note] as never);
+      openFlowScriptEditor(node.id);
+    });
+    await screen.findByRole("dialog", { name: "Edit chart" });
+
+    expect(await screen.findByTestId("node-media-words")).not.toBeNull();
+    expect(screen.getByTestId("node-media-crop")).not.toBeNull();
+    expect(screen.getByTestId("node-media-remove")).not.toBeNull();
+    expect(screen.getByTestId("node-media-add")).toHaveTextContent(
+      "Replace picture or video",
+    );
+  });
+
+  it("AC-285 a selection is about one node, whatever of it is selected", async () => {
+    await mount(null);
+
+    const node = firstNode();
+
+    await act(async () => {
+      await addMediaToNode(
+        api,
+        node.id,
+        new File(["x"], "a.png", { type: "image/png" }),
+      );
+    });
+
+    const [picture] = mediaElementsOfNode(live(), node.id);
+    const note = wordsOf(live(), node)!;
+    const other = live().find(
+      (element) =>
+        element.id !== node.id &&
+        element.type !== "arrow" &&
+        element.type !== "text" &&
+        !mediaOf(element),
+    )!;
+
+    // each of them, and all of them, is the node
+    for (const ids of [
+      [node.id],
+      [picture.id],
+      [note.id],
+      [node.id, picture.id, note.id],
+    ]) {
+      expect(nodeOfSelection(live(), ids)?.id).toBe(node.id);
+    }
+
+    // two nodes are not one, and nothing selected is no node
+    expect(nodeOfSelection(live(), [node.id, other.id])).toBeNull();
+    expect(nodeOfSelection(live(), [])).toBeNull();
+
+    // the words in a node that holds no picture are about their node too
+    expect(nodeOfSelection(live(), [wordsOf(live(), other)!.id])?.id).toBe(
+      other.id,
+    );
   });
 });

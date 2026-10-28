@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { canHoldMedia, mediaOf } from "@excalidraw/element";
+import { mediaOf } from "@excalidraw/element";
 import { setFlowEditorExtra } from "@excalidraw/excalidraw/components/FlowScriptEditorState";
 import { CaptureUpdateAction, useExcalidrawAPI } from "@excalidraw/excalidraw";
 
@@ -18,6 +18,7 @@ import {
   mediaKindOf,
   nodeAtPoint,
   nodeContainsPoint,
+  nodeOfSelection,
   removeMediaFromNode,
 } from "./nodeMedia";
 
@@ -42,16 +43,8 @@ export const NodeMediaSection = () => {
     const read = () => {
       const selected = Object.keys(api.getAppState().selectedElementIds);
       const elements = api.getSceneElements();
-      const only =
-        selected.length === 1
-          ? elements.find((element) => element.id === selected[0])
-          : undefined;
-      // the media of a node selected on its own counts as the node's
-      const owner =
-        only && mediaOf(only)
-          ? elements.find((element) => element.id === mediaOf(only)!.of)
-          : only;
-      const next = owner && canHoldMedia(owner) ? owner : null;
+      // the node, its picture, its caption or the group of them selects the one node
+      const next = nodeOfSelection(elements, selected);
 
       setNode((previous) => (previous?.id === next?.id ? previous : next));
       const held = next ? mediaElementsOfNode(elements, next.id) : [];

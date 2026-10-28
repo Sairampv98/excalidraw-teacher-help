@@ -11,6 +11,7 @@
 import { randomId } from "@excalidraw/common";
 import {
   canHoldMedia,
+  captionOf,
   customDataWithMedia,
   getBoundTextElement,
   getCornerRadius,
@@ -66,6 +67,53 @@ export const mediaElementsOfNode = (
   elements.filter(
     (element) => !element.isDeleted && mediaOf(element)?.of === nodeId,
   );
+
+/**
+ * The node a selection is about, or null. The node, its picture, its caption (or
+ * its words) and a group of them all are about the one node, so that clicking
+ * any of them - or the whole group, which selects them together - is clicking
+ * the node.
+ */
+export const nodeOfSelection = (
+  elements: readonly ExcalidrawElement[],
+  selectedIds: readonly string[],
+): ExcalidrawElement | null => {
+  const byId = new Map(elements.map((element) => [element.id, element]));
+  const owners = new Set<string>();
+
+  for (const id of selectedIds) {
+    const element = byId.get(id);
+
+    if (!element || element.isDeleted) {
+      continue;
+    }
+
+    const media = mediaOf(element);
+    const caption = element.type === "text" ? captionOf(element) : null;
+    const bound = element.type === "text" ? element.containerId : null;
+    const owner = media
+      ? media.of
+      : caption
+      ? caption.of
+      : bound
+      ? bound
+      : canHoldMedia(element)
+      ? element.id
+      : null;
+
+    if (owner) {
+      owners.add(owner);
+    }
+  }
+
+  if (owners.size !== 1) {
+    return null;
+  }
+
+  const node = byId.get([...owners][0]);
+
+  return node && !node.isDeleted && canHoldMedia(node) ? node : null;
+};
 
 /** whether a point (in scene units) is inside the node's shape */
 export const nodeContainsPoint = (

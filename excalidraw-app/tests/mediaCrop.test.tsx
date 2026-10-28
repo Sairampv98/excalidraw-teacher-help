@@ -481,4 +481,44 @@ describe("AC-284 the crop screen", () => {
 
     expect(mediaCropNode()).toBeNull();
   });
+
+  it("AC-284 the crop screen has Replace and Remove for the picture", async () => {
+    const node = await mountWithPicture();
+    const first = picture(node.id);
+    const words = () =>
+      live().find(
+        (element) =>
+          element.type === "text" && element.customData?.flow?.role === "label",
+      );
+
+    // Replace: a new file is the new picture, and the screen is open on it again
+    open(node.id);
+    await screen.findByTestId("media-crop");
+    expect(screen.getByTestId("media-crop-replace")).not.toBeNull();
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("media-crop-replace-input"), {
+        target: {
+          files: [new File(["y"], "b.png", { type: "image/png" })],
+        },
+      });
+    });
+
+    await waitFor(() => expect(picture(node.id).id).not.toBe(first.id));
+    expect(mediaElementsOfNode(live(), node.id)).toHaveLength(1);
+    expect(await screen.findByTestId("media-crop")).not.toBeNull();
+
+    // Remove: the picture goes, the screen closes and the words are back in the node
+    fireEvent.click(screen.getByTestId("media-crop-remove"));
+
+    expect(screen.queryByTestId("media-crop")).toBeNull();
+    expect(mediaElementsOfNode(live(), node.id)).toHaveLength(0);
+
+    const back = live().find(
+      (element) => element.type === "text" && element.containerId === node.id,
+    );
+
+    expect(back).toBeDefined();
+    expect(words()).toBeDefined();
+  });
 });

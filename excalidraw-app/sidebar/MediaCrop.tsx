@@ -19,8 +19,17 @@ import type {
 } from "@excalidraw/element";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
-import { closeMediaCrop, useMediaCropNode } from "./mediaCropState";
-import { applyMediaFit, mediaElementsOfNode } from "./nodeMedia";
+import {
+  closeMediaCrop,
+  openMediaCrop,
+  useMediaCropNode,
+} from "./mediaCropState";
+import {
+  addMediaToNode,
+  applyMediaFit,
+  mediaElementsOfNode,
+  removeMediaFromNode,
+} from "./nodeMedia";
 
 import "./MediaCrop.scss";
 
@@ -94,6 +103,7 @@ const CropScreen = ({
   nodeId: string;
 }) => {
   const stage = useRef<HTMLDivElement>(null);
+  const replaceInput = useRef<HTMLInputElement>(null);
   const drag = useRef<Drag | null>(null);
 
   // what the node and its media are when the screen opens
@@ -321,6 +331,45 @@ const CropScreen = ({
           onClick={() => choose("auto")}
         >
           Reset
+        </button>
+        <input
+          ref={replaceInput}
+          type="file"
+          accept="image/*,video/*"
+          hidden
+          data-testid="media-crop-replace-input"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+
+            event.target.value = "";
+
+            if (file) {
+              // a new file is the new picture of the node, and the screen is
+              // opened again on it
+              void addMediaToNode(api, nodeId, file).then(() => {
+                closeMediaCrop();
+                openMediaCrop(nodeId);
+              });
+            }
+          }}
+        />
+        <button
+          type="button"
+          data-testid="media-crop-replace"
+          onClick={() => replaceInput.current?.click()}
+        >
+          Replace picture or video
+        </button>
+        <button
+          type="button"
+          data-testid="media-crop-remove"
+          onClick={() => {
+            // the words come back into the node
+            removeMediaFromNode(api, nodeId);
+            closeMediaCrop();
+          }}
+        >
+          Remove picture
         </button>
         <span className="media-crop__spacer" />
         <button

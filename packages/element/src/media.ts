@@ -255,7 +255,17 @@ export type NodeCaption = {
    * place: a node that is moved by itself takes its caption with it, and a
    * caption that is moved by the teacher is left where it is put.
    */
-  at?: { nx: number; ny: number; cx: number; cy: number };
+  /** the teacher moved the caption by itself: it is not put under its node again */
+  placed?: boolean;
+  at?: {
+    nx: number;
+    ny: number;
+    cx: number;
+    cy: number;
+    /** the size of the node then: a node that changes size has its caption put under it again */
+    nw?: number;
+    nh?: number;
+  };
 };
 
 export const captionOf = (
@@ -271,11 +281,22 @@ export const captionOf = (
 
   return {
     of: stored.of,
+    ...(stored.placed === true ? { placed: true } : {}),
     ...(at &&
     [at.nx, at.ny, at.cx, at.cy].every(
       (n: unknown) => typeof n === "number" && Number.isFinite(n),
     )
-      ? { at: { nx: at.nx, ny: at.ny, cx: at.cx, cy: at.cy } }
+      ? {
+          at: {
+            nx: at.nx,
+            ny: at.ny,
+            cx: at.cx,
+            cy: at.cy,
+            ...(typeof at.nw === "number" && typeof at.nh === "number"
+              ? { nw: at.nw, nh: at.nh }
+              : {}),
+          },
+        }
       : {}),
   };
 };

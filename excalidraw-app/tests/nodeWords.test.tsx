@@ -221,6 +221,36 @@ describe("AC-287 the words of a node that holds media", () => {
     );
   });
 
+  it("AC-287 a caption is put under its node again when the node changes size, unless it was moved", async () => {
+    const { node } = await nodeWithPicture();
+
+    // the node's shape is changed and it grows (as it does when its shape is
+    // changed by the script): the caption is under the new foot, not under the picture
+    moveScene({
+      [node.id]: { width: node.width * 1.5, height: node.height * 2 },
+    });
+    await waitFor(() =>
+      expect(caption(node.id).y).toBeCloseTo(
+        node.y + node.height * 2 + CAPTION_GAP,
+        3,
+      ),
+    );
+    expect(caption(node.id).x + caption(node.id).width / 2).toBeCloseTo(
+      node.x + (node.width * 1.5) / 2,
+      3,
+    );
+
+    // a caption the teacher moved is left where it is when the node changes size
+    const moved = caption(node.id);
+
+    moveScene({ [moved.id]: { x: moved.x + 80, y: moved.y + 60 } });
+    await act(async () => {});
+    moveScene({ [node.id]: { width: node.width * 2 } });
+    await act(async () => {});
+    expect(caption(node.id).x).toBeCloseTo(moved.x + 80, 3);
+    expect(caption(node.id).y).toBeCloseTo(moved.y + 60, 3);
+  });
+
   it("AC-287 the choice is a caption or hidden, and either can be changed to the other", async () => {
     const { node, words } = await nodeWithPicture();
 
