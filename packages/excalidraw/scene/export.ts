@@ -15,7 +15,11 @@ import {
   applyDarkModeFilter,
 } from "@excalidraw/common";
 
-import { getCommonBounds, getElementAbsoluteCoords } from "@excalidraw/element";
+import {
+  getCommonBounds,
+  getElementAbsoluteCoords,
+  inkExportMargin,
+} from "@excalidraw/element";
 
 import {
   getInitializedImageElements,
@@ -582,10 +586,12 @@ const getCanvasSize = (
   exportPadding: number,
 ): Bounds => {
   const [minX, minY, maxX, maxY] = getCommonBounds(elements);
-  const width = distance(minX, maxX) + exportPadding * 2;
-  const height = distance(minY, maxY) + exportPadding * 2;
+  // room for what an ink look paints past its element, so a glow is not cut off (D-241)
+  const margin = inkExportMargin(elements);
+  const width = distance(minX, maxX) + exportPadding * 2 + margin * 2;
+  const height = distance(minY, maxY) + exportPadding * 2 + margin * 2;
 
-  return [minX, minY, width, height];
+  return [minX - margin, minY - margin, width, height];
 };
 
 export const getExportSize = (

@@ -22,6 +22,7 @@ import {
   isArrowElement,
   hasStrokeColor,
   toolIsArrow,
+  canHaveInk,
 } from "@excalidraw/element";
 
 import type {
@@ -135,6 +136,17 @@ export const canChangeBackgroundColor = (
     targetElements.some((element) => hasBackground(element.type))
   );
 };
+
+/** the tools that draw with ink, for the look chosen before drawing */
+const inkTools = new Set<string>([
+  "text",
+  "freedraw",
+  "rectangle",
+  "diamond",
+  "ellipse",
+  "line",
+  "arrow",
+]);
 
 export const SelectedShapeActions = ({
   appState,
@@ -252,6 +264,11 @@ export const SelectedShapeActions = ({
       )}
 
       {showPanelActions && renderAction("changePanel")}
+
+      {/* how the ink is painted (D-241) */}
+      {(inkTools.has(appState.activeTool.type) ||
+        targetElements.some(canHaveInk)) &&
+        renderAction("changeInkLook")}
 
       {renderAction("changeOpacity")}
 
@@ -426,6 +443,9 @@ const CombinedShapeProperties = ({
                   canChangeRoundness(element.type),
                 )) &&
                 renderAction("changeRoundness")}
+              {(inkTools.has(appState.activeTool.type) ||
+                targetElements.some(canHaveInk)) &&
+                renderAction("changeInkLook")}
               {renderAction("changeOpacity")}
             </div>
           </PropertiesPopover>

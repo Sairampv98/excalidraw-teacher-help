@@ -42,6 +42,8 @@ import type {
   NonDeletedExcalidrawElement,
 } from "@excalidraw/element/types";
 
+import { renderWithInk } from "./inkSvg";
+
 import type { RenderableElementsMap, SVGRenderConfig } from "../scene/types";
 import type { AppState, BinaryFiles } from "../types";
 import type { Drawable } from "roughjs/bin/core";
@@ -776,28 +778,38 @@ export const renderSceneToSvg = (
         }
 
         try {
-          renderElementToSvg(
-            element,
-            elementsMap,
-            rsvg,
-            svgRoot,
-            files,
-            element.x + renderConfig.offsetX,
-            element.y + renderConfig.offsetY,
-            renderConfig,
-          );
-
-          const boundTextElement = getBoundTextElement(element, elementsMap);
-          if (boundTextElement) {
+          // an element with an ink look is drawn inside its filter (D-241)
+          renderWithInk(element, elementsMap, svgRoot, renderConfig, () =>
             renderElementToSvg(
-              boundTextElement,
+              element,
               elementsMap,
               rsvg,
               svgRoot,
               files,
-              boundTextElement.x + renderConfig.offsetX,
-              boundTextElement.y + renderConfig.offsetY,
+              element.x + renderConfig.offsetX,
+              element.y + renderConfig.offsetY,
               renderConfig,
+            ),
+          );
+
+          const boundTextElement = getBoundTextElement(element, elementsMap);
+          if (boundTextElement) {
+            renderWithInk(
+              boundTextElement,
+              elementsMap,
+              svgRoot,
+              renderConfig,
+              () =>
+                renderElementToSvg(
+                  boundTextElement,
+                  elementsMap,
+                  rsvg,
+                  svgRoot,
+                  files,
+                  boundTextElement.x + renderConfig.offsetX,
+                  boundTextElement.y + renderConfig.offsetY,
+                  renderConfig,
+                ),
             );
           }
         } catch (error: any) {
