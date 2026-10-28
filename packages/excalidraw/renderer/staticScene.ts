@@ -447,14 +447,16 @@ const _renderStaticScene = ({
     );
   }
 
-  // the page's paper (D-243), under the content
-  if (appState.currentPageDecoration?.paper) {
-    drawPagePaper(
-      context,
-      appState.currentPageDecoration.paper,
-      appState.scrollX,
-      appState.scrollY,
-    );
+  // the paper of the page, or the papers of an export of many (D-243), under
+  // the content
+  const papers =
+    appState.currentPagePapers ??
+    (appState.currentPageDecoration?.paper
+      ? [appState.currentPageDecoration.paper]
+      : []);
+
+  for (const paper of papers) {
+    drawPagePaper(context, paper, appState.scrollX, appState.scrollY);
   }
 
   const groupsToBeAddedToFrame = new Set<string>();

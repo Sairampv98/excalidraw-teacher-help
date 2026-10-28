@@ -198,10 +198,62 @@ const snapToEdge = (rect: Rect, edge: DockEdge): Rect => {
   }
 };
 
+/** the emoji bar folds into a round button, not a slim pill (D-245) */
+const ROUND_PILL_SIZE = 40;
+
+const isRoundPill = (dock: DockRuntime) => dock.def.id === "stickers";
+
+const SmileIcon = () => (
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="9" />
+    <path d="M8.5 14.5a4.5 4.5 0 0 0 7 0" />
+    <path d="M9 9.5h.01M15 9.5h.01" />
+  </svg>
+);
+
 /** pill geometry for a collapsed dock, along its edge */
 const getPillStyle = (dock: DockRuntime): React.CSSProperties => {
   const { rect, edge } = dock;
   const isVertical = edge === "left" || edge === "right";
+
+  if (isRoundPill(dock)) {
+    const size = ROUND_PILL_SIZE;
+    const gap = DOCK_EDGE_GAP + 2;
+
+    if (isVertical) {
+      return {
+        width: size,
+        height: size,
+        [edge === "left" ? "left" : "right"]: gap,
+        top: clamp(
+          rect.y + rect.h / 2 - size / 2,
+          12,
+          window.innerHeight - size - 12,
+        ),
+      };
+    }
+
+    return {
+      width: size,
+      height: size,
+      [edge === "top" ? "top" : "bottom"]: gap,
+      left: clamp(
+        rect.x + rect.w / 2 - size / 2,
+        12,
+        window.innerWidth - size - 12,
+      ),
+    };
+  }
 
   if (isVertical) {
     const height = clamp(rect.h, 96, 260);
@@ -953,6 +1005,7 @@ export const EdgeDocks = () => {
               className={clsx(
                 "excalidraw-dock-pill",
                 `excalidraw-dock-pill--${dock.edge ?? "free"}`,
+                { "excalidraw-dock-pill--round": isRoundPill(dock) },
               )}
               style={{
                 ...getPillStyle(dock),
@@ -972,7 +1025,9 @@ export const EdgeDocks = () => {
               title={`${dock.def.label} — drag out to restore, hover the edge to peek`}
               aria-label={`${dock.def.label} panel, collapsed`}
               onPointerDown={(event) => startPress(dock.def.id, event)}
-            />
+            >
+              {isRoundPill(dock) && <SmileIcon />}
+            </button>
           );
         }
 

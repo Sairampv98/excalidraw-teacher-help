@@ -199,6 +199,11 @@ export const exportToCanvas = async (
      * exported page looks like the page the teacher sees.
      */
     pageDecoration = null,
+    /**
+     * The papers of the pages that have some of the content (D-243): drawn
+     * under it, and the picture grows to hold them whole.
+     */
+    pagePapers = [],
   }: {
     exportBackground: boolean;
     exportPadding?: number;
@@ -206,6 +211,7 @@ export const exportToCanvas = async (
     exportingFrame?: ExcalidrawFrameLikeElement | null;
     pageRect?: PageRect | null;
     pageDecoration?: PageDecoration | null;
+    pagePapers?: readonly PagePaperDraw[];
   },
   createCanvas: (
     width: number,
@@ -246,9 +252,15 @@ export const exportToCanvas = async (
 
   const [minX, minY, width, height] = pageRect
     ? [pageRect.x, pageRect.y, pageRect.width, pageRect.height]
-    : getCanvasSize(
-        exportingFrame ? [exportingFrame] : getRootElements(elementsForRender),
+    : withPapers(
+        getCanvasSize(
+          exportingFrame
+            ? [exportingFrame]
+            : getRootElements(elementsForRender),
+          exportPadding,
+        ),
         exportPadding,
+        exportingFrame ? [] : pagePapers,
       );
 
   const { canvas, scale = 1 } = createCanvas(width, height);
@@ -284,6 +296,7 @@ export const exportToCanvas = async (
       shouldCacheIgnoreZoom: false,
       theme: appState.exportWithDarkMode ? THEME.DARK : THEME.LIGHT,
       currentPageDecoration: pageDecoration,
+      currentPagePapers: pageRect || exportingFrame ? null : pagePapers,
     },
     renderConfig: {
       canvasBackgroundColor: viewBackgroundColor,
@@ -328,8 +341,8 @@ export const exportToSvg = async (
     exportingFrame?: ExcalidrawFrameLikeElement | null;
     skipInliningFonts?: true;
     reuseImages?: boolean;
-    /** the paper of the page that is exported (D-243): the picture is the page */
-    pagePaper?: PagePaperDraw | null;
+    /** the papers of the pages that have some of the content (D-243) */
+    pagePapers?: readonly PagePaperDraw[];
   },
 ): Promise<SVGSVGElement> => {
   const frameRendering = getFrameRenderingConfig(
@@ -354,23 +367,20 @@ export const exportToSvg = async (
     frameRendering,
   });
 
-  const pagePaper = opts?.pagePaper ?? null;
+  const pagePapers = exportingFrame ? [] : opts?.pagePapers ?? [];
 
-  if (exportingFrame || pagePaper) {
+  if (exportingFrame) {
     exportPadding = 0;
   }
 
-  const [minX, minY, width, height] = pagePaper
-    ? [
-        pagePaper.rect.x,
-        pagePaper.rect.y,
-        pagePaper.rect.width,
-        pagePaper.rect.height,
-      ]
-    : getCanvasSize(
-        exportingFrame ? [exportingFrame] : getRootElements(elementsForRender),
-        exportPadding,
-      );
+  const [minX, minY, width, height] = withPapers(
+    getCanvasSize(
+      exportingFrame ? [exportingFrame] : getRootElements(elementsForRender),
+      exportPadding,
+    ),
+    exportPadding,
+    pagePapers,
+  );
 
   const offsetX = -minX + exportPadding;
   const offsetY = -minY + exportPadding;
@@ -499,8 +509,8 @@ export const exportToSvg = async (
     svgRoot.appendChild(rect);
   }
 
-  // the page's paper (D-243), under the elements
-  if (pagePaper) {
+  // the papers of the pages (D-243), under the elements
+  for (const pagePaper of pagePapers) {
     svgRoot.appendChild(
       paperToSvg(
         svgRoot.ownerDocument,
@@ -618,6 +628,40 @@ const getCanvasSize = (
   const height = distance(minY, maxY) + exportPadding * 2 + margin * 2;
 
   return [minX - margin, minY - margin, width, height];
+};
+
+/**
+ * The bounds of an export made to hold the papers that lie under its content
+ * whole, with the padding around them as around the content.
+ */
+const withPapers = (
+  bounds: Bounds,
+  exportPadding: number,
+  papers: readonly PagePaperDraw[],
+): Bounds => {
+  if (!papers.length) {
+    return bounds;
+  }
+
+  const [minX, minY, width, height] = bounds;
+  let left = minX - exportPadding;
+  let top = minY - exportPadding;
+  let right = left + width;
+  let bottom = top + height;
+
+  for (const { rect } of papers) {
+    left = Math.min(left, rect.x - exportPadding);
+    top = Math.min(top, rect.y - exportPadding);
+    right = Math.max(right, rect.x + rect.width + exportPadding);
+    bottom = Math.max(bottom, rect.y + rect.height + exportPadding);
+  }
+
+  return [
+    left + exportPadding,
+    top + exportPadding,
+    right - left,
+    bottom - top,
+  ];
 };
 
 export const getExportSize = (

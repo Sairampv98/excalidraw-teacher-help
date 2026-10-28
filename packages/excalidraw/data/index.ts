@@ -9,7 +9,7 @@ import {
   arrayToMap,
 } from "@excalidraw/common";
 
-import { getNonDeletedElements } from "@excalidraw/element";
+import { getCommonBounds, getNonDeletedElements } from "@excalidraw/element";
 
 import { isFrameLikeElement } from "@excalidraw/element";
 
@@ -29,15 +29,13 @@ import {
 import { t } from "../i18n";
 import { getSelectedElements, isSomeElementSelected } from "../scene";
 import { exportToCanvas, exportToSvg } from "../scene/export";
-import {
-  getPageDecoration,
-  getPageRect,
-  isElementInsidePageRect,
-} from "../scene/pages";
+import { getPageDecoration } from "../scene/pages";
 
 import { canvasToBlob } from "./blob";
 import { fileSave } from "./filesystem";
 import { serializeAsJSON } from "./json";
+
+import type { PagePaperDraw } from "../scene/paper";
 
 import type { ExportType } from "../scene/types";
 import type { AppState, BinaryFiles } from "../types";
@@ -102,29 +100,41 @@ export const prepareElementsForExport = (
 };
 
 /**
- * The current page, when what is exported lies on it and it has a paper: an
- * image of it is the whole page on its paper (D-243). Otherwise null, and an
- * export is what it always was.
+ * The papers an image export draws (D-243): the paper of every page that has
+ * one and has some of what is exported on it, so that a page is drawn whole,
+ * under its content. A page that has none of it, or has no paper, adds nothing,
+ * and an export of a frame is what it always was.
  */
-const pageOnPaper = (elements: ExportedElements, appState: AppState) => {
-  if (!appState.pages?.length) {
-    return null;
+export const getPapersForExport = (
+  elements: readonly ExcalidrawElement[],
+  appState: Pick<AppState, "pages">,
+): PagePaperDraw[] => {
+  const papers: PagePaperDraw[] = [];
+
+  for (const page of appState.pages ?? []) {
+    const paper = getPageDecoration({
+      pages: appState.pages,
+      pageId: page.id,
+    }).paper;
+
+    if (!paper) {
+      continue;
+    }
+
+    const { x, y, width, height } = paper.rect;
+
+    if (
+      elements.some((element) => {
+        const [x1, y1, x2, y2] = getCommonBounds([element]);
+
+        return x1 < x + width && x2 > x && y1 < y + height && y2 > y;
+      })
+    ) {
+      papers.push(paper);
+    }
   }
 
-  const decoration = getPageDecoration({
-    pages: appState.pages,
-    pageId: appState.currentPageId,
-  });
-
-  if (!decoration.paper) {
-    return null;
-  }
-
-  const rect = getPageRect(appState.pages, appState.currentPageId);
-
-  return elements.every((element) => isElementInsidePageRect(element, rect))
-    ? { rect, decoration, paper: decoration.paper }
-    : null;
+  return papers;
 };
 
 export const exportCanvas = async (
@@ -152,8 +162,10 @@ export const exportCanvas = async (
   if (elements.length === 0) {
     throw new Error(t("alerts.cannotExportEmptyCanvas"));
   }
-  // an image of what is on a page that has a paper is the page, on its paper (D-243)
-  const onPaper = pageOnPaper(elements, appState);
+  // the papers of the pages that have some of what is exported on them (D-243)
+  const pagePapers = exportingFrame
+    ? []
+    : getPapersForExport(elements, appState);
 
   if (type === "svg" || type === "clipboard-svg") {
     const svgPromise = exportToSvg(
@@ -167,7 +179,7 @@ export const exportCanvas = async (
         exportEmbedScene: appState.exportEmbedScene && type === "svg",
       },
       files,
-      { exportingFrame, pagePaper: exportingFrame ? null : onPaper?.paper },
+      { exportingFrame, pagePapers },
     );
 
     if (type === "svg") {
@@ -203,9 +215,7 @@ export const exportCanvas = async (
     viewBackgroundColor,
     exportPadding,
     exportingFrame,
-    ...(onPaper && !exportingFrame
-      ? { pageRect: onPaper.rect, pageDecoration: onPaper.decoration }
-      : {}),
+    pagePapers,
   });
 
   if (type === "png") {

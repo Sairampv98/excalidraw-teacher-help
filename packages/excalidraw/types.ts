@@ -374,6 +374,8 @@ export type StaticCanvasAppState = Readonly<
     currentPageRect?: PageRect | null;
     /** the current page's frame and number; null when it has neither */
     currentPageDecoration?: PageDecoration | null;
+    /** the papers of an export of many pages (D-243), drawn under the content */
+    currentPagePapers?: readonly PagePaperDraw[] | null;
     frameRendering: AppState["frameRendering"];
     currentHoveredFontFamily: AppState["currentHoveredFontFamily"];
     hoveredElementIds: AppState["hoveredElementIds"];
