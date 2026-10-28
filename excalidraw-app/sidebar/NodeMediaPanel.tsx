@@ -1,18 +1,25 @@
 import { useEffect, useRef, useState } from "react";
 
-import { canHoldMedia, mediaOf } from "@excalidraw/element";
+import { mediaOf } from "@excalidraw/element";
+import { setFlowEditorExtra } from "@excalidraw/excalidraw/components/FlowScriptEditorState";
 import { CaptureUpdateAction, useExcalidrawAPI } from "@excalidraw/excalidraw";
 
+import type { WordsMode } from "@excalidraw/element";
 import type { ExcalidrawElement } from "@excalidraw/element/types";
 
+import { isChartNode, nodeGeometry, refreshBoundArrows } from "./chartArrows";
 import { sceneAtClientPoint } from "./insertIntoScene";
+import { openMediaCrop } from "./mediaCropState";
 import { setNodeDrop } from "./nodeDropHook";
 import {
   addMediaToNode,
+  applyMediaWords,
   fitMediaToNodes,
   mediaElementsOfNode,
   mediaKindOf,
   nodeAtPoint,
+  nodeContainsPoint,
+  nodeOfSelection,
   removeMediaFromNode,
 } from "./nodeMedia";
 
@@ -21,11 +28,12 @@ import {
  * a file in it and take it out. They are there when exactly one shape is
  * selected, and say what they do to it.
  */
-export const NodeMediaPanel = () => {
+export const NodeMediaSection = () => {
   const api = useExcalidrawAPI();
   const input = useRef<HTMLInputElement>(null);
   const [node, setNode] = useState<ExcalidrawElement | null>(null);
   const [hasMedia, setHasMedia] = useState(false);
+  const [words, setWords] = useState<WordsMode>("caption");
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -36,19 +44,14 @@ export const NodeMediaPanel = () => {
     const read = () => {
       const selected = Object.keys(api.getAppState().selectedElementIds);
       const elements = api.getSceneElements();
-      const only =
-        selected.length === 1
-          ? elements.find((element) => element.id === selected[0])
-          : undefined;
-      // the media of a node selected on its own counts as the node's
-      const owner =
-        only && mediaOf(only)
-          ? elements.find((element) => element.id === mediaOf(only)!.of)
-          : only;
-      const next = owner && canHoldMedia(owner) ? owner : null;
+      // the node, its picture, its caption or the group of them selects the one node
+      const next = nodeOfSelection(elements, selected);
 
       setNode((previous) => (previous?.id === next?.id ? previous : next));
-      setHasMedia(!!next && mediaElementsOfNode(elements, next.id).length > 0);
+      const held = next ? mediaElementsOfNode(elements, next.id) : [];
+
+      setHasMedia(held.length > 0);
+      setWords(held.length ? mediaOf(held[0])?.words ?? "caption" : "caption");
     };
 
     read();
@@ -81,7 +84,7 @@ export const NodeMediaPanel = () => {
 
   return (
     <div className="flow-tab__media" data-testid="node-media">
-      <p className="flow-tab__hint">Picture in the selected node</p>
+      <p className="flow-tab__hint">Picture in this node</p>
       <input
         ref={input}
         type="file"
@@ -101,6 +104,31 @@ export const NodeMediaPanel = () => {
       >
         {hasMedia ? "Replace picture or video" : "Add picture or video"}
       </button>
+      {hasMedia && (
+        <label className="flow-tab__media-words">
+          Words of the node
+          <select
+            data-testid="node-media-words"
+            value={words}
+            onChange={(event) =>
+              applyMediaWords(api, node.id, event.target.value as WordsMode)
+            }
+          >
+            <option value="caption">A caption below the node</option>
+            <option value="hidden">Hidden under the picture</option>
+          </select>
+        </label>
+      )}
+      {hasMedia && (
+        <button
+          type="button"
+          className="flow-tab__media-button"
+          data-testid="node-media-crop"
+          onClick={() => openMediaCrop(node.id)}
+        >
+          Crop picture
+        </button>
+      )}
       {hasMedia && (
         <button
           type="button"
@@ -136,7 +164,40 @@ export const NodeMediaDrop = () => {
       return;
     }
 
+    // what a chart's nodes were when the scene last changed: a node that is
+    // changed by something other than the editor leaves its arrows behind (D-249)
+    let seen: Map<string, string> | null = null;
+
     return api.onChange(() => {
+      const scene = api.getSceneElementsIncludingDeleted();
+      const now = new Map(
+        scene.filter(isChartNode).map((node) => [node.id, nodeGeometry(node)]),
+      );
+      const changedNodes = new Set<string>();
+
+      if (seen) {
+        for (const [id, geometry] of now) {
+          if (seen.has(id) && seen.get(id) !== geometry) {
+            changedNodes.add(id);
+          }
+        }
+      }
+
+      seen = now;
+
+      if (changedNodes.size) {
+        const arrows = refreshBoundArrows(scene, changedNodes);
+
+        if (arrows) {
+          api.updateScene({
+            elements: arrows,
+            captureUpdate: CaptureUpdateAction.NEVER,
+          });
+
+          return;
+        }
+      }
+
       const fitted = fitMediaToNodes(api.getSceneElementsIncludingDeleted());
 
       if (fitted) {
@@ -196,6 +257,54 @@ export const NodeMediaDrop = () => {
     document.addEventListener("dragover", onDragOver, true);
     document.addEventListener("drop", onDrop, true);
 
+    // the picture of a node is edited in the Edit chart panel (D-247)
+    setFlowEditorExtra(NodeMediaSection);
+
+    // a double click on the media of a node opens the crop screen, and not the
+    // library's own crop (D-247)
+    const onDoubleClick = (event: MouseEvent) => {
+      const target = event.target;
+
+      if (
+        !(target instanceof Element) ||
+        !target.closest("canvas.excalidraw__canvas, .excalidraw__panel")
+      ) {
+        return;
+      }
+
+      const at = sceneAtClientPoint(api, event.clientX, event.clientY);
+
+      if (!at) {
+        return;
+      }
+
+      const hit = [...api.getSceneElements()].reverse().find((element) => {
+        const media = mediaOf(element);
+
+        return (
+          !!media &&
+          nodeContainsPoint(
+            {
+              ...element,
+              type:
+                media.shape === "ellipse" || media.shape === "diamond"
+                  ? media.shape
+                  : "rectangle",
+            },
+            at,
+          )
+        );
+      });
+
+      if (hit) {
+        event.preventDefault();
+        event.stopPropagation();
+        openMediaCrop(mediaOf(hit)!.of);
+      }
+    };
+
+    document.addEventListener("dblclick", onDoubleClick, true);
+
     // the other roads to a node - a file from the sidebar, a sticker from the
     // emoji bar - ask here (D-246)
     setNodeDrop({
@@ -210,6 +319,8 @@ export const NodeMediaDrop = () => {
     return () => {
       document.removeEventListener("dragover", onDragOver, true);
       document.removeEventListener("drop", onDrop, true);
+      document.removeEventListener("dblclick", onDoubleClick, true);
+      setFlowEditorExtra(null);
       setNodeDrop(null);
     };
   }, [api]);

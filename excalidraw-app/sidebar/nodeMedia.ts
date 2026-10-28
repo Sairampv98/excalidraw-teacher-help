@@ -11,7 +11,7 @@
 import { randomId } from "@excalidraw/common";
 import {
   canHoldMedia,
-  coverCrop,
+  captionOf,
   customDataWithMedia,
   getBoundTextElement,
   getCornerRadius,
@@ -19,6 +19,8 @@ import {
   mediaShapeOfNode,
   newElementWith,
   nodeSignature,
+  viewAsCrop,
+  viewForFit,
   newImageElement,
 } from "@excalidraw/element";
 import {
@@ -27,13 +29,20 @@ import {
 } from "@excalidraw/excalidraw/data/blob";
 
 import type { ExcalidrawElement } from "@excalidraw/element/types";
-import type { NodeMedia } from "@excalidraw/element";
+import type {
+  MediaFit,
+  MediaView,
+  NodeMedia,
+  Size,
+  WordsMode,
+} from "@excalidraw/element";
 import type {
   BinaryFileData,
   ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
 
 import { appendElements, getImageSize } from "./insertIntoScene";
+import { ensureWords, withWords } from "./nodeWords";
 import { insertVideoPanel } from "./videoPanel";
 
 /** what a file can be as media: a picture (a GIF is one), a video, or nothing */
@@ -58,6 +67,53 @@ export const mediaElementsOfNode = (
   elements.filter(
     (element) => !element.isDeleted && mediaOf(element)?.of === nodeId,
   );
+
+/**
+ * The node a selection is about, or null. The node, its picture, its caption (or
+ * its words) and a group of them all are about the one node, so that clicking
+ * any of them - or the whole group, which selects them together - is clicking
+ * the node.
+ */
+export const nodeOfSelection = (
+  elements: readonly ExcalidrawElement[],
+  selectedIds: readonly string[],
+): ExcalidrawElement | null => {
+  const byId = new Map(elements.map((element) => [element.id, element]));
+  const owners = new Set<string>();
+
+  for (const id of selectedIds) {
+    const element = byId.get(id);
+
+    if (!element || element.isDeleted) {
+      continue;
+    }
+
+    const media = mediaOf(element);
+    const caption = element.type === "text" ? captionOf(element) : null;
+    const bound = element.type === "text" ? element.containerId : null;
+    const owner = media
+      ? media.of
+      : caption
+      ? caption.of
+      : bound
+      ? bound
+      : canHoldMedia(element)
+      ? element.id
+      : null;
+
+    if (owner) {
+      owners.add(owner);
+    }
+  }
+
+  if (owners.size !== 1) {
+    return null;
+  }
+
+  const node = byId.get([...owners][0]);
+
+  return node && !node.isDeleted && canHoldMedia(node) ? node : null;
+};
 
 /** whether a point (in scene units) is inside the node's shape */
 export const nodeContainsPoint = (
@@ -120,6 +176,67 @@ const nodeMediaOf = (node: ExcalidrawElement): NodeMedia => {
 };
 
 /**
+ * The update that fits one piece of media to its node with a fit (D-247): the
+ * box of the node, the media data (shape, view, fit) and, for a picture, the
+ * crop that is the view when the view is wholly in the picture.
+ */
+const fitUpdates = (
+  element: ExcalidrawElement,
+  node: ExcalidrawElement,
+  fit: MediaFit,
+  chosen?: MediaView | null,
+): Record<string, unknown> => {
+  const media = mediaOf(element);
+  const fitted = nodeMediaOf(node);
+  const box = {
+    x: node.x,
+    y: node.y,
+    width: node.width,
+    height: node.height,
+  };
+  const natural =
+    media?.natural ??
+    (element.type === "image" && element.crop
+      ? {
+          width: element.crop.naturalWidth,
+          height: element.crop.naturalHeight,
+        }
+      : undefined);
+  const updates: Record<string, unknown> = { ...box, angle: node.angle };
+
+  if (!natural) {
+    updates.customData = customDataWithMedia(element.customData, {
+      ...fitted,
+      ...(media?.words ? { words: media.words } : {}),
+    });
+
+    return updates;
+  }
+
+  const view = viewForFit(
+    fit,
+    box,
+    natural,
+    fitted.shape,
+    chosen ?? media?.view,
+  );
+
+  updates.customData = customDataWithMedia(element.customData, {
+    ...fitted,
+    fit,
+    natural,
+    view,
+    ...(media?.words ? { words: media.words } : {}),
+  });
+
+  if (element.type === "image") {
+    updates.crop = viewAsCrop(view, natural);
+  }
+
+  return updates;
+};
+
+/**
  * The scene with the media of every node fitted to its node, or null when all
  * of it is. A node whose shape or size was changed (by the script, by Apply, by
  * its own handles) changes the cut and the box of its media; a node that was
@@ -158,36 +275,27 @@ export const fitMediaToNodes = (
 
     changed = true;
 
-    const box = {
-      x: node.x,
-      y: node.y,
-      width: node.width,
-      height: node.height,
-    };
-    const refit: Record<string, unknown> = {
-      ...box,
-      angle: node.angle,
-      customData: customDataWithMedia(element.customData, fitted),
-    };
-
-    // a picture is cut again to the box's shape
-    if (element.type === "image" && element.crop) {
-      refit.crop = coverCrop(box, {
-        width: element.crop.naturalWidth,
-        height: element.crop.naturalHeight,
-      });
-    }
-
-    return newElementWith(element, refit);
+    // the media keeps its fit, worked out again for the node's new shape and size
+    return newElementWith(
+      element,
+      fitUpdates(element, node, media.fit ?? "auto") as never,
+    );
   });
 
-  return changed ? next : null;
+  const fitted = changed ? next : null;
+
+  // the words of the nodes and their captions are kept as the choice says
+  return ensureWords(fitted ?? elements) ?? fitted;
 };
 
-/** takes the media out of a node: its words come back */
-export const removeMediaFromNode = (
+/**
+ * Sets what the words of a node are while it holds media (D-248): a caption
+ * under it, or hidden under the media. It is kept on the media.
+ */
+export const applyMediaWords = (
   api: ExcalidrawImperativeAPI,
   nodeId: string,
+  words: WordsMode,
 ) => {
   const elements = api.getSceneElementsIncludingDeleted();
   const media = mediaElementsOfNode(elements, nodeId);
@@ -196,6 +304,71 @@ export const removeMediaFromNode = (
     return false;
   }
 
+  const ids = new Set(media.map((element) => element.id));
+  const marked = elements.map((element) => {
+    const data = ids.has(element.id) ? mediaOf(element) : null;
+
+    return data
+      ? newElementWith(element, {
+          customData: customDataWithMedia(element.customData, {
+            ...data,
+            words,
+          }),
+        })
+      : element;
+  });
+
+  api.updateScene({ elements: ensureWords(marked) ?? marked });
+
+  return true;
+};
+
+/**
+ * Sets how the media of a node sits in its shape (D-247): the fit, and for a
+ * `crop` the part of the picture that is shown. It is set on everything the
+ * media is made of (a video is its panel and the still of its first frame).
+ */
+export const applyMediaFit = (
+  api: ExcalidrawImperativeAPI,
+  nodeId: string,
+  fit: MediaFit,
+  view?: MediaView | null,
+) => {
+  const elements = api.getSceneElementsIncludingDeleted();
+  const node = elements.find((element) => element.id === nodeId);
+  const media = mediaElementsOfNode(elements, nodeId);
+
+  if (!node || !media.length) {
+    return false;
+  }
+
+  const ids = new Set(media.map((element) => element.id));
+
+  api.updateScene({
+    elements: elements.map((element) =>
+      ids.has(element.id)
+        ? newElementWith(element, fitUpdates(element, node, fit, view) as never)
+        : element,
+    ),
+  });
+
+  return true;
+};
+
+/** takes the media out of a node: its words come back */
+export const removeMediaFromNode = (
+  api: ExcalidrawImperativeAPI,
+  nodeId: string,
+) => {
+  const scene = api.getSceneElementsIncludingDeleted();
+  const media = mediaElementsOfNode(scene, nodeId);
+
+  if (!media.length) {
+    return false;
+  }
+
+  // the words come back into the node (D-248)
+  const elements = withWords(scene, nodeId, "shown") ?? scene;
   const ids = new Set(media.map((element) => element.id));
 
   // the group that tied the media to the node is taken apart
@@ -223,6 +396,21 @@ export const removeMediaFromNode = (
 
 type Box = { x: number; y: number; width: number; height: number };
 
+/**
+ * The media data of a picture in a node, with the fit it starts with: the
+ * picture fills the shape (D-247).
+ */
+const startingMedia = (
+  base: NodeMedia,
+  box: Size,
+  natural: Size,
+): NodeMedia => ({
+  ...base,
+  fit: "auto",
+  natural,
+  view: viewForFit("auto", box, natural, base.shape),
+});
+
 /** puts a picture on the scene, filling a box, cut to the shape of the media */
 const addPictureToBox = async (
   api: ExcalidrawImperativeAPI,
@@ -230,12 +418,13 @@ const addPictureToBox = async (
   box: Box,
   angle: ExcalidrawElement["angle"],
   groupIds: readonly string[],
-  media: NodeMedia,
-): Promise<ExcalidrawElement> => {
+  base: NodeMedia,
+): Promise<{ element: ExcalidrawElement; natural: Size }> => {
   const dataURL = await getDataURL(file);
   const fileId = await generateIdFromFile(file);
   const natural = await getImageSize(dataURL);
   const now = Date.now();
+  const media = startingMedia(base, box, natural);
 
   api.addFiles([
     {
@@ -254,14 +443,14 @@ const addPictureToBox = async (
     angle,
     fileId,
     // the picture is cut to the box and not shrunk into it: no borders
-    crop: coverCrop(box, natural),
+    crop: viewAsCrop(media.view!, natural),
     groupIds: [...groupIds],
     customData: customDataWithMedia(undefined, media),
   });
 
   appendElements(api, [picture]);
 
-  return picture;
+  return { element: picture, natural };
 };
 
 /**
@@ -360,7 +549,14 @@ export const addMediaToNode = async (
   let added: ExcalidrawElement;
 
   if (kind === "image") {
-    added = await addPictureToBox(api, file, box, node.angle, groupIds, media);
+    ({ element: added } = await addPictureToBox(
+      api,
+      file,
+      box,
+      node.angle,
+      groupIds,
+      media,
+    ));
   } else {
     // its first frame is a picture of its own, cut like the media: an export has
     // no video to play, and this is what it shows
@@ -369,16 +565,30 @@ export const addMediaToNode = async (
       ? await addPictureToBox(api, frame.file, box, node.angle, groupIds, media)
       : null;
     const { panel } = await insertVideoPanel(api, { videoFile: file });
+    const content = panel as unknown as {
+      panel?: { naturalWidth?: number | null; naturalHeight?: number | null };
+    };
+    // the video's own size: its first frame's, or what the player read
+    const natural =
+      poster?.natural ??
+      (content.panel?.naturalWidth && content.panel?.naturalHeight
+        ? {
+            width: content.panel.naturalWidth,
+            height: content.panel.naturalHeight,
+          }
+        : null);
     const placed = {
       ...panel,
       ...box,
       angle: node.angle,
       groupIds,
-      customData: customDataWithMedia(panel.customData, media),
+      customData: customDataWithMedia(
+        panel.customData,
+        natural ? startingMedia(media, box, natural) : media,
+      ),
     } as ExcalidrawElement;
 
     added = placed;
-    void poster;
 
     api.updateScene({
       elements: api
@@ -393,14 +603,17 @@ export const addMediaToNode = async (
     new Map(api.getSceneElements().map((element) => [element.id, element])),
   );
 
-  api.updateScene({
-    elements: api.getSceneElementsIncludingDeleted().map((element) => {
-      if (element.id === node.id || element.id === text?.id) {
-        return newElementWith(element, { groupIds });
-      }
+  const grouped = api
+    .getSceneElementsIncludingDeleted()
+    .map((element) =>
+      element.id === node.id || element.id === text?.id
+        ? newElementWith(element, { groupIds })
+        : element,
+    );
 
-      return element;
-    }),
+  api.updateScene({
+    // the words of the node go under it as a caption (D-248)
+    elements: ensureWords(grouped) ?? grouped,
     appState: { selectedElementIds: { [added.id]: true } },
   });
 

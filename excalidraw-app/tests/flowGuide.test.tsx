@@ -363,6 +363,6 @@ describe("the Flow tab's authoring controls (D-222, D-224, D-226, D-228, D-229)"
     });
     fireEvent.click(container.querySelector(".flow-tab__edit") as HTMLElement);
 
-    expect(queryByRole("dialog", { name: "Edit script" })).not.toBeNull();
+    expect(queryByRole("dialog", { name: "Edit chart" })).not.toBeNull();
   });
 });

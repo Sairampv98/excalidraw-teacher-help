@@ -14,6 +14,7 @@ import {
   isPosterPanelElement,
   mediaCssClip,
   mediaOf,
+  viewPlacement,
 } from "@excalidraw/element";
 
 import type {
@@ -1657,7 +1658,29 @@ const VideoPanelSurface = ({
   const [durationMs, setDurationMs] = useState(0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
-  const isNodeMedia = mediaOf(panel) !== null;
+  const nodeMedia = mediaOf(panel);
+  const isNodeMedia = nodeMedia !== null;
+  const nodeVideoStyle: React.CSSProperties | undefined =
+    nodeMedia?.view && nodeMedia.natural
+      ? (() => {
+          const placed = viewPlacement(
+            nodeMedia.view,
+            panel,
+            nodeMedia.natural,
+          );
+
+          return {
+            position: "absolute",
+            left: placed.x,
+            top: placed.y,
+            width: placed.width,
+            height: placed.height,
+            maxWidth: "none",
+            flex: "none",
+            objectFit: "fill",
+          };
+        })()
+      : undefined;
   /**
    * The video's **effective** state (D-119).
    *
@@ -2146,7 +2169,14 @@ const VideoPanelSurface = ({
   }
 
   return (
-    <div className="excalidraw__panel-video-box" data-testid="panel-video-box">
+    <div
+      className="excalidraw__panel-video-box"
+      data-testid="panel-video-box"
+      // the video of a node is cut to the node's shape (D-246): the video is
+      // cut, and not the panel, so that what the panel puts round it (its lock,
+      // the choices of a screenshot) is not cut with it
+      style={nodeMedia ? { clipPath: mediaCssClip(nodeMedia) } : undefined}
+    >
       <video
         // Each attempt is its own element, so an error for a source the panel
         // has already replaced is delivered to the handler of THAT attempt
@@ -2158,6 +2188,9 @@ const VideoPanelSurface = ({
         // the primary source, or the fallback once it has been tried (D-126)
         src={fallbackUrl ?? src}
         playsInline={true}
+        // the video of a node shows the part of the picture that is its view,
+        // which may reach past the video (D-247)
+        style={nodeVideoStyle}
         // the video of a node is a silent loop (D-246)
         autoPlay={isNodeMedia}
         loop={isNodeMedia}
@@ -2904,7 +2937,6 @@ const Panel = ({
         style={
           {
             position: "absolute",
-            clipPath: nodeMedia ? mediaCssClip(nodeMedia) : undefined,
             width: panel.width,
             height: panel.height,
             transform,

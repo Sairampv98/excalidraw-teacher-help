@@ -277,3 +277,14 @@
   gap: 6px;
   padding: 8px 0;
 }
+
+.flow-tab__media-words {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+
+  select {
+    width: 100%;
+  }
+}

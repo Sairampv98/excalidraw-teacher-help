@@ -1849,15 +1849,6 @@ export const actionChangePanel = register({
       <fieldset>
         <legend>{t("labels.panel.title")}</legend>
         <div className="selected-shape-actions">
-          <div>{t("labels.panel.kind")}</div>
-          <div>{panel.panelKind}</div>
-          <div>{t("labels.panel.state")}</div>
-          <div>
-            {panel.posterMode
-              ? t("labels.panel.poster")
-              : t("labels.panel.live")}
-          </div>
-          <div>{t("labels.panel.actions")}</div>
           <div>
             <PanelActions panel={panel} appProps={appProps} />
           </div>

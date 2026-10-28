@@ -31,7 +31,7 @@ import {
 import { getContainingFrame } from "@excalidraw/element";
 
 import { getCornerRadius, isPathALoop } from "@excalidraw/element";
-import { mediaClip, mediaOf } from "@excalidraw/element";
+import { mediaClip, mediaOf, viewPlacement } from "@excalidraw/element";
 
 import { ShapeCache } from "@excalidraw/element";
 
@@ -442,6 +442,91 @@ const renderElementToSvg = (
       const height = Math.round(element.height);
       const fileData =
         isInitializedImageElement(element) && files[element.fileId];
+      const placedMedia = mediaOf(element);
+
+      if (fileData && placedMedia?.view) {
+        // the media of a node shows the part of the picture that is its view,
+        // which may reach past the picture (D-247): the picture is placed on the
+        // box and the node's shape cuts it
+        const doc = svgRoot.ownerDocument;
+        const placed = viewPlacement(
+          placedMedia.view,
+          element,
+          placedMedia.natural ?? {
+            width: element.width,
+            height: element.height,
+          },
+        );
+        const picture = doc.createElementNS(SVG_NS, "image");
+
+        picture.setAttribute("href", fileData.dataURL);
+        picture.setAttribute("preserveAspectRatio", "none");
+        picture.setAttribute("x", `${placed.x}`);
+        picture.setAttribute("y", `${placed.y}`);
+        picture.setAttribute("width", `${placed.width}`);
+        picture.setAttribute("height", `${placed.height}`);
+
+        const g = doc.createElementNS(SVG_NS, "g");
+
+        g.setAttribute(
+          "transform",
+          `translate(${offsetX || 0} ${
+            offsetY || 0
+          }) rotate(${degree} ${cx} ${cy})`,
+        );
+        g.setAttribute("opacity", `${opacity}`);
+
+        // the picture is cut to the box, and to the shape of the node
+        const clipPath = doc.createElementNS(SVG_NS, "clipPath");
+
+        clipPath.id = `image-media-clipPath-${element.id}`;
+        clipPath.setAttribute("clipPathUnits", "userSpaceOnUse");
+
+        const cut = mediaClip(placedMedia, element.width, element.height);
+        let shape: Element;
+
+        if (cut.kind === "ellipse") {
+          shape = doc.createElementNS(SVG_NS, "ellipse");
+          shape.setAttribute("cx", `${element.width / 2}`);
+          shape.setAttribute("cy", `${element.height / 2}`);
+          shape.setAttribute("rx", `${element.width / 2}`);
+          shape.setAttribute("ry", `${element.height / 2}`);
+        } else if (cut.kind === "polygon") {
+          shape = doc.createElementNS(SVG_NS, "polygon");
+          shape.setAttribute(
+            "points",
+            cut.points.map(([px, py]) => `${px},${py}`).join(" "),
+          );
+        } else {
+          shape = doc.createElementNS(SVG_NS, "rect");
+          shape.setAttribute("x", "0");
+          shape.setAttribute("y", "0");
+          shape.setAttribute("width", `${element.width}`);
+          shape.setAttribute("height", `${element.height}`);
+
+          if (cut.kind === "roundRect") {
+            shape.setAttribute("rx", `${cut.radius}`);
+            shape.setAttribute("ry", `${cut.radius}`);
+          }
+        }
+
+        clipPath.appendChild(shape);
+        addToRoot(clipPath, element);
+        g.setAttribute("clip-path", `url(#${clipPath.id})`);
+        g.appendChild(picture);
+
+        const wrapped = maybeWrapNodesInFrameClipPath(
+          element,
+          root,
+          [g],
+          renderConfig.frameRendering,
+          elementsMap,
+        );
+
+        addToRoot(wrapped || g, element);
+        break;
+      }
+
       if (fileData) {
         const { reuseImages = true } = renderConfig;
 

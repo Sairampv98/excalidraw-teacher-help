@@ -14,7 +14,7 @@
  * so one undo takes the whole change back.
  */
 
-import { newElementWith } from "@excalidraw/element";
+import { captionOf, mediaOf, newElementWith } from "@excalidraw/element";
 import { randomInteger } from "@excalidraw/common";
 
 import type {
@@ -108,7 +108,11 @@ const REBUILD_ONLY: readonly FlowPresetId[] = ["target", "venn", "timeline"];
 const bare = (label: string, preset: FlowPresetId) =>
   preset === "steps" ? label.replace(/^\d+\.\s+/, "") : label;
 
-/** the text bound to a shape */
+/**
+ * The text of a shape: the text bound to it, or - while the node holds media -
+ * the caption under it (D-248), which is the node's words as much as the bound
+ * text is.
+ */
 const textOf = (
   shape: ExcalidrawElement,
   byId: ReadonlyMap<string, ExcalidrawElement>,
@@ -117,6 +121,16 @@ const textOf = (
     const element = byId.get(bound.id);
 
     if (element && element.type === "text" && !element.isDeleted) {
+      return element;
+    }
+  }
+
+  for (const element of byId.values()) {
+    if (
+      element.type === "text" &&
+      !element.isDeleted &&
+      captionOf(element)?.of === shape.id
+    ) {
       return element;
     }
   }
@@ -309,13 +323,86 @@ const rebuild = (
       )
     : built.elements;
 
+  // The media of a node (D-246) comes across to the node that is made again for
+  // the same line of the script, with its group; the media of a node that has no
+  // line any more goes with it. Without this the picture is left on the page, in
+  // the place of a node that is no longer there.
+  const oldNodeLine = new Map<string, string>();
+
+  for (const element of alive) {
+    if (
+      flowOf(element).role === "node" &&
+      element.type !== "text" &&
+      element.type !== "arrow"
+    ) {
+      oldNodeLine.set(element.id, String(flowOf(element).nodeId));
+    }
+  }
+
+  const newNodeOfLine = new Map<string, ExcalidrawElement>();
+
+  for (const element of made) {
+    if (
+      flowOf(element).role === "node" &&
+      element.type !== "text" &&
+      element.type !== "arrow"
+    ) {
+      newNodeOfLine.set(String(flowOf(element).nodeId), element);
+    }
+  }
+
+  const movedMedia = new Map<string, ExcalidrawElement>();
+  const groupOf = new Map<string, string>();
+
+  for (const element of args.elements) {
+    const media = element.isDeleted ? null : mediaOf(element);
+    const line = media ? oldNodeLine.get(media.of) : undefined;
+
+    if (!media || line === undefined) {
+      continue;
+    }
+
+    const node = newNodeOfLine.get(line);
+
+    if (!node) {
+      movedMedia.set(element.id, newElementWith(element, { isDeleted: true }));
+      continue;
+    }
+
+    const { sig: _stale, ...rest } = media;
+
+    // no signature: the media is fitted to the new node when the scene changes
+    movedMedia.set(
+      element.id,
+      newElementWith(element, {
+        customData: { ...element.customData, media: { ...rest, of: node.id } },
+      }),
+    );
+
+    if (element.groupIds[0]) {
+      groupOf.set(node.id, element.groupIds[0]);
+    }
+  }
+
+  const inGroup = (element: ExcalidrawElement) => {
+    const gid =
+      groupOf.get(element.id) ??
+      (element.type === "text" && element.containerId
+        ? groupOf.get(element.containerId)
+        : undefined);
+
+    return gid ? { ...element, groupIds: [gid, ...element.groupIds] } : element;
+  };
+
   const elements = [
-    ...args.elements.map((element) =>
-      oldIds.has(element.id) && !element.isDeleted
-        ? newElementWith(element, { isDeleted: true })
-        : element,
+    ...args.elements.map(
+      (element) =>
+        movedMedia.get(element.id) ??
+        (oldIds.has(element.id) && !element.isDeleted
+          ? newElementWith(element, { isDeleted: true })
+          : element),
     ),
-    ...made,
+    ...made.map(inGroup),
   ];
 
   return {
@@ -487,7 +574,8 @@ export const applyFlowScript = (
           flow: { ...flowOf(text), nodeId: node.id },
         },
       });
-      updated.set(text.id, centred(text, box));
+      // a caption stays under its node; the words in a node are centred in it
+      updated.set(text.id, captionOf(text) ? text : centred(text, box));
     }
 
     nodeBoxes.set(node.id, box);
@@ -687,7 +775,10 @@ export const applyFlowScript = (
   const next: ExcalidrawElement[] = [];
 
   for (const element of args.elements) {
-    if (removedIds.has(element.id)) {
+    // the media of a node that goes (D-246) goes with it
+    const media = element.isDeleted ? null : mediaOf(element);
+
+    if (removedIds.has(element.id) || (media && removedIds.has(media.of))) {
       next.push(
         element.isDeleted
           ? element

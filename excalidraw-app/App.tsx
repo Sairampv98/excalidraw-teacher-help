@@ -58,7 +58,6 @@ import {
   restoreElements,
 } from "@excalidraw/excalidraw/data/restore";
 import { newElementWith } from "@excalidraw/element";
-import { isInitializedImageElement } from "@excalidraw/element";
 import { syncInvalidIndices } from "@excalidraw/element";
 import clsx from "clsx";
 import {
@@ -130,6 +129,7 @@ import {
 } from "./data";
 
 import { updateStaleImageStatuses } from "./data/FileManager";
+import { fileIdsOfAll } from "./data/fileIds";
 import { FileStatusStore } from "./data/fileStatusStore";
 import {
   importFromLocalStorage,
@@ -159,6 +159,7 @@ import { EdgeDocks } from "./dock/EdgeDocks";
 import { useEdgeDocksEnabled } from "./dock/dockTypes";
 import PageBar from "./components/PageBar";
 import StickerBar from "./emoji/StickerBar";
+import { MediaCropMode } from "./sidebar/MediaCrop";
 import { NodeMediaDrop } from "./sidebar/NodeMediaPanel";
 import { ExcalidrawPlusIframeExport } from "./ExcalidrawPlusIframeExport";
 import { isPresenterWindow } from "./presenter/presenterChannel";
@@ -815,13 +816,8 @@ const ExcalidrawWrapper = () => {
             });
         }
       } else {
-        const fileIds =
-          data.scene.elements?.reduce((acc, element) => {
-            if (isInitializedImageElement(element)) {
-              return acc.concat(element.fileId);
-            }
-            return acc;
-          }, [] as FileId[]) || [];
+        // the files of the images and of the panels that are made of a file (D-250)
+        const fileIds = fileIdsOfAll(data.scene.elements);
 
         if (data.isExternalScene) {
           if (fileIds.length) {
@@ -941,17 +937,10 @@ const ExcalidrawWrapper = () => {
         if (isBrowserStorageStateNewer(STORAGE_KEYS.VERSION_FILES)) {
           const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
           const currFiles = excalidrawAPI.getFiles();
-          const fileIds =
-            elements?.reduce((acc, element) => {
-              if (
-                isInitializedImageElement(element) &&
-                // only load and update images that aren't already loaded
-                !currFiles[element.fileId]
-              ) {
-                return acc.concat(element.fileId);
-              }
-              return acc;
-            }, [] as FileId[]) || [];
+          // only load and update files that aren't already loaded
+          const fileIds = fileIdsOfAll(elements).filter(
+            (fileId) => !currFiles[fileId],
+          );
           if (fileIds.length) {
             LocalData.fileStorage
               .getFiles(fileIds)
@@ -1574,6 +1563,9 @@ const ExcalidrawWrapper = () => {
 
         {/* a picture, GIF or video dropped on a node of a chart goes into it */}
         <NodeMediaDrop />
+
+        {/* the crop screen of the picture in a node */}
+        <MediaCropMode />
 
         <ShareDialog
           collabAPI={collabAPI}

@@ -166,7 +166,13 @@ describe("AC-282 a GIF and a video in a node play, cut to the node's shape", () 
     });
 
     expect(panel.hasAttribute("data-node-media")).toBe(true);
-    expect(panel.style.clipPath).toBe("ellipse(50% 50% at 50% 50%)");
+    // the video is cut to the shape; the panel round it is not, so that its lock
+    // and the choices of a screenshot are not cut with it
+    expect(
+      panel.querySelector<HTMLElement>('[data-testid="panel-video-box"]')!.style
+        .clipPath,
+    ).toBe("ellipse(50% 50% at 50% 50%)");
+    expect(panel.style.clipPath).toBe("");
 
     const player = panel.querySelector<HTMLVideoElement>(
       '[data-testid="panel-video"]',
