@@ -24,6 +24,7 @@ import {
   highlightShapeOf,
   arrowLabelsOf,
   nodeHighlightParts,
+  stepHoldsMedia,
 } from "../scene/flowHighlight";
 import { chartScaleOf } from "../scene/flowScale";
 import { flowMarksFor } from "../scene/flowStyles";
@@ -458,6 +459,7 @@ const ClassNodes = ({
             key={`${index}-${element.id}-${letters ? "letters" : "outline"}`}
             className="excalidraw__flow-animation-shape"
             data-flow-class-node={flow.settings.node}
+            data-flow-media={stepHoldsMedia(step, elementsMap) ? "" : undefined}
             {...lookAttrs(flow.settings)}
             style={{
               width: box.width,

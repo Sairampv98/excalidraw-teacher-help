@@ -36,6 +36,7 @@ import type {
 } from "@excalidraw/element/types";
 
 import { codeCardColumns, highlightCode, layoutCode } from "./codeCard";
+import { nodeDrop } from "./nodeDropHook";
 
 /**
  * Appends freshly created elements to the scene. `reconcileElements` is what
@@ -842,6 +843,21 @@ export const armFileDragOnCanvas = (
 
     const client = { clientX: event.clientX, clientY: event.clientY };
     const at = clientPointToScene(api, canvas, client.clientX, client.clientY);
+
+    // released on a node of a chart: the file goes into the node (D-246)
+    const onNode = nodeDrop();
+
+    if (onNode?.claims(at)) {
+      onNode.add(stashed.file, at).catch((error) => {
+        console.error(error);
+        api.setToast?.({
+          message: `Could not add ${stashed.file.name}`,
+          closable: true,
+        });
+      });
+
+      return;
+    }
 
     // the image path is the default; a video brings its own inserter, because
     // a video becomes a panel (D-98)

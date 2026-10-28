@@ -1873,7 +1873,9 @@ const VideoPanelSurface = ({
   const reportPosition = useCallback(() => {
     const video = videoRef.current;
 
-    if (!video) {
+    // the video of a node is a loop that plays by itself in every window: its
+    // position is not shared, and nothing is written to the element (D-246)
+    if (!video || isNodeMedia) {
       return;
     }
 
@@ -1889,7 +1891,7 @@ const VideoPanelSurface = ({
       time: video.currentTime || 0,
       playing: !video.paused,
     });
-  }, [activeTrack, onVideoEvent, panel.id]);
+  }, [activeTrack, isNodeMedia, onVideoEvent, panel.id]);
 
   /**
    * Applies the position the editor published, and keeps the video moving
@@ -1957,7 +1959,8 @@ const VideoPanelSurface = ({
    * as the element carries one.
    */
   useEffect(() => {
-    if (!mirror) {
+    // the video of a node plays by itself, so there is nothing to follow
+    if (!mirror || isNodeMedia) {
       return;
     }
 
@@ -1970,7 +1973,7 @@ const VideoPanelSurface = ({
     receivedRef.current = playback;
 
     applyPublishedPlayback(Date.now());
-  }, [applyPublishedPlayback, mirror, panel]);
+  }, [applyPublishedPlayback, isNodeMedia, mirror, panel]);
 
   /**
    * The local clock: the video keeps playing between the updates, and the
@@ -1981,7 +1984,7 @@ const VideoPanelSurface = ({
    * on a timer — slower, but the same rule.
    */
   useEffect(() => {
-    if (!mirror) {
+    if (!mirror || isNodeMedia) {
       return;
     }
 
@@ -2030,7 +2033,7 @@ const VideoPanelSurface = ({
         withFrameCallback.cancelVideoFrameCallback?.(frameHandle);
       }
     };
-  }, [applyPublishedPlayback, mirror]);
+  }, [applyPublishedPlayback, isNodeMedia, mirror]);
 
   const togglePlay = () => {
     const video = videoRef.current;

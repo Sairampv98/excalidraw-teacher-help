@@ -25,6 +25,7 @@ import {
 import { chartScaleOf } from "../scene/flowScale";
 import {
   highlightBoxOf,
+  stepHoldsMedia,
   drawnLabelIds,
   highlightShapeOf,
   arrowLabelsOf,
@@ -640,6 +641,10 @@ export const FlowAnimationOverlay = ({
     (element): element is ExcalidrawElement => Boolean(element),
   );
 
+  // a step that holds media (D-246) is only outlined: a wash of the colour over
+  // the picture would change it
+  const stepHasMedia = stepHoldsMedia(step, elementsMap);
+
   // the box and the outline of a step's container, for what is drawn on a whole
   // step - the dimming and the choices (D-192)
   const containerShape = (step: FlowStep) => {
@@ -802,6 +807,7 @@ export const FlowAnimationOverlay = ({
                 letters ? "letters" : "outline"
               }`}
               className="excalidraw__flow-animation-shape"
+              data-flow-media={stepHasMedia ? "" : undefined}
               style={{
                 width: elementBox.width,
                 height: elementBox.height,

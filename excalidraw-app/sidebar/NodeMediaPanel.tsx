@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 
 import { canHoldMedia, mediaOf } from "@excalidraw/element";
-import { useExcalidrawAPI } from "@excalidraw/excalidraw";
+import { CaptureUpdateAction, useExcalidrawAPI } from "@excalidraw/excalidraw";
 
 import type { ExcalidrawElement } from "@excalidraw/element/types";
 
 import { sceneAtClientPoint } from "./insertIntoScene";
+import { setNodeDrop } from "./nodeDropHook";
 import {
   addMediaToNode,
+  fitMediaToNodes,
   mediaElementsOfNode,
   mediaKindOf,
   nodeAtPoint,
@@ -126,6 +128,26 @@ export const NodeMediaPanel = () => {
 export const NodeMediaDrop = () => {
   const api = useExcalidrawAPI();
 
+  // the media follows its node when the node's shape or size is changed by the
+  // script, by Apply or by its own handles (D-246). It is part of the change
+  // that caused it, so it is not a step of its own in the undo history.
+  useEffect(() => {
+    if (!api) {
+      return;
+    }
+
+    return api.onChange(() => {
+      const fitted = fitMediaToNodes(api.getSceneElementsIncludingDeleted());
+
+      if (fitted) {
+        api.updateScene({
+          elements: fitted,
+          captureUpdate: CaptureUpdateAction.NEVER,
+        });
+      }
+    });
+  }, [api]);
+
   useEffect(() => {
     if (!api) {
       return;
@@ -174,9 +196,21 @@ export const NodeMediaDrop = () => {
     document.addEventListener("dragover", onDragOver, true);
     document.addEventListener("drop", onDrop, true);
 
+    // the other roads to a node - a file from the sidebar, a sticker from the
+    // emoji bar - ask here (D-246)
+    setNodeDrop({
+      claims: (at) => !!nodeAtPoint(api.getSceneElements(), at),
+      add: async (file, at) => {
+        const node = nodeAtPoint(api.getSceneElements(), at);
+
+        return node ? addMediaToNode(api, node.id, file) : null;
+      },
+    });
+
     return () => {
       document.removeEventListener("dragover", onDragOver, true);
       document.removeEventListener("drop", onDrop, true);
+      setNodeDrop(null);
     };
   }, [api]);
 

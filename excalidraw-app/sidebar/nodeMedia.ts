@@ -18,6 +18,7 @@ import {
   mediaOf,
   mediaShapeOfNode,
   newElementWith,
+  nodeSignature,
   newImageElement,
 } from "@excalidraw/element";
 import {
@@ -101,6 +102,86 @@ export const nodeAtPoint = (
   }
 
   return null;
+};
+
+/** the media data that fits a node: its shape, its radius and what it looks like now */
+const nodeMediaOf = (node: ExcalidrawElement): NodeMedia => {
+  const shape = mediaShapeOfNode(node);
+  const radius = node.roundness
+    ? getCornerRadius(Math.min(node.width, node.height), node)
+    : 0;
+
+  return {
+    of: node.id,
+    shape,
+    radius,
+    sig: nodeSignature(node, shape, radius),
+  };
+};
+
+/**
+ * The scene with the media of every node fitted to its node, or null when all
+ * of it is. A node whose shape or size was changed (by the script, by Apply, by
+ * its own handles) changes the cut and the box of its media; a node that was
+ * only moved needs nothing but the media's place. What the teacher did to the
+ * media itself is left alone while its node is as it was.
+ */
+export const fitMediaToNodes = (
+  elements: readonly ExcalidrawElement[],
+): ExcalidrawElement[] | null => {
+  const byId = new Map(elements.map((element) => [element.id, element]));
+  let changed = false;
+
+  const next = elements.map((element) => {
+    const media = element.isDeleted ? null : mediaOf(element);
+    const node = media ? byId.get(media.of) : undefined;
+
+    if (!media || !node || node.isDeleted) {
+      return element;
+    }
+
+    const fitted = nodeMediaOf(node);
+
+    if (media.sig === fitted.sig) {
+      // the same shape and size: the media only follows the node's place
+      if (
+        Math.abs(element.x - node.x) < 0.01 &&
+        Math.abs(element.y - node.y) < 0.01
+      ) {
+        return element;
+      }
+
+      changed = true;
+
+      return newElementWith(element, { x: node.x, y: node.y });
+    }
+
+    changed = true;
+
+    const box = {
+      x: node.x,
+      y: node.y,
+      width: node.width,
+      height: node.height,
+    };
+    const refit: Record<string, unknown> = {
+      ...box,
+      angle: node.angle,
+      customData: customDataWithMedia(element.customData, fitted),
+    };
+
+    // a picture is cut again to the box's shape
+    if (element.type === "image" && element.crop) {
+      refit.crop = coverCrop(box, {
+        width: element.crop.naturalWidth,
+        height: element.crop.naturalHeight,
+      });
+    }
+
+    return newElementWith(element, refit);
+  });
+
+  return changed ? next : null;
 };
 
 /** takes the media out of a node: its words come back */
@@ -271,14 +352,7 @@ export const addMediaToNode = async (
 
   removeMediaFromNode(api, nodeId);
 
-  const shape = mediaShapeOfNode(node);
-  const media = {
-    of: node.id,
-    shape,
-    radius: node.roundness
-      ? getCornerRadius(Math.min(node.width, node.height), node)
-      : 0,
-  };
+  const media = nodeMediaOf(node);
   const gid = randomId();
   const groupIds = [gid, ...node.groupIds];
   const box = { x: node.x, y: node.y, width: node.width, height: node.height };

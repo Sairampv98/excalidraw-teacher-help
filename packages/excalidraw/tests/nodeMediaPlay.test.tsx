@@ -6,7 +6,7 @@
  */
 
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MIME_TYPES } from "@excalidraw/common";
 import { customDataWithMedia } from "@excalidraw/element";
@@ -17,10 +17,21 @@ import type {
   FileId,
 } from "@excalidraw/element/types";
 
+import {
+  stopFlowAnimation,
+  setFlowClassPreview,
+} from "../components/FlowAnimationState";
+import { AnimationController } from "../renderer/animation";
+import { withFlowClass } from "../scene/flowClass";
+import { FLOW_LOOK_DEFAULTS } from "../scene/flowLook";
+import { buildFlowPreset } from "../scene/flowPresets";
+
 import { Excalidraw, videoPanelContent } from "../index";
 
 import { API } from "./helpers/api";
 import { render, waitFor } from "./test-utils";
+
+import type { FlowClassSettings } from "../scene/flowClass";
 
 import type { BinaryFileData } from "../types";
 
@@ -189,5 +200,183 @@ describe("AC-282 a GIF and a video in a node play, cut to the node's shape", () 
 
     expect(player.loop).toBe(false);
     expect(player.autoplay).toBe(false);
+  });
+
+  describe("in the presenter", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    /** the presenter is the editor in view mode: it mirrors what the editor published */
+    const mountMirror = async (panel: ExcalidrawPanelElement) => {
+      await render(
+        <Excalidraw
+          viewModeEnabled={true}
+          initialData={{ elements: [panel as never], files }}
+        />,
+      );
+      API.setAppState({ width: 1000, height: 1000 });
+
+      return waitFor(() => {
+        const found = document.querySelector<HTMLVideoElement>(
+          '[data-testid="panel-video"]',
+        );
+
+        expect(found).not.toBeNull();
+
+        return found!;
+      });
+    };
+
+    const published = (panel: ExcalidrawPanelElement) =>
+      ({
+        ...panel,
+        // the editor said: stopped, at 12 seconds
+        playback: { time: 12, playing: false },
+      } as unknown as ExcalidrawPanelElement);
+
+    it("AC-282 the video of a node plays by itself in the presenter", async () => {
+      const pause = vi
+        .spyOn(HTMLMediaElement.prototype, "pause")
+        .mockImplementation(() => {});
+
+      vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(() =>
+        Promise.resolve(),
+      );
+
+      const player = await mountMirror(published(video("ellipse")));
+
+      // the editor's position is not followed: the loop is not stopped and not
+      // moved to where the editor was
+      expect(pause).not.toHaveBeenCalled();
+      expect(player.currentTime).not.toBe(12);
+      expect(player.loop).toBe(true);
+      expect(player.autoplay).toBe(true);
+    });
+
+    it("AC-282 a video that is not in a node follows the editor in the presenter", async () => {
+      vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(() =>
+        Promise.resolve(),
+      );
+      vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(
+        () => {},
+      );
+
+      const player = await mountMirror(published(video(null)));
+
+      // the control: the panel that is not media still takes the editor's position
+      await waitFor(() => expect(player.currentTime).toBe(12));
+    });
+  });
+
+  describe("the highlight of a node", () => {
+    const SETTINGS: FlowClassSettings = {
+      ...FLOW_LOOK_DEFAULTS,
+      node: "pulse",
+      arrow: "token",
+      speed: 240,
+      stepMs: 100000,
+      loop: true,
+    };
+
+    afterEach(() => {
+      stopFlowAnimation();
+      setFlowClassPreview(false);
+      AnimationController.cancel("flow-class");
+    });
+
+    /** a chart marked for the class view, with a picture over its first node or none */
+    const chart = (withMedia: boolean) => {
+      const built = buildFlowPreset(
+        "process",
+        ["Start", "Work", "Finish"].join(String.fromCharCode(10)),
+        {
+          seed: 4,
+        },
+      );
+
+      if (!built.ok) {
+        throw new Error(built.error);
+      }
+
+      const elements = built.elements.map((element) =>
+        element.type !== "arrow" &&
+        element.type !== "text" &&
+        element.boundElements?.length
+          ? {
+              ...element,
+              customData: withFlowClass(element, SETTINGS),
+            }
+          : element,
+      ) as ExcalidrawElement[];
+
+      if (!withMedia) {
+        return elements;
+      }
+
+      // the first step is the shape at the top
+      const first = elements
+        .filter(
+          (element) => element.type !== "arrow" && element.type !== "text",
+        )
+        .sort((a, b) => a.y - b.y || a.x - b.x)[0];
+
+      return [
+        ...elements,
+        {
+          ...API.createElement({
+            type: "image",
+            fileId: GIF_ID,
+            x: first.x,
+            y: first.y,
+            width: first.width,
+            height: first.height,
+          }),
+          customData: customDataWithMedia(undefined, {
+            of: first.id,
+            shape: "rectangle",
+            radius: 0,
+          }),
+        } as ExcalidrawElement,
+      ];
+    };
+
+    const outlines = async (withMedia: boolean) => {
+      await render(
+        <Excalidraw
+          viewModeEnabled={true}
+          initialData={{ elements: chart(withMedia) as never, files }}
+        />,
+      );
+      API.setAppState({ width: 1400, height: 900 });
+
+      return waitFor(() => {
+        const shapes = [
+          ...document.querySelectorAll(
+            ".excalidraw__flow-class .excalidraw__flow-animation-shape",
+          ),
+        ];
+
+        expect(shapes.length).toBeGreaterThan(0);
+
+        return shapes;
+      });
+    };
+
+    it("AC-282 a node that holds media is only outlined, so the picture is not washed", async () => {
+      const shapes = await outlines(true);
+
+      expect(
+        shapes.some((shape) => shape.hasAttribute("data-flow-media")),
+      ).toBe(true);
+    });
+
+    it("AC-282 a node without media is highlighted as it was", async () => {
+      const shapes = await outlines(false);
+
+      expect(
+        shapes.some((shape) => shape.hasAttribute("data-flow-media")),
+      ).toBe(false);
+    });
   });
 });

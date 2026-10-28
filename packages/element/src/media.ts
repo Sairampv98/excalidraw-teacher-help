@@ -31,6 +31,11 @@ export type NodeMedia = {
   shape: MediaShape;
   /** the radius of a rounded cut, in scene units */
   radius: number;
+  /**
+   * What the node looked like when the media was fitted to it (`nodeSignature`):
+   * when the node's shape or size is changed later, the media is fitted again.
+   */
+  sig?: string;
 };
 
 export const isMediaShape = (value: unknown): value is MediaShape =>
@@ -54,6 +59,7 @@ export const mediaOf = (
       typeof stored.radius === "number" && Number.isFinite(stored.radius)
         ? Math.max(0, stored.radius)
         : 0,
+    ...(typeof stored.sig === "string" ? { sig: stored.sig } : {}),
   };
 };
 
@@ -93,6 +99,23 @@ export const mediaShapeOfNode = (
       return node.roundness ? "rounded" : "rectangle";
   }
 };
+
+/**
+ * What fits media to a node: the node's shape and size, not its place (a node
+ * that is moved takes its media with it and needs nothing refitted).
+ */
+export const nodeSignature = (
+  node: Pick<ExcalidrawElement, "type" | "width" | "height" | "angle">,
+  shape: MediaShape,
+  radius: number,
+) =>
+  [
+    shape,
+    Math.round(node.width * 100) / 100,
+    Math.round(node.height * 100) / 100,
+    Math.round(node.angle * 1000) / 1000,
+    Math.round(radius * 100) / 100,
+  ].join("|");
 
 /* ------------------------------------------------------------------- the cut */
 

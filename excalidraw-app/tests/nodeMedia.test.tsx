@@ -20,11 +20,19 @@ import {
   screen,
   waitFor,
 } from "@excalidraw/excalidraw/tests/test-utils";
-import { coverCrop, mediaOf } from "@excalidraw/element";
+import {
+  CaptureUpdateAction,
+  coverCrop,
+  mediaOf,
+  newElementWith,
+} from "@excalidraw/element";
 
 import type { ExcalidrawElement } from "@excalidraw/element/types";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
+import { STICKER_DRAG_TYPE } from "../emoji/insertSticker";
+import StickerBar from "../emoji/StickerBar";
+import { armFileDragOnCanvas } from "../sidebar/insertIntoScene";
 import { NodeMediaDrop, NodeMediaPanel } from "../sidebar/NodeMediaPanel";
 import {
   addMediaToNode,
@@ -449,6 +457,221 @@ describe("AC-280 a picture goes into a node", () => {
       API.setSelectedElements([arrow]);
     });
     await waitFor(() => expect(screen.queryByTestId("node-media")).toBeNull());
+  });
+
+  /** a drop at a client point, made by hand: jsdom has no DragEvent */
+  const dropAt = (
+    target: EventTarget,
+    dataTransfer: unknown,
+    x: number,
+    y: number,
+  ) => {
+    const event = new Event("drop", { bubbles: true, cancelable: true });
+
+    Object.assign(event, { dataTransfer, clientX: x, clientY: y });
+
+    return target.dispatchEvent(event);
+  };
+
+  /** where the middle of a node is on the page, in client pixels */
+  const middleOf = (node: ExcalidrawElement) => {
+    const { scrollX, scrollY, zoom } = api.getAppState();
+
+    return [
+      (node.x + node.width / 2 + scrollX) * zoom.value,
+      (node.y + node.height / 2 + scrollY) * zoom.value,
+    ] as const;
+  };
+
+  const canvas = () =>
+    document.querySelector("canvas.excalidraw__canvas.interactive")!;
+
+  const images = () => live().filter((element) => element.type === "image");
+
+  it("AC-280 an emoji or GIF dragged from the emoji bar onto a node goes into it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        blob: async () => new Blob(["x"], { type: "image/gif" }),
+      })),
+    );
+
+    await mount(
+      chart((node) => node),
+      <>
+        <StickerBar />
+        <NodeMediaDrop />
+      </>,
+    );
+
+    const node = firstNode();
+    const before = images().length;
+    const sticker = (id: string) => ({
+      types: [STICKER_DRAG_TYPE],
+      getData: (type: string) => (type === STICKER_DRAG_TYPE ? id : ""),
+      files: [],
+    });
+
+    await act(async () => {
+      dropAt(canvas(), sticker("fire"), ...middleOf(node));
+    });
+
+    await waitFor(() =>
+      expect(mediaElementsOfNode(live(), node.id)).toHaveLength(1),
+    );
+    // it is in the node, and it is not also put loose on the page
+    expect(images()).toHaveLength(before + 1);
+
+    // dropped on a place that is on no node, it is put on the page as it was
+    await act(async () => {
+      dropAt(canvas(), sticker("fire"), -4000, -4000);
+    });
+
+    await waitFor(() => expect(images()).toHaveLength(before + 2));
+    expect(mediaElementsOfNode(live(), node.id)).toHaveLength(1);
+  });
+
+  it("AC-280 a file dragged from the sidebar onto a node goes into it", async () => {
+    await mount(
+      chart((node) => node),
+      <NodeMediaDrop />,
+    );
+
+    const node = firstNode();
+
+    // the canvas has a box in the page, as it has in a browser
+    const box = vi
+      .spyOn(HTMLCanvasElement.prototype, "getBoundingClientRect")
+      .mockReturnValue({
+        left: 0,
+        top: 0,
+        right: 2000,
+        bottom: 2000,
+        width: 2000,
+        height: 2000,
+        x: 0,
+        y: 0,
+        toJSON: () => {},
+      });
+
+    const cancel = armFileDragOnCanvas(api, { kind: "image", file: png() });
+
+    await act(async () => {
+      dropAt(window, { files: [], types: [] }, ...middleOf(node));
+    });
+    cancel();
+    box.mockRestore();
+
+    await waitFor(() =>
+      expect(mediaElementsOfNode(live(), node.id)).toHaveLength(1),
+    );
+    // and nothing was put on the page beside it
+    expect(images()).toHaveLength(1);
+  });
+
+  it("AC-280 media follows its node when the node's shape or size is changed", async () => {
+    await mount(
+      chart((node) => node),
+      <NodeMediaDrop />,
+    );
+
+    const node = firstNode();
+
+    await addMediaToNode(api, node.id, png());
+
+    const media = () => mediaElementsOfNode(live(), node.id)[0];
+    const crop = () =>
+      (media() as unknown as { crop: { width: number; height: number } }).crop;
+
+    // the chart's boxes are rounded
+    expect(mediaOf(media())?.shape).toBe("rounded");
+
+    const change = (updates: Record<string, unknown>) =>
+      act(() => {
+        api.updateScene({
+          elements: api
+            .getSceneElementsIncludingDeleted()
+            .map((element) =>
+              element.id === node.id
+                ? newElementWith(element, updates as never)
+                : element,
+            ),
+          captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+        });
+      });
+
+    // the shape is changed, as the script's @circle does
+    change({ type: "ellipse", roundness: null });
+
+    await waitFor(() => expect(mediaOf(media())?.shape).toBe("ellipse"));
+    expect(media()).toMatchObject({ width: node.width, height: node.height });
+
+    // the size is changed: the box and the crop are made again
+    change({ width: node.width * 2, height: node.height * 3 });
+
+    await waitFor(() => expect(media().width).toBeCloseTo(node.width * 2));
+    expect(media().height).toBeCloseTo(node.height * 3);
+    expect(crop().width / crop().height).toBeCloseTo(
+      (node.width * 2) / (node.height * 3),
+      5,
+    );
+
+    // only moved: the media follows and its crop is left alone
+    const kept = { ...crop() };
+
+    change({ x: node.x + 50, y: node.y + 20 });
+
+    await waitFor(() => expect(media().x).toBeCloseTo(node.x + 50));
+    expect(media().y).toBeCloseTo(node.y + 20);
+    expect(crop()).toEqual(kept);
+  });
+
+  it("AC-280 what is done to the media itself is left alone while its node is as it was", async () => {
+    await mount(
+      chart((node) => node),
+      <NodeMediaDrop />,
+    );
+
+    const node = firstNode();
+
+    await addMediaToNode(api, node.id, png());
+
+    const [picture] = mediaElementsOfNode(live(), node.id);
+    const own = {
+      x: 40,
+      y: 10,
+      width: 120,
+      height: 60,
+      naturalWidth: 400,
+      naturalHeight: 200,
+    };
+
+    // the teacher crops the picture by hand
+    act(() => {
+      api.updateScene({
+        elements: api
+          .getSceneElementsIncludingDeleted()
+          .map((element) =>
+            element.id === picture.id
+              ? newElementWith(element, { crop: own } as never)
+              : element,
+          ),
+      });
+    });
+
+    // another change of the scene: the crop stays
+    act(() => {
+      api.updateScene({
+        elements: api.getSceneElementsIncludingDeleted().slice(),
+      });
+    });
+    await act(async () => {});
+
+    expect(
+      (mediaElementsOfNode(live(), node.id)[0] as unknown as { crop: unknown })
+        .crop,
+    ).toEqual(own);
   });
 });
 
