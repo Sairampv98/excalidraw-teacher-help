@@ -1065,6 +1065,8 @@ export type PanelRunControls = {
   languages?: string[];
   /** the teacher pressed Run */
   onRun?: (panelId: string) => void;
+  /** Run works with no bridge: the host runs Python in the browser */
+  canRunInBrowser?: boolean;
 };
 
 /**

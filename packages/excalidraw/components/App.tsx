@@ -374,13 +374,11 @@ import { defaultLang, getLanguage, languages, setLanguage, t } from "../i18n";
 
 import {
   calculateScrollCenter,
-  clampCameraToPage,
   countElementsInsidePageRect,
   getCameraForPage,
   getCurrentPageRect,
   getElementsWithinSelection,
   getNormalizedZoom,
-  getPageClampRect,
   getPageDecoration,
   getPageRect,
   getPageViewportWidth,
@@ -568,7 +566,6 @@ import type {
   ExcalidrawImperativeAPIEventMap,
   GenerateDiagramToCode,
   NullableGridSize,
-  NormalizedZoomValue,
   Offsets,
   PageDecoration,
   PageRect,
@@ -4324,60 +4321,8 @@ class App extends React.Component<AppProps, AppState> {
       return;
     }
 
-    // page-scoped view: keep the camera inside the current page's rect.
-    // Clamping is idempotent, so this converges in a single follow-up render.
-    //
-    // A page whose **own rect** moved counts as a camera change here (D-144:
-    // the teacher picked a preset, so the page changed size, and a page that
-    // changed size moves the pages after it): the camera has to be inside the
-    // current page's rect, and a page that just moved may have left it outside.
-    //
-    // The pages may be missing from either state (a document that has none
-    // yet), and then there is no page that could have moved.
-    const prevPageRect = prevState.pages
-      ? getPageRect(prevState.pages, prevState.currentPageId)
-      : null;
-    const nextPageRect = this.state.pages
-      ? getPageRect(this.state.pages, this.state.currentPageId)
-      : null;
-    const currentPageMoved =
-      this.pagesEnabled &&
-      prevPageRect !== null &&
-      nextPageRect !== null &&
-      prevState.pages !== this.state.pages &&
-      prevState.currentPageId === this.state.currentPageId &&
-      (prevPageRect.x !== nextPageRect.x ||
-        prevPageRect.y !== nextPageRect.y ||
-        prevPageRect.width !== nextPageRect.width ||
-        prevPageRect.height !== nextPageRect.height);
-
-    if (
-      this.pagesEnabled &&
-      (prevState.scrollX !== this.state.scrollX ||
-        prevState.scrollY !== this.state.scrollY ||
-        prevState.zoom.value !== this.state.zoom.value ||
-        currentPageMoved)
-    ) {
-      const clamped = this.clampCameraToCurrentPage({
-        scrollX: this.state.scrollX,
-        scrollY: this.state.scrollY,
-        zoom: this.state.zoom,
-      });
-
-      if (
-        clamped.scrollX !== this.state.scrollX ||
-        clamped.scrollY !== this.state.scrollY ||
-        clamped.zoom !== this.state.zoom.value
-      ) {
-        this.setState({
-          scrollX: clamped.scrollX,
-          scrollY: clamped.scrollY,
-          zoom: { value: clamped.zoom },
-        });
-        return;
-      }
-    }
-
+    // The camera is not bound to the page: scrolling and the Hand tool reach
+    // content outside the page, and the page bar offers a way back (D-261).
     if (
       prevState.zoom.value !== this.state.zoom.value ||
       prevState.scrollX !== this.state.scrollX ||
@@ -5803,43 +5748,6 @@ class App extends React.Component<AppProps, AppState> {
   /** the current page's frame and number, if it has either (D-144) */
   private getCurrentPageDecoration = (): PageDecoration | null =>
     this.getCurrentPageLayout()?.decoration ?? null;
-
-  /** keeps the camera inside the current page's rect */
-  private clampCameraToCurrentPage = (
-    nextState: Pick<AppState, "scrollX" | "scrollY" | "zoom">,
-    baseState: AppState = this.state,
-  ): { scrollX: number; scrollY: number; zoom: NormalizedZoomValue } => {
-    if (!this.pagesEnabled) {
-      return {
-        scrollX: nextState.scrollX,
-        scrollY: nextState.scrollY,
-        zoom: nextState.zoom.value,
-      };
-    }
-
-    return clampCameraToPage({
-      scrollX: nextState.scrollX,
-      scrollY: nextState.scrollY,
-      zoom: nextState.zoom.value,
-      viewportWidth: getPageViewportWidth(
-        baseState.width,
-        this.pageViewportInset,
-      ),
-      viewportHeight: baseState.height,
-      // a floating element is not owned by its page, so it may sit outside the
-      // page rect — the camera has to be able to reach it
-      pageRect: getPageClampRect(
-        getCurrentPageRect(baseState.pages, baseState.currentPageId),
-        this.scene
-          .getNonDeletedElements()
-          .filter(
-            (element) =>
-              element.pageId === baseState.currentPageId && element.floating,
-          ),
-      ),
-      maxZoom: MAX_ZOOM,
-    });
-  };
 
   /**
    * How much of the canvas the open sidebar is sitting on top of.

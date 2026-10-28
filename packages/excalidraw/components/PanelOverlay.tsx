@@ -849,6 +849,9 @@ const CodePanelSurface = ({
    * They are the ones the **extension** found on this machine (D-124): the
    * picker never offers a language whose runtime is not there.
    */
+  /** Run works with the bridge, and without it when the host runs Python */
+  const canRun = connected || Boolean(run?.canRunInBrowser);
+
   const languageOptions = useMemo(() => {
     const options: string[] = [];
     if (editor.language) {
@@ -1012,7 +1015,7 @@ const CodePanelSurface = ({
         className="excalidraw__panel-code-run"
         data-testid="code-panel-run"
         data-panel-id={panel.id}
-        disabled={!connected}
+        disabled={!canRun}
         onClick={() => run?.onRun?.(panel.id)}
         title={t("labels.panel.code.runTitle")}
         aria-label={t("labels.panel.code.runTitle")}
@@ -1021,9 +1024,9 @@ const CodePanelSurface = ({
           border: `1px solid ${VS_CODE_DARK.border}`,
           borderRadius: 2,
           color: VS_CODE_DARK.foreground,
-          cursor: connected ? "pointer" : "not-allowed",
+          cursor: canRun ? "pointer" : "not-allowed",
           font: "inherit",
-          opacity: connected ? 1 : 0.6,
+          opacity: canRun ? 1 : 0.6,
         }}
       >
         {t("labels.panel.code.run")}
@@ -1041,14 +1044,16 @@ const CodePanelSurface = ({
           : t("labels.panel.code.theMirror")}
       </span>
       {!connected ? (
-        // Running needs the extension, and the extension is not there: the
-        // panel says so instead of pretending (D-124).
+        // Without the extension Python runs in the browser when the host can
+        // do it, and the panel says which it is (D-124).
         <span
           className="excalidraw__panel-code-run-note"
           data-testid="code-panel-run-needs-bridge"
           style={{ color: VS_CODE_DARK.muted }}
         >
-          {t("labels.panel.code.runNeedsBridge")}
+          {run?.canRunInBrowser
+            ? t("labels.panel.code.runInBrowser")
+            : t("labels.panel.code.runNeedsBridge")}
         </span>
       ) : null}
     </div>

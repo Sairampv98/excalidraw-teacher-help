@@ -214,7 +214,8 @@
         "runLanguageNone": "choose a language",
         "yourDraft": "your draft",
         "theMirror": "the mirror",
-        "runNeedsBridge": "Running needs the Excalidraw Bridge."
+        "runNeedsBridge": "Running needs the Excalidraw Bridge.",
+        "runInBrowser": "Runs Python in the browser."
       },
       "fileGone": "This panel's file is no longer in the document.",
       "mediaLoading": "Loading the video...",

@@ -836,3 +836,20 @@
   font-size: 0.75rem;
   font-family: inherit;
 }
+
+.app-doc-selection {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  margin-bottom: 0.4rem;
+  border-radius: 8px;
+  background: var(--color-surface-low, rgba(127, 127, 127, 0.12));
+}
+
+.app-doc-selection__label {
+  flex: 1 1 100%;
+  font-size: 0.75rem;
+  opacity: 0.75;
+}

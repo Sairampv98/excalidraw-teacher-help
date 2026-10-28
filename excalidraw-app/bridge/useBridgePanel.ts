@@ -38,6 +38,7 @@ import {
   INITIAL_BRIDGE_SESSION_STATE,
 } from "./bridgeSession";
 import { applyYoutubeCaptions, isVideoCaptionMessage } from "./videoCaptions";
+import { pythonRunner, runsInBrowser } from "./pythonRunner";
 
 import type { BridgeSession, BridgeSessionState } from "./bridgeSession";
 import type { ConnectionTruth } from "./codePanel";
@@ -655,6 +656,75 @@ export const useBridgePanel = (
   );
 
   /**
+   * Run with no bridge: Python runs in the browser, and the run is told to the
+   * panel with the same messages the extension sends, so the panel shows it
+   * the same way.
+   */
+  const runInBrowser = useCallback(
+    (text: string, language: string) => {
+      const runId = `browser-run-${++runCounter}`;
+      const say = (message: BridgeMessage) =>
+        publish(reduceCodePanelState(panelStateRef.current, message));
+
+      if (!runsInBrowser(language)) {
+        say({
+          v: 1,
+          type: "run:notice",
+          runId,
+          kind: "missing-runtime",
+          text: `Running ${language} needs the Excalidraw Bridge. Without it only Python runs, in the browser.`,
+        });
+        return false;
+      }
+
+      say({
+        v: 1,
+        type: "run:started",
+        runId,
+        command: "python (in the browser)",
+        cwd: "",
+      });
+
+      void pythonRunner
+        .run(text, {
+          onLoading: () =>
+            say({
+              v: 1,
+              type: "run:output",
+              runId,
+              stream: "stdout",
+              text: "Loading Python (the first run only)...\n",
+            }),
+          onOutput: (stream, output) =>
+            say({ v: 1, type: "run:output", runId, stream, text: output }),
+          onNotice: (kind, notice) =>
+            say({ v: 1, type: "run:notice", runId, kind, text: notice }),
+        })
+        .then((result) => {
+          if (result.kind === "load-failed") {
+            say({
+              v: 1,
+              type: "run:notice",
+              runId,
+              kind: "missing-runtime",
+              text: `Python could not be downloaded (${result.reason}). Check the connection and press Run to try again.`,
+            });
+          }
+
+          say({
+            v: 1,
+            type: "run:exit",
+            runId,
+            code: result.kind === "exit" ? result.code : null,
+          });
+        });
+
+      return true;
+    },
+    [publish],
+  );
+
+  /**
    * The teacher pressed Run (D-124).
    *
    * The **draft** and its language go to the extension, which runs it in the
@@ -665,13 +735,25 @@ export const useBridgePanel = (
       const session = sessionRef.current;
       const found = panelAndMirror(panelId);
 
-      if (!session || !found) {
+      if (!found) {
         return false;
+      }
+
+      if (!session) {
+        return runInBrowser(
+          found.draft?.text ?? found.mirror?.editor.text ?? "",
+          found.draft?.language || found.mirror?.editor.language || "",
+        );
       }
 
       const text = found.draft?.text ?? found.mirror?.editor.text ?? "";
       const language =
         found.draft?.language || found.mirror?.editor.language || "";
+
+      // with no bridge, Python runs in the browser
+      if (sessionStateRef.current.connection !== "connected") {
+        return runInBrowser(text, language);
+      }
 
       return session.runSnippet({
         id: `code-run-${++runCounter}`,
@@ -679,7 +761,7 @@ export const useBridgePanel = (
         text,
       });
     },
-    [panelAndMirror],
+    [panelAndMirror, runInBrowser],
   );
 
   const panelDraft: PanelDraftControls = useMemo(
@@ -688,7 +770,7 @@ export const useBridgePanel = (
   );
 
   const panelRun: PanelRunControls = useMemo(
-    () => ({ languages: runtimes, onRun }),
+    () => ({ languages: runtimes, onRun, canRunInBrowser: true }),
     [runtimes, onRun],
   );
 

@@ -138,6 +138,46 @@ export const reformatSelectionAsTable = (
 };
 
 /**
+ * Puts a text on the canvas as a code card, in the middle of what the teacher
+ * can see. Used for text selected in the document viewer.
+ */
+export const insertTextAsCodeCard = async (
+  api: ExcalidrawImperativeAPI,
+  text: string,
+) => {
+  if (!text.trim()) {
+    return false;
+  }
+
+  await insertCodeIntoScene(api, text, { language: "text" });
+
+  return true;
+};
+
+/**
+ * Puts a text on the canvas as a table, near the top-left of the view.
+ * Returns `false` when the text holds no cells.
+ */
+export const insertTextAsTable = (
+  api: ExcalidrawImperativeAPI,
+  text: string,
+) => {
+  const { rows, markdown } = readTableCells(text.split("\n"));
+  const columns = tableColumnCount(rows, markdown);
+
+  if (!columns) {
+    return false;
+  }
+
+  const { scrollX, scrollY, zoom } = api.getAppState();
+
+  return !!insertTableIntoScene(api, normaliseRows(rows, columns), {
+    x: -scrollX + 80 / zoom.value,
+    y: -scrollY + 80 / zoom.value,
+  });
+};
+
+/**
  * Reformats the selection into the chosen format.
  */
 export const reformatSelection = async (

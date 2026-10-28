@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  CaptureUpdateAction,
   deletePage,
   deletePageElements,
+  getCameraForPage,
+  getCurrentPageRect,
   insertPageAfter,
   scalePageContent,
   translateContentForPageLayout,
@@ -10,9 +13,9 @@ import {
   useExcalidrawStateValue,
 } from "@excalidraw/excalidraw";
 
-import { randomId } from "@excalidraw/common";
+import { MAX_ZOOM, randomId } from "@excalidraw/common";
 
-import type { ExcalidrawPage } from "@excalidraw/excalidraw/types";
+import type { AppState, ExcalidrawPage } from "@excalidraw/excalidraw/types";
 
 import { exportAllPages } from "../pages/exportPages";
 import { STORAGE_KEYS } from "../app_constants";
@@ -40,6 +43,24 @@ const PAGE_LIST_VISIBLE_ROWS = 8;
 /** how many rows are rendered above and below the visible window */
 const PAGE_LIST_OVERSCAN = 2;
 
+/**
+ * Whether the middle of the view is outside the current page, which is when
+ * the way back to the page is offered. The camera is free to leave the page
+ * (scroll, the Hand tool), so the page can end up out of sight.
+ */
+const isPageOutOfView = (state: AppState): boolean => {
+  const rect = getCurrentPageRect(state.pages, state.currentPageId);
+  const centerX = state.width / 2 / state.zoom.value - state.scrollX;
+  const centerY = state.height / 2 / state.zoom.value - state.scrollY;
+
+  return (
+    centerX < rect.x ||
+    centerX > rect.x + rect.width ||
+    centerY < rect.y ||
+    centerY > rect.y + rect.height
+  );
+};
+
 type IconProps = { size?: number };
 
 const TrashIcon = ({ size = 16 }: IconProps) => (
@@ -58,6 +79,23 @@ const TrashIcon = ({ size = 16 }: IconProps) => (
     <path d="M8 6V4h8v2" />
     <path d="M19 6l-1 14H6L5 6" />
     <path d="M10 11v6M14 11v6" />
+  </svg>
+);
+
+const FitPageIcon = ({ size = 16 }: IconProps) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+    <rect x="9" y="9" width="6" height="6" />
   </svg>
 );
 
@@ -251,6 +289,7 @@ const PageBar = () => {
   const excalidrawAPI = useExcalidrawAPI();
   // only rerenders when `pages` / `currentPageId` actually change
   const appState = useExcalidrawStateValue(["pages", "currentPageId"]);
+  const pageOutOfView = useExcalidrawStateValue(isPageOutOfView) ?? false;
 
   const backend = useAtomValue(documentStoreBackendAtom);
   const documentError = useAtomValue(documentStoreErrorAtom);
@@ -368,6 +407,25 @@ const PageBar = () => {
     [excalidrawAPI, currentPageId],
   );
 
+  /** put the view back on the current page, framed as when the page is opened */
+  const backToPage = useCallback(() => {
+    if (!excalidrawAPI || excalidrawAPI.isDestroyed || !currentPageId) {
+      return;
+    }
+
+    const { width, height } = excalidrawAPI.getAppState();
+    const { zoom, scrollX, scrollY } = getCameraForPage({
+      viewportWidth: width,
+      viewportHeight: height,
+      pageRect: getCurrentPageRect(pages, currentPageId),
+      maxZoom: MAX_ZOOM,
+    });
+
+    excalidrawAPI.updateScene({
+      appState: { scrollX, scrollY, zoom: { value: zoom } },
+    });
+  }, [excalidrawAPI, pages, currentPageId]);
+
   const step = useCallback(
     (delta: number) => {
       const next = pages[currentIndex + delta];
@@ -407,6 +465,7 @@ const PageBar = () => {
     excalidrawAPI.updateScene({
       elements: nextElements,
       appState: { pages: nextPages, currentPageId: pageId },
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
     });
   }, [excalidrawAPI, pages, currentPageId]);
 
@@ -427,6 +486,7 @@ const PageBar = () => {
     excalidrawAPI.updateScene({
       elements,
       appState: { selectedElementIds: {} },
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
     });
   }, [excalidrawAPI, currentPageId]);
 
@@ -468,6 +528,7 @@ const PageBar = () => {
         currentPageId: nextCurrentPageId,
         selectedElementIds: {},
       },
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
     });
   }, [excalidrawAPI, pages, currentPageId]);
 
@@ -490,6 +551,7 @@ const PageBar = () => {
         currentPageId: FIRST_PAGE_ID,
         selectedElementIds: {},
       },
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
     });
   }, [excalidrawAPI]);
 
@@ -530,6 +592,7 @@ const PageBar = () => {
       excalidrawAPI.updateScene({
         elements: nextElements,
         appState: { pages: nextPages },
+        captureUpdate: CaptureUpdateAction.IMMEDIATELY,
       });
     },
     [excalidrawAPI, pages, currentPageId],
@@ -660,6 +723,18 @@ const PageBar = () => {
       >
         <ArrowRightIcon />
       </button>
+
+      {pageOutOfView && (
+        <button
+          type="button"
+          className="excalidraw-page-bar__icon"
+          onClick={backToPage}
+          title="Back to this page"
+          aria-label="Back to this page"
+        >
+          <FitPageIcon />
+        </button>
+      )}
 
       <span className="excalidraw-page-bar__divider" aria-hidden="true" />
 

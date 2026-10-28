@@ -8,6 +8,7 @@ import {
   cancelCodePaste,
   insertCodeIntoScene,
 } from "./insertIntoScene";
+import { SelectionBar } from "./SelectionBar";
 import { escapeHtml, kindLabel, renderMarkdown } from "./sidebarFiles";
 
 import "./sidebar.scss";
@@ -77,12 +78,15 @@ export const DocumentViewer = ({
   const [failed, setFailed] = useState(false);
   /** scales the rendered document; the PDF viewer zooms with its own toolbar */
   const [zoom, setZoom] = useState(1);
+  /** the text the teacher has just selected in the document, if any */
+  const [picked, setPicked] = useState<string | null>(null);
 
   const isMarkdown = entry.kind === "markdown";
 
   // a new document starts at fit-to-panel, like the PDF viewer does
   useEffect(() => {
     setZoom(1);
+    setPicked(null);
   }, [entry]);
 
   const changeZoom = useCallback((delta: number) => {
@@ -161,6 +165,8 @@ export const DocumentViewer = ({
       if (!text) {
         return;
       }
+
+      setPicked(text);
 
       try {
         await navigator.clipboard.writeText(text);
@@ -478,6 +484,13 @@ export const DocumentViewer = ({
             </div>
           )}
 
+          {picked && (
+            <SelectionBar
+              api={api}
+              text={picked}
+              onDone={() => setPicked(null)}
+            />
+          )}
           {html ? (
             <div
               ref={bodyRef}

@@ -384,6 +384,7 @@ export {
 } from "@excalidraw/element";
 
 export { CaptureUpdateAction } from "@excalidraw/element";
+export { openPasteOverflowModal } from "./components/PasteOverflowDialog/PasteOverflowState";
 
 export { parseLibraryTokensFromUrl, useHandleLibrary } from "./data/library";
 

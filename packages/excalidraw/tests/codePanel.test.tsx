@@ -1396,6 +1396,37 @@ describe("the code panel's view", () => {
     expect(run).not.toBeNull();
     expect(run.disabled).toBe(true);
   });
+
+  it("AC-307 with no bridge Run is on when the host runs Python, and says where", async () => {
+    const onRun = vi.fn();
+
+    const panel = codePanelInView(emptyCodePanelState(), "editor");
+
+    await render(<Excalidraw panelRun={{ onRun, canRunInBrowser: true }} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    const overlay = document.querySelector('[data-testid="panel-overlay"]');
+
+    const run = overlay!.querySelector(
+      '[data-testid="code-panel-run"]',
+    ) as HTMLButtonElement;
+
+    expect(run.disabled).toBe(false);
+
+    // the note names the browser, not the bridge
+    const note = overlay!.querySelector(
+      '[data-testid="code-panel-run-needs-bridge"]',
+    );
+
+    expect(note!.textContent).toContain("browser");
+    expect(note!.textContent).not.toContain("Bridge");
+
+    fireEvent.click(run);
+
+    expect(onRun).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("the live editor is a real editor", () => {

@@ -9,7 +9,11 @@ import {
   newImageElement,
   newTextElement,
 } from "@excalidraw/element";
-import { reconcileElements, stampCurrentPage } from "@excalidraw/excalidraw";
+import {
+  openPasteOverflowModal,
+  reconcileElements,
+  stampCurrentPage,
+} from "@excalidraw/excalidraw";
 import {
   generateIdFromFile,
   getDataURL,
@@ -35,6 +39,8 @@ import type {
 } from "@excalidraw/element/types";
 
 import { codeCardColumns, highlightCode, layoutCode } from "./codeCard";
+
+import type { LaidOutRun } from "./codeCard";
 
 /**
  * Appends freshly created elements to the scene. `reconcileElements` is what
@@ -914,6 +920,203 @@ const codeCharWidth = () => {
   return Math.max(context.measureText("M").width || 0, CODE_FONT_SIZE * 0.6);
 };
 
+/** the text elements of the rows of a card: one per run of one colour */
+const codeRuns = (
+  rows: readonly LaidOutRun[][],
+  charWidth: number,
+  lineHeight: number,
+  groupId: string,
+) => {
+  const runs: ExcalidrawTextElement[] = [];
+
+  rows.forEach((row, rowIndex) => {
+    for (const run of row) {
+      if (!run.text) {
+        continue;
+      }
+
+      runs.push(
+        newTextElement({
+          text: run.text,
+          fontFamily: FONT_FAMILY.Cascadia,
+          fontSize: CODE_FONT_SIZE,
+          autoResize: true,
+          textAlign: "left",
+          verticalAlign: "top",
+          strokeColor: run.color,
+          x: run.column * charWidth,
+          y: rowIndex * lineHeight,
+          groupIds: [groupId],
+        }),
+      );
+    }
+  });
+
+  return runs;
+};
+
+/** a card (frame and text) with its top-left corner at `origin` */
+const codeCardAt = (
+  rows: readonly LaidOutRun[][],
+  origin: ScenePoint,
+  charWidth: number,
+  lineHeight: number,
+) => {
+  const groupId = randomId();
+  const runs = codeRuns(rows, charWidth, lineHeight, groupId);
+  const card = newElement({
+    type: "rectangle",
+    x: -CODE_PADDING,
+    y: -CODE_PADDING,
+    width: codeCardColumns([...rows]) * charWidth + CODE_PADDING * 2,
+    height: rows.length * lineHeight + CODE_PADDING * 2,
+    strokeColor: CODE_BORDER,
+    backgroundColor: CODE_BG,
+    fillStyle: "solid",
+    strokeWidth: 1,
+    strokeStyle: "solid",
+    roughness: 0,
+    opacity: 100,
+    roundness: { type: 3 },
+    groupIds: [groupId],
+  });
+
+  return [card, ...runs].map((element) => ({
+    ...element,
+    x: element.x + origin.x - card.x,
+    y: element.y + origin.y - card.y,
+  }));
+};
+
+/** the rows of a card of this height, with room for its padding and a margin */
+const rowsThatFit = (pageHeight: number, lineHeight: number) =>
+  Math.max(1, Math.floor((pageHeight - CODE_PADDING * 4) / lineHeight));
+
+/** the text of a row, as it is on the card */
+const rowText = (row: readonly LaidOutRun[]) =>
+  row.map((run) => run.text).join("");
+
+/**
+ * A card with more rows than the current page holds is offered the same three
+ * answers as a paste that does not fit: place what fits and keep the rest on
+ * the clipboard, keep it all on this page, or split it over pages.
+ *
+ * Returns `true` when it placed the card; `false` when the card fits (or there
+ * are no pages), and the caller places it as it always did.
+ */
+const insertLongCode = async (
+  api: ExcalidrawImperativeAPI,
+  rows: readonly LaidOutRun[][],
+  charWidth: number,
+  { at, topLeft }: { at?: ScenePoint; topLeft?: ScenePoint },
+) => {
+  const appState = api.getAppState();
+  const pages = appState.pages ?? [];
+  const currentPageId = appState.currentPageId ?? pages[0]?.id ?? "";
+
+  if (!pages.length || !currentPageId) {
+    return false;
+  }
+
+  const lineHeight = CODE_FONT_SIZE * getLineHeight(FONT_FAMILY.Cascadia);
+  const pageRect = getPageRect(pages, currentPageId);
+  const fitting = rowsThatFit(pageRect.height, lineHeight);
+
+  if (rows.length <= fitting) {
+    return false;
+  }
+
+  const choice = await openPasteOverflowModal({
+    fittingLineCount: fitting,
+    totalLineCount: rows.length,
+  });
+
+  const margin = CODE_PADDING * 2;
+  const start = { x: pageRect.x + margin, y: pageRect.y + margin };
+
+  if (choice === "all-on-page") {
+    // the page grows to hold the card, as it does for any content put on it
+    appendElements(
+      api,
+      codeCardAt(rows, topLeft ?? at ?? start, charWidth, lineHeight),
+    );
+
+    return true;
+  }
+
+  if (choice === "multi-page") {
+    let nextPages = pages;
+    let remaining = rows;
+    let rect = pageRect;
+    let pageId = currentPageId;
+    const placed: ExcalidrawElement[] = [];
+
+    while (remaining.length) {
+      const count = rowsThatFit(rect.height, lineHeight);
+
+      placed.push(
+        ...stampCurrentPage(
+          codeCardAt(
+            remaining.slice(0, count),
+            { x: rect.x + margin, y: rect.y + margin },
+            charWidth,
+            lineHeight,
+          ),
+          pageId,
+        ),
+      );
+      remaining = remaining.slice(count);
+
+      if (remaining.length) {
+        pageId = `page-${randomId()}`;
+        nextPages = insertPageAfter({
+          pages: nextPages,
+          afterPageId: nextPages[nextPages.length - 1].id,
+          pageId,
+        });
+        rect = getPageRect(nextPages, pageId);
+      }
+    }
+
+    const existing = api.getSceneElementsIncludingDeleted();
+
+    api.updateScene({
+      elements: reconcileElements(
+        existing as RemoteExcalidrawElement[],
+        [...existing, ...placed] as RemoteExcalidrawElement[],
+        appState,
+      ),
+      appState: { pages: nextPages },
+    });
+
+    return true;
+  }
+
+  // "discard", or the offer dismissed: what fits is placed; the rest goes to
+  // the clipboard on "discard" and stays wherever it was on a dismissal
+  appendElements(
+    api,
+    codeCardAt(
+      rows.slice(0, fitting),
+      topLeft ?? at ?? start,
+      charWidth,
+      lineHeight,
+    ),
+  );
+
+  if (choice === "discard") {
+    try {
+      await navigator.clipboard.writeText(
+        rows.slice(fitting).map(rowText).join("\n"),
+      );
+    } catch {
+      // a blocked clipboard must not undo the insert
+    }
+  }
+
+  return true;
+};
+
 /**
  * Inserts a snippet as a syntax-highlighted code card.
  *
@@ -956,8 +1159,23 @@ export const insertCodeIntoScene = async (
 
   if (!lines) {
     // no colours available: one plain text element, wrapped the simple way
+    const wrapped = wrapCode(rawCode, CODE_MAX_CHARS);
+
+    // more lines than the page holds: the teacher is offered the split
+    const plainRows = wrapped
+      .split("\n")
+      .map((line): LaidOutRun[] =>
+        line ? [{ text: line, color: CODE_TEXT, column: 0 }] : [],
+      );
+
+    if (
+      await insertLongCode(api, plainRows, codeCharWidth(), { at, topLeft })
+    ) {
+      return false;
+    }
+
     const body = newTextElement({
-      text: wrapCode(rawCode, CODE_MAX_CHARS),
+      text: wrapped,
       fontFamily: FONT_FAMILY.Cascadia,
       fontSize: CODE_FONT_SIZE,
       autoResize: true,
@@ -978,33 +1196,14 @@ export const insertCodeIntoScene = async (
   const charWidth = codeCharWidth();
   const lineHeight = CODE_FONT_SIZE * getLineHeight(FONT_FAMILY.Cascadia);
 
-  const runs: ExcalidrawTextElement[] = [];
-
-  rows.forEach((row, rowIndex) => {
-    for (const run of row) {
-      if (!run.text) {
-        continue;
-      }
-
-      runs.push(
-        newTextElement({
-          text: run.text,
-          fontFamily: FONT_FAMILY.Cascadia,
-          fontSize: CODE_FONT_SIZE,
-          autoResize: true,
-          textAlign: "left",
-          verticalAlign: "top",
-          strokeColor: run.color,
-          x: run.column * charWidth,
-          y: rowIndex * lineHeight,
-          groupIds: [groupId],
-        }),
-      );
-    }
-  });
+  const runs = codeRuns(rows, charWidth, lineHeight, groupId);
 
   if (!runs.length) {
     return false;
+  }
+
+  if (await insertLongCode(api, rows, charWidth, { at, topLeft })) {
+    return true;
   }
 
   const contentWidth = codeCardColumns(rows) * charWidth;
