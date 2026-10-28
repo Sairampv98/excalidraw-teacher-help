@@ -13,6 +13,9 @@
  * own way) and the crop that fills a box.
  */
 
+import { isMediaFit, readMediaView } from "./mediaFit";
+
+import type { MediaFit, MediaView } from "./mediaFit";
 import type { ExcalidrawElement, ImageCrop } from "./types";
 
 export const MEDIA_SHAPES = [
@@ -36,6 +39,12 @@ export type NodeMedia = {
    * when the node's shape or size is changed later, the media is fitted again.
    */
   sig?: string;
+  /** how the picture sits in the shape (D-247); `auto` when it is not given */
+  fit?: MediaFit;
+  /** the part of the picture that is shown, in the picture's pixels (D-247) */
+  view?: MediaView;
+  /** the picture's own size, which the view is measured in (D-247) */
+  natural?: { width: number; height: number };
 };
 
 export const isMediaShape = (value: unknown): value is MediaShape =>
@@ -60,6 +69,21 @@ export const mediaOf = (
         ? Math.max(0, stored.radius)
         : 0,
     ...(typeof stored.sig === "string" ? { sig: stored.sig } : {}),
+    ...(isMediaFit(stored.fit) ? { fit: stored.fit } : {}),
+    ...(readMediaView(stored.view)
+      ? { view: readMediaView(stored.view)! }
+      : {}),
+    ...(typeof stored.natural?.width === "number" &&
+    typeof stored.natural?.height === "number" &&
+    stored.natural.width > 0 &&
+    stored.natural.height > 0
+      ? {
+          natural: {
+            width: stored.natural.width,
+            height: stored.natural.height,
+          },
+        }
+      : {}),
   };
 };
 

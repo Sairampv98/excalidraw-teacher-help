@@ -42,8 +42,6 @@ import type { FlowCustomPreset } from "@excalidraw/excalidraw/scene/flowCustomPr
 import type { FlowChartShape } from "@excalidraw/excalidraw/scene/flowPresets";
 import type { FlowPresetId } from "@excalidraw/excalidraw/scene/flowScript";
 
-import { NodeMediaPanel } from "./NodeMediaPanel";
-
 import { FlowGuide } from "./FlowGuide";
 import { FlowPresetForm } from "./FlowPresetForm";
 import { appendElements, placementFor } from "./insertIntoScene";
@@ -312,7 +310,7 @@ export const FlowTab = () => {
     if (!first) {
       setMessage({
         kind: "error",
-        text: "Select a chart on the page first, then press Edit script.",
+        text: "Select a chart on the page first, then press Edit chart.",
       });
       return;
     }
@@ -610,8 +608,6 @@ export const FlowTab = () => {
         </p>
       </div>
 
-      <NodeMediaPanel />
-
       <div className="flow-tab__footer">
         <button
           type="button"
@@ -623,7 +619,7 @@ export const FlowTab = () => {
           Insert chart
         </button>
         <button type="button" className="flow-tab__edit" onClick={editScript}>
-          Edit script
+          Edit chart
         </button>
 
         {message && (

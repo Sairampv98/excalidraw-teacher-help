@@ -11,7 +11,6 @@
 import { randomId } from "@excalidraw/common";
 import {
   canHoldMedia,
-  coverCrop,
   customDataWithMedia,
   getBoundTextElement,
   getCornerRadius,
@@ -19,6 +18,8 @@ import {
   mediaShapeOfNode,
   newElementWith,
   nodeSignature,
+  viewAsCrop,
+  viewForFit,
   newImageElement,
 } from "@excalidraw/element";
 import {
@@ -27,7 +28,7 @@ import {
 } from "@excalidraw/excalidraw/data/blob";
 
 import type { ExcalidrawElement } from "@excalidraw/element/types";
-import type { NodeMedia } from "@excalidraw/element";
+import type { MediaFit, MediaView, NodeMedia, Size } from "@excalidraw/element";
 import type {
   BinaryFileData,
   ExcalidrawImperativeAPI,
@@ -120,6 +121,63 @@ const nodeMediaOf = (node: ExcalidrawElement): NodeMedia => {
 };
 
 /**
+ * The update that fits one piece of media to its node with a fit (D-247): the
+ * box of the node, the media data (shape, view, fit) and, for a picture, the
+ * crop that is the view when the view is wholly in the picture.
+ */
+const fitUpdates = (
+  element: ExcalidrawElement,
+  node: ExcalidrawElement,
+  fit: MediaFit,
+  chosen?: MediaView | null,
+): Record<string, unknown> => {
+  const media = mediaOf(element);
+  const fitted = nodeMediaOf(node);
+  const box = {
+    x: node.x,
+    y: node.y,
+    width: node.width,
+    height: node.height,
+  };
+  const natural =
+    media?.natural ??
+    (element.type === "image" && element.crop
+      ? {
+          width: element.crop.naturalWidth,
+          height: element.crop.naturalHeight,
+        }
+      : undefined);
+  const updates: Record<string, unknown> = { ...box, angle: node.angle };
+
+  if (!natural) {
+    updates.customData = customDataWithMedia(element.customData, fitted);
+
+    return updates;
+  }
+
+  const view = viewForFit(
+    fit,
+    box,
+    natural,
+    fitted.shape,
+    chosen ?? media?.view,
+  );
+
+  updates.customData = customDataWithMedia(element.customData, {
+    ...fitted,
+    fit,
+    natural,
+    view,
+  });
+
+  if (element.type === "image") {
+    updates.crop = viewAsCrop(view, natural);
+  }
+
+  return updates;
+};
+
+/**
  * The scene with the media of every node fitted to its node, or null when all
  * of it is. A node whose shape or size was changed (by the script, by Apply, by
  * its own handles) changes the cut and the box of its media; a node that was
@@ -158,30 +216,46 @@ export const fitMediaToNodes = (
 
     changed = true;
 
-    const box = {
-      x: node.x,
-      y: node.y,
-      width: node.width,
-      height: node.height,
-    };
-    const refit: Record<string, unknown> = {
-      ...box,
-      angle: node.angle,
-      customData: customDataWithMedia(element.customData, fitted),
-    };
-
-    // a picture is cut again to the box's shape
-    if (element.type === "image" && element.crop) {
-      refit.crop = coverCrop(box, {
-        width: element.crop.naturalWidth,
-        height: element.crop.naturalHeight,
-      });
-    }
-
-    return newElementWith(element, refit);
+    // the media keeps its fit, worked out again for the node's new shape and size
+    return newElementWith(
+      element,
+      fitUpdates(element, node, media.fit ?? "auto") as never,
+    );
   });
 
   return changed ? next : null;
+};
+
+/**
+ * Sets how the media of a node sits in its shape (D-247): the fit, and for a
+ * `crop` the part of the picture that is shown. It is set on everything the
+ * media is made of (a video is its panel and the still of its first frame).
+ */
+export const applyMediaFit = (
+  api: ExcalidrawImperativeAPI,
+  nodeId: string,
+  fit: MediaFit,
+  view?: MediaView | null,
+) => {
+  const elements = api.getSceneElementsIncludingDeleted();
+  const node = elements.find((element) => element.id === nodeId);
+  const media = mediaElementsOfNode(elements, nodeId);
+
+  if (!node || !media.length) {
+    return false;
+  }
+
+  const ids = new Set(media.map((element) => element.id));
+
+  api.updateScene({
+    elements: elements.map((element) =>
+      ids.has(element.id)
+        ? newElementWith(element, fitUpdates(element, node, fit, view) as never)
+        : element,
+    ),
+  });
+
+  return true;
 };
 
 /** takes the media out of a node: its words come back */
@@ -223,6 +297,21 @@ export const removeMediaFromNode = (
 
 type Box = { x: number; y: number; width: number; height: number };
 
+/**
+ * The media data of a picture in a node, with the fit it starts with: the
+ * picture fills the shape (D-247).
+ */
+const startingMedia = (
+  base: NodeMedia,
+  box: Size,
+  natural: Size,
+): NodeMedia => ({
+  ...base,
+  fit: "auto",
+  natural,
+  view: viewForFit("auto", box, natural, base.shape),
+});
+
 /** puts a picture on the scene, filling a box, cut to the shape of the media */
 const addPictureToBox = async (
   api: ExcalidrawImperativeAPI,
@@ -230,12 +319,13 @@ const addPictureToBox = async (
   box: Box,
   angle: ExcalidrawElement["angle"],
   groupIds: readonly string[],
-  media: NodeMedia,
-): Promise<ExcalidrawElement> => {
+  base: NodeMedia,
+): Promise<{ element: ExcalidrawElement; natural: Size }> => {
   const dataURL = await getDataURL(file);
   const fileId = await generateIdFromFile(file);
   const natural = await getImageSize(dataURL);
   const now = Date.now();
+  const media = startingMedia(base, box, natural);
 
   api.addFiles([
     {
@@ -254,14 +344,14 @@ const addPictureToBox = async (
     angle,
     fileId,
     // the picture is cut to the box and not shrunk into it: no borders
-    crop: coverCrop(box, natural),
+    crop: viewAsCrop(media.view!, natural),
     groupIds: [...groupIds],
     customData: customDataWithMedia(undefined, media),
   });
 
   appendElements(api, [picture]);
 
-  return picture;
+  return { element: picture, natural };
 };
 
 /**
@@ -360,7 +450,14 @@ export const addMediaToNode = async (
   let added: ExcalidrawElement;
 
   if (kind === "image") {
-    added = await addPictureToBox(api, file, box, node.angle, groupIds, media);
+    ({ element: added } = await addPictureToBox(
+      api,
+      file,
+      box,
+      node.angle,
+      groupIds,
+      media,
+    ));
   } else {
     // its first frame is a picture of its own, cut like the media: an export has
     // no video to play, and this is what it shows
@@ -369,16 +466,30 @@ export const addMediaToNode = async (
       ? await addPictureToBox(api, frame.file, box, node.angle, groupIds, media)
       : null;
     const { panel } = await insertVideoPanel(api, { videoFile: file });
+    const content = panel as unknown as {
+      panel?: { naturalWidth?: number | null; naturalHeight?: number | null };
+    };
+    // the video's own size: its first frame's, or what the player read
+    const natural =
+      poster?.natural ??
+      (content.panel?.naturalWidth && content.panel?.naturalHeight
+        ? {
+            width: content.panel.naturalWidth,
+            height: content.panel.naturalHeight,
+          }
+        : null);
     const placed = {
       ...panel,
       ...box,
       angle: node.angle,
       groupIds,
-      customData: customDataWithMedia(panel.customData, media),
+      customData: customDataWithMedia(
+        panel.customData,
+        natural ? startingMedia(media, box, natural) : media,
+      ),
     } as ExcalidrawElement;
 
     added = placed;
-    void poster;
 
     api.updateScene({
       elements: api

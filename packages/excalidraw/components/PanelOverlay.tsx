@@ -14,6 +14,7 @@ import {
   isPosterPanelElement,
   mediaCssClip,
   mediaOf,
+  viewPlacement,
 } from "@excalidraw/element";
 
 import type {
@@ -1657,7 +1658,29 @@ const VideoPanelSurface = ({
   const [durationMs, setDurationMs] = useState(0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
-  const isNodeMedia = mediaOf(panel) !== null;
+  const nodeMedia = mediaOf(panel);
+  const isNodeMedia = nodeMedia !== null;
+  const nodeVideoStyle: React.CSSProperties | undefined =
+    nodeMedia?.view && nodeMedia.natural
+      ? (() => {
+          const placed = viewPlacement(
+            nodeMedia.view,
+            panel,
+            nodeMedia.natural,
+          );
+
+          return {
+            position: "absolute",
+            left: placed.x,
+            top: placed.y,
+            width: placed.width,
+            height: placed.height,
+            maxWidth: "none",
+            flex: "none",
+            objectFit: "fill",
+          };
+        })()
+      : undefined;
   /**
    * The video's **effective** state (D-119).
    *
@@ -2158,6 +2181,9 @@ const VideoPanelSurface = ({
         // the primary source, or the fallback once it has been tried (D-126)
         src={fallbackUrl ?? src}
         playsInline={true}
+        // the video of a node shows the part of the picture that is its view,
+        // which may reach past the video (D-247)
+        style={nodeVideoStyle}
         // the video of a node is a silent loop (D-246)
         autoPlay={isNodeMedia}
         loop={isNodeMedia}

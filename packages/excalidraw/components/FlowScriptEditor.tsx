@@ -53,6 +53,7 @@ import { useAtomValue } from "../editor-jotai";
 import {
   clearFlowScriptDraft,
   closeFlowScriptEditor,
+  flowEditorExtraAtom,
   flowScriptEditorAtom,
   getFlowScriptDraft,
   setFlowScriptDraft,
@@ -558,6 +559,9 @@ const EditorPanel = ({
     };
   }, []);
 
+  // what the host app adds to the panel (D-247)
+  const Extra = useAtomValue(flowEditorExtraAtom);
+
   const startPress = (event: React.PointerEvent<HTMLElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -576,7 +580,7 @@ const EditorPanel = ({
       ref={panelRef}
       className="excalidraw__flow-editor"
       role="dialog"
-      aria-label="Edit script"
+      aria-label="Edit chart"
       data-testid="flow-editor"
       data-dragging={dragging ? "" : undefined}
       data-flow-editor-placed={placed ? "" : undefined}
@@ -594,7 +598,7 @@ const EditorPanel = ({
         >
           <GripIcon />
         </button>
-        <strong>Edit script</strong>
+        <strong>Edit chart</strong>
         <button
           type="button"
           className="excalidraw__flow-editor-close"
@@ -692,6 +696,8 @@ const EditorPanel = ({
           </label>
         </div>
       )}
+
+      {Extra && <Extra />}
 
       <div
         className="excalidraw__flow-editor-picture"

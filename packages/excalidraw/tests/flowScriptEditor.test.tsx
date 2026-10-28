@@ -70,7 +70,7 @@ const mount = async () => {
   });
 };
 
-const panel = () => screen.queryByRole("dialog", { name: "Edit script" });
+const panel = () => screen.queryByRole("dialog", { name: "Edit chart" });
 
 const script = () => screen.getByLabelText("Script") as HTMLTextAreaElement;
 
@@ -112,7 +112,7 @@ describe("AC-248 the script editor opens beside the chart", () => {
 
     // the bar's button
     act(() => {
-      fireEvent.click(screen.getByRole("button", { name: "Edit script" }));
+      fireEvent.click(screen.getByRole("button", { name: "Edit chart" }));
     });
 
     expect(panel()).not.toBeNull();

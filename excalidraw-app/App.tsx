@@ -159,6 +159,7 @@ import { EdgeDocks } from "./dock/EdgeDocks";
 import { useEdgeDocksEnabled } from "./dock/dockTypes";
 import PageBar from "./components/PageBar";
 import StickerBar from "./emoji/StickerBar";
+import { MediaCropMode } from "./sidebar/MediaCrop";
 import { NodeMediaDrop } from "./sidebar/NodeMediaPanel";
 import { ExcalidrawPlusIframeExport } from "./ExcalidrawPlusIframeExport";
 import { isPresenterWindow } from "./presenter/presenterChannel";
@@ -1574,6 +1575,9 @@ const ExcalidrawWrapper = () => {
 
         {/* a picture, GIF or video dropped on a node of a chart goes into it */}
         <NodeMediaDrop />
+
+        {/* the crop screen of the picture in a node */}
+        <MediaCropMode />
 
         <ShareDialog
           collabAPI={collabAPI}

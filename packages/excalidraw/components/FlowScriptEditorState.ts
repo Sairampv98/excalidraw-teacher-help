@@ -9,6 +9,8 @@
 
 import { atom, editorJotaiStore } from "../editor-jotai";
 
+import type { ComponentType } from "react";
+
 import type { FlowFitMode } from "../scene/flowChart";
 import type { FlowChartShape } from "../scene/flowPresets";
 
@@ -30,6 +32,17 @@ type FlowScriptEditorState = {
 export const flowScriptEditorAtom = atom<FlowScriptEditorState>({
   anchorId: null,
 });
+
+/**
+ * What the host app adds to the panel (D-247): a section the library knows
+ * nothing about, drawn under the node's shape. The picture of a node is one.
+ */
+export const flowEditorExtraAtom = atom<ComponentType | null>(null);
+
+export const setFlowEditorExtra = (component: ComponentType | null) => {
+  // a function given to `set` is an updater, so the component is returned by one
+  editorJotaiStore.set(flowEditorExtraAtom, () => component);
+};
 
 /** opens the panel on the chart an element belongs to */
 export const openFlowScriptEditor = (anchorId: string) => {

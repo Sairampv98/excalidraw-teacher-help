@@ -69,6 +69,7 @@ import { getCornerRadius } from "./utils";
 import { inkOf, inkPadding } from "./ink";
 import { applyInkLook } from "./inkRender";
 import { mediaClip, mediaOf } from "./media";
+import { viewPlacement } from "./mediaFit";
 import { clipToMedia } from "./mediaRender";
 
 import { ShapeCache } from "./shape";
@@ -571,17 +572,44 @@ const drawElementOnCanvas = (
             context.filter = DARK_THEME_FILTER;
           }
 
-          context.drawImage(
-            img,
-            x,
-            y,
-            width,
-            height,
-            0 /* hardcoded for the selection box*/,
-            0,
-            element.width,
-            element.height,
-          );
+          // the media of a node shows the part of the picture that is its view,
+          // which may reach past the picture (D-247)
+          const placed = media?.view
+            ? viewPlacement(
+                media.view,
+                element,
+                media.natural ?? {
+                  width: img.naturalWidth,
+                  height: img.naturalHeight,
+                },
+              )
+            : null;
+
+          if (placed) {
+            context.drawImage(
+              img,
+              0,
+              0,
+              img.naturalWidth,
+              img.naturalHeight,
+              placed.x,
+              placed.y,
+              placed.width,
+              placed.height,
+            );
+          } else {
+            context.drawImage(
+              img,
+              x,
+              y,
+              width,
+              height,
+              0 /* hardcoded for the selection box*/,
+              0,
+              element.width,
+              element.height,
+            );
+          }
         }
       } else {
         drawImagePlaceholder(element, context, renderConfig.theme);

@@ -475,7 +475,7 @@ export const FlowAnimationBar = ({
           title="Edit the chart's script"
           onClick={() => openFlowScriptEditor(graph.steps[0].containerId)}
         >
-          Edit script
+          Edit chart
         </button>
         <button
           type="button"

@@ -78,6 +78,7 @@ export * from "./heading";
 export * from "./image";
 export * from "./ink";
 export * from "./media";
+export * from "./mediaFit";
 export * from "./mediaRender";
 export * from "./inkRender";
 export * from "./linearElementEditor";

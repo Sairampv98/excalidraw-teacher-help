@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 
 import { canHoldMedia, mediaOf } from "@excalidraw/element";
+import { setFlowEditorExtra } from "@excalidraw/excalidraw/components/FlowScriptEditorState";
 import { CaptureUpdateAction, useExcalidrawAPI } from "@excalidraw/excalidraw";
 
 import type { ExcalidrawElement } from "@excalidraw/element/types";
 
 import { sceneAtClientPoint } from "./insertIntoScene";
+import { openMediaCrop } from "./mediaCropState";
 import { setNodeDrop } from "./nodeDropHook";
 import {
   addMediaToNode,
@@ -13,6 +15,7 @@ import {
   mediaElementsOfNode,
   mediaKindOf,
   nodeAtPoint,
+  nodeContainsPoint,
   removeMediaFromNode,
 } from "./nodeMedia";
 
@@ -21,7 +24,7 @@ import {
  * a file in it and take it out. They are there when exactly one shape is
  * selected, and say what they do to it.
  */
-export const NodeMediaPanel = () => {
+export const NodeMediaSection = () => {
   const api = useExcalidrawAPI();
   const input = useRef<HTMLInputElement>(null);
   const [node, setNode] = useState<ExcalidrawElement | null>(null);
@@ -81,7 +84,7 @@ export const NodeMediaPanel = () => {
 
   return (
     <div className="flow-tab__media" data-testid="node-media">
-      <p className="flow-tab__hint">Picture in the selected node</p>
+      <p className="flow-tab__hint">Picture in this node</p>
       <input
         ref={input}
         type="file"
@@ -101,6 +104,16 @@ export const NodeMediaPanel = () => {
       >
         {hasMedia ? "Replace picture or video" : "Add picture or video"}
       </button>
+      {hasMedia && (
+        <button
+          type="button"
+          className="flow-tab__media-button"
+          data-testid="node-media-crop"
+          onClick={() => openMediaCrop(node.id)}
+        >
+          Crop picture
+        </button>
+      )}
       {hasMedia && (
         <button
           type="button"
@@ -196,6 +209,54 @@ export const NodeMediaDrop = () => {
     document.addEventListener("dragover", onDragOver, true);
     document.addEventListener("drop", onDrop, true);
 
+    // the picture of a node is edited in the Edit chart panel (D-247)
+    setFlowEditorExtra(NodeMediaSection);
+
+    // a double click on the media of a node opens the crop screen, and not the
+    // library's own crop (D-247)
+    const onDoubleClick = (event: MouseEvent) => {
+      const target = event.target;
+
+      if (
+        !(target instanceof Element) ||
+        !target.closest("canvas.excalidraw__canvas, .excalidraw__panel")
+      ) {
+        return;
+      }
+
+      const at = sceneAtClientPoint(api, event.clientX, event.clientY);
+
+      if (!at) {
+        return;
+      }
+
+      const hit = [...api.getSceneElements()].reverse().find((element) => {
+        const media = mediaOf(element);
+
+        return (
+          !!media &&
+          nodeContainsPoint(
+            {
+              ...element,
+              type:
+                media.shape === "ellipse" || media.shape === "diamond"
+                  ? media.shape
+                  : "rectangle",
+            },
+            at,
+          )
+        );
+      });
+
+      if (hit) {
+        event.preventDefault();
+        event.stopPropagation();
+        openMediaCrop(mediaOf(hit)!.of);
+      }
+    };
+
+    document.addEventListener("dblclick", onDoubleClick, true);
+
     // the other roads to a node - a file from the sidebar, a sticker from the
     // emoji bar - ask here (D-246)
     setNodeDrop({
@@ -210,6 +271,8 @@ export const NodeMediaDrop = () => {
     return () => {
       document.removeEventListener("dragover", onDragOver, true);
       document.removeEventListener("drop", onDrop, true);
+      document.removeEventListener("dblclick", onDoubleClick, true);
+      setFlowEditorExtra(null);
       setNodeDrop(null);
     };
   }, [api]);

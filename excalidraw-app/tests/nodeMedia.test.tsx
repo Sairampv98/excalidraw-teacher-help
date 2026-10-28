@@ -33,7 +33,7 @@ import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { STICKER_DRAG_TYPE } from "../emoji/insertSticker";
 import StickerBar from "../emoji/StickerBar";
 import { armFileDragOnCanvas } from "../sidebar/insertIntoScene";
-import { NodeMediaDrop, NodeMediaPanel } from "../sidebar/NodeMediaPanel";
+import { NodeMediaDrop, NodeMediaSection } from "../sidebar/NodeMediaPanel";
 import {
   addMediaToNode,
   mediaElementsOfNode,
@@ -417,7 +417,7 @@ describe("AC-280 a picture goes into a node", () => {
   it("AC-280 the buttons are there for one selected shape and say what they do", async () => {
     await mount(
       chart((node) => node),
-      <NodeMediaPanel />,
+      <NodeMediaSection />,
     );
 
     // nothing selected: no buttons

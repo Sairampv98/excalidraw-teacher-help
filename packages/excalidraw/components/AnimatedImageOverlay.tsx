@@ -6,6 +6,7 @@ import {
   getRenderOpacity,
   mediaCssClip,
   mediaOf,
+  viewPlacement,
 } from "@excalidraw/element";
 
 import type {
@@ -116,6 +117,22 @@ const AnimatedImage = ({
       height: naturalSize.height * scaleY,
       left: -crop.x * scaleX,
       top: -crop.y * scaleY,
+    };
+  }
+
+  // the media of a node shows the part of the picture that is its view, which
+  // may reach past the picture (D-247)
+  const placedNatural = nodeMedia?.natural ?? naturalSize;
+
+  if (nodeMedia?.view && placedNatural) {
+    const placed = viewPlacement(nodeMedia.view, image, placedNatural);
+
+    imageStyle = {
+      position: "absolute",
+      left: placed.x,
+      top: placed.y,
+      width: placed.width,
+      height: placed.height,
     };
   }
 
