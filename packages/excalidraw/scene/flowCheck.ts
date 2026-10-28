@@ -58,7 +58,7 @@ export const checkFlowScript = (
 
   const counts = {
     nodes: parsed.nodes.length,
-    arrows: parsed.edges.length,
+    arrows: options.arrows === "none" ? 0 : parsed.edges.length,
   };
 
   // problems come first: a script that cannot be read is not built to find out more

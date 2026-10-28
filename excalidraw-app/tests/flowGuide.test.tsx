@@ -146,10 +146,11 @@ describe("AC-251 a script guide for every kind of chart", () => {
       FLOW_PRESETS.find((p) => p.id === "network")!.example,
     );
 
-    // and it is a script that was chosen, so choosing another preset keeps it
+    // and it is a script that was chosen, so choosing another kind keeps its
+    // words and writes them for that kind (D-233)
     fireEvent.click(getByRole("radio", { name: /Process/ }));
     expect((getByLabelText("Script") as HTMLTextAreaElement).value).toBe(
-      FLOW_PRESETS.find((p) => p.id === "network")!.example,
+      "Client\nServer\nDatabase\nCache\nCDN",
     );
   });
 

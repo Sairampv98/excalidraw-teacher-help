@@ -66,6 +66,7 @@ describe("AC-247 a chart remembers its script", () => {
         script: SCRIPT,
         fit: "spread",
         shape: "circle",
+        arrows: "own",
       },
     ]);
 
@@ -104,6 +105,7 @@ describe("AC-247 a chart remembers its script", () => {
       script: "? Ready?\nGo\nWait",
       fit: "page",
       shape: "diamond",
+      arrows: "own",
     });
   });
 

@@ -25,7 +25,17 @@ export type FlowCustomLayout =
   | "left-right"
   | "ring"
   | "tiers"
-  | "hub";
+  | "hub"
+  // the gallery's layouts (D-232)
+  | "list"
+  | "grid"
+  | "matrix"
+  | "pyramid"
+  | "funnel"
+  | "timeline"
+  | "target"
+  | "venn"
+  | "hierarchy";
 
 export const FLOW_CUSTOM_LAYOUTS: readonly FlowCustomLayout[] = [
   "top-down",
@@ -33,6 +43,15 @@ export const FLOW_CUSTOM_LAYOUTS: readonly FlowCustomLayout[] = [
   "ring",
   "tiers",
   "hub",
+  "list",
+  "grid",
+  "matrix",
+  "pyramid",
+  "funnel",
+  "timeline",
+  "target",
+  "venn",
+  "hierarchy",
 ];
 
 /** what each layout is built as, and so the script rules it follows (D-164) */
@@ -42,6 +61,15 @@ export const BUILT_IN_OF_LAYOUT: Record<FlowCustomLayout, FlowPresetId> = {
   ring: "cycle",
   tiers: "tiers",
   hub: "integration",
+  list: "list",
+  grid: "grid",
+  matrix: "matrix",
+  pyramid: "pyramid",
+  funnel: "funnel",
+  timeline: "timeline",
+  target: "target",
+  venn: "venn",
+  hierarchy: "hierarchy",
 };
 
 export type FlowCustomPreset = {
@@ -56,6 +84,8 @@ export type FlowCustomPreset = {
   colours: { fills: string[]; outline: string };
   /** the shape of the nodes that a script line does not mark (D-229) */
   shape: FlowChartShape;
+  /** `none` draws no arrows by default (D-231); left out, the preset's own */
+  arrows?: "none";
 };
 
 /** the key the teacher's presets are kept under in the browser's storage */
@@ -166,6 +196,7 @@ export const readCustomPreset = (value: unknown): ReadPreset => {
           : "",
       example: example.slice(0, MAX_EXAMPLE),
       layout: value.layout as FlowCustomLayout,
+      ...(value.arrows === "none" ? { arrows: "none" as const } : {}),
       colours: {
         fills: fills.length >= 1 ? fills.slice(0, 5) : [...DEFAULT_FILLS],
         outline: colourOf(colours.outline, "#1e1e1e"),
@@ -345,7 +376,7 @@ export const buildSettingsOfCustom = (
   preset: FlowCustomPreset,
 ): {
   builtIn: FlowPresetId;
-  options: Pick<BuildFlowOptions, "palette" | "direction" | "shape">;
+  options: Pick<BuildFlowOptions, "palette" | "direction" | "shape" | "arrows">;
 } => {
   const palette: FlowPalette = {
     fills: preset.colours.fills,
@@ -357,6 +388,7 @@ export const buildSettingsOfCustom = (
     options: {
       palette,
       shape: preset.shape,
+      ...(preset.arrows === "none" ? { arrows: "none" as const } : {}),
       ...(preset.layout === "top-down"
         ? { direction: "TB" as const }
         : preset.layout === "left-right"

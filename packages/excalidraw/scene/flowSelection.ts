@@ -49,6 +49,50 @@ const makeGroups = () => {
 };
 
 /**
+ * The shapes of a chart that has no arrows are **one flow** (D-231): nothing joins
+ * them, so the chart they were made in is what does, and they are walked in
+ * reading order. A chart that has arrows is read from its arrows alone, as ever.
+ */
+const joinArrowlessCharts = (
+  live: readonly ExcalidrawElement[],
+  join: (a: string, b: string) => void,
+) => {
+  const chartOf = (element: ExcalidrawElement) => {
+    const id = element.customData?.flow?.chartId;
+
+    return typeof id === "string" ? id : null;
+  };
+
+  const joined = new Set<string>();
+
+  for (const element of live) {
+    if (element.type === "arrow" && element.customData?.flow?.role === "edge") {
+      const id = chartOf(element);
+
+      if (id) {
+        joined.add(id);
+      }
+    }
+  }
+
+  const first = new Map<string, string>();
+
+  for (const element of live) {
+    const id = chartOf(element);
+
+    if (!id || joined.has(id)) {
+      continue;
+    }
+
+    if (first.has(id)) {
+      join(element.id, first.get(id)!);
+    } else {
+      first.set(id, element.id);
+    }
+  }
+};
+
+/**
  * The flow that the selected element belongs to, or `null` when it is in none:
  * a shape no arrow touches, and a flow of a single step, are not flows.
  */
@@ -85,6 +129,8 @@ export const flowOfSelection = (
       }
     }
   }
+
+  joinArrowlessCharts(live, join);
 
   // the first selected element whose flow has at least two steps decides
   const tried = new Set<string>();
@@ -135,6 +181,8 @@ export const allFlows = (
       }
     }
   }
+
+  joinArrowlessCharts(live, join);
 
   const groups = new Map<string, ExcalidrawElement[]>();
 

@@ -244,7 +244,43 @@ export const buildFlowGraph = (
     }
   };
 
+  // the shapes of a chart by the node they are, for the words that are not bound to
+  // their shape (a target's and a venn's, D-235)
+  const shapeOfNode = new Map<string, ExcalidrawElement>();
+
   for (const element of targetElements) {
+    const flow = element.customData?.flow;
+
+    if (flow?.role === "node" && element.type !== "text") {
+      shapeOfNode.set(`${flow.chartId ?? ""}/${flow.nodeId}`, element);
+    }
+  }
+
+  for (const element of targetElements) {
+    const flowRole = element.customData?.flow?.role;
+
+    // what a chart draws besides its steps is not one: a timeline's dots (D-237)
+    if (flowRole === "timeline-dot") {
+      continue;
+    }
+
+    // words that are grouped with their shape and not bound to it are part of its step
+    if (
+      element.type === "text" &&
+      !element.containerId &&
+      flowRole === "label"
+    ) {
+      const flow = element.customData!.flow;
+      const shape = shapeOfNode.get(`${flow.chartId ?? ""}/${flow.nodeId}`);
+
+      if (shape) {
+        addContainer(shape);
+        members.get(shape.id)!.push(element.id);
+      }
+
+      continue;
+    }
+
     const boundContainer = getBoundContainer(element, elementsMap);
 
     if (boundContainer) {
@@ -286,9 +322,35 @@ export const buildFlowGraph = (
     });
   }
 
-  const reading = sortByReadingOrder(
+  let reading = sortByReadingOrder(
     [...containers.keys()].map((id) => ({ id, box: boxes.get(id)! })),
   );
+
+  // The shapes of a chart that nothing joins - a list, a grid, a timeline whose
+  // boxes sit above and below its line - are walked in the order of the script
+  // they were made from, which is the order they were meant to be read in (D-231)
+  const scriptOrder = [...containers.values()].map((container) => {
+    const nodeId = container.customData?.flow?.nodeId;
+    const match = typeof nodeId === "string" ? /^n(\d+)$/.exec(nodeId) : null;
+
+    return match ? Number(match[1]) : null;
+  });
+
+  if (
+    arrows.every(
+      (arrow) => !arrow.startBinding?.elementId || !arrow.endBinding?.elementId,
+    ) &&
+    containers.size > 1 &&
+    scriptOrder.every((n) => n !== null)
+  ) {
+    const ids = [...containers.keys()];
+
+    reading = ids
+      .map((id, i) => ({ id, n: scriptOrder[i] as number }))
+      .sort((a, b) => a.n - b.n)
+      .map(({ id }) => ({ id, box: boxes.get(id)! }));
+  }
+
   const readingIndex = new Map(reading.map((item, index) => [item.id, index]));
 
   const edges: FlowEdge[] = [];

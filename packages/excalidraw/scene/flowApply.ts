@@ -35,7 +35,7 @@ import {
 import { buildSettingsOfCustom } from "./flowCustomPresets";
 import { parseFlowScript } from "./flowScript";
 
-import type { FlowFitMode } from "./flowChart";
+import type { FlowChartRecord, FlowFitMode } from "./flowChart";
 import type { FlowCustomPreset } from "./flowCustomPresets";
 import type { FlowChartShape, FlowPageRect } from "./flowPresets";
 import type { FlowPresetId, FlowScriptNode } from "./flowScript";
@@ -48,6 +48,8 @@ export type ApplyFlowScriptArgs = {
   script: string;
   fit: FlowFitMode;
   shape: FlowChartShape;
+  /** whether arrows are drawn between the shapes (D-231) */
+  arrows?: "own" | "none";
   /** the custom preset the chart is made from, when it is (D-228) */
   custom?: FlowCustomPreset;
   /** the page the chart is on */
@@ -94,6 +96,13 @@ const customOptions = (args: ApplyFlowScriptArgs) =>
   args.custom
     ? { ...buildSettingsOfCustom(args.custom).options, custom: args.custom }
     : {};
+
+/**
+ * The kinds that are always made again from their script: a target and a venn
+ * have words that are not bound to their shapes, and a timeline has a line, dots
+ * and stems besides its boxes (D-235, D-237).
+ */
+const REBUILD_ONLY: readonly FlowPresetId[] = ["target", "venn", "timeline"];
 
 /** a steps chart numbers its labels: the number is not what a node is matched by */
 const bare = (label: string, preset: FlowPresetId) =>
@@ -225,13 +234,7 @@ const centred = (
 /** the chart's own first shape holds the record (D-221) */
 const withRecordOnFirstShape = (
   chart: readonly ExcalidrawElement[],
-  record: {
-    id: string;
-    preset: string;
-    script: string;
-    fit: FlowFitMode;
-    shape: FlowChartShape;
-  },
+  record: FlowChartRecord,
 ) => {
   const stamped = stampChart(
     chart.map((element) => {
@@ -276,6 +279,7 @@ const rebuild = (
     fit: args.fit,
     ...customOptions(args),
     shape: args.shape,
+    arrows: args.arrows ?? "own",
     center:
       alive.length > 0
         ? { x: (left + right) / 2, y: (top + bottom) / 2 }
@@ -361,7 +365,9 @@ export const applyFlowScript = (
     record.preset === (args.custom?.id ?? args.preset) &&
     record.fit === args.fit &&
     record.shape === args.shape &&
-    args.fit !== "spread";
+    record.arrows === (args.arrows ?? "own") &&
+    args.fit !== "spread" &&
+    !REBUILD_ONLY.includes(args.preset);
 
   if (!sameKind || chart.length === 0) {
     return rebuild(args, chart);
@@ -379,6 +385,7 @@ export const applyFlowScript = (
     fit: args.fit,
     ...customOptions(args),
     shape: args.shape,
+    arrows: args.arrows ?? "own",
   });
 
   if (!fresh.ok) {
@@ -710,6 +717,7 @@ export const applyFlowScript = (
     script: args.script,
     fit: args.fit,
     shape: args.shape,
+    arrows: args.arrows ?? "own",
     ...(args.custom ? { custom: args.custom } : {}),
   });
   const byRestamped = new Map(

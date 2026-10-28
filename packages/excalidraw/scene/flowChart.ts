@@ -13,7 +13,7 @@
 import type { ExcalidrawElement } from "@excalidraw/element/types";
 
 import { readCustomPreset } from "./flowCustomPresets";
-import { FLOW_NODE_SHAPES, FLOW_PRESET_IDS } from "./flowScript";
+import { ALL_FLOW_PRESET_IDS, FLOW_NODE_SHAPES } from "./flowScript";
 
 import type { FlowGraph } from "./flowOrder";
 import type { FlowPresetId } from "./flowScript";
@@ -38,6 +38,8 @@ export type FlowChartRecord = {
   script: string;
   fit: FlowFitMode;
   shape: FlowChartShape;
+  /** whether arrows are drawn between the shapes (D-231) */
+  arrows: "own" | "none";
   /**
    * The custom preset the chart was made from, by value (D-228): the chart
    * edits and opens on a machine that does not have the preset.
@@ -89,6 +91,7 @@ export const readChartRecord = (
           },
         }
       : {}),
+    arrows: chart.arrows === "none" ? "none" : "own",
     fit: FLOW_FIT_MODES.includes(chart.fit as FlowFitMode)
       ? (chart.fit as FlowFitMode)
       : "page",
@@ -100,9 +103,9 @@ export const readChartRecord = (
   };
 };
 
-/** a preset that is one of the built-in seven */
+/** a preset that is one of the built-in kinds: the seven and the gallery */
 export const isBuiltInPreset = (preset: string): preset is FlowPresetId =>
-  (FLOW_PRESET_IDS as readonly string[]).includes(preset);
+  (ALL_FLOW_PRESET_IDS as readonly string[]).includes(preset);
 
 /** the elements of a chart, not deleted, in the order the document holds them */
 export const chartElementsOf = (
@@ -176,6 +179,7 @@ export const stampChart = (
                   script: record.script,
                   fit: record.fit,
                   shape: record.shape,
+                  arrows: record.arrows,
                   ...(record.custom ? { custom: record.custom } : {}),
                 },
               }
