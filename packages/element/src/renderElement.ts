@@ -68,6 +68,8 @@ import { getContainingFrame } from "./frame";
 import { getCornerRadius } from "./utils";
 import { inkOf, inkPadding } from "./ink";
 import { applyInkLook } from "./inkRender";
+import { mediaClip, mediaOf } from "./media";
+import { clipToMedia } from "./mediaRender";
 
 import { ShapeCache } from "./shape";
 
@@ -488,6 +490,18 @@ const drawElementOnCanvas = (
             getCornerRadius(Math.min(element.width, element.height), element),
           );
           context.clip();
+        }
+
+        // the media of a node is cut to the node's shape (D-246)
+        const media = mediaOf(element);
+
+        if (media) {
+          clipToMedia(
+            context,
+            mediaClip(media, element.width, element.height),
+            element.width,
+            element.height,
+          );
         }
 
         const { x, y, width, height } = element.crop

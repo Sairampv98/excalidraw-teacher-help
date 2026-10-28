@@ -11,6 +11,8 @@
  * arrow joins are two flows, whatever is selected.
  */
 
+import { mediaOf } from "@excalidraw/element";
+
 import type { ElementsMap, ExcalidrawElement } from "@excalidraw/element/types";
 
 import { buildFlowGraph } from "./flowOrder";
@@ -118,6 +120,13 @@ export const flowOfSelection = (
       join(element.id, element.containerId);
     }
 
+    // the media of a node belongs to the node (D-246)
+    const media = mediaOf(element);
+
+    if (media) {
+      join(element.id, media.of);
+    }
+
     // an arrow belongs to the shapes at its two ends
     if (element.type === "arrow") {
       if (element.startBinding) {
@@ -169,6 +178,13 @@ export const allFlows = (
   for (const element of live) {
     if (element.type === "text" && element.containerId) {
       join(element.id, element.containerId);
+    }
+
+    // the media of a node belongs to the node (D-246)
+    const media = mediaOf(element);
+
+    if (media) {
+      join(element.id, media.of);
     }
 
     if (element.type === "arrow") {

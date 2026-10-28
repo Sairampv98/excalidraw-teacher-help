@@ -212,6 +212,18 @@ body.excalidraw-cursor-resize * {
     }
   }
 
+  // the video of a node fills the node, whole and cut to its shape (D-246): it
+  // covers the box and has no controls under it
+  &__panel[data-node-media] {
+    .excalidraw__panel-video-box video {
+      object-fit: cover;
+    }
+
+    .excalidraw__panel-video-controls {
+      display: none;
+    }
+  }
+
   // the video panel's surface: the picture, and the controls under it
   &__panel-video-box {
     display: flex;

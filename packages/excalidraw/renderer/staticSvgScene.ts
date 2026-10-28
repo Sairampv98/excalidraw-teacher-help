@@ -31,6 +31,7 @@ import {
 import { getContainingFrame } from "@excalidraw/element";
 
 import { getCornerRadius, isPathALoop } from "@excalidraw/element";
+import { mediaClip, mediaOf } from "@excalidraw/element";
 
 import { ShapeCache } from "@excalidraw/element";
 
@@ -584,6 +585,50 @@ const renderElementToSvg = (
           clipPath.appendChild(clipRect);
           addToRoot(clipPath, element);
 
+          g.setAttributeNS(SVG_NS, "clip-path", `url(#${clipPath.id})`);
+        }
+
+        // the media of a node is cut to the node's shape (D-246)
+        const media = mediaOf(element);
+        const cut = media
+          ? mediaClip(media, element.width, element.height)
+          : null;
+
+        if (cut && cut.kind !== "none") {
+          const doc = svgRoot.ownerDocument;
+          const clipPath = doc.createElementNS(SVG_NS, "clipPath");
+
+          clipPath.id = `image-media-clipPath-${element.id}`;
+          clipPath.setAttribute("clipPathUnits", "userSpaceOnUse");
+
+          const ox = element.crop ? normalizedCropX : 0;
+          const oy = element.crop ? normalizedCropY : 0;
+          let shape: Element;
+
+          if (cut.kind === "ellipse") {
+            shape = doc.createElementNS(SVG_NS, "ellipse");
+            shape.setAttribute("cx", `${ox + element.width / 2}`);
+            shape.setAttribute("cy", `${oy + element.height / 2}`);
+            shape.setAttribute("rx", `${element.width / 2}`);
+            shape.setAttribute("ry", `${element.height / 2}`);
+          } else if (cut.kind === "polygon") {
+            shape = doc.createElementNS(SVG_NS, "polygon");
+            shape.setAttribute(
+              "points",
+              cut.points.map(([px, py]) => `${ox + px},${oy + py}`).join(" "),
+            );
+          } else {
+            shape = doc.createElementNS(SVG_NS, "rect");
+            shape.setAttribute("x", `${ox}`);
+            shape.setAttribute("y", `${oy}`);
+            shape.setAttribute("width", `${element.width}`);
+            shape.setAttribute("height", `${element.height}`);
+            shape.setAttribute("rx", `${cut.radius}`);
+            shape.setAttribute("ry", `${cut.radius}`);
+          }
+
+          clipPath.appendChild(shape);
+          addToRoot(clipPath, element);
           g.setAttributeNS(SVG_NS, "clip-path", `url(#${clipPath.id})`);
         }
 

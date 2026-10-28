@@ -12,6 +12,8 @@ import {
   getContainingFrame,
   getRenderOpacity,
   isPosterPanelElement,
+  mediaCssClip,
+  mediaOf,
 } from "@excalidraw/element";
 
 import type {
@@ -1655,6 +1657,7 @@ const VideoPanelSurface = ({
   const [durationMs, setDurationMs] = useState(0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
+  const isNodeMedia = mediaOf(panel) !== null;
   /**
    * The video's **effective** state (D-119).
    *
@@ -2152,10 +2155,13 @@ const VideoPanelSurface = ({
         // the primary source, or the fallback once it has been tried (D-126)
         src={fallbackUrl ?? src}
         playsInline={true}
+        // the video of a node is a silent loop (D-246)
+        autoPlay={isNodeMedia}
+        loop={isNodeMedia}
         // the metadata is what tells the browser the video's own size, and the
         // size is what a poster is captured at
         preload="metadata"
-        muted={muted}
+        muted={muted || isNodeMedia}
         onTimeUpdate={reportPosition}
         onSeeked={reportPosition}
         // the ELEMENT is the truth and the state only mirrors it: whatever
@@ -2865,6 +2871,8 @@ const Panel = ({
     ],
   );
 
+  const nodeMedia = mediaOf(panel);
+
   const clipPath = useMemo(
     () => animatedImageClipPath(panel, elementsMap, camera, viewport),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2888,9 +2896,12 @@ const Panel = ({
         data-testid="panel"
         data-panel-id={panel.id}
         data-panel-kind={panel.panelKind}
+        // the video of a node fills the node and is cut to its shape (D-246)
+        data-node-media={nodeMedia ? "" : undefined}
         style={
           {
             position: "absolute",
+            clipPath: nodeMedia ? mediaCssClip(nodeMedia) : undefined,
             width: panel.width,
             height: panel.height,
             transform,

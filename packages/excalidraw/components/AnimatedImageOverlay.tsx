@@ -4,6 +4,8 @@ import {
   getContainingFrame,
   getCornerRadius,
   getRenderOpacity,
+  mediaCssClip,
+  mediaOf,
 } from "@excalidraw/element";
 
 import type {
@@ -93,6 +95,7 @@ const AnimatedImage = ({
   }
 
   const { crop } = image;
+  const nodeMedia = mediaOf(image);
 
   // `drawImage(img, cropX, cropY, cropW, cropH, 0, 0, width, height)` in CSS:
   // scale the whole source by the ratio between the cropped region and the
@@ -133,6 +136,8 @@ const AnimatedImage = ({
           borderRadius: image.roundness
             ? getCornerRadius(Math.min(image.width, image.height), image)
             : undefined,
+          // the media of a node is cut to the node's shape (D-246)
+          clipPath: nodeMedia ? mediaCssClip(nodeMedia) : undefined,
           // the crop modal draws its own handles over the image; hide this copy
           // so it cannot sit on top of them
           visibility: croppingElementId === image.id ? "hidden" : undefined,

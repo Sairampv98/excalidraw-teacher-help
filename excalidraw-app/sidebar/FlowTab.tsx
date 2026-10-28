@@ -42,6 +42,8 @@ import type { FlowCustomPreset } from "@excalidraw/excalidraw/scene/flowCustomPr
 import type { FlowChartShape } from "@excalidraw/excalidraw/scene/flowPresets";
 import type { FlowPresetId } from "@excalidraw/excalidraw/scene/flowScript";
 
+import { NodeMediaPanel } from "./NodeMediaPanel";
+
 import { FlowGuide } from "./FlowGuide";
 import { FlowPresetForm } from "./FlowPresetForm";
 import { appendElements, placementFor } from "./insertIntoScene";
@@ -607,6 +609,8 @@ export const FlowTab = () => {
           {check.pages > 1 ? `, ${check.pages} pages` : ""}
         </p>
       </div>
+
+      <NodeMediaPanel />
 
       <div className="flow-tab__footer">
         <button

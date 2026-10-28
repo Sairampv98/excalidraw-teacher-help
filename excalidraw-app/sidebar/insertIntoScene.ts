@@ -271,7 +271,7 @@ const viewportCenter = (
   return { x: center.x - width / 2, y: center.y - height / 2 };
 };
 
-const getImageSize = (src: string) =>
+export const getImageSize = (src: string) =>
   new Promise<{ width: number; height: number }>((resolve, reject) => {
     const image = new Image();
     image.onload = () =>
