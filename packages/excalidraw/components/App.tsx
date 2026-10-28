@@ -421,6 +421,7 @@ import {
 
 import { Fonts } from "../fonts";
 import { editorJotaiStore, type WritableAtom } from "../editor-jotai";
+import { newElementInkProps } from "../inkDefault";
 import { ImageSceneDataError } from "../errors";
 import {
   getSnapLinesAtPointer,
@@ -5261,6 +5262,7 @@ class App extends React.Component<AppProps, AppState> {
     );
 
     const textElementProps = {
+      ...newElementInkProps("text"),
       x,
       y,
       strokeColor: this.state.currentItemStrokeColor,
@@ -7782,6 +7784,7 @@ class App extends React.Component<AppProps, AppState> {
     const element =
       existingTextElement ||
       newTextElement({
+        ...newElementInkProps("text"),
         x: newTextElementPosition.x,
         y: newTextElementPosition.y,
         strokeColor: this.state.currentItemStrokeColor,
@@ -10568,6 +10571,7 @@ class App extends React.Component<AppProps, AppState> {
     const simulatePressure = event.pressure === 0.5;
 
     const element = newFreeDrawElement({
+      ...newElementInkProps("freedraw"),
       type: elementType,
       x: gridX,
       y: gridY,
@@ -10879,6 +10883,7 @@ class App extends React.Component<AppProps, AppState> {
       const element =
         elementType === "arrow"
           ? newArrowElement({
+              ...newElementInkProps("arrow"),
               type: elementType,
               x: gridX,
               y: gridY,
@@ -10906,6 +10911,7 @@ class App extends React.Component<AppProps, AppState> {
                   : null,
             })
           : newLinearElement({
+              ...newElementInkProps("line"),
               type: elementType,
               x: gridX,
               y: gridY,
@@ -11067,6 +11073,7 @@ class App extends React.Component<AppProps, AppState> {
     });
 
     const baseElementAttributes = {
+      ...newElementInkProps(elementType),
       x: gridX,
       y: gridY,
       strokeColor: this.state.currentItemStrokeColor,

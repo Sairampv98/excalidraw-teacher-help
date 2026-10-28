@@ -76,6 +76,8 @@ export * from "./frame";
 export * from "./groups";
 export * from "./heading";
 export * from "./image";
+export * from "./ink";
+export * from "./inkRender";
 export * from "./linearElementEditor";
 export * from "./mutateElement";
 export * from "./newElement";
