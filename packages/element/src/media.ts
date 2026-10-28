@@ -45,7 +45,18 @@ export type NodeMedia = {
   view?: MediaView;
   /** the picture's own size, which the view is measured in (D-247) */
   natural?: { width: number; height: number };
+  /** what the node's words are while it holds media (D-248); a caption when it is not given */
+  words?: WordsMode;
 };
+
+/** a caption below the node, or hidden and locked under the media */
+export const WORDS_MODES = ["caption", "hidden"] as const;
+
+export type WordsMode = typeof WORDS_MODES[number];
+
+export const isWordsMode = (value: unknown): value is WordsMode =>
+  typeof value === "string" &&
+  (WORDS_MODES as readonly string[]).includes(value);
 
 export const isMediaShape = (value: unknown): value is MediaShape =>
   typeof value === "string" &&
@@ -70,6 +81,7 @@ export const mediaOf = (
         : 0,
     ...(typeof stored.sig === "string" ? { sig: stored.sig } : {}),
     ...(isMediaFit(stored.fit) ? { fit: stored.fit } : {}),
+    ...(isWordsMode(stored.words) ? { words: stored.words } : {}),
     ...(readMediaView(stored.view)
       ? { view: readMediaView(stored.view)! }
       : {}),
@@ -229,4 +241,55 @@ export const coverCrop = (
     naturalWidth: natural.width,
     naturalHeight: natural.height,
   };
+};
+
+/**
+ * The node a text is the caption of (D-248): while a node holds media its words
+ * are a free text under it, tied to it by `customData.caption`.
+ */
+export type NodeCaption = {
+  /** the id of the node */
+  of: string;
+  /**
+   * Where the node and the caption were when the caption was last put in its
+   * place: a node that is moved by itself takes its caption with it, and a
+   * caption that is moved by the teacher is left where it is put.
+   */
+  at?: { nx: number; ny: number; cx: number; cy: number };
+};
+
+export const captionOf = (
+  element: Pick<ExcalidrawElement, "customData">,
+): NodeCaption | null => {
+  const stored = element.customData?.caption;
+
+  if (!stored || typeof stored.of !== "string") {
+    return null;
+  }
+
+  const at = stored.at;
+
+  return {
+    of: stored.of,
+    ...(at &&
+    [at.nx, at.ny, at.cx, at.cy].every(
+      (n: unknown) => typeof n === "number" && Number.isFinite(n),
+    )
+      ? { at: { nx: at.nx, ny: at.ny, cx: at.cx, cy: at.cy } }
+      : {}),
+  };
+};
+
+/** the `customData` with this caption data; null takes it away */
+export const customDataWithCaption = (
+  customData: ExcalidrawElement["customData"],
+  caption: NodeCaption | null,
+): ExcalidrawElement["customData"] => {
+  const { caption: _previous, ...rest } = customData ?? {};
+
+  if (!caption) {
+    return Object.keys(rest).length ? rest : undefined;
+  }
+
+  return { ...rest, caption: { ...caption } };
 };

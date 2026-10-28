@@ -14,7 +14,7 @@
  * so one undo takes the whole change back.
  */
 
-import { mediaOf, newElementWith } from "@excalidraw/element";
+import { captionOf, mediaOf, newElementWith } from "@excalidraw/element";
 import { randomInteger } from "@excalidraw/common";
 
 import type {
@@ -108,7 +108,11 @@ const REBUILD_ONLY: readonly FlowPresetId[] = ["target", "venn", "timeline"];
 const bare = (label: string, preset: FlowPresetId) =>
   preset === "steps" ? label.replace(/^\d+\.\s+/, "") : label;
 
-/** the text bound to a shape */
+/**
+ * The text of a shape: the text bound to it, or - while the node holds media -
+ * the caption under it (D-248), which is the node's words as much as the bound
+ * text is.
+ */
 const textOf = (
   shape: ExcalidrawElement,
   byId: ReadonlyMap<string, ExcalidrawElement>,
@@ -117,6 +121,16 @@ const textOf = (
     const element = byId.get(bound.id);
 
     if (element && element.type === "text" && !element.isDeleted) {
+      return element;
+    }
+  }
+
+  for (const element of byId.values()) {
+    if (
+      element.type === "text" &&
+      !element.isDeleted &&
+      captionOf(element)?.of === shape.id
+    ) {
       return element;
     }
   }
@@ -560,7 +574,8 @@ export const applyFlowScript = (
           flow: { ...flowOf(text), nodeId: node.id },
         },
       });
-      updated.set(text.id, centred(text, box));
+      // a caption stays under its node; the words in a node are centred in it
+      updated.set(text.id, captionOf(text) ? text : centred(text, box));
     }
 
     nodeBoxes.set(node.id, box);

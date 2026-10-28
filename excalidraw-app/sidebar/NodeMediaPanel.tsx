@@ -4,6 +4,7 @@ import { canHoldMedia, mediaOf } from "@excalidraw/element";
 import { setFlowEditorExtra } from "@excalidraw/excalidraw/components/FlowScriptEditorState";
 import { CaptureUpdateAction, useExcalidrawAPI } from "@excalidraw/excalidraw";
 
+import type { WordsMode } from "@excalidraw/element";
 import type { ExcalidrawElement } from "@excalidraw/element/types";
 
 import { sceneAtClientPoint } from "./insertIntoScene";
@@ -11,6 +12,7 @@ import { openMediaCrop } from "./mediaCropState";
 import { setNodeDrop } from "./nodeDropHook";
 import {
   addMediaToNode,
+  applyMediaWords,
   fitMediaToNodes,
   mediaElementsOfNode,
   mediaKindOf,
@@ -29,6 +31,7 @@ export const NodeMediaSection = () => {
   const input = useRef<HTMLInputElement>(null);
   const [node, setNode] = useState<ExcalidrawElement | null>(null);
   const [hasMedia, setHasMedia] = useState(false);
+  const [words, setWords] = useState<WordsMode>("caption");
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -51,7 +54,10 @@ export const NodeMediaSection = () => {
       const next = owner && canHoldMedia(owner) ? owner : null;
 
       setNode((previous) => (previous?.id === next?.id ? previous : next));
-      setHasMedia(!!next && mediaElementsOfNode(elements, next.id).length > 0);
+      const held = next ? mediaElementsOfNode(elements, next.id) : [];
+
+      setHasMedia(held.length > 0);
+      setWords(held.length ? mediaOf(held[0])?.words ?? "caption" : "caption");
     };
 
     read();
@@ -104,6 +110,21 @@ export const NodeMediaSection = () => {
       >
         {hasMedia ? "Replace picture or video" : "Add picture or video"}
       </button>
+      {hasMedia && (
+        <label className="flow-tab__media-words">
+          Words of the node
+          <select
+            data-testid="node-media-words"
+            value={words}
+            onChange={(event) =>
+              applyMediaWords(api, node.id, event.target.value as WordsMode)
+            }
+          >
+            <option value="caption">A caption below the node</option>
+            <option value="hidden">Hidden under the picture</option>
+          </select>
+        </label>
+      )}
       {hasMedia && (
         <button
           type="button"

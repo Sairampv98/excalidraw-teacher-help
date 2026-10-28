@@ -28,13 +28,20 @@ import {
 } from "@excalidraw/excalidraw/data/blob";
 
 import type { ExcalidrawElement } from "@excalidraw/element/types";
-import type { MediaFit, MediaView, NodeMedia, Size } from "@excalidraw/element";
+import type {
+  MediaFit,
+  MediaView,
+  NodeMedia,
+  Size,
+  WordsMode,
+} from "@excalidraw/element";
 import type {
   BinaryFileData,
   ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
 
 import { appendElements, getImageSize } from "./insertIntoScene";
+import { ensureWords, withWords } from "./nodeWords";
 import { insertVideoPanel } from "./videoPanel";
 
 /** what a file can be as media: a picture (a GIF is one), a video, or nothing */
@@ -150,7 +157,10 @@ const fitUpdates = (
   const updates: Record<string, unknown> = { ...box, angle: node.angle };
 
   if (!natural) {
-    updates.customData = customDataWithMedia(element.customData, fitted);
+    updates.customData = customDataWithMedia(element.customData, {
+      ...fitted,
+      ...(media?.words ? { words: media.words } : {}),
+    });
 
     return updates;
   }
@@ -168,6 +178,7 @@ const fitUpdates = (
     fit,
     natural,
     view,
+    ...(media?.words ? { words: media.words } : {}),
   });
 
   if (element.type === "image") {
@@ -223,7 +234,45 @@ export const fitMediaToNodes = (
     );
   });
 
-  return changed ? next : null;
+  const fitted = changed ? next : null;
+
+  // the words of the nodes and their captions are kept as the choice says
+  return ensureWords(fitted ?? elements) ?? fitted;
+};
+
+/**
+ * Sets what the words of a node are while it holds media (D-248): a caption
+ * under it, or hidden under the media. It is kept on the media.
+ */
+export const applyMediaWords = (
+  api: ExcalidrawImperativeAPI,
+  nodeId: string,
+  words: WordsMode,
+) => {
+  const elements = api.getSceneElementsIncludingDeleted();
+  const media = mediaElementsOfNode(elements, nodeId);
+
+  if (!media.length) {
+    return false;
+  }
+
+  const ids = new Set(media.map((element) => element.id));
+  const marked = elements.map((element) => {
+    const data = ids.has(element.id) ? mediaOf(element) : null;
+
+    return data
+      ? newElementWith(element, {
+          customData: customDataWithMedia(element.customData, {
+            ...data,
+            words,
+          }),
+        })
+      : element;
+  });
+
+  api.updateScene({ elements: ensureWords(marked) ?? marked });
+
+  return true;
 };
 
 /**
@@ -263,13 +312,15 @@ export const removeMediaFromNode = (
   api: ExcalidrawImperativeAPI,
   nodeId: string,
 ) => {
-  const elements = api.getSceneElementsIncludingDeleted();
-  const media = mediaElementsOfNode(elements, nodeId);
+  const scene = api.getSceneElementsIncludingDeleted();
+  const media = mediaElementsOfNode(scene, nodeId);
 
   if (!media.length) {
     return false;
   }
 
+  // the words come back into the node (D-248)
+  const elements = withWords(scene, nodeId, "shown") ?? scene;
   const ids = new Set(media.map((element) => element.id));
 
   // the group that tied the media to the node is taken apart
@@ -504,14 +555,17 @@ export const addMediaToNode = async (
     new Map(api.getSceneElements().map((element) => [element.id, element])),
   );
 
-  api.updateScene({
-    elements: api.getSceneElementsIncludingDeleted().map((element) => {
-      if (element.id === node.id || element.id === text?.id) {
-        return newElementWith(element, { groupIds });
-      }
+  const grouped = api
+    .getSceneElementsIncludingDeleted()
+    .map((element) =>
+      element.id === node.id || element.id === text?.id
+        ? newElementWith(element, { groupIds })
+        : element,
+    );
 
-      return element;
-    }),
+  api.updateScene({
+    // the words of the node go under it as a caption (D-248)
+    elements: ensureWords(grouped) ?? grouped,
     appState: { selectedElementIds: { [added.id]: true } },
   });
 

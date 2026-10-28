@@ -20,6 +20,7 @@
 
 import {
   getCommonBounds,
+  captionOf,
   isLinearElement,
   isTextElement,
   mediaOf,
@@ -271,6 +272,21 @@ export const buildFlowGraph = (
 
     if (media) {
       const owner = elementsMap.get(media.of);
+
+      if (owner && targetIds.has(owner.id)) {
+        addContainer(owner);
+        members.get(owner.id)!.push(element.id);
+      }
+
+      continue;
+    }
+
+    // the words of a node that holds media are a caption under it (D-248): part
+    // of the node's step, as they are when they are inside it
+    const caption = element.type === "text" ? captionOf(element) : null;
+
+    if (caption) {
+      const owner = elementsMap.get(caption.of);
 
       if (owner && targetIds.has(owner.id)) {
         addContainer(owner);
