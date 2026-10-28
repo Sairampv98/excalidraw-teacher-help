@@ -8,6 +8,7 @@ import {
   useExcalidrawAPI,
 } from "@excalidraw/excalidraw";
 import { randomId, randomInteger } from "@excalidraw/common";
+import { FlowPreview } from "@excalidraw/excalidraw/components/FlowPreview";
 import { openFlowScriptEditor } from "@excalidraw/excalidraw/components/FlowScriptEditorState";
 import { checkFlowScript } from "@excalidraw/excalidraw/scene/flowCheck";
 import { convertScript } from "@excalidraw/excalidraw/scene/flowConvert";
@@ -32,6 +33,7 @@ import {
   listFlowPresets,
 } from "@excalidraw/excalidraw/scene/flowPresets";
 import { FLOW_NODE_SHAPES } from "@excalidraw/excalidraw/scene/flowScript";
+import { flowKindPreview } from "@excalidraw/excalidraw/scene/flowPreview";
 import { getPageIndex } from "@excalidraw/excalidraw/scene/pages";
 
 import type { RemoteExcalidrawElement } from "@excalidraw/excalidraw/data/reconcile";
@@ -139,6 +141,17 @@ export const FlowTab = () => {
   const [editing, setEditing] = useState<FlowCustomPreset | null>(null);
 
   const fileInput = useRef<HTMLInputElement | null>(null);
+
+  // the small picture of a kind, from the chart its example builds (D-239)
+  const pictureOf = (p: { id: string; example: string }) => {
+    const own = customs.find((c) => c.id === p.id);
+
+    return flowKindPreview(
+      own ? BUILT_IN_OF_LAYOUT[own.layout] : (p.id as FlowPresetId),
+      p.example,
+      own ? buildSettingsOfCustom(own).options : {},
+    );
+  };
 
   const choose = useCallback(
     (id: string) => {
@@ -463,6 +476,9 @@ export const FlowTab = () => {
               className="flow-tab__preset"
               onClick={() => choose(p.id)}
             >
+              <span className="flow-tab__preset-picture">
+                <FlowPreview preview={pictureOf(p)} />
+              </span>
               <span className="flow-tab__preset-name">{p.name}</span>
               <span className="flow-tab__preset-description">
                 {p.description}

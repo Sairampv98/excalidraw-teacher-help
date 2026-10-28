@@ -117,6 +117,46 @@ describe("AC-264 the Flow tab, the guide and custom presets offer the gallery", 
     }
   });
 
+  it("AC-266 the Flow tab shows the pictures with the names", async () => {
+    writeStoredCustomPresets([CUSTOM]);
+
+    const { getByRole } = await renderStudio();
+    const all = radios(getByRole);
+
+    expect(all).toHaveLength(NAMES.length + 1);
+
+    for (const radio of all) {
+      const name = radio.querySelector(".flow-tab__preset-name")!.textContent;
+      const picture = radio.querySelector(
+        ".flow-tab__preset-picture svg[data-flow-preview]",
+      );
+
+      // a picture with shapes in it, and no words of its own
+      expect(picture, name!).not.toBeNull();
+      expect(
+        picture!.querySelectorAll("rect, ellipse, polygon").length,
+        name!,
+      ).toBeGreaterThan(0);
+      expect(picture!.querySelector("text"), name!).toBeNull();
+
+      // the name and the description are still there
+      expect(name!.length).toBeGreaterThan(0);
+      expect(
+        radio.querySelector(".flow-tab__preset-description")!.textContent!
+          .length,
+      ).toBeGreaterThan(5);
+    }
+
+    // a venn is circles, a grid is boxes
+    const of = (name: string) =>
+      all.find(
+        (r) => r.querySelector(".flow-tab__preset-name")!.textContent === name,
+      )!;
+
+    expect(of("Venn").querySelectorAll("ellipse")).toHaveLength(3);
+    expect(of("Grid").querySelectorAll("rect")).toHaveLength(12);
+  });
+
   it("AC-264 every example builds", async () => {
     const { getByRole, getByLabelText } = await renderStudio();
 

@@ -358,8 +358,17 @@ export const buildFlowGraph = (
   const seen = new Set<string>();
 
   for (const arrow of arrows) {
-    const from = arrow.startBinding?.elementId;
-    const to = arrow.endBinding?.elementId;
+    // an arrow joins the shapes it is bound to, or the two shapes it says it
+    // joins (the segments of a timeline's line, D-238)
+    const joins = arrow.customData?.flow?.joins;
+    const named =
+      Array.isArray(joins) &&
+      joins.length === 2 &&
+      joins.every((id) => typeof id === "string")
+        ? (joins as [string, string])
+        : null;
+    const from = arrow.startBinding?.elementId ?? named?.[0];
+    const to = arrow.endBinding?.elementId ?? named?.[1];
 
     if (!from || !to || from === to) {
       continue;

@@ -34,23 +34,36 @@ const role = (e: ExcalidrawElement) => e.customData?.flow?.role as string;
 describe("AC-262 a timeline has a line and its boxes alternate", () => {
   it("AC-262 one line crosses the chart with a dot for each part", () => {
     const elements = build();
-    const lines = elements.filter((e) => role(e) === "timeline-line");
+    // the line is a segment for each gap and a lead at each end (D-238)
+    const line = elements.filter(
+      (e) => role(e) === "timeline-line" || role(e) === "timeline-segment",
+    );
     const dots = elements.filter((e) => role(e) === "timeline-dot");
     const stems = elements.filter((e) => role(e) === "timeline-stem");
 
-    expect(lines).toHaveLength(1);
+    expect(line).toHaveLength(4 + 2);
     expect(dots).toHaveLength(5);
     expect(stems).toHaveLength(5);
 
-    const [line] = lines;
+    // every piece of it is horizontal, on the one line, and they meet end to end
+    const pieces = [...line].sort((a, b) => a.x - b.x);
 
-    // the line is horizontal and crosses every dot and every box
-    expect(line.height).toBeCloseTo(0, 5);
+    for (const piece of pieces) {
+      expect(piece.height).toBeCloseTo(0, 5);
+      expect(piece.y).toBeCloseTo(pieces[0].y, 5);
+    }
 
+    for (let i = 1; i < pieces.length; i++) {
+      expect(pieces[i].x).toBeCloseTo(pieces[i - 1].x + pieces[i - 1].width, 3);
+    }
+
+    // and it crosses every dot
     for (const dot of dots) {
-      expect(dot.y + dot.height / 2).toBeCloseTo(line.y, 3);
-      expect(dot.x).toBeGreaterThanOrEqual(line.x);
-      expect(dot.x + dot.width).toBeLessThanOrEqual(line.x + line.width);
+      expect(dot.y + dot.height / 2).toBeCloseTo(pieces[0].y, 3);
+      expect(dot.x).toBeGreaterThanOrEqual(pieces[0].x);
+      expect(dot.x + dot.width).toBeLessThanOrEqual(
+        pieces[pieces.length - 1].x + pieces[pieces.length - 1].width,
+      );
     }
 
     // each box is over its dot
@@ -111,19 +124,29 @@ describe("AC-262 a timeline has a line and its boxes alternate", () => {
   });
 
   it("AC-262 the line joins nothing", () => {
+    // what is not a segment between two boxes joins nothing: the lead past the
+    // first and the last dot, and the stems (the segments are D-238)
     const elements = build();
-    const [line] = elements.filter((e) => role(e) === "timeline-line");
+    const loose = elements.filter(
+      (e) => role(e) === "timeline-line" || role(e) === "timeline-stem",
+    );
 
-    expect(line.type === "arrow" && line.startBinding).toBeFalsy();
-    expect(line.type === "arrow" && line.endBinding).toBeFalsy();
+    expect(loose).toHaveLength(2 + 5);
 
-    // no shape names it as bound, and it is not an edge of the animation's graph
-    expect(
-      nodesOf(elements).every(
-        (box) => !(box.boundElements ?? []).some((b) => b.id === line.id),
-      ),
-    ).toBe(true);
+    for (const piece of loose) {
+      expect(piece.type === "arrow" && piece.startBinding).toBeFalsy();
+      expect(piece.type === "arrow" && piece.endBinding).toBeFalsy();
+      expect(piece.customData?.flow?.joins).toBeUndefined();
 
+      // and no shape names it as bound
+      expect(
+        nodesOf(elements).every(
+          (box) => !(box.boundElements ?? []).some((b) => b.id === piece.id),
+        ),
+      ).toBe(true);
+    }
+
+    // the boxes are the steps, left to right
     const map = new Map(elements.map((e) => [e.id, e]));
     const graph = flowOfSelection(
       Object.fromEntries(elements.map((e) => [e.id, true])),
@@ -131,8 +154,6 @@ describe("AC-262 a timeline has a line and its boxes alternate", () => {
       map,
     )!;
 
-    expect(graph.edges).toHaveLength(0);
-    // the boxes are the steps, left to right
     expect(graph.steps).toHaveLength(5);
     expect(graph.steps.map((s) => s.containerId)).toEqual(
       nodesOf(elements).map((n) => n.id),

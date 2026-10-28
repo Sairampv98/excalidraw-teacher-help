@@ -1183,12 +1183,15 @@ const galleryFill = (
 };
 
 /**
- * What a timeline has besides its boxes (D-237): the line across, a dot for each
- * part and a short stem from each dot to its box. They are drawn, and they join
- * nothing.
+ * What a timeline has besides its boxes (D-237, D-238): the line across, a dot
+ * for each part and a short stem from each dot to its box. The line is a segment
+ * for each gap between two dots, and each segment joins the two boxes it runs
+ * between, so that the animation runs along it from one moment to the next; the
+ * lead past the first and the last dot, and the stems, join nothing.
  */
 const timelineElements = (
   placed: readonly Placed[],
+  shapeIds: ReadonlyMap<string, string>,
   origin: { x: number; y: number },
   fontSize: number,
   ids: ReturnType<typeof createIds>,
@@ -1211,6 +1214,7 @@ const timelineElements = (
     from: { x: number; y: number },
     to: { x: number; y: number },
     role: string,
+    joins?: [string, string],
   ): ExcalidrawElement => ({
     ...newArrowElement({
       type: "arrow",
@@ -1224,7 +1228,7 @@ const timelineElements = (
       startArrowhead: null,
       endArrowhead: null,
       strokeColor: outlineOf(options),
-      customData: { flow: { role } },
+      customData: { flow: { role, ...(joins ? { joins } : {}) } },
       pageId: options.pageId,
     }),
     id: ids.id(role),
@@ -1232,8 +1236,30 @@ const timelineElements = (
     height: Math.abs(to.y - from.y),
   });
 
+  const first = dots[0];
+  const last = dots[dots.length - 1];
+  // with no arrows the line is drawn and joins nothing (D-231)
+  const joinsOf = (i: number): [string, string] | undefined =>
+    options.arrows === "none"
+      ? undefined
+      : [
+          shapeIds.get(placed[i].node.id)!,
+          shapeIds.get(placed[i + 1].node.id)!,
+        ];
+
   const decor: ExcalidrawElement[] = [
-    plain({ x: left, y: axisY }, { x: right, y: axisY }, "timeline-line"),
+    plain({ x: left, y: axisY }, { x: first.x, y: axisY }, "timeline-line"),
+    ...dots
+      .slice(0, -1)
+      .map((dot, i) =>
+        plain(
+          { x: dot.x, y: axisY },
+          { x: dots[i + 1].x, y: axisY },
+          "timeline-segment",
+          joinsOf(i),
+        ),
+      ),
+    plain({ x: last.x, y: axisY }, { x: right, y: axisY }, "timeline-line"),
   ];
 
   for (const dot of dots) {
@@ -1408,7 +1434,7 @@ const buildElements = (
     ...ordered,
     ...arrows,
     ...(flow.preset === "timeline"
-      ? timelineElements(placed, origin, fontSize, ids, options)
+      ? timelineElements(placed, shapeIds, origin, fontSize, ids, options)
       : []),
   ];
 };

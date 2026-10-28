@@ -33,6 +33,7 @@ import {
   clampFlowBarPlace,
 } from "../scene/flowBarPlace";
 import { flowPagesOf, planChartPages } from "../scene/flowPagesFor";
+import { flowKindPreview } from "../scene/flowPreview";
 import { listFlowPresets } from "../scene/flowPresets";
 import { FLOW_FIT_MODES } from "../scene/flowChart";
 import {
@@ -56,6 +57,8 @@ import {
   getFlowScriptDraft,
   setFlowScriptDraft,
 } from "./FlowScriptEditorState";
+
+import { FlowPreview } from "./FlowPreview";
 
 import "./FlowScriptEditor.scss";
 
@@ -689,6 +692,20 @@ const EditorPanel = ({
           </label>
         </div>
       )}
+
+      <div
+        className="excalidraw__flow-editor-picture"
+        data-testid="flow-editor-kind-picture"
+        title="The kind of chart"
+      >
+        <FlowPreview
+          preview={flowKindPreview(
+            builtIn,
+            choices.list.find((p) => p.id === presetId)?.example ?? script,
+            custom ? buildSettingsOfCustom(custom).options : {},
+          )}
+        />
+      </div>
 
       <div className="excalidraw__flow-editor-row">
         <label>
