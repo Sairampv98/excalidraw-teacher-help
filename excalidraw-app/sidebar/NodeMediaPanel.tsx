@@ -7,6 +7,7 @@ import { CaptureUpdateAction, useExcalidrawAPI } from "@excalidraw/excalidraw";
 import type { WordsMode } from "@excalidraw/element";
 import type { ExcalidrawElement } from "@excalidraw/element/types";
 
+import { isChartNode, nodeGeometry, refreshBoundArrows } from "./chartArrows";
 import { sceneAtClientPoint } from "./insertIntoScene";
 import { openMediaCrop } from "./mediaCropState";
 import { setNodeDrop } from "./nodeDropHook";
@@ -163,7 +164,40 @@ export const NodeMediaDrop = () => {
       return;
     }
 
+    // what a chart's nodes were when the scene last changed: a node that is
+    // changed by something other than the editor leaves its arrows behind (D-249)
+    let seen: Map<string, string> | null = null;
+
     return api.onChange(() => {
+      const scene = api.getSceneElementsIncludingDeleted();
+      const now = new Map(
+        scene.filter(isChartNode).map((node) => [node.id, nodeGeometry(node)]),
+      );
+      const changedNodes = new Set<string>();
+
+      if (seen) {
+        for (const [id, geometry] of now) {
+          if (seen.has(id) && seen.get(id) !== geometry) {
+            changedNodes.add(id);
+          }
+        }
+      }
+
+      seen = now;
+
+      if (changedNodes.size) {
+        const arrows = refreshBoundArrows(scene, changedNodes);
+
+        if (arrows) {
+          api.updateScene({
+            elements: arrows,
+            captureUpdate: CaptureUpdateAction.NEVER,
+          });
+
+          return;
+        }
+      }
+
       const fitted = fitMediaToNodes(api.getSceneElementsIncludingDeleted());
 
       if (fitted) {

@@ -16,6 +16,7 @@ import type {
   MediaFit,
   MediaShape,
   MediaView,
+  WordsMode,
 } from "@excalidraw/element";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
@@ -27,6 +28,7 @@ import {
 import {
   addMediaToNode,
   applyMediaFit,
+  applyMediaWords,
   mediaElementsOfNode,
   removeMediaFromNode,
 } from "./nodeMedia";
@@ -129,6 +131,7 @@ const CropScreen = ({
         : undefined;
 
     return {
+      words: data.words ?? ("caption" as WordsMode),
       box,
       natural,
       fit,
@@ -139,6 +142,7 @@ const CropScreen = ({
     };
   }, [api, nodeId]);
 
+  const [words, setWords] = useState<WordsMode>(start?.words ?? "caption");
   const [fit, setFit] = useState<MediaFit>(start?.fit ?? "auto");
   const [view, setView] = useState<MediaView | null>(start?.view ?? null);
   const [size, setSize] = useState({
@@ -371,6 +375,23 @@ const CropScreen = ({
         >
           Remove picture
         </button>
+        <label className="media-crop__words">
+          Words of the node
+          <select
+            data-testid="media-crop-words"
+            value={words}
+            onChange={(event) => {
+              const next = event.target.value as WordsMode;
+
+              // the words are the node's, and not part of the crop: they change at once
+              setWords(next);
+              applyMediaWords(api, nodeId, next);
+            }}
+          >
+            <option value="caption">A caption below the node</option>
+            <option value="hidden">Hidden under the picture</option>
+          </select>
+        </label>
         <span className="media-crop__spacer" />
         <button
           type="button"

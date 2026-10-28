@@ -2169,7 +2169,14 @@ const VideoPanelSurface = ({
   }
 
   return (
-    <div className="excalidraw__panel-video-box" data-testid="panel-video-box">
+    <div
+      className="excalidraw__panel-video-box"
+      data-testid="panel-video-box"
+      // the video of a node is cut to the node's shape (D-246): the video is
+      // cut, and not the panel, so that what the panel puts round it (its lock,
+      // the choices of a screenshot) is not cut with it
+      style={nodeMedia ? { clipPath: mediaCssClip(nodeMedia) } : undefined}
+    >
       <video
         // Each attempt is its own element, so an error for a source the panel
         // has already replaced is delivered to the handler of THAT attempt
@@ -2930,7 +2937,6 @@ const Panel = ({
         style={
           {
             position: "absolute",
-            clipPath: nodeMedia ? mediaCssClip(nodeMedia) : undefined,
             width: panel.width,
             height: panel.height,
             transform,

@@ -21,7 +21,10 @@ import {
 } from "@excalidraw/excalidraw/tests/test-utils";
 import { mediaOf, newElementWith } from "@excalidraw/element";
 
-import type { ExcalidrawElement } from "@excalidraw/element/types";
+import type {
+  ExcalidrawElement,
+  ExcalidrawTextElement,
+} from "@excalidraw/element/types";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
 import { MediaCropMode } from "../sidebar/MediaCrop";
@@ -520,5 +523,54 @@ describe("AC-284 the crop screen", () => {
 
     expect(back).toBeDefined();
     expect(words()).toBeDefined();
+  });
+
+  it("AC-284 the crop screen has the choice of the words of the node", async () => {
+    const node = await mountWithPicture();
+    const note = () =>
+      live().find(
+        (element) =>
+          element.type === "text" &&
+          (element.containerId === node.id ||
+            element.customData?.caption?.of === node.id),
+      ) as ExcalidrawTextElement;
+
+    open(node.id);
+
+    const choice = (await screen.findByTestId(
+      "media-crop-words",
+    )) as HTMLSelectElement;
+
+    // a caption to begin with, and the two choices
+    expect(choice.value).toBe("caption");
+    expect([...choice.options].map((option) => option.value)).toEqual([
+      "caption",
+      "hidden",
+    ]);
+    expect(note().containerId).toBeNull();
+
+    // hidden: at once, whatever is done with the crop after it
+    fireEvent.change(choice, { target: { value: "hidden" } });
+    expect(note().containerId).toBe(node.id);
+    expect(note().opacity).toBe(0);
+    expect(note().locked).toBe(true);
+    expect(mediaOf(picture(node.id))!.words).toBe("hidden");
+
+    // Cancel does not take it back: it is the node's, and not part of the crop
+    fireEvent.click(screen.getByTestId("media-crop-cancel"));
+    expect(note().locked).toBe(true);
+
+    // and the screen opens on what it is
+    open(node.id);
+    expect(
+      ((await screen.findByTestId("media-crop-words")) as HTMLSelectElement)
+        .value,
+    ).toBe("hidden");
+
+    fireEvent.change(screen.getByTestId("media-crop-words"), {
+      target: { value: "caption" },
+    });
+    expect(note().containerId).toBeNull();
+    expect(note().locked).toBeFalsy();
   });
 });

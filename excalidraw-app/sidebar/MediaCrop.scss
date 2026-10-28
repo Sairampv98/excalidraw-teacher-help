@@ -41,6 +41,22 @@
     gap: 6px;
   }
 
+  &__words {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+
+    select {
+      padding: 4px 6px;
+      border: 1px solid #55555f;
+      border-radius: 6px;
+      background: #1d1d21;
+      color: inherit;
+      font: inherit;
+    }
+  }
+
   &__spacer {
     flex: 1;
   }
