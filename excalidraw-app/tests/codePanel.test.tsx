@@ -692,6 +692,43 @@ describe("the app's side of the bridge", () => {
     expect(state.elements[0].height).toBe(200);
   });
 
+  it("AC-320 the menu inserts a code editor of its own or a mirror of VS Code", () => {
+    const state: { elements: ExcalidrawElement[] } = { elements: [] };
+
+    const api = {
+      getSceneElements: () => state.elements,
+      getAppState: () => ({
+        width: 800,
+        height: 600,
+        scrollX: 0,
+        scrollY: 0,
+        zoom: { value: 1 },
+        currentPageId: "page-1",
+      }),
+      updateScene: (data: { elements?: readonly ExcalidrawElement[] }) => {
+        if (data.elements) {
+          state.elements = [...data.elements];
+        }
+      },
+    } as unknown as ExcalidrawImperativeAPI;
+
+    insertCodePanel(api, "editor");
+    insertCodePanel(api, "mirror");
+
+    const [editor, mirror] = state.elements as unknown as Array<{
+      panelKind: string;
+      panel: { standalone?: boolean; view?: string };
+    }>;
+
+    // the editor of its own: no bridge, and it opens on its editor
+    expect(editor.panelKind).toBe("code");
+    expect(editor.panel.standalone).toBe(true);
+    expect(editor.panel.view).toBe("editor");
+
+    // the mirror is what it always was
+    expect(mirror.panel.standalone).toBeUndefined();
+  });
+
   it("AC-102 the app's capture handler writes nothing into the document", async () => {
     mockClipboard(TEST_TOKEN);
 

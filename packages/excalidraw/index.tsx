@@ -506,6 +506,7 @@ export {
   withPanelView,
   withPanelZoom,
   readPanelTheme,
+  isStandaloneCodePanel,
   readPanelConsole,
   withPanelTheme,
   PANEL_EDITOR_THEMES,

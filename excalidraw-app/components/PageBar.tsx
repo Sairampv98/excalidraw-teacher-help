@@ -18,6 +18,8 @@ import { MAX_ZOOM, randomId } from "@excalidraw/common";
 import type { AppState, ExcalidrawPage } from "@excalidraw/excalidraw/types";
 
 import { exportAllPages } from "../pages/exportPages";
+import { keepDeletedPage } from "../pages/pageTrash";
+
 import { STORAGE_KEYS } from "../app_constants";
 import {
   documentStoreBackendAtom,
@@ -25,6 +27,8 @@ import {
 } from "../data/LocalData";
 import { useAtomValue } from "../app-jotai";
 import { recordPageSwitch } from "../data/documentStats";
+
+import { DeletedPagesMenu } from "./DeletedPagesMenu";
 
 import "./PageBar.scss";
 
@@ -295,6 +299,8 @@ const PageBar = () => {
   const documentError = useAtomValue(documentStoreErrorAtom);
 
   const [busy, setBusy] = useState(false);
+  /** changes when a page was kept, so the list of deleted pages is read again */
+  const [trashVersion, setTrashVersion] = useState(0);
   const [error, setError] = useState<string | null>(null);
   // two-step confirm for the destructive controls
   const [armed, setArmed] = useState<"all" | "clear" | "delete" | null>(null);
@@ -508,6 +514,12 @@ const PageBar = () => {
     }
 
     const elements = excalidrawAPI.getSceneElements();
+
+    // the page is kept in the browser's storage before it goes, so it can be
+    // brought back after a reload too (D-280); undo is still there if that fails
+    void keepDeletedPage(excalidrawAPI, pages, currentPageId)
+      .then(() => setTrashVersion((version) => version + 1))
+      .catch((keepError) => console.error(keepError));
 
     const { pages: nextPages, currentPageId: nextCurrentPageId } = deletePage({
       pages,
@@ -762,6 +774,8 @@ const PageBar = () => {
       >
         <CloseIcon />
       </button>
+
+      <DeletedPagesMenu refreshKey={trashVersion} />
 
       <button
         type="button"

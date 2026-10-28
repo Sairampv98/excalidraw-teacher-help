@@ -418,6 +418,11 @@ export type CodePanelContent = PanelContent & {
    * panel that carries none is at 1.
    */
   zoom?: number;
+  /**
+   * A code editor of its own (D-269): it works in the browser with no bridge,
+   * shows no bridge field or connection line, and runs its text in the browser.
+   */
+  standalone?: boolean;
   /** the colours the editor is drawn in (D-270) */
   theme?: PanelEditorTheme;
   /** where the output console sits, how big it is and its text size (D-274) */
@@ -502,6 +507,7 @@ export const emptyCodePanelState = (): CodePanelState => ({
 export const codePanelContent = (
   state: CodePanelState,
   sessionId: string,
+  options: { standalone?: boolean } = {},
 ): PanelContent => {
   const content: CodePanelContent = {
     source: { type: "bridge", sessionId },
@@ -510,10 +516,18 @@ export const codePanelContent = (
     // a new panel shows the LIVE WINDOW (D-99). It carries no choice: the
     // teacher has not chosen anything yet, so the panel follows the default.
     view: DEFAULT_CODE_PANEL_VIEW,
+    ...(options.standalone
+      ? { standalone: true, view: "editor" as const, viewChosen: true }
+      : {}),
   };
 
   return content;
 };
+
+/** whether the panel is a code editor of its own, with no bridge (D-269) */
+export const isStandaloneCodePanel = (panel: ExcalidrawPanelElement): boolean =>
+  panel.panelKind === "code" &&
+  (panel.panel as Partial<CodePanelContent>).standalone === true;
 
 /**
  * The live state of a panel's payload, or null when the payload carries none.

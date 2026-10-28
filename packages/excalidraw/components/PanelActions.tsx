@@ -27,7 +27,10 @@ import React, { useState } from "react";
 
 import type { ExcalidrawPanelElement } from "@excalidraw/element/types";
 
-import { isBridgeCodePanel } from "../scene/panelContent";
+import {
+  isBridgeCodePanel,
+  isStandaloneCodePanel,
+} from "../scene/panelContent";
 import { PANEL_SCALE_PROPERTY, panelScreenChrome } from "../scene/panelChrome";
 
 import { t } from "../i18n";
@@ -528,7 +531,8 @@ export const PanelActions = ({
   const bridge = appProps.panelBridge;
 
   // the bridge belongs to a code panel that is backed by a bridge session
-  const hasBridge = !!bridge && isBridgeCodePanel(panel);
+  const hasBridge =
+    !!bridge && isBridgeCodePanel(panel) && !isStandaloneCodePanel(panel);
 
   if (!screenshot && !ocr && !hasBridge) {
     return null;

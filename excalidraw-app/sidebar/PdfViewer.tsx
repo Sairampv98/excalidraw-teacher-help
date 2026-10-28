@@ -63,6 +63,13 @@ let loading: Promise<PdfJs> | null = null;
 
 /** fetches pdf.js once; a failed fetch is tried again the next time */
 export const loadPdfJs = (): Promise<PdfJs> => {
+  // pdf.js reads a PDF in a worker: without one it cannot run, and that is said
+  if (typeof Worker === "undefined") {
+    return Promise.reject(
+      new Error("this browser cannot run the PDF reader (no web workers)"),
+    );
+  }
+
   loading ??= import(/* @vite-ignore */ `${PDFJS_BASE}pdf.min.mjs`)
     .then((module: PdfJs) => {
       module.GlobalWorkerOptions.workerSrc = `${PDFJS_BASE}pdf.worker.min.mjs`;
@@ -118,10 +125,9 @@ export const PdfViewer = ({
 
     (async () => {
       try {
-        const [pdfjs, bytes] = await Promise.all([
-          loader(),
-          file.arrayBuffer(),
-        ]);
+        // one after the other: a rejection that nobody is waiting for is lost
+        const pdfjs = await loader();
+        const bytes = await file.arrayBuffer();
 
         const doc = await pdfjs.getDocument({ data: new Uint8Array(bytes) })
           .promise;

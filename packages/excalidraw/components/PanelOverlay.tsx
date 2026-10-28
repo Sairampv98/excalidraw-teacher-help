@@ -35,6 +35,7 @@ import {
   readPanelMirror,
   readPanelReadLanguage,
   readPanelView,
+  isStandaloneCodePanel,
   readPanelConsole,
   CONSOLE_SIZE_MAX,
   CONSOLE_SIZE_MIN,
@@ -706,8 +707,11 @@ const CodePanelSurface = ({
   /** which view the panel shows: the default, or the teacher's own choice (D-99) */
   const view = readPanelView(panel.panel);
 
+  /** a code editor of its own: no bridge, no mirror (D-269) */
+  const standalone = isStandaloneCodePanel(panel);
+
   /** where the bridge connection stands */
-  const connected = state?.connection === "connected";
+  const connected = !standalone && state?.connection === "connected";
 
   /**
    * What the editor shows, and where the text came from (D-123).
@@ -717,7 +721,9 @@ const CodePanelSurface = ({
    */
   const editor = panelEditorText(
     panel.panel,
-    state ? { text: state.editor.text, language: state.editor.language } : null,
+    state && !standalone
+      ? { text: state.editor.text, language: state.editor.language }
+      : null,
   );
 
   /**
@@ -1718,17 +1724,19 @@ const CodePanelSurface = ({
               {/* The panel says WHY it has nothing to show - a region with nothing
               in it is never an answer (D-93). And the editor is STILL there:
               the teacher's own text does not need a bridge (D-123). */}
-              <div
-                className="excalidraw__panel-code-status excalidraw__panel-code-notice"
-                data-testid="code-panel-status"
-                data-bridge-state={state?.connection ?? "not-connected"}
-                style={{
-                  background: VS_CODE_DARK.background,
-                  color: VS_CODE_DARK.foreground,
-                }}
-              >
-                {state?.statusMessage || t("labels.panel.code.notConnected")}
-              </div>
+              {standalone ? null : (
+                <div
+                  className="excalidraw__panel-code-status excalidraw__panel-code-notice"
+                  data-testid="code-panel-status"
+                  data-bridge-state={state?.connection ?? "not-connected"}
+                  style={{
+                    background: VS_CODE_DARK.background,
+                    color: VS_CODE_DARK.foreground,
+                  }}
+                >
+                  {state?.statusMessage || t("labels.panel.code.notConnected")}
+                </div>
+              )}
               {source}
             </>
           )}
@@ -1853,15 +1861,17 @@ const CodePanelSurface = ({
               color: VS_CODE_DARK.foreground,
             }}
           >
-            {(state?.console ?? []).map((line, index) => (
-              <div
-                key={`${index}-${line.text}`}
-                className="excalidraw__panel-code-line"
-                data-level={line.level}
-              >
-                {line.text}
-              </div>
-            ))}
+            {(state?.console ?? [])
+              .filter((line) => !standalone || line.kind !== "connection")
+              .map((line, index) => (
+                <div
+                  key={`${index}-${line.text}`}
+                  className="excalidraw__panel-code-line"
+                  data-level={line.level}
+                >
+                  {line.text}
+                </div>
+              ))}
           </div>
         </div>
       </div>

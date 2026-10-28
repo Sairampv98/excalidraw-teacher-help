@@ -4,6 +4,7 @@ import { CaptureUpdateAction, isPanelElement } from "@excalidraw/element";
 import { clearAllPanelCaptures, setPanelCapture } from "@excalidraw/excalidraw";
 
 import {
+  isStandaloneCodePanel,
   readCodePanelState,
   readPanelDraft,
   readPanelReadLanguage,
@@ -597,6 +598,8 @@ export const useBridgePanel = (
       elements,
       draft: readPanelDraft(element.panel),
       mirror: readCodePanelState(element.panel),
+      /** a code editor of its own always runs in the browser (D-269) */
+      standalone: isStandaloneCodePanel(element),
       /** the language the panel is read as (D-270) */
       readAs: readPanelReadLanguage(element.panel) ?? "",
     };
@@ -801,8 +804,12 @@ export const useBridgePanel = (
         found.mirror?.editor.language ||
         "";
 
-      // with no bridge, Python runs in the browser
-      if (sessionStateRef.current.connection !== "connected") {
+      // with no bridge, and in a code editor of its own, the program runs in
+      // the browser
+      if (
+        found.standalone ||
+        sessionStateRef.current.connection !== "connected"
+      ) {
         return runInBrowser(text, language);
       }
 

@@ -30,7 +30,10 @@ export const CODE_PANEL_SESSION_ID = "vscode-bridge";
  * owner asked for the editor's view to cover half the canvas, and a fixed
  * 520x380 was a fifth of it.
  */
-export const insertCodePanel = (api: ExcalidrawImperativeAPI): void => {
+export const insertCodePanel = (
+  api: ExcalidrawImperativeAPI,
+  kind: "mirror" | "editor" = "mirror",
+): void => {
   const appState = api.getAppState();
   const zoom = appState.zoom.value;
 
@@ -46,7 +49,10 @@ export const insertCodePanel = (api: ExcalidrawImperativeAPI): void => {
     width: size.width,
     height: size.height,
     panelKind: "code",
-    panel: codePanelContent(emptyCodePanelState(), CODE_PANEL_SESSION_ID),
+    // the code editor of its own (D-269) has no bridge: it works in the browser
+    panel: codePanelContent(emptyCodePanelState(), CODE_PANEL_SESSION_ID, {
+      standalone: kind === "editor",
+    }),
     posterMode: false,
     posterFileId: null,
   });

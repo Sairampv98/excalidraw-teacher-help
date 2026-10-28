@@ -1542,9 +1542,9 @@ const ExcalidrawWrapper = () => {
           theme={appTheme}
           setTheme={(theme) => setAppTheme(theme)}
           refresh={() => forceRefresh((prev) => !prev)}
-          onInsertCodePanel={() => {
+          onInsertCodePanel={(kind) => {
             if (excalidrawAPI) {
-              insertCodePanel(excalidrawAPI);
+              insertCodePanel(excalidrawAPI, kind);
             }
           }}
         />

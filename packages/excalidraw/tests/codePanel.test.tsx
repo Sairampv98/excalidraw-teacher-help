@@ -1439,6 +1439,43 @@ describe("the code panel's view", () => {
     return document.querySelector('[data-testid="panel-overlay"]')!;
   };
 
+  it("AC-320 a code editor of its own says nothing about a bridge and runs in the browser", async () => {
+    const onRun = vi.fn();
+    const panel = codePanelInView(emptyCodePanelState(), "editor");
+
+    (panel as unknown as { panel: { standalone: boolean } }).panel.standalone =
+      true;
+
+    await render(<Excalidraw panelRun={{ onRun, canRunInBrowser: true }} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    const overlay = document.querySelector('[data-testid="panel-overlay"]')!;
+
+    // no "Not connected to the Excalidraw Bridge" line: there is no bridge
+    expect(
+      overlay.querySelector('[data-testid="code-panel-status"]'),
+    ).toBeNull();
+
+    // the editor and the Run control are there and on
+    await waitFor(() =>
+      expect(
+        overlay.querySelector('[data-testid="code-panel-draft-editor"]'),
+      ).not.toBeNull(),
+    );
+
+    const run = overlay.querySelector(
+      '[data-testid="code-panel-run"]',
+    ) as HTMLButtonElement;
+
+    expect(run.disabled).toBe(false);
+
+    fireEvent.click(run);
+
+    expect(onRun).toHaveBeenCalledTimes(1);
+  });
+
   it("AC-308 a new editor reads its text as python, and says which languages run here", async () => {
     const overlay = await renderEditor({ browserLanguages: ["python"] });
 
