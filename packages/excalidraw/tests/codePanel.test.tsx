@@ -1427,6 +1427,275 @@ describe("the code panel's view", () => {
 
     expect(onRun).toHaveBeenCalledTimes(1);
   });
+
+  const renderEditor = async (run?: { browserLanguages?: string[] }) => {
+    const panel = codePanelInView(emptyCodePanelState(), "editor");
+
+    await render(<Excalidraw panelRun={run} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    return document.querySelector('[data-testid="panel-overlay"]')!;
+  };
+
+  it("AC-308 a new editor reads its text as python, and says which languages run here", async () => {
+    const overlay = await renderEditor({ browserLanguages: ["python"] });
+
+    const picker = overlay.querySelector(
+      '[data-testid="code-panel-read-language"]',
+    ) as HTMLSelectElement;
+
+    // there is no "choose a language": the editor reads python until told
+    // otherwise, so its text has colours
+    expect(picker.value).toBe("python");
+    expect([...picker.options].some((option) => option.value === "")).toBe(
+      false,
+    );
+
+    const python = [...picker.options].find(
+      (option) => option.value === "python",
+    );
+
+    expect(python!.textContent).toContain("runs here");
+  });
+
+  it("AC-308 the editor's default size is what 200% used to be", async () => {
+    const overlay = await renderEditor();
+
+    expect(
+      overlay.querySelector('[data-testid="code-panel-zoom-level"]')!
+        .textContent,
+    ).toBe("100%");
+
+    // the editor draws its text at twice the base size at 100%
+    await waitFor(() => {
+      const css = [...document.querySelectorAll("style")]
+        .map((style) => style.textContent)
+        .join(" ");
+
+      expect(css).toMatch(/font-size:\s*2em/);
+    });
+  });
+
+  it("AC-308 the zoom goes up to 400%", async () => {
+    const overlay = await renderEditor();
+
+    const zoomIn = overlay.querySelector(
+      '[data-testid="code-panel-zoom-in"]',
+    ) as HTMLButtonElement;
+
+    for (let step = 0; step < 6; step++) {
+      fireEvent.click(zoomIn);
+    }
+
+    await waitFor(() =>
+      expect(
+        overlay.querySelector('[data-testid="code-panel-zoom-level"]')!
+          .textContent,
+      ).toBe("400%"),
+    );
+  });
+
+  it("AC-310 the full screen button shows only that panel full screen", async () => {
+    const requestFullscreen = vi.fn(() => Promise.resolve());
+
+    Object.defineProperty(HTMLElement.prototype, "requestFullscreen", {
+      configurable: true,
+      value: requestFullscreen,
+    });
+
+    const overlay = await renderEditor();
+
+    fireEvent.click(
+      overlay.querySelector('[data-testid="code-panel-fullscreen"]')!,
+    );
+
+    expect(requestFullscreen).toHaveBeenCalledTimes(1);
+
+    // the element is the panel itself, not the canvas or the page
+    const target = (requestFullscreen.mock.contexts as HTMLElement[])[0];
+
+    expect(target.classList.contains("excalidraw__panel")).toBe(true);
+    expect(target.getAttribute("data-panel-kind")).toBe("code");
+  });
+
+  const storedConsole = () =>
+    (
+      window.h.elements[0] as unknown as {
+        panel: { consoleView?: { dock: string; size: number; zoom: number } };
+      }
+    ).panel.consoleView;
+
+  it("AC-311 the console is under the editor to begin with, and can go to its right", async () => {
+    const overlay = await renderEditor();
+
+    const body = overlay.querySelector(
+      '[data-testid="code-panel-body"]',
+    ) as HTMLElement;
+
+    expect(body.getAttribute("data-console-dock")).toBe("bottom");
+    expect(body.style.flexDirection).toBe("column");
+
+    fireEvent.click(
+      overlay.querySelector('[data-testid="code-panel-dock-right"]')!,
+    );
+
+    expect(storedConsole()!.dock).toBe("right");
+    await waitFor(() => {
+      const next = document.querySelector(
+        '[data-testid="code-panel-body"]',
+      ) as HTMLElement;
+
+      expect(next.getAttribute("data-console-dock")).toBe("right");
+      expect(next.style.flexDirection).toBe("row");
+    });
+  });
+
+  it("AC-311 the console has its own zoom, apart from the editor's", async () => {
+    const overlay = await renderEditor();
+
+    const box = () =>
+      document.querySelector(
+        '[data-testid="code-panel-consolebox"]',
+      ) as HTMLElement;
+
+    expect(box().style.fontSize).toBe("16px");
+
+    fireEvent.click(
+      overlay.querySelector('[data-testid="code-panel-console-zoom-in"]')!,
+    );
+
+    expect(storedConsole()!.zoom).toBe(1.25);
+    await waitFor(() => expect(box().style.fontSize).toBe("20px"));
+
+    // the editor's zoom did not move
+    expect(
+      overlay.querySelector('[data-testid="code-panel-zoom-level"]')!
+        .textContent,
+    ).toBe("100%");
+  });
+
+  it("AC-311 the clear button clears the console", async () => {
+    const onClear = vi.fn();
+    const panel = codePanelInView(emptyCodePanelState(), "editor");
+
+    await render(<Excalidraw panelRun={{ onClear }} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    fireEvent.click(
+      document.querySelector('[data-testid="code-panel-clear"]')!,
+    );
+
+    expect(onClear).toHaveBeenCalledTimes(1);
+  });
+
+  it("AC-312 the language that is run follows the one the picker shows", async () => {
+    const onLanguageChange = vi.fn();
+    const panel = codePanelInView(emptyCodePanelState(), "editor");
+
+    await render(
+      <Excalidraw
+        panelDraft={{ onLanguageChange }}
+        panelRun={{ browserLanguages: ["python", "javascript"] }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    fireEvent.change(
+      document.querySelector('[data-testid="code-panel-read-language"]')!,
+      { target: { value: "javascript" } },
+    );
+
+    expect(onLanguageChange).toHaveBeenCalledWith(
+      expect.any(String),
+      "javascript",
+    );
+
+    // there is one picker, not two that can disagree
+    expect(
+      document.querySelector('[data-testid="code-panel-language-picker"]'),
+    ).toBeNull();
+  });
+
+  it("AC-311 the divider drags the console to the size the pointer leaves it at", async () => {
+    const overlay = await renderEditor();
+
+    const body = overlay.querySelector(
+      '[data-testid="code-panel-body"]',
+    ) as HTMLElement;
+
+    body.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 1000,
+        width: 1000,
+        height: 1000,
+      } as DOMRect);
+
+    const divider = overlay.querySelector(
+      '[data-testid="code-panel-divider"]',
+    )!;
+
+    divider.dispatchEvent(
+      new MouseEvent("pointerdown", {
+        bubbles: true,
+        clientX: 500,
+        clientY: 700,
+      }),
+    );
+    window.dispatchEvent(
+      new MouseEvent("pointermove", { clientX: 500, clientY: 500 }),
+    );
+    window.dispatchEvent(new MouseEvent("pointerup"));
+
+    // the console takes the part of the panel under the pointer
+    expect(storedConsole()!.size).toBeCloseTo(0.5, 5);
+
+    // and it cannot be dragged away: there is always a part of it left
+    divider.dispatchEvent(
+      new MouseEvent("pointerdown", {
+        bubbles: true,
+        clientX: 500,
+        clientY: 500,
+      }),
+    );
+    window.dispatchEvent(
+      new MouseEvent("pointermove", { clientX: 500, clientY: 1000 }),
+    );
+    window.dispatchEvent(new MouseEvent("pointerup"));
+
+    expect(storedConsole()!.size).toBeCloseTo(0.1, 5);
+  });
+
+  it("AC-308 the theme picker offers three themes and keeps the choice in the panel", async () => {
+    const overlay = await renderEditor();
+
+    const picker = overlay.querySelector(
+      '[data-testid="code-panel-theme"]',
+    ) as HTMLSelectElement;
+
+    expect([...picker.options].map((option) => option.value)).toEqual([
+      "vscode",
+      "dark",
+      "light",
+    ]);
+    expect(picker.value).toBe("vscode");
+
+    fireEvent.change(picker, { target: { value: "light" } });
+
+    const stored = (
+      window.h.elements[0] as unknown as { panel: { theme?: string } }
+    ).panel.theme;
+
+    expect(stored).toBe("light");
+  });
 });
 
 describe("the live editor is a real editor", () => {

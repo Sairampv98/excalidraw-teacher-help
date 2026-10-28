@@ -3,7 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CaptureUpdateAction, isPanelElement } from "@excalidraw/element";
 import { clearAllPanelCaptures, setPanelCapture } from "@excalidraw/excalidraw";
 
-import { readCodePanelState, readPanelDraft } from "@excalidraw/excalidraw";
+import {
+  readCodePanelState,
+  readPanelDraft,
+  readPanelReadLanguage,
+} from "@excalidraw/excalidraw";
 
 import type {
   PanelBridgeControls,
@@ -38,7 +42,13 @@ import {
   INITIAL_BRIDGE_SESSION_STATE,
 } from "./bridgeSession";
 import { applyYoutubeCaptions, isVideoCaptionMessage } from "./videoCaptions";
-import { pythonRunner, runsInBrowser } from "./pythonRunner";
+import {
+  BROWSER_LANGUAGES,
+  isJavascript,
+  javascriptRunner,
+  pythonRunner,
+  runsInBrowser,
+} from "./pythonRunner";
 
 import type { BridgeSession, BridgeSessionState } from "./bridgeSession";
 import type { ConnectionTruth } from "./codePanel";
@@ -79,6 +89,9 @@ const sameCapture = (a: PanelCapture | null, b: PanelCapture): boolean => {
  * every message about that run carries it (D-124).
  */
 let runCounter = 0;
+
+/** how often the output of a run in the browser is written to the panel */
+const OUTPUT_FLUSH_MS = 100;
 
 /**
  * The bridge's hello - the message that names the editor (D-76).
@@ -584,6 +597,8 @@ export const useBridgePanel = (
       elements,
       draft: readPanelDraft(element.panel),
       mirror: readCodePanelState(element.panel),
+      /** the language the panel is read as (D-270) */
+      readAs: readPanelReadLanguage(element.panel) ?? "",
     };
   }, []);
 
@@ -628,7 +643,11 @@ export const useBridgePanel = (
 
       writeDraft(panelId, {
         text,
-        language: found.draft?.language || found.mirror?.editor.language || "",
+        language:
+          found.draft?.language ||
+          found.readAs ||
+          found.mirror?.editor.language ||
+          "",
         edited: true,
       });
     },
@@ -672,7 +691,7 @@ export const useBridgePanel = (
           type: "run:notice",
           runId,
           kind: "missing-runtime",
-          text: `Running ${language} needs the Excalidraw Bridge. Without it only Python runs, in the browser.`,
+          text: `Running ${language} needs the Excalidraw Bridge. Without it only Python and JavaScript run, in the browser.`,
         });
         return false;
       }
@@ -681,26 +700,52 @@ export const useBridgePanel = (
         v: 1,
         type: "run:started",
         runId,
-        command: "python (in the browser)",
+        command: isJavascript(language)
+          ? "javascript (in the browser)"
+          : "python (in the browser)",
         cwd: "",
       });
 
-      void pythonRunner
+      // The output arrives faster than a page can draw it: it is gathered and
+      // written to the panel a few times a second, so a program that prints a
+      // lot does not stall the page.
+      let pending: { stream: "stdout" | "stderr"; text: string } | null = null;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+
+      const flush = () => {
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+
+        if (pending) {
+          say({ v: 1, type: "run:output", runId, ...pending });
+          pending = null;
+        }
+      };
+
+      const gather = (stream: "stdout" | "stderr", text: string) => {
+        if (pending && pending.stream !== stream) {
+          flush();
+        }
+
+        pending = { stream, text: (pending?.text ?? "") + text };
+        timer ??= setTimeout(flush, OUTPUT_FLUSH_MS);
+      };
+
+      void (isJavascript(language) ? javascriptRunner : pythonRunner)
         .run(text, {
           onLoading: () =>
-            say({
-              v: 1,
-              type: "run:output",
-              runId,
-              stream: "stdout",
-              text: "Loading Python (the first run only)...\n",
-            }),
-          onOutput: (stream, output) =>
-            say({ v: 1, type: "run:output", runId, stream, text: output }),
-          onNotice: (kind, notice) =>
-            say({ v: 1, type: "run:notice", runId, kind, text: notice }),
+            gather("stdout", "Loading Python (the first run only)...\n"),
+          onOutput: gather,
+          onNotice: (kind, notice) => {
+            flush();
+            say({ v: 1, type: "run:notice", runId, kind, text: notice });
+          },
         })
         .then((result) => {
+          flush();
+
           if (result.kind === "load-failed") {
             say({
               v: 1,
@@ -742,13 +787,19 @@ export const useBridgePanel = (
       if (!session) {
         return runInBrowser(
           found.draft?.text ?? found.mirror?.editor.text ?? "",
-          found.draft?.language || found.mirror?.editor.language || "",
+          found.draft?.language ||
+            found.readAs ||
+            found.mirror?.editor.language ||
+            "",
         );
       }
 
       const text = found.draft?.text ?? found.mirror?.editor.text ?? "";
       const language =
-        found.draft?.language || found.mirror?.editor.language || "";
+        found.draft?.language ||
+        found.readAs ||
+        found.mirror?.editor.language ||
+        "";
 
       // with no bridge, Python runs in the browser
       if (sessionStateRef.current.connection !== "connected") {
@@ -769,9 +820,30 @@ export const useBridgePanel = (
     [onDraftChange, onLanguageChange],
   );
 
+  /**
+   * The teacher cleared the console (D-274): the program's output and the
+   * bridge's messages go; the line that says whether the bridge is connected
+   * stays, because that is a status, not a message.
+   */
+  const onClear = useCallback(() => {
+    const current = panelStateRef.current;
+
+    publish({
+      ...current,
+      output: [],
+      console: current.console.filter((line) => line.kind === "connection"),
+    });
+  }, [publish]);
+
   const panelRun: PanelRunControls = useMemo(
-    () => ({ languages: runtimes, onRun, canRunInBrowser: true }),
-    [runtimes, onRun],
+    () => ({
+      languages: runtimes,
+      onRun,
+      onClear,
+      canRunInBrowser: true,
+      browserLanguages: BROWSER_LANGUAGES,
+    }),
+    [runtimes, onRun, onClear],
   );
 
   /**

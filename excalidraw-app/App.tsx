@@ -170,7 +170,10 @@ import { AppSidebar } from "./components/AppSidebar";
 import { usePageAutoFit, useSidebarWidth } from "./sidebar/useSidebarLayout";
 import { handleCodePaste } from "./sidebar/insertIntoScene";
 import { panelCopyControls } from "./sidebar/panelCopy";
+import { OcrPreview } from "./components/OcrPreview";
 import { ReformatChooser } from "./sidebar/ReformatChooser";
+
+import type { OcrPreviewData } from "./components/OcrPreview";
 import { CropModal, posterNaturalSize } from "./components/cropModal";
 
 import type { CollabAPI } from "./collab/Collab";
@@ -495,6 +498,32 @@ const ExcalidrawWrapper = () => {
    */
 
   /**
+   * What the last read found, while the teacher decides what to do with it
+   * (D-277): the text is shown first, and put on the page only when they
+   * choose.
+   */
+  const [ocrPreview, setOcrPreview] = useState<OcrPreviewData | null>(null);
+
+  const showRead = useCallback(
+    (
+      result: {
+        lines: OcrPreviewData["lines"];
+        engine?: string;
+        durationMs?: number;
+      } | null,
+    ) => {
+      if (result?.lines.length) {
+        setOcrPreview({
+          lines: result.lines,
+          ...(result.engine ? { engine: result.engine } : {}),
+          ...(result.durationMs ? { durationMs: result.durationMs } : {}),
+        });
+      }
+    },
+    [],
+  );
+
+  /**
    * Reads an **ordinary image** element the teacher picked (D-105).
    *
    * The owner asked for the OCR of a screenshot to be offered for "regular
@@ -520,7 +549,8 @@ const ExcalidrawWrapper = () => {
       // them, and the element carries only its size on the canvas (D-59)
       const natural = await imageNaturalSize(file.dataURL);
 
-      await readOcr({
+      const result = await readOcr({
+        place: false,
         image: {
           dataURL: file.dataURL,
           width: natural.width || element.width,
@@ -535,8 +565,10 @@ const ExcalidrawWrapper = () => {
         pageId: element.pageId,
         strokeColor: current.getAppState().currentItemStrokeColor,
       });
+
+      showRead(result);
     },
-    [excalidrawAPI, readOcr],
+    [excalidrawAPI, readOcr, showRead],
   );
 
   /**
@@ -577,7 +609,8 @@ const ExcalidrawWrapper = () => {
        */
       const crop = cropFor(panelId);
 
-      await readOcr({
+      const result = await readOcr({
+        place: false,
         image,
         panelId,
         ...(crop
@@ -604,8 +637,10 @@ const ExcalidrawWrapper = () => {
           ? { engine: pickedEngineFor(panelId)! }
           : {}),
       });
+
+      showRead(result);
     },
-    [excalidrawAPI, cropFor, imageOfPanel, pickedEngineFor, readOcr],
+    [excalidrawAPI, cropFor, imageOfPanel, pickedEngineFor, readOcr, showRead],
   );
 
   /**
@@ -645,7 +680,8 @@ const ExcalidrawWrapper = () => {
         height: crop.height,
       });
 
-      await readOcr({
+      const result = await readOcr({
+        place: false,
         image: {
           dataURL: file.dataURL,
           width: natural.width,
@@ -666,8 +702,10 @@ const ExcalidrawWrapper = () => {
         pageId: panel.pageId,
         strokeColor: current.getAppState().currentItemStrokeColor,
       });
+
+      showRead(result);
     },
-    [excalidrawAPI, readOcr, rememberPanelCrop],
+    [excalidrawAPI, readOcr, rememberPanelCrop, showRead],
   );
 
   /**
@@ -1528,6 +1566,9 @@ const ExcalidrawWrapper = () => {
             onCloseRequest={() => setLatestShareableLink(null)}
             setErrorMessage={setErrorMessage}
           />
+        )}
+        {ocrPreview && (
+          <OcrPreview data={ocrPreview} onClose={() => setOcrPreview(null)} />
         )}
         {reformatElements && (
           <ReformatChooser

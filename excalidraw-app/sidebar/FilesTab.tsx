@@ -17,6 +17,7 @@ import {
   cancelImageDrag,
   cancelImagePaste,
   copyImageToClipboard,
+  couldNotAddMessage,
   insertImageIntoScene,
   pendingFileDrag,
 } from "./insertIntoScene";
@@ -527,7 +528,7 @@ export const FilesTab = () => {
         await insertImageIntoScene(api, entry.file);
       } catch (error) {
         api.setToast({
-          message: `Could not insert ${entry.name}`,
+          message: couldNotAddMessage(entry.name, error, "insert"),
           closable: true,
         });
         console.error(error);
@@ -567,7 +568,7 @@ export const FilesTab = () => {
         }
       } catch (error) {
         api.setToast({
-          message: `Could not insert ${entry.name}`,
+          message: couldNotAddMessage(entry.name, error, "insert"),
           closable: true,
         });
         console.error(error);

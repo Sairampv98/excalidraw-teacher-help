@@ -187,6 +187,7 @@
         "ocr": "Read the text",
         "page": "Place on this page",
         "newPage": "Place on a new page",
+        "cancel": "Cancel",
         "wireframe": "The screenshot goes here",
         "cropHandle": "Crop the picture",
         "revertCrop": "Revert the crop",
@@ -215,7 +216,7 @@
         "yourDraft": "your draft",
         "theMirror": "the mirror",
         "runNeedsBridge": "Running needs the Excalidraw Bridge.",
-        "runInBrowser": "Runs Python in the browser."
+        "runInBrowser": "Runs Python and JavaScript in the browser."
       },
       "fileGone": "This panel's file is no longer in the document.",
       "mediaLoading": "Loading the video...",
@@ -240,6 +241,13 @@
     "editor": {
       "readLanguage": "The language to read the file as",
       "readLanguageNone": "choose a language",
+      "runsHere": "runs here",
+      "console": "Output",
+      "clearConsole": "Clear the output",
+      "dockBottom": "Console under the editor",
+      "dockRight": "Console to the right of the editor",
+      "fullScreen": "Full screen",
+      "theme": "The editor's colours",
       "copyAsCodeBlock": "Copy as code block",
       "copyAsCodeBlockTitle": "Copy the selected code - paste it on the canvas as a code card",
       "zoomIn": "Zoom in",

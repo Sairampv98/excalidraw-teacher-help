@@ -505,6 +505,10 @@ export {
   withPanelReadLanguage,
   withPanelView,
   withPanelZoom,
+  readPanelTheme,
+  readPanelConsole,
+  withPanelTheme,
+  PANEL_EDITOR_THEMES,
 } from "./scene/panelContent";
 export type {
   CodePanelContent,

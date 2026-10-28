@@ -8,7 +8,12 @@
 
 import { vi } from "vitest";
 
-import { createPythonRunner } from "../bridge/pythonRunner";
+import {
+  BROWSER_LANGUAGES,
+  createPythonRunner,
+  javascriptWorkerSource,
+  runsInBrowser,
+} from "../bridge/pythonRunner";
 
 import type { PythonWorker } from "../bridge/pythonRunner";
 
@@ -178,7 +183,7 @@ describe("AC-307 Python in the browser", () => {
     expect(seen.notices[0][0]).toBe("timed-out");
   });
 
-  it("AC-307 the output is cut at the limit", async () => {
+  it("AC-307 a program that prints for ever is cut at the limit and stopped", async () => {
     const worker = fakeWorker();
     const runner = createPythonRunner({
       createWorker: () => worker,
@@ -186,18 +191,88 @@ describe("AC-307 Python in the browser", () => {
     });
     const seen = track();
 
-    const result = runner.run("print('x' * 100)", seen.handlers);
+    const result = runner.run("while True: print('x')", seen.handlers);
 
     worker.say({ type: "ready" });
     worker.say({ type: "output", stream: "stdout", text: "x".repeat(8) });
     worker.say({ type: "output", stream: "stdout", text: "y".repeat(8) });
-    worker.say({ type: "output", stream: "stdout", text: "z".repeat(8) });
-    worker.say({ type: "done" });
-    await result;
 
+    // the run ends at the cut: the program does not go on
+    expect(await result).toEqual({ kind: "stopped" });
+    expect(worker.terminated).toBe(true);
     expect(seen.output.map(([, text]) => text).join("")).toBe(
       `${"x".repeat(8)}yy`,
     );
     expect(seen.notices.map(([kind]) => kind)).toEqual(["truncated"]);
+  });
+});
+
+describe("AC-309 JavaScript in the browser", () => {
+  /** the worker's own source, run against a stand-in for the worker's scope */
+  const runProgram = async (code: string) => {
+    const messages: Array<Record<string, unknown>> = [];
+    const scope = {
+      postMessage: (message: Record<string, unknown>) => {
+        messages.push(message);
+      },
+      onmessage: null as
+        | null
+        | ((event: { data: { code: string } }) => Promise<void>),
+    };
+
+    // in a worker the console is the worker's own, which the source replaces;
+    // here it is a stand-in so the page's console is left alone
+    vi.stubGlobal("console", {});
+
+    try {
+      new Function("self", javascriptWorkerSource)(scope);
+      await scope.onmessage!({ data: { code } });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    return messages;
+  };
+
+  it("AC-309 a program's console goes to the output, and the run ends", async () => {
+    const messages = await runProgram(
+      "console.log('hi', 1); console.error('bad'); await Promise.resolve();",
+    );
+
+    expect(messages).toEqual([
+      { type: "ready" },
+      { type: "output", stream: "stdout", text: "hi 1\n" },
+      { type: "output", stream: "stderr", text: "bad\n" },
+      { type: "done" },
+    ]);
+  });
+
+  it("AC-309 an error in the program ends the run with its message", async () => {
+    const messages = await runProgram("throw new Error('boom');");
+
+    expect(messages[0]).toEqual({ type: "ready" });
+    expect(messages[1].type).toBe("error");
+    expect(String(messages[1].text)).toContain("boom");
+  });
+
+  it("AC-309 a program that prints for ever does not flood the page", async () => {
+    const messages = await runProgram(
+      "for (let i = 0; i < 200000; i++) console.log('hi');",
+    );
+
+    const sent = messages
+      .filter((message) => message.type === "output")
+      .reduce((total, message) => total + String(message.text).length, 0);
+
+    // the worker stops sending a little past the page's own limit
+    expect(sent).toBeLessThan(20_300);
+    expect(sent).toBeGreaterThan(20_000);
+  });
+
+  it("AC-309 the picker names the languages that run here", () => {
+    expect(BROWSER_LANGUAGES).toEqual(["python", "javascript"]);
+    expect(runsInBrowser("javascript")).toBe(true);
+    expect(runsInBrowser("js")).toBe(true);
+    expect(runsInBrowser("java")).toBe(false);
   });
 });

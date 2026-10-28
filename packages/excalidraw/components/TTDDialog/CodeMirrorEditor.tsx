@@ -296,10 +296,12 @@ const getErrorLineExtension = (
 //
 // The size is relative (`em`), so the editor keeps the size it had at `1` and
 // the zoom is a multiple of it.
+const EDITOR_ZOOM_BASE = 2;
+
 const zoomTheme = (zoom: number) =>
   EditorView.theme({
     ".cm-scroller": {
-      fontSize: `${zoom}em`,
+      fontSize: `${zoom * EDITOR_ZOOM_BASE}em`,
     },
   });
 

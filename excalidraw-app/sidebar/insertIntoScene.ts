@@ -264,6 +264,44 @@ const viewportCenter = (
   return { x: center.x - width / 2, y: center.y - height / 2 };
 };
 
+/**
+ * Where a card of this size goes to sit in the middle of the **current page**.
+ *
+ * A card that is taller than the page starts at the page's top instead, so its
+ * first rows are on the page. With no pages system the middle of what the
+ * teacher can see is used, as it always was.
+ */
+export const pageCenterOrigin = (
+  api: ExcalidrawImperativeAPI,
+  size: { width: number; height: number },
+): ScenePoint => {
+  const state = api.getAppState();
+  const pages = state.pages ?? [];
+  const currentPageId = state.currentPageId ?? pages[0]?.id ?? "";
+
+  if (!pages.length || !currentPageId) {
+    return viewportCenter(api, size.width, size.height);
+  }
+
+  const rect = getPageRect(pages, currentPageId);
+
+  return {
+    x: rect.x + Math.max(0, (rect.width - size.width) / 2),
+    y:
+      size.height < rect.height
+        ? rect.y + (rect.height - size.height) / 2
+        : rect.y + CODE_PADDING * 2,
+  };
+};
+
+/** moves the view to what was just put on the page, when the editor can */
+const showPlaced = (
+  api: ExcalidrawImperativeAPI,
+  elements: readonly ExcalidrawElement[],
+) => {
+  api.scrollToContent?.(elements as ExcalidrawElement[], { animate: true });
+};
+
 const getImageSize = (src: string) =>
   new Promise<{ width: number; height: number }>((resolve, reject) => {
     const image = new Image();
@@ -748,6 +786,27 @@ const isOverSidebar = (event: Event) => {
 };
 
 /**
+ * What the teacher is told when a file could not be added: the name and, when
+ * there is one, the reason - "could not add" alone leaves them guessing.
+ */
+export const couldNotAddMessage = (
+  name: string,
+  error: unknown,
+  verb: "add" | "insert" = "add",
+) => {
+  const reason =
+    error instanceof Error
+      ? error.message || error.name
+      : error
+      ? String(error)
+      : "";
+
+  return reason
+    ? `Could not ${verb} ${name}: ${reason}`
+    : `Could not ${verb} ${name}`;
+};
+
+/**
  * Stashes `dragged` for a single drag. `dragover` is only prevented over the
  * canvas, which is also what makes the copy cursor appear there and nowhere
  * else; everywhere else the browser ends the drag on its own. Returns the
@@ -830,7 +889,7 @@ export const armFileDragOnCanvas = (
     Promise.resolve(inserted).catch((error) => {
       console.error(error);
       api.setToast?.({
-        message: `Could not add ${stashed.file.name}`,
+        message: couldNotAddMessage(stashed.file.name, error),
         closable: true,
       });
     });
@@ -1036,10 +1095,15 @@ const insertLongCode = async (
 
   if (choice === "all-on-page") {
     // the page grows to hold the card, as it does for any content put on it
-    appendElements(
-      api,
-      codeCardAt(rows, topLeft ?? at ?? start, charWidth, lineHeight),
+    const card = codeCardAt(
+      rows,
+      topLeft ?? at ?? start,
+      charWidth,
+      lineHeight,
     );
+
+    appendElements(api, card);
+    showPlaced(api, card);
 
     return true;
   }
@@ -1089,20 +1153,26 @@ const insertLongCode = async (
       appState: { pages: nextPages },
     });
 
+    // the view goes to the first part, on the page the teacher is on
+    showPlaced(
+      api,
+      placed.filter((element) => element.pageId === currentPageId),
+    );
+
     return true;
   }
 
   // "discard", or the offer dismissed: what fits is placed; the rest goes to
   // the clipboard on "discard" and stays wherever it was on a dismissal
-  appendElements(
-    api,
-    codeCardAt(
-      rows.slice(0, fitting),
-      topLeft ?? at ?? start,
-      charWidth,
-      lineHeight,
-    ),
+  const firstPart = codeCardAt(
+    rows.slice(0, fitting),
+    topLeft ?? at ?? start,
+    charWidth,
+    lineHeight,
   );
+
+  appendElements(api, firstPart);
+  showPlaced(api, firstPart);
 
   if (choice === "discard") {
     try {
@@ -1115,6 +1185,38 @@ const insertLongCode = async (
   }
 
   return true;
+};
+
+/**
+ * Puts a text on the page as one text block in a monospace face, so indents
+ * survive, in the middle of the current page, and moves the view to it
+ * (D-277).
+ */
+export const insertTextBlockIntoScene = (
+  api: ExcalidrawImperativeAPI,
+  text: string,
+) => {
+  const block = newTextElement({
+    text,
+    fontFamily: FONT_FAMILY.Cascadia,
+    fontSize: CODE_FONT_SIZE + 4,
+    autoResize: true,
+    textAlign: "left",
+    verticalAlign: "top",
+    x: 0,
+    y: 0,
+  });
+
+  const origin = pageCenterOrigin(api, {
+    width: block.width,
+    height: block.height,
+  });
+  const placed = { ...block, x: origin.x, y: origin.y };
+
+  appendElements(api, [placed], { selectedElementIds: { [placed.id]: true } });
+  showPlaced(api, [placed]);
+
+  return placed;
 };
 
 /**
@@ -1246,9 +1348,9 @@ const placeCodeCard = (
 
   // top-left of the card: an explicit point is the user's, anything else
   // centres on what they can see (and clear of the sidebar)
+  const size = { width: card.width, height: card.height };
   const origin =
-    topLeft ??
-    placementFor(api, { width: card.width, height: card.height }, at);
+    topLeft ?? (at ? placementFor(api, size, at) : pageCenterOrigin(api, size));
 
   const placed = [card, ...runs].map((element) => ({
     ...element,
@@ -1259,6 +1361,12 @@ const placeCodeCard = (
   appendElements(api, placed, {
     selectedElementIds: { [runs[0].id]: true },
   });
+
+  // asked for no place: the card is on the page's middle, and the view goes
+  // there too, so the teacher sees where it landed
+  if (!topLeft && !at) {
+    showPlaced(api, placed);
+  }
 };
 
 export const CODE_CARD_PADDING = CODE_PADDING;

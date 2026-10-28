@@ -14,7 +14,11 @@ import { pasteOverflowStateAtom } from "@excalidraw/excalidraw/components/PasteO
 
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
-import { insertCodeIntoScene } from "../sidebar/insertIntoScene";
+import {
+  couldNotAddMessage,
+  insertCodeIntoScene,
+  pageCenterOrigin,
+} from "../sidebar/insertIntoScene";
 
 type Update = { elements?: readonly any[]; appState?: any };
 
@@ -172,5 +176,77 @@ describe("AC-301 a code card taller than the page", () => {
 
     expect(rest.split("\n")).toHaveLength(200 - fitting);
     expect(rest.split("\n")[0]).toContain(`v${fitting}`);
+  });
+});
+
+describe("AC-306 a file that could not be added says why", () => {
+  it("AC-306 the message names the file and the reason", () => {
+    expect(
+      couldNotAddMessage(
+        "lesson.mkv",
+        new Error("The quota has been exceeded"),
+      ),
+    ).toBe("Could not add lesson.mkv: The quota has been exceeded");
+  });
+
+  it("AC-306 with no reason the message still names the file", () => {
+    expect(couldNotAddMessage("lesson.mkv", undefined)).toBe(
+      "Could not add lesson.mkv",
+    );
+  });
+});
+
+describe("AC-313 code lands in the middle of the page, and the view goes there", () => {
+  it("AC-313 a card with no place asked for is centred on the current page", async () => {
+    const { api, elements, appState } = createApi();
+
+    // the teacher has scrolled far from the page
+    appState.scrollX = -90000;
+    appState.scrollY = -90000;
+
+    await insertCodeIntoScene(api, "const a = 1;", { language: "typescript" });
+
+    const rect = { x: 0, y: 0, width: 1920, height: 1080 };
+    const card = elements().find((el) => el.type === "rectangle")!;
+
+    expect(card.x + card.width / 2).toBeCloseTo(rect.x + rect.width / 2, 0);
+    expect(card.y + card.height / 2).toBeCloseTo(rect.y + rect.height / 2, 0);
+  });
+
+  it("AC-313 the view moves to the card", async () => {
+    const { api } = createApi();
+    const scrollToContent = vi.fn();
+
+    (api as unknown as { scrollToContent: unknown }).scrollToContent =
+      scrollToContent;
+
+    await insertCodeIntoScene(api, "const a = 1;", { language: "typescript" });
+
+    expect(scrollToContent).toHaveBeenCalledTimes(1);
+  });
+
+  it("AC-313 a card that is asked to go to a place goes there and the view stays", async () => {
+    const { api, elements } = createApi();
+    const scrollToContent = vi.fn();
+
+    (api as unknown as { scrollToContent: unknown }).scrollToContent =
+      scrollToContent;
+
+    await insertCodeIntoScene(api, "const a = 1;", {
+      language: "typescript",
+      topLeft: { x: 40, y: 50 },
+    });
+
+    expect(scrollToContent).not.toHaveBeenCalled();
+    expect(elements().find((el) => el.type === "rectangle")!.x).toBe(40);
+  });
+
+  it("AC-313 a card taller than the page starts at the top of the page", () => {
+    const { api } = createApi();
+
+    const origin = pageCenterOrigin(api, { width: 400, height: 5000 });
+
+    expect(origin.y).toBeLessThan(100);
+    expect(origin.x).toBeCloseTo((1920 - 400) / 2, 0);
   });
 });

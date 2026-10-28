@@ -919,7 +919,9 @@ describe("the app's code languages", () => {
     expect(ids).toContain("python");
     expect(ids).toContain("c");
     expect(ids).toContain("cpp");
-    expect(ids).toContain("rust");
+    // Rust and Zig are not offered: the teacher kept Python, JavaScript, Java,
+    // C and C++ (D-270)
+    expect(ids).not.toContain("rust");
 
     // and the grammar is really there
     expect(await loadCodeMirrorLanguage("python")).not.toBeNull();
@@ -1065,16 +1067,17 @@ describe("the app's runnable editor", () => {
       expect(request.id.length).toBeGreaterThan(0);
     });
 
-    // and the picker offers only the runtimes the extension found
+    // and the one language picker offers the runtimes the extension found
     const picker = document.querySelector(
-      '[data-testid="code-panel-language-picker"]',
+      '[data-testid="code-panel-read-language"]',
     ) as HTMLSelectElement;
 
     expect(picker).not.toBeNull();
-    expect(Array.from(picker.options).map((option) => option.value)).toEqual([
-      "python",
-      "javascript",
-    ]);
+
+    const offered = Array.from(picker.options).map((option) => option.value);
+
+    expect(offered).toContain("python");
+    expect(offered).toContain("javascript");
   });
 
   it("AC-162 the output arrives in the panel's output region", async () => {

@@ -540,10 +540,10 @@ export const getCameraForPage = ({
  * viewport's near edge — which is exactly what centring a page that is wider
  * than the viewport looks like.
  *
- * The offset is bounded **above** at 1 (the camera clamp guarantees the view
- * never travels past the page's far edge) and is **not** bounded below: a page
- * that is much narrower than the viewport produces a ratio of -80 or worse, and
- * clamping that away would throw away real geometry.
+ * The offset is **not bounded**: the camera may leave the page in either
+ * direction (D-261), and a page that is much narrower than the viewport
+ * produces a ratio of -80 or worse. Clamping either away would stop the
+ * presenter from following the editor.
  *
  * This is the resolution-independent camera the presenter mirrors, so a point
  * 40% across the page is 40% across on every display regardless of viewport
@@ -565,9 +565,9 @@ export const getPageRelativeCamera = ({
   // a page whose near edge sits exactly on the viewport's near edge still
   // reports a plain `0`.
   /** signed ratio: how far the page's near edge is behind the viewport's near edge, in page widths */
-  offsetX: Math.min(-(pageRect.x + scrollX) / pageRect.width, 1) + 0,
+  offsetX: -(pageRect.x + scrollX) / pageRect.width + 0,
   /** signed ratio: how far the page's near edge is behind the viewport's near edge, in page heights */
-  offsetY: Math.min(-(pageRect.y + scrollY) / pageRect.height, 1) + 0,
+  offsetY: -(pageRect.y + scrollY) / pageRect.height + 0,
 });
 
 /** inverse of {@link getPageRelativeCamera} — used by the presenter window */

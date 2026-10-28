@@ -41,6 +41,8 @@ export type PythonRunResult =
   | { kind: "exit"; code: number }
   /** the program was stopped at the timeout */
   | { kind: "timed-out" }
+  /** the program was stopped because its output reached the limit */
+  | { kind: "stopped" }
   /** the runtime could not be downloaded */
   | { kind: "load-failed"; reason: string };
 
@@ -48,8 +50,17 @@ export type PythonRunResult =
 const workerSource = (indexUrl: string) => `
 importScripts(${JSON.stringify(`${indexUrl}pyodide.js`)});
 let pyodide = null;
+// a program that prints for ever must not flood the page: past the cap nothing
+// more is sent (the page cuts the output at its own limit and stops the run)
+let sent = 0;
+const send = (stream, text) => {
+  if (sent > ${OUTPUT_FLOOD_CAP}) return;
+  sent += text.length;
+  self.postMessage({ type: "output", stream, text });
+};
 self.onmessage = async (event) => {
   const code = event.data.code;
+  sent = 0;
   if (!pyodide) {
     self.postMessage({ type: "loading" });
     try {
@@ -60,8 +71,8 @@ self.onmessage = async (event) => {
     }
     self.postMessage({ type: "ready" });
   }
-  pyodide.setStdout({ batched: (text) => self.postMessage({ type: "output", stream: "stdout", text }) });
-  pyodide.setStderr({ batched: (text) => self.postMessage({ type: "output", stream: "stderr", text }) });
+  pyodide.setStdout({ batched: (text) => send("stdout", text) });
+  pyodide.setStderr({ batched: (text) => send("stderr", text) });
   try {
     await pyodide.runPythonAsync(code);
     self.postMessage({ type: "done" });
@@ -91,10 +102,13 @@ export const createPythonRunner = ({
   createWorker = createBlobWorker,
   timeoutMs = PYTHON_TIMEOUT_MS,
   maxOutputChars = PYTHON_MAX_OUTPUT_CHARS,
+  reuseWorker = true,
 }: {
   createWorker?: () => PythonWorker;
   timeoutMs?: number;
   maxOutputChars?: number;
+  /** false: every run has a worker of its own, which ends with the run */
+  reuseWorker?: boolean;
 } = {}) => {
   /** kept between runs, so the runtime is downloaded once */
   let worker: PythonWorker | null = null;
@@ -122,6 +136,11 @@ export const createPythonRunner = ({
         }
         current.onmessage = null;
         current.onerror = null;
+
+        if (!reuseWorker && worker === current) {
+          stop();
+        }
+
         resolve(result);
       };
 
@@ -154,7 +173,14 @@ export const createPythonRunner = ({
             events.onOutput(stream, text.slice(0, room));
           }
 
-          events.onNotice("truncated", "The output was cut here.");
+          // a program that prints this much is stopped: it would only go on
+          // filling a page nobody can read
+          events.onNotice(
+            "truncated",
+            "The output reached its limit, so the program was stopped.",
+          );
+          stop();
+          finish({ kind: "stopped" });
           return;
         }
 
@@ -208,9 +234,66 @@ export const createPythonRunner = ({
   return { run, stop };
 };
 
-/** the one runner of the page */
+/**
+ * The worker that runs JavaScript: nothing to download, so it says it is ready
+ * at once, and it carries the program's console to the page.
+ */
+/** the worker sends no more than this, a little over the page's own limit */
+const OUTPUT_FLOOD_CAP = PYTHON_MAX_OUTPUT_CHARS + 100;
+
+export const javascriptWorkerSource = `
+const show = (value) => {
+  if (typeof value === "string") return value;
+  try { return JSON.stringify(value, null, 2) ?? String(value); } catch (e) { return String(value); }
+};
+// a program that prints for ever must not flood the page: past the cap nothing
+// more is sent (the page cuts the output at its own limit and stops the run)
+let sent = 0;
+const say = (stream) => (...args) => {
+  if (sent > ${OUTPUT_FLOOD_CAP}) return;
+  const text = args.map(show).join(" ") + "\\n";
+  sent += text.length;
+  self.postMessage({ type: "output", stream, text });
+};
+console.log = console.info = console.debug = say("stdout");
+console.warn = console.error = say("stderr");
+self.onmessage = async (event) => {
+  self.postMessage({ type: "ready" });
+  try {
+    await new Function("return (async () => {\\n" + event.data.code + "\\n})()")();
+    self.postMessage({ type: "done" });
+  } catch (error) {
+    self.postMessage({ type: "error", text: String((error && error.stack) || error) });
+  }
+};
+`;
+
+const createJavascriptWorker = (): PythonWorker => {
+  const url = URL.createObjectURL(
+    new Blob([javascriptWorkerSource], { type: "text/javascript" }),
+  );
+
+  return new Worker(url) as unknown as PythonWorker;
+};
+
+/** the one runner of each language in the page */
 export const pythonRunner = createPythonRunner();
+
+export const javascriptRunner = createPythonRunner({
+  createWorker: createJavascriptWorker,
+  reuseWorker: false,
+});
+
+/** the languages that run in the browser (D-272) */
+export const BROWSER_LANGUAGES = ["python", "javascript"];
 
 /** the language ids that run in the browser */
 export const runsInBrowser = (language: string) =>
-  language === "" || language === "python" || language === "py";
+  language === "" ||
+  language === "python" ||
+  language === "py" ||
+  isJavascript(language);
+
+/** JavaScript is run in a worker of its own, one for each run */
+export const isJavascript = (language: string) =>
+  language === "javascript" || language === "js";

@@ -272,6 +272,7 @@ import type { GlobalPoint, LocalPoint, Radians } from "@excalidraw/math";
 
 import type {
   ExcalidrawElement,
+  FontString,
   ExcalidrawFreeDrawElement,
   ExcalidrawGenericElement,
   ExcalidrawLinearElement,
@@ -445,6 +446,8 @@ import {
   panelPlaybackUpdate,
   panelReadLanguageUpdate,
   panelViewUpdate,
+  panelConsoleUpdate,
+  panelThemeUpdate,
   panelZoomUpdate,
   readCaptionBinding,
   readPanelPlayback,
@@ -527,7 +530,11 @@ import UnlockPopup from "./UnlockPopup";
 import type { PanelMirror, PanelMirrorRegion } from "../scene/panelMirror";
 
 import type { VideoPanelEvent } from "./PanelOverlay";
-import type { VideoPanelElement } from "../scene/panelContent";
+import type {
+  PanelConsoleView,
+  PanelEditorTheme,
+  VideoPanelElement,
+} from "../scene/panelContent";
 import type { DataURL } from "../types";
 
 import type { ExcalidrawLibraryIds } from "../data/types";
@@ -2592,6 +2599,8 @@ class App extends React.Component<AppProps, AppState> {
                             // own zoom (D-142)
                             onReadLanguageChange={this.setPanelReadLanguage}
                             onZoomChange={this.setPanelZoom}
+                            onThemeChange={this.setPanelTheme}
+                            onConsoleChange={this.setPanelConsole}
                             // the host asks for the captions and writes them
                             // into the panel's payload (D-129)
                             captions={this.props.panelCaptions}
@@ -2638,6 +2647,7 @@ class App extends React.Component<AppProps, AppState> {
                             onPageChoice={
                               this.props.panelScreenshot?.onPageChoice
                             }
+                            onChoice={this.props.panelScreenshot?.onChoice}
                           />
                           {/*
                             The **picker** for what is mirrored (D-143): the
@@ -3883,6 +3893,28 @@ class App extends React.Component<AppProps, AppState> {
     this.scene.mutateElement(element, panelZoomUpdate(element.panel, zoom));
   };
 
+  /** the teacher moved, resized or zoomed the panel's console (D-274) */
+  private setPanelConsole = (panelId: string, view: PanelConsoleView) => {
+    const element = this.scene.getNonDeletedElement(panelId);
+
+    if (!element || !isPanelElement(element)) {
+      return;
+    }
+
+    this.scene.mutateElement(element, panelConsoleUpdate(element.panel, view));
+  };
+
+  /** the teacher chose the colours of the panel's editor (D-270) */
+  private setPanelTheme = (panelId: string, theme: PanelEditorTheme) => {
+    const element = this.scene.getNonDeletedElement(panelId);
+
+    if (!element || !isPanelElement(element)) {
+      return;
+    }
+
+    this.scene.mutateElement(element, panelThemeUpdate(element.panel, theme));
+  };
+
   /**
    * What the panel **mirrors** of the editor's window (D-143).
    *
@@ -5088,6 +5120,31 @@ class App extends React.Component<AppProps, AppState> {
     }
   }
 
+  /**
+   * Whether the whole of a pasted text, wrapped, is shorter than the current
+   * page, so it can go on the page as one text box (D-276). Without the pages
+   * system a text is never split, so it is always one box.
+   */
+  private pastedTextFitsPageAsOneBox = (
+    text: string,
+    fontString: FontString,
+    lineHeight: ExcalidrawTextElement["lineHeight"],
+    maxTextWidth: number,
+  ) => {
+    const rect = this.getCurrentPageRect();
+
+    if (!this.pagesEnabled || !rect) {
+      return false;
+    }
+
+    const whole = normalizeText(text).trim();
+    const wrapped = wrapText(whole, fontString, maxTextWidth);
+
+    return (
+      measureText(wrapped, fontString, lineHeight).height < rect.height * 0.9
+    );
+  };
+
   private async addTextFromPaste(text: string, isPlainPaste = false) {
     const { x, y } = viewportCoordsToSceneCoords(
       {
@@ -5126,7 +5183,20 @@ class App extends React.Component<AppProps, AppState> {
     const LINE_GAP = 10;
     let currentY = y;
 
-    const lines = isPlainPaste ? [text] : text.split("\n");
+    // A paste that fits on the page becomes ONE text box (D-276): a teacher can
+    // drag its side to make the text flow in new lines, which a box for each
+    // line could never do. A paste that is too tall for the page keeps a box
+    // for each line, because that is what the offer to split it works on.
+    const pastedAsOneBox =
+      isPlainPaste ||
+      this.pastedTextFitsPageAsOneBox(
+        text,
+        fontString,
+        lineHeight,
+        maxTextWidth,
+      );
+
+    const lines = pastedAsOneBox ? [text] : text.split("\n");
     /**
      * The source line each text element came from — the text that did not fit
      * is written back to the clipboard from it (D-26).
