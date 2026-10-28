@@ -103,7 +103,7 @@ describe("AC-269 the properties panel sets the ink look", () => {
 
     choose("pencil");
     expect(screen.getByTestId("ink-look-colors").children).toHaveLength(5);
-    expect(screen.getByText("Grain")).not.toBeNull();
+    expect(screen.getByText("Darkness")).not.toBeNull();
   });
 
   it("AC-269 choosing a look sets it on the selection and undo takes it back", async () => {

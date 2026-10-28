@@ -41,8 +41,8 @@ const AMOUNT_NAMES: Record<InkLookName, string> = {
   normal: "Amount",
   neon: "Glow",
   chalk: "Dust",
-  marker: "Weight",
-  pencil: "Grain",
+  marker: "Width",
+  pencil: "Darkness",
 };
 
 export const actionChangeInkLook = register<InkChange>({

@@ -181,11 +181,10 @@ describe("AC-270 the canvas draws each look", () => {
     const marker = paint({ look: "marker", amount: 50 });
     const pencil = paint({ look: "pencil", amount: 50 });
 
-    // chalk and pencil have grain: a pattern of gaps; marker has none and is spread instead
-    expect(chalk.createPattern).toBe(1);
+    // chalk has gaps and loose dust (two patterns), pencil has grain; marker has none and is spread instead
+    expect(chalk.createPattern).toBe(2);
     expect(pencil.createPattern).toBe(1);
     expect(marker.createPattern).toBe(0);
-    expect(marker.drawImage).toBeGreaterThan(chalk.drawImage);
 
     // chalk has a faint dust around it, marker and pencil have no halo
     expect(chalk.blurs.filter((b) => b > 0)).toHaveLength(1);
@@ -202,8 +201,12 @@ describe("AC-270 the canvas draws each look", () => {
 
     // the pencil's grain is finer than the chalk's and see-through; the marker is see-through too
     expect(op("pencil", "holes").cell).toBeLessThan(op("chalk", "holes").cell);
-    expect(op("pencil", "alpha").value).toBe(0.85);
-    expect(op("marker", "alpha").value).toBeLessThan(1);
+    expect(op("pencil", "alpha").value).toBeLessThan(1);
+    expect(op("marker", "alpha").value).toBe(0.5);
+    // the chalk scatters dust around the ink; the others do not
+    expect(op("chalk", "dust").reach).toBeGreaterThan(0);
+    expect(plans("pencil").some((s) => s.op === "dust")).toBe(false);
+    expect(plans("marker").some((s) => s.op === "dust")).toBe(false);
     expect(op("marker", "thicken").radius).toBeGreaterThan(0);
 
     // more dust is more gaps; more weight is a broader nib; more grain is more gaps
@@ -220,8 +223,28 @@ describe("AC-270 the canvas draws each look", () => {
         ) as { radius: number }
       ).radius;
 
+    const reach = (amount: number) =>
+      (
+        inkPlan({ look: "chalk", amount }, "#fff", 5).find(
+          (s) => s.op === "dust",
+        ) as { reach: number }
+      ).reach;
+    const pencilStep = (amount: number, name: "holes" | "alpha") =>
+      inkPlan({ look: "pencil", amount }, "#333", 5).find(
+        (s) => s.op === name,
+      ) as never as Record<string, number>;
+
     expect(dusty(90)).toBeGreaterThan(dusty(10));
+    expect(reach(90)).toBeGreaterThan(reach(10));
     expect(broad(90)).toBeGreaterThan(broad(10));
+
+    // a darker pencil is more solid and less see-through than a light one
+    expect(pencilStep(90, "alpha").value).toBeGreaterThan(
+      pencilStep(10, "alpha").value,
+    );
+    expect(pencilStep(90, "holes").density).toBeLessThan(
+      pencilStep(10, "holes").density,
+    );
   });
 
   it("AC-270 there is room for the halo and the dust", () => {

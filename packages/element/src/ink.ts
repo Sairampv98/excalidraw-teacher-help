@@ -25,7 +25,7 @@ export type InkLookName = typeof INK_LOOKS[number];
 
 export type Ink = {
   look: InkLookName;
-  /** 1 to 100: the glow of neon, the dust of chalk, the weight of marker, the grain of pencil */
+  /** 1 to 100: the glow of neon, the dust of chalk, the width of marker, the darkness of pencil */
   amount: number;
 };
 
@@ -137,6 +137,16 @@ export type InkStep =
   | { op: "core"; color: string }
   /** fine gaps in the ink; `cell` is the size of a grain in scene units */
   | { op: "holes"; density: number; cell: number; seed: number }
+  /** loose specks of the ink colour scattered up to `reach` around the ink (chalk dust) */
+  | {
+      op: "dust";
+      reach: number;
+      density: number;
+      cell: number;
+      seed: number;
+      color: string;
+      alpha: number;
+    }
   /** the ink is spread this far (scene units): a broader nib */
   | { op: "thicken"; radius: number }
   /** the ink lets the paper through */
@@ -217,6 +227,15 @@ export const inkPlan = (ink: Ink, color: string, seed: number): InkStep[] => {
       return [
         { op: "halo", blur: 3, color, alpha: 0.35 },
         {
+          op: "dust",
+          reach: Math.round((2 + 6 * share) * 100) / 100,
+          density: Math.round((0.1 + 0.25 * share) * 1000) / 1000,
+          cell: 1,
+          seed: seed + 7919,
+          color,
+          alpha: 0.55,
+        },
+        {
           op: "holes",
           density: Math.round((0.08 + 0.4 * share) * 1000) / 1000,
           cell: 1.5,
@@ -225,18 +244,18 @@ export const inkPlan = (ink: Ink, color: string, seed: number): InkStep[] => {
       ];
     case "marker":
       return [
-        { op: "thicken", radius: Math.round((0.4 + 1.4 * share) * 100) / 100 },
-        { op: "alpha", value: Math.round((0.9 - 0.3 * share) * 100) / 100 },
+        { op: "thicken", radius: Math.round((1.5 + 5 * share) * 100) / 100 },
+        { op: "alpha", value: 0.5 },
       ];
     case "pencil":
       return [
         {
           op: "holes",
-          density: Math.round((0.1 + 0.35 * share) * 1000) / 1000,
+          density: Math.round((0.45 - 0.35 * share) * 1000) / 1000,
           cell: 0.6,
           seed,
         },
-        { op: "alpha", value: 0.85 },
+        { op: "alpha", value: Math.round((0.35 + 0.6 * share) * 100) / 100 },
       ];
     default:
       return [];
@@ -252,9 +271,9 @@ export const inkPadding = (ink: Ink): number => {
     case "neon":
       return Math.ceil(28 * strengthOf(ink.amount)) + 2;
     case "chalk":
-      return 6;
+      return Math.ceil(2 + 6 * (clampInkAmount(ink.amount) / 100)) + 3;
     case "marker":
-      return Math.ceil(0.4 + 1.4 * (clampInkAmount(ink.amount) / 100)) + 2;
+      return Math.ceil(1.5 + 5 * (clampInkAmount(ink.amount) / 100)) + 2;
     case "pencil":
       return 2;
     default:
@@ -322,6 +341,75 @@ export const inkSvgPrimitives = (
           },
         );
         merge.push(`h${i}`);
+        break;
+      }
+      case "dust": {
+        const threshold = Math.min(
+          0.95,
+          Math.max(0.3, 0.75 - step.density * 0.8),
+        );
+
+        out.push(
+          {
+            tag: "feMorphology",
+            attrs: {
+              in: "SourceAlpha",
+              operator: "dilate",
+              radius: String(step.reach),
+              result: `d${i}`,
+            },
+          },
+          {
+            tag: "feTurbulence",
+            attrs: {
+              type: "fractalNoise",
+              baseFrequency: String(
+                Math.round((1 / step.cell) * 0.9 * 100) / 100,
+              ),
+              numOctaves: "2",
+              seed: String(Math.abs(Math.trunc(step.seed)) % 10000),
+              result: `dn${i}`,
+            },
+          },
+          {
+            tag: "feColorMatrix",
+            attrs: {
+              in: `dn${i}`,
+              type: "matrix",
+              values: `0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  12 0 0 0 ${
+                Math.round(-12 * threshold * 100) / 100
+              }`,
+              result: `dm${i}`,
+            },
+          },
+          {
+            tag: "feComposite",
+            attrs: {
+              in: `d${i}`,
+              in2: `dm${i}`,
+              operator: "in",
+              result: `ds${i}`,
+            },
+          },
+          {
+            tag: "feFlood",
+            attrs: {
+              "flood-color": step.color,
+              "flood-opacity": String(step.alpha),
+              result: `df${i}`,
+            },
+          },
+          {
+            tag: "feComposite",
+            attrs: {
+              in: `df${i}`,
+              in2: `ds${i}`,
+              operator: "in",
+              result: `dust${i}`,
+            },
+          },
+        );
+        merge.push(`dust${i}`);
         break;
       }
       case "holes": {

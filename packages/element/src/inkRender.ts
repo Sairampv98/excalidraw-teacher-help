@@ -119,6 +119,7 @@ export const applyInkLook = (
   let painted = copyOf(canvas, make);
   let alpha = 1;
   const halos: Extract<InkStep, { op: "halo" }>[] = [];
+  const dusts: { canvas: HTMLCanvasElement; alpha: number }[] = [];
   let core: string | null = null;
 
   for (const step of steps) {
@@ -161,6 +162,46 @@ export const applyInkLook = (
         painted = next;
         break;
       }
+      case "dust": {
+        const spread = make();
+
+        spread.width = painted.width;
+        spread.height = painted.height;
+
+        const context = spread.getContext("2d")!;
+
+        for (const ring of [1, 0.5]) {
+          for (let i = 0; i < 8; i++) {
+            const angle = (i * Math.PI) / 4;
+            const r = step.reach * ring * px;
+
+            context.drawImage(
+              painted,
+              Math.cos(angle) * r,
+              Math.sin(angle) * r,
+            );
+          }
+        }
+
+        // only specks of the spread are kept
+        const pattern = context.createPattern(
+          holesTile(step.seed, step.density),
+          "repeat",
+        );
+
+        if (pattern) {
+          pattern.setTransform?.(new DOMMatrix().scale(step.cell * px));
+          context.globalCompositeOperation = "destination-in";
+          context.fillStyle = pattern;
+          context.fillRect(0, 0, spread.width, spread.height);
+        }
+
+        dusts.push({
+          canvas: tinted(spread, step.color, make),
+          alpha: step.alpha,
+        });
+        break;
+      }
       case "alpha":
         alpha = step.value;
         break;
@@ -177,6 +218,13 @@ export const applyInkLook = (
   target.setTransform(1, 0, 0, 1, 0, 0);
   target.clearRect(0, 0, canvas.width, canvas.height);
   target.globalAlpha = alpha;
+
+  for (const dust of dusts) {
+    target.save();
+    target.globalAlpha = alpha * dust.alpha;
+    target.drawImage(dust.canvas, 0, 0);
+    target.restore();
+  }
 
   for (const halo of halos) {
     target.save();

@@ -110,8 +110,9 @@ describe("AC-271 a look is the same every time and in every export", () => {
       n.getAttribute("seed"),
     );
 
-    expect(seeds).toHaveLength(2);
-    expect(seeds[0]).not.toBe(seeds[1]);
+    // each chalk stroke has its dust and its gaps, and no two of them share a grain
+    expect(seeds).toHaveLength(4);
+    expect(new Set(seeds).size).toBe(4);
   });
 
   it("AC-271 a PNG export draws the look and makes room", async () => {
