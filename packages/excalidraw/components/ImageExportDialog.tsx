@@ -1,5 +1,4 @@
-import { exportToCanvas } from "@excalidraw/utils/export";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   DEFAULT_EXPORT_PADDING,
@@ -19,7 +18,9 @@ import {
   actionChangeProjectName,
 } from "../actions/actionExport";
 import { probablySupportsClipboardBlob } from "../clipboard";
-import { prepareElementsForExport } from "../data";
+import { getPapersForExport, prepareElementsForExport } from "../data";
+import { restoreAppState, restoreElements } from "../data/restore";
+import { exportToCanvas } from "../scene/export";
 import { canvasToBlob } from "../data/blob";
 import { nativeFileSystemSupported } from "../data/filesystem";
 import { useCopyStatus } from "../hooks/useCopiedIndicator";
@@ -111,6 +112,14 @@ const ImageExportModal = ({
     exportSelectionOnly,
   );
 
+  const pagePapers = useMemo(
+    () =>
+      exportingFrame
+        ? []
+        : getPapersForExport(exportedElements, appStateSnapshot),
+    [exportedElements, exportingFrame, appStateSnapshot],
+  );
+
   useEffect(() => {
     const previewNode = previewRef.current;
     if (!previewNode) {
@@ -127,9 +136,9 @@ const ImageExportModal = ({
       return requestId !== previewRenderRequestIdRef.current;
     };
 
-    exportToCanvas({
-      elements: exportedElements,
-      appState: {
+    const maxWidthOrHeight = Math.max(maxWidth, maxHeight);
+    const restoredAppState = restoreAppState(
+      {
         ...appStateSnapshot,
         name: projectName,
         exportBackground: exportWithBackground,
@@ -137,11 +146,43 @@ const ImageExportModal = ({
         exportScale,
         exportEmbedScene: embedScene,
       },
-      files,
-      exportPadding: DEFAULT_EXPORT_PADDING,
-      maxWidthOrHeight: Math.max(maxWidth, maxHeight),
-      exportingFrame,
-    })
+      null,
+    );
+
+    exportToCanvas(
+      restoreElements(exportedElements, null, {
+        deleteInvisibleElements: true,
+      }),
+      {
+        ...restoredAppState,
+        offsetTop: 0,
+        offsetLeft: 0,
+        width: 0,
+        height: 0,
+      },
+      files || {},
+      {
+        exportBackground: restoredAppState.exportBackground,
+        viewBackgroundColor: restoredAppState.viewBackgroundColor,
+        exportPadding: DEFAULT_EXPORT_PADDING,
+        exportingFrame,
+        // the preview is the picture that is exported: the pages on their papers (D-243)
+        pagePapers,
+      },
+      (width: number, height: number) => {
+        const canvas = document.createElement("canvas");
+        const max = Math.max(width, height);
+
+        // if content is less than the box, fall back on the export scale
+        const scale =
+          maxWidthOrHeight < max ? maxWidthOrHeight / max : exportScale ?? 1;
+
+        canvas.width = width * scale;
+        canvas.height = height * scale;
+
+        return { canvas, scale };
+      },
+    )
       .then(async (canvas) => {
         if (isStaleRequest()) {
           return;
@@ -181,6 +222,7 @@ const ImageExportModal = ({
     appStateSnapshot,
     files,
     exportedElements,
+    pagePapers,
     exportingFrame,
     projectName,
     exportWithBackground,

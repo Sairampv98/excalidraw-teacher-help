@@ -154,6 +154,15 @@
   }
 }
 
+// the emoji bar's collapsed form: a round button with a smile (D-245)
+.excalidraw-dock-pill--round {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+  color: var(--text-primary-color, var(--icon-fill-color));
+}
+
 .theme--dark {
   .excalidraw-dock-move,
   .excalidraw-dock-collapse,

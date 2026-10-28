@@ -6,6 +6,9 @@
  * bar's own element and from the place the docks remember.
  */
 
+import fs from "fs";
+import path from "path";
+
 import React from "react";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -158,6 +161,64 @@ describe("AC-242 the emoji bar is a dock", () => {
       false,
     );
     expect(screen.getByLabelText("Move Emoji panel")).not.toBeNull();
+  });
+
+  it("AC-278 the emoji bar folds into a round button with a smile", async () => {
+    await mount();
+    await docked();
+
+    act(() => {
+      fireEvent.click(screen.getByLabelText("Collapse Emoji panel"));
+    });
+
+    const pill = screen.getByLabelText("Emoji panel, collapsed");
+
+    expect(pill.classList.contains("excalidraw-dock-pill--round")).toBe(true);
+    // a circle: as wide as it is tall
+    expect((pill as HTMLElement).style.width).toBe("40px");
+    expect((pill as HTMLElement).style.height).toBe("40px");
+    expect(pill.querySelector("svg circle")).not.toBeNull();
+
+    // pressed and let go, it opens the bar again
+    pointer(pill, "pointerdown", 400, 700);
+    pointer(window, "pointerup", 400, 700);
+
+    expect(screen.queryByLabelText("Emoji panel, collapsed")).toBeNull();
+
+    // the toolbox's own pill is still the slim one
+    act(() => {
+      fireEvent.click(screen.getByLabelText("Collapse Emoji panel"));
+    });
+    expect(
+      document.querySelectorAll(".excalidraw-dock-pill--round"),
+    ).toHaveLength(1);
+  });
+
+  it("AC-278 the collapsed bar cannot be clicked", async () => {
+    await mount();
+    await docked();
+
+    act(() => {
+      fireEvent.click(screen.getByLabelText("Collapse Emoji panel"));
+    });
+
+    expect(bar().classList.contains("excalidraw-dock-target--pill")).toBe(true);
+
+    // the bar's own `pointer-events: auto` must not win over the collapsed
+    // state: a rule as specific as the bar's own makes it neither clickable
+    // nor visible
+    const css = fs.readFileSync(
+      path.resolve(__dirname, "../emoji/StickerBar.scss"),
+      "utf8",
+    );
+    const rule =
+      /\.excalidraw-sticker-bar\.excalidraw-dock-target--pill\s*\{([^}]*)\}/.exec(
+        css,
+      );
+
+    expect(rule).not.toBeNull();
+    expect(rule![1]).toMatch(/pointer-events:\s*none/);
+    expect(rule![1]).toMatch(/visibility:\s*hidden/);
   });
 
   it("AC-242 its place is remembered", async () => {

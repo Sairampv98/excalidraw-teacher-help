@@ -1384,11 +1384,10 @@ describe("pages - the frame, the number and the size", () => {
 
     h.setState({ pages: TWO_PAGES, currentPageId: "page-1" });
 
-    // the page's own controls live in the properties panel; the rectangle tool
-    // is enough to have that panel open
-    UI.clickTool("rectangle");
+    // the page's own controls are in the Page panel of the main menu (D-244)
+    h.setState({ openDialog: { name: "pageLook" } });
 
-    const frameToggle = screen.getByText("Show the page's frame");
+    const frameToggle = await screen.findByText("Show the page's frame");
 
     // off by default: a page is an invisible rectangle until it is asked for
     expect(h.state.pages[0].frame).toBeFalsy();
@@ -1433,9 +1432,9 @@ describe("pages - the frame, the number and the size", () => {
 
     h.setState({ pages: TWO_PAGES, currentPageId: "page-2" });
 
-    UI.clickTool("rectangle");
+    h.setState({ openDialog: { name: "pageLook" } });
 
-    const numberToggle = screen.getByText("Show the page's number");
+    const numberToggle = await screen.findByText("Show the page's number");
 
     expect(h.state.pages[1].number).toBeFalsy();
 
@@ -1481,9 +1480,9 @@ describe("pages - the frame, the number and the size", () => {
 
     h.setState({ pages: TWO_PAGES, currentPageId: "page-1" });
 
-    UI.clickTool("rectangle");
+    h.setState({ openDialog: { name: "pageLook" } });
 
-    const presetSelect = screen.getByTestId("page-size-preset");
+    const presetSelect = await screen.findByTestId("page-size-preset");
 
     // the project's own size is the default
     expect(presetSelect).toHaveValue("project");

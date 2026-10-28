@@ -37,6 +37,7 @@ import {
 import { PAGE_NUMBER_FONT_SIZE } from "../scene/pages";
 
 import { bootstrapCanvas, getNormalizedCanvasDimensions } from "./helpers";
+import { drawPagePaper } from "./paperRender";
 
 import type {
   StaticCanvasRenderConfig,
@@ -444,6 +445,18 @@ const _renderStaticScene = ({
       appState.zoom,
       renderConfig.theme,
     );
+  }
+
+  // the paper of the page, or the papers of an export of many (D-243), under
+  // the content
+  const papers =
+    appState.currentPagePapers ??
+    (appState.currentPageDecoration?.paper
+      ? [appState.currentPageDecoration.paper]
+      : []);
+
+  for (const paper of papers) {
+    drawPagePaper(context, paper, appState.scrollX, appState.scrollY);
   }
 
   const groupsToBeAddedToFrame = new Set<string>();

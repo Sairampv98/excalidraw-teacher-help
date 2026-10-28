@@ -21,6 +21,13 @@
   color: var(--text-primary-color, var(--icon-fill-color));
 }
 
+// folded into its round button (D-245): the bar is not there to be clicked, and
+// its own `pointer-events: auto` must not win over the dock's
+.excalidraw-sticker-bar.excalidraw-dock-target--pill {
+  pointer-events: none;
+  visibility: hidden;
+}
+
 .excalidraw-sticker-bar__icon {
   display: flex;
   align-items: center;
