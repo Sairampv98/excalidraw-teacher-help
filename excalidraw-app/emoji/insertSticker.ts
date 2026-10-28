@@ -23,6 +23,11 @@ export const insertSticker = async (
   sticker: Sticker,
   at?: ScenePoint,
 ) => {
+  await insertImageIntoScene(api, await stickerFile(sticker), at);
+};
+
+/** the file of a sticker, read from the repo's own copy of it (D-157) */
+export const stickerFile = async (sticker: Sticker) => {
   const url = stickerUrl(sticker);
 
   if (!url) {
@@ -36,9 +41,8 @@ export const insertSticker = async (
   }
 
   const blob = await response.blob();
-  const file = new File([blob], sticker.file, {
+
+  return new File([blob], sticker.file, {
     type: stickerMimeType(sticker),
   });
-
-  await insertImageIntoScene(api, file, at);
 };

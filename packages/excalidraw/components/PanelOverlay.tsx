@@ -12,6 +12,8 @@ import {
   getContainingFrame,
   getRenderOpacity,
   isPosterPanelElement,
+  mediaCssClip,
+  mediaOf,
 } from "@excalidraw/element";
 
 import type {
@@ -1655,6 +1657,7 @@ const VideoPanelSurface = ({
   const [durationMs, setDurationMs] = useState(0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
+  const isNodeMedia = mediaOf(panel) !== null;
   /**
    * The video's **effective** state (D-119).
    *
@@ -1870,7 +1873,9 @@ const VideoPanelSurface = ({
   const reportPosition = useCallback(() => {
     const video = videoRef.current;
 
-    if (!video) {
+    // the video of a node is a loop that plays by itself in every window: its
+    // position is not shared, and nothing is written to the element (D-246)
+    if (!video || isNodeMedia) {
       return;
     }
 
@@ -1886,7 +1891,7 @@ const VideoPanelSurface = ({
       time: video.currentTime || 0,
       playing: !video.paused,
     });
-  }, [activeTrack, onVideoEvent, panel.id]);
+  }, [activeTrack, isNodeMedia, onVideoEvent, panel.id]);
 
   /**
    * Applies the position the editor published, and keeps the video moving
@@ -1954,7 +1959,8 @@ const VideoPanelSurface = ({
    * as the element carries one.
    */
   useEffect(() => {
-    if (!mirror) {
+    // the video of a node plays by itself, so there is nothing to follow
+    if (!mirror || isNodeMedia) {
       return;
     }
 
@@ -1967,7 +1973,7 @@ const VideoPanelSurface = ({
     receivedRef.current = playback;
 
     applyPublishedPlayback(Date.now());
-  }, [applyPublishedPlayback, mirror, panel]);
+  }, [applyPublishedPlayback, isNodeMedia, mirror, panel]);
 
   /**
    * The local clock: the video keeps playing between the updates, and the
@@ -1978,7 +1984,7 @@ const VideoPanelSurface = ({
    * on a timer — slower, but the same rule.
    */
   useEffect(() => {
-    if (!mirror) {
+    if (!mirror || isNodeMedia) {
       return;
     }
 
@@ -2027,7 +2033,7 @@ const VideoPanelSurface = ({
         withFrameCallback.cancelVideoFrameCallback?.(frameHandle);
       }
     };
-  }, [applyPublishedPlayback, mirror]);
+  }, [applyPublishedPlayback, isNodeMedia, mirror]);
 
   const togglePlay = () => {
     const video = videoRef.current;
@@ -2152,10 +2158,13 @@ const VideoPanelSurface = ({
         // the primary source, or the fallback once it has been tried (D-126)
         src={fallbackUrl ?? src}
         playsInline={true}
+        // the video of a node is a silent loop (D-246)
+        autoPlay={isNodeMedia}
+        loop={isNodeMedia}
         // the metadata is what tells the browser the video's own size, and the
         // size is what a poster is captured at
         preload="metadata"
-        muted={muted}
+        muted={muted || isNodeMedia}
         onTimeUpdate={reportPosition}
         onSeeked={reportPosition}
         // the ELEMENT is the truth and the state only mirrors it: whatever
@@ -2865,6 +2874,8 @@ const Panel = ({
     ],
   );
 
+  const nodeMedia = mediaOf(panel);
+
   const clipPath = useMemo(
     () => animatedImageClipPath(panel, elementsMap, camera, viewport),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2888,9 +2899,12 @@ const Panel = ({
         data-testid="panel"
         data-panel-id={panel.id}
         data-panel-kind={panel.panelKind}
+        // the video of a node fills the node and is cut to its shape (D-246)
+        data-node-media={nodeMedia ? "" : undefined}
         style={
           {
             position: "absolute",
+            clipPath: nodeMedia ? mediaCssClip(nodeMedia) : undefined,
             width: panel.width,
             height: panel.height,
             transform,

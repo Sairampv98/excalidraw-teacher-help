@@ -159,6 +159,7 @@ import { EdgeDocks } from "./dock/EdgeDocks";
 import { useEdgeDocksEnabled } from "./dock/dockTypes";
 import PageBar from "./components/PageBar";
 import StickerBar from "./emoji/StickerBar";
+import { NodeMediaDrop } from "./sidebar/NodeMediaPanel";
 import { ExcalidrawPlusIframeExport } from "./ExcalidrawPlusIframeExport";
 import { isPresenterWindow } from "./presenter/presenterChannel";
 import { openPresenterView } from "./presenter/openPresenterView";
@@ -1570,6 +1571,9 @@ const ExcalidrawWrapper = () => {
 
         {/* emoji and GIF bar: bundled stickers, dragged or clicked onto the page */}
         <StickerBar />
+
+        {/* a picture, GIF or video dropped on a node of a chart goes into it */}
+        <NodeMediaDrop />
 
         <ShareDialog
           collabAPI={collabAPI}

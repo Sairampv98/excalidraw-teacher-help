@@ -4,10 +4,11 @@ import { useExcalidrawAPI } from "@excalidraw/excalidraw";
 
 import { STORAGE_KEYS } from "../app_constants";
 import { sceneAtClientPoint } from "../sidebar/insertIntoScene";
+import { nodeDrop } from "../sidebar/nodeDropHook";
 
 import { stickerUrl } from "./assets";
 import { STICKERS } from "./catalog";
-import { STICKER_DRAG_TYPE, insertSticker } from "./insertSticker";
+import { STICKER_DRAG_TYPE, insertSticker, stickerFile } from "./insertSticker";
 import { searchStickers } from "./search";
 
 import "./StickerBar.scss";
@@ -151,6 +152,22 @@ const StickerBar = () => {
       );
 
       if (sticker && at) {
+        // dropped on a node of a chart: the sticker goes into the node (D-246)
+        const onNode = nodeDrop();
+
+        if (onNode?.claims(at)) {
+          stickerFile(sticker)
+            .then((file) => onNode.add(file, at))
+            .catch((err) => {
+              console.error("stickers: node insert failed", err);
+              setError(
+                err instanceof Error ? err.message : "Could not insert it",
+              );
+            });
+
+          return;
+        }
+
         void place(sticker, at);
       }
     };

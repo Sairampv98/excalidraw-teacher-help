@@ -22,6 +22,7 @@ import {
   getCommonBounds,
   isLinearElement,
   isTextElement,
+  mediaOf,
 } from "@excalidraw/element";
 
 import type {
@@ -261,6 +262,21 @@ export const buildFlowGraph = (
 
     // what a chart draws besides its steps is not one: a timeline's dots (D-237)
     if (flowRole === "timeline-dot") {
+      continue;
+    }
+
+    // the media of a node (D-246) is part of the node's step, not a step of its
+    // own: the step's box and its highlight hold it
+    const media = mediaOf(element);
+
+    if (media) {
+      const owner = elementsMap.get(media.of);
+
+      if (owner && targetIds.has(owner.id)) {
+        addContainer(owner);
+        members.get(owner.id)!.push(element.id);
+      }
+
       continue;
     }
 

@@ -8,7 +8,11 @@
  * is pure so it is tested without a canvas.
  */
 
-import { getBoundTextElement, getCornerRadius } from "@excalidraw/element";
+import {
+  getBoundTextElement,
+  getCornerRadius,
+  mediaOf,
+} from "@excalidraw/element";
 
 import type {
   ElementsMap,
@@ -179,3 +183,18 @@ export const drawnLabelIds = ({
 
   return ids;
 };
+
+/**
+ * Whether a step holds media (D-246): a picture, a GIF or a video in its node.
+ * Such a step is only outlined by the highlight - a wash of the look's colour
+ * over the picture would change it.
+ */
+export const stepHoldsMedia = (
+  step: { elementIds: readonly string[] },
+  elementsMap: ElementsMap,
+) =>
+  step.elementIds.some((id) => {
+    const member = elementsMap.get(id);
+
+    return !!member && mediaOf(member) !== null;
+  });

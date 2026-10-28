@@ -31,6 +31,11 @@
     animation: excalidraw__flow-animation-in 400ms ease-out both;
   }
 
+  // the outline of a step that holds media has no wash over the picture (D-246)
+  [data-flow-media] .excalidraw__flow-node-outline {
+    fill-opacity: 0;
+  }
+
   // the rectangle on a label's box is the text's, and has the text colour,
   // which follows the shape colour until it is set (D-209)
   [data-flow-part="box"] .excalidraw__flow-node-outline {
