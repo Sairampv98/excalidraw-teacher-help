@@ -35,3 +35,14 @@ export const useAtomWithInitialValue = <
 
   return [value, setValue] as const;
 };
+
+/**
+ * A picture of a PDF page the teacher asked to have read with OCR (D-279).
+ *
+ * The viewer sets it; the app, which owns the OCR, reads it and clears it.
+ */
+export const pdfPageReadRequestAtom = atom<{
+  dataURL: string;
+  width: number;
+  height: number;
+} | null>(null);

@@ -42,9 +42,7 @@ import {
   readPanelZoom,
   PANEL_EDITOR_THEMES,
 } from "../scene/panelContent";
-import type { PanelConsoleView, PanelEditorTheme } from "../scene/panelContent";
 
-import "./PanelFullscreen.scss";
 import { readVideoPanelState } from "../scene/panelContent";
 import { readPanelPlayback } from "../scene/panelContent";
 import { readYoutubePanelState, youtubeEmbedUrl } from "../scene/panelContent";
@@ -78,6 +76,8 @@ import {
 
 import { t } from "../i18n";
 
+import "./PanelFullscreen.scss";
+
 import { VS_CODE_DARK } from "./vscodeTheme";
 
 import { captionCueAt, DEFAULT_CAPTION_LANGUAGE } from "./panelCaptions";
@@ -86,6 +86,8 @@ import {
   registerVideoSurface,
   unregisterVideoSurface,
 } from "./videoPanelSurface";
+
+import type { PanelConsoleView, PanelEditorTheme } from "../scene/panelContent";
 
 import type {
   BinaryFiles,
@@ -1059,29 +1061,8 @@ const CodePanelSurface = ({
     Boolean(editor.text) ||
     editor.source === "draft";
 
-  /**
-   * The languages the teacher may run.
-   *
-   * They are the ones the **extension** found on this machine (D-124): the
-   * picker never offers a language whose runtime is not there.
-   */
   /** Run works with the bridge, and without it when the host runs Python */
   const canRun = connected || Boolean(run?.canRunInBrowser);
-
-  const languageOptions = useMemo(() => {
-    const options: string[] = [];
-    if (editor.language) {
-      options.push(editor.language);
-    }
-
-    for (const language of run?.languages ?? []) {
-      if (language && !options.includes(language)) {
-        options.push(language);
-      }
-    }
-
-    return options;
-  }, [editor.language, run?.languages]);
 
   const hasFile = Boolean(state?.editor.uri);
   const fileName = codePanelFileName(state?.editor.uri ?? "");

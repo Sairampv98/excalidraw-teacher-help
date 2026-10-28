@@ -225,6 +225,8 @@ describe("AC-309 JavaScript in the browser", () => {
     vi.stubGlobal("console", {});
 
     try {
+      // the worker's own source is a string, as it is when it is built into a blob
+      // eslint-disable-next-line no-new-func
       new Function("self", javascriptWorkerSource)(scope);
       await scope.onmessage!({ data: { code } });
     } finally {

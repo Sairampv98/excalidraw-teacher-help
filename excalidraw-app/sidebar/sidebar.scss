@@ -853,3 +853,64 @@
   font-size: 0.75rem;
   opacity: 0.75;
 }
+
+// The PDF viewer (D-279): the pages are drawn by pdf.js, with the real text on
+// top of each one so it can be selected.
+.app-doc-pdf-viewer {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 12rem;
+  overflow: auto;
+}
+
+.app-doc-pdf-pages {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.app-doc-pdf-page {
+  position: relative;
+  flex: 0 0 auto;
+  background-color: #fff;
+  box-shadow: 0 0 0 1px var(--color-border);
+
+  canvas {
+    display: block;
+  }
+}
+
+.app-doc-pdf-text {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+  text-size-adjust: none;
+
+  :is(span, br) {
+    position: absolute;
+    color: transparent;
+    white-space: pre;
+    cursor: text;
+    transform-origin: 0 0;
+  }
+
+  ::selection {
+    background: rgba(0, 80, 255, 0.3);
+  }
+}
+
+.app-doc-pdf-read {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.app-doc-pdf-page:hover .app-doc-pdf-read,
+.app-doc-pdf-read:focus {
+  opacity: 1;
+}

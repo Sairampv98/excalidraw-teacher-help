@@ -900,7 +900,7 @@ describe("FilesTab list and reader", () => {
     expect(container.querySelector(".app-file-list")).toBeNull();
 
     const viewer = container.querySelector(".app-doc-viewer")!;
-    expect(viewer.querySelector("object[type='application/pdf']")).toBeTruthy();
+    expect(viewer.querySelector("[data-testid='pdf-viewer']")).toBeTruthy();
     expect(viewer.textContent).toContain("b.pdf");
 
     // 3. read-back returns to the list, same rows, no rescan
@@ -923,18 +923,14 @@ describe("FilesTab list and reader", () => {
     ]);
 
     fireEvent.click(container.querySelectorAll(".app-file-list__row")[0]);
-    expect(
-      container.querySelector("object[type='application/pdf']"),
-    ).toBeTruthy();
+    expect(container.querySelector("[data-testid='pdf-viewer']")).toBeTruthy();
 
     const next = container.querySelectorAll(".app-doc-step__btn")[1];
     fireEvent.click(next);
 
     // same viewer, different document — no read-back needed
     expect(container.querySelector(".app-doc-viewer")).toBeTruthy();
-    expect(
-      container.querySelector("object[type='application/pdf']"),
-    ).toBeNull();
+    expect(container.querySelector("[data-testid='pdf-viewer']")).toBeNull();
     expect(container.querySelector(".app-doc-title")!.textContent).toContain(
       "c.ts",
     );

@@ -97,6 +97,7 @@ import {
   useAtomValue,
   useAtomWithInitialValue,
   appJotaiStore,
+  pdfPageReadRequestAtom,
 } from "./app-jotai";
 import {
   FIREBASE_STORAGE_PREFIXES,
@@ -173,8 +174,9 @@ import { panelCopyControls } from "./sidebar/panelCopy";
 import { OcrPreview } from "./components/OcrPreview";
 import { ReformatChooser } from "./sidebar/ReformatChooser";
 
-import type { OcrPreviewData } from "./components/OcrPreview";
 import { CropModal, posterNaturalSize } from "./components/cropModal";
+
+import type { OcrPreviewData } from "./components/OcrPreview";
 
 import type { CollabAPI } from "./collab/Collab";
 
@@ -522,6 +524,30 @@ const ExcalidrawWrapper = () => {
     },
     [],
   );
+
+  // a PDF page the teacher asked to read: the viewer sets the request, the app
+  // reads it and shows what was found (D-279)
+  const pdfPageRequest = useAtomValue(pdfPageReadRequestAtom);
+
+  useEffect(() => {
+    if (!pdfPageRequest || !excalidrawAPI) {
+      return;
+    }
+
+    appJotaiStore.set(pdfPageReadRequestAtom, null);
+
+    void readOcr({
+      place: false,
+      image: pdfPageRequest,
+      placement: {
+        x: 0,
+        y: 0,
+        width: pdfPageRequest.width,
+        height: pdfPageRequest.height,
+      },
+      pageId: excalidrawAPI.getAppState().currentPageId ?? "page-1",
+    }).then((result) => showRead(result));
+  }, [pdfPageRequest, excalidrawAPI, readOcr, showRead]);
 
   /**
    * Reads an **ordinary image** element the teacher picked (D-105).
