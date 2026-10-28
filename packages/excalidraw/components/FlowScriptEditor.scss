@@ -133,3 +133,13 @@
     }
   }
 }
+
+// the picture of the kind of chart chosen (D-239)
+.excalidraw__flow-editor .excalidraw__flow-editor-picture {
+  align-self: flex-start;
+  width: 96px;
+  height: 56px;
+  border-radius: 6px;
+  background-color: rgba(127, 127, 127, 0.08);
+  overflow: hidden;
+}

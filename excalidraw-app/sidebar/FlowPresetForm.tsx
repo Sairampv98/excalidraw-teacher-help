@@ -18,6 +18,15 @@ const LAYOUT_LABELS: Record<FlowCustomLayout, string> = {
   ring: "Ring (a loop)",
   tiers: "Tiers (stacked layers)",
   hub: "Hub (one in the middle)",
+  list: "List (blocks, no arrows)",
+  grid: "Grid (a table)",
+  matrix: "Matrix (two columns)",
+  pyramid: "Pyramid (widening blocks)",
+  funnel: "Funnel (narrowing blocks)",
+  timeline: "Timeline (boxes on a line)",
+  target: "Target (rings)",
+  venn: "Venn (crossing circles)",
+  hierarchy: "Hierarchy (a tree)",
 };
 
 const SHAPE_LABELS: Record<FlowChartShape, string> = {
@@ -73,6 +82,9 @@ export const FlowPresetForm = ({
     sixDigits(initial?.colours.outline ?? "#1e1e1e"),
   );
   const [shape, setShape] = useState<FlowChartShape>(initial?.shape ?? "own");
+  const [arrows, setArrows] = useState<"own" | "none">(
+    initial?.arrows ?? "own",
+  );
   const [error, setError] = useState<string | null>(null);
 
   const save = () => {
@@ -83,6 +95,7 @@ export const FlowPresetForm = ({
       layout,
       colours: { fills, outline },
       shape,
+      ...(arrows === "none" ? { arrows } : {}),
     });
 
     if (!read.ok) {
@@ -182,6 +195,17 @@ export const FlowPresetForm = ({
               {SHAPE_LABELS[s]}
             </option>
           ))}
+        </select>
+      </label>
+      <label>
+        Arrows
+        <select
+          aria-label="Preset arrows"
+          value={arrows}
+          onChange={(event) => setArrows(event.target.value as "own" | "none")}
+        >
+          <option value="own">As the layout draws them</option>
+          <option value="none">None</option>
         </select>
       </label>
       {error && (

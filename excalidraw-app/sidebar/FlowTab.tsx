@@ -8,8 +8,10 @@ import {
   useExcalidrawAPI,
 } from "@excalidraw/excalidraw";
 import { randomId, randomInteger } from "@excalidraw/common";
+import { FlowPreview } from "@excalidraw/excalidraw/components/FlowPreview";
 import { openFlowScriptEditor } from "@excalidraw/excalidraw/components/FlowScriptEditorState";
 import { checkFlowScript } from "@excalidraw/excalidraw/scene/flowCheck";
+import { convertScript } from "@excalidraw/excalidraw/scene/flowConvert";
 import { FLOW_FIT_MODES } from "@excalidraw/excalidraw/scene/flowChart";
 import {
   BUILT_IN_OF_LAYOUT,
@@ -31,6 +33,7 @@ import {
   listFlowPresets,
 } from "@excalidraw/excalidraw/scene/flowPresets";
 import { FLOW_NODE_SHAPES } from "@excalidraw/excalidraw/scene/flowScript";
+import { flowKindPreview } from "@excalidraw/excalidraw/scene/flowPreview";
 import { getPageIndex } from "@excalidraw/excalidraw/scene/pages";
 
 import type { RemoteExcalidrawElement } from "@excalidraw/excalidraw/data/reconcile";
@@ -58,6 +61,18 @@ const SCRIPT_HINTS: Record<FlowPresetId, string> = {
     "The first line is the hub. Each line after it is something the hub connects to.",
   network:
     "One line for each node, or A -> B to join two. A node is made the first time its name appears.",
+  list: "One line for each block, in order. Nothing joins them.",
+  grid: "One line for each row, with a | between the cells. Start a line with # for the header row.",
+  matrix: "One line for each row, with a | between its two cells.",
+  pyramid:
+    "One line for each layer, the top one first. Each is wider than the last.",
+  funnel:
+    "One line for each stage, the widest first. Each is narrower than the last.",
+  timeline: "One line for each moment, in order.",
+  target: "One line for each ring, the outermost first. Six rings at most.",
+  venn: "One line for each circle. Two to four.",
+  hierarchy:
+    "One line for each node. Indent a line once to put it under the line above.",
 };
 
 const FIT_LABELS: Record<FlowFitMode, string> = {
@@ -120,11 +135,23 @@ export const FlowTab = () => {
   const [edited, setEdited] = useState(false);
   const [fit, setFit] = useState<FlowFitMode>("page");
   const [shape, setShape] = useState<FlowChartShape>("own");
+  const [arrows, setArrows] = useState<"own" | "none">("own");
   const [message, setMessage] = useState<Message | null>(null);
   const [view, setView] = useState<View>("chart");
   const [editing, setEditing] = useState<FlowCustomPreset | null>(null);
 
   const fileInput = useRef<HTMLInputElement | null>(null);
+
+  // the small picture of a kind, from the chart its example builds (D-239)
+  const pictureOf = (p: { id: string; example: string }) => {
+    const own = customs.find((c) => c.id === p.id);
+
+    return flowKindPreview(
+      own ? BUILT_IN_OF_LAYOUT[own.layout] : (p.id as FlowPresetId),
+      p.example,
+      own ? buildSettingsOfCustom(own).options : {},
+    );
+  };
 
   const choose = useCallback(
     (id: string) => {
@@ -133,14 +160,22 @@ export const FlowTab = () => {
 
       setPresetId(id);
       setMessage(null);
-      // a preset brings the shape it was made with
+      // a preset brings the shape and the arrows it was made with
       setShape(picked ? picked.shape : "own");
+      setArrows(picked?.arrows ?? "own");
 
       if (!edited && next) {
         setScript(next.example);
+      } else if (edited) {
+        // the words come across to the new kind, written for it (D-233)
+        const target: FlowPresetId = picked
+          ? BUILT_IN_OF_LAYOUT[picked.layout]
+          : (id as FlowPresetId);
+
+        setScript(convertScript(builtIn, script, target));
       }
     },
-    [edited, listing, customs],
+    [edited, listing, customs, builtIn, script],
   );
 
   const options = useMemo(() => {
@@ -157,8 +192,9 @@ export const FlowTab = () => {
       fit,
       ...(custom ? buildSettingsOfCustom(custom).options : {}),
       shape,
+      arrows,
     };
-  }, [excalidrawAPI, fit, shape, custom]);
+  }, [excalidrawAPI, fit, shape, arrows, custom]);
 
   // the script is checked as it is typed (D-224)
   const check = useMemo(
@@ -198,6 +234,7 @@ export const FlowTab = () => {
       fit,
       custom,
       shape,
+      arrows,
     });
 
     if (!result.ok) {
@@ -260,6 +297,7 @@ export const FlowTab = () => {
     preset.name,
     script,
     shape,
+    arrows,
   ]);
 
   const editScript = useCallback(() => {
@@ -301,6 +339,13 @@ export const FlowTab = () => {
 
       keep([...customs, { ...saved, name, id }]);
       choose(id);
+      // the new preset is not in the list this render has: what it brings is set here
+      setShape(saved.shape);
+      setArrows(saved.arrows ?? "own");
+
+      if (!edited) {
+        setScript(saved.example);
+      }
     }
 
     setEditing(null);
@@ -431,6 +476,9 @@ export const FlowTab = () => {
               className="flow-tab__preset"
               onClick={() => choose(p.id)}
             >
+              <span className="flow-tab__preset-picture">
+                <FlowPreview preview={pictureOf(p)} />
+              </span>
               <span className="flow-tab__preset-name">{p.name}</span>
               <span className="flow-tab__preset-description">
                 {p.description}
@@ -502,6 +550,22 @@ export const FlowTab = () => {
                   {SHAPE_LABELS[s]}
                 </option>
               ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="flow-tab__options">
+          <label>
+            Arrows
+            <select
+              aria-label="Arrows"
+              value={arrows}
+              onChange={(event) =>
+                setArrows(event.target.value as "own" | "none")
+              }
+            >
+              <option value="own">As the preset</option>
+              <option value="none">None</option>
             </select>
           </label>
         </div>

@@ -16,7 +16,8 @@
  *  - **process**, **steps**, **cycle**: each line is the next step.
  */
 
-export type FlowPresetId =
+/** the seven kinds that join their shapes (D-163) */
+export type FlowJoinedPresetId =
   | "process"
   | "decision"
   | "steps"
@@ -25,7 +26,22 @@ export type FlowPresetId =
   | "integration"
   | "network";
 
-export const FLOW_PRESET_IDS: readonly FlowPresetId[] = [
+/** the nine layouts of the gallery, which need no arrows (D-232) */
+export type FlowGalleryPresetId =
+  | "list"
+  | "grid"
+  | "matrix"
+  | "pyramid"
+  | "funnel"
+  | "timeline"
+  | "target"
+  | "venn"
+  | "hierarchy";
+
+export type FlowPresetId = FlowJoinedPresetId | FlowGalleryPresetId;
+
+/** the seven of D-163 */
+export const FLOW_PRESET_IDS: readonly FlowJoinedPresetId[] = [
   "process",
   "decision",
   "steps",
@@ -35,7 +51,37 @@ export const FLOW_PRESET_IDS: readonly FlowPresetId[] = [
   "network",
 ];
 
-export type FlowNodeKind = "step" | "question" | "branch" | "hub" | "spoke";
+/** the nine of D-232 */
+export const FLOW_GALLERY_IDS: readonly FlowGalleryPresetId[] = [
+  "list",
+  "grid",
+  "matrix",
+  "pyramid",
+  "funnel",
+  "timeline",
+  "target",
+  "venn",
+  "hierarchy",
+];
+
+/** every kind of chart: the seven, then the gallery */
+export const ALL_FLOW_PRESET_IDS: readonly FlowPresetId[] = [
+  ...FLOW_PRESET_IDS,
+  ...FLOW_GALLERY_IDS,
+];
+
+export type FlowNodeKind =
+  | "step"
+  | "question"
+  | "branch"
+  | "hub"
+  | "spoke"
+  // the gallery's own (D-232)
+  | "cell"
+  | "header"
+  | "ring"
+  | "set"
+  | "block";
 
 /** the shape a node can be given (D-229); `circle` is an ellipse of equal sides */
 export type FlowNodeShape =
@@ -60,6 +106,11 @@ export type FlowScriptNode = {
   kind: FlowNodeKind;
   /** the tier a node is in (tiers only) */
   tier?: number;
+  /** the row and the column of a cell (grid and matrix only, D-234) */
+  row?: number;
+  col?: number;
+  /** how deep in the tree a node is, 0 for the root (hierarchy only, D-236) */
+  depth?: number;
   /** the shape the script gave this node with a mark or a keyword (D-229, D-230) */
   shape?: FlowNodeShape;
   /**
@@ -93,6 +144,8 @@ export type ParsedFlow =
       edges: FlowScriptEdge[];
       /** the node ids of each tier, top first (tiers only) */
       tiers?: string[][];
+      /** the node ids of each row, top first, the cells in column order (grid and matrix only) */
+      rows?: string[][];
       /**
        * What the parser had to leave out or could not read. The chart is still
        * built without it; the editor refuses to apply it (D-224).
@@ -115,6 +168,8 @@ type ScriptLine = {
   no: number;
   /** where the trimmed text starts in the line as it was written */
   offset: number;
+  /** the white space the line starts with, for the levels of a hierarchy (D-236) */
+  indent: string;
 };
 
 const scriptLines = (text: string): ScriptLine[] =>
@@ -124,6 +179,7 @@ const scriptLines = (text: string): ScriptLine[] =>
       text: clean(raw),
       no: index + 1,
       offset: raw.length - raw.trimStart().length,
+      indent: raw.slice(0, raw.length - raw.trimStart().length),
     }))
     .filter((line) => line.text.length > 0);
 
@@ -445,6 +501,141 @@ const parseNetwork = (lines: ScriptLine[]): ParsedFlow => {
   return { ok: true, preset: "network", nodes, edges, problems };
 };
 
+/** the most rings a target and the most sets a venn take (D-235) */
+export const MAX_TARGET_RINGS = 6;
+export const MAX_VENN_SETS = 4;
+
+/** the parts of a gallery chart that are only a run of items, no arrows */
+const parseItems = (
+  preset: "list" | "pyramid" | "funnel" | "timeline" | "target" | "venn",
+  lines: ScriptLine[],
+): ParsedFlow => {
+  const { nodes, edges, problems, problem, add } = createGraph();
+  const kind: FlowNodeKind =
+    preset === "target"
+      ? "ring"
+      : preset === "venn"
+      ? "set"
+      : preset === "pyramid" || preset === "funnel"
+      ? "block"
+      : "step";
+  const limit =
+    preset === "target"
+      ? MAX_TARGET_RINGS
+      : preset === "venn"
+      ? MAX_VENN_SETS
+      : Infinity;
+
+  for (const line of lines) {
+    if (nodes.length >= limit) {
+      problem(
+        line.no,
+        preset === "target"
+          ? `A target takes ${MAX_TARGET_RINGS} rings at most.`
+          : `A venn takes ${MAX_VENN_SETS} sets at most.`,
+      );
+    }
+
+    add(line.text, kind, line.no, {}, wholeOf(line));
+  }
+
+  return { ok: true, preset, nodes, edges, problems };
+};
+
+/** a grid: a row for each line, the cells of a row between bars (D-234) */
+const parseGrid = (
+  preset: "grid" | "matrix",
+  lines: ScriptLine[],
+): ParsedFlow => {
+  const { nodes, edges, problems, problem, add } = createGraph();
+  const rows: string[][] = [];
+
+  for (const line of lines) {
+    const header = line.text.startsWith("#");
+    // the pieces of the line without its #, still counted from the line's own start
+    const body: ScriptLine = header
+      ? {
+          ...line,
+          text: line.text.slice(1).trim(),
+          offset:
+            line.offset +
+            1 +
+            (line.text.slice(1).length - line.text.slice(1).trimStart().length),
+        }
+      : line;
+    const cells = piecesOf(body, "|");
+
+    if (preset === "matrix" && cells.length > 2) {
+      problem(
+        line.no,
+        "A matrix has two columns: a row has two cells at most.",
+      );
+    }
+
+    if (cells.every((cell) => !cell.text)) {
+      problem(line.no, "That row has no cells.");
+      continue;
+    }
+
+    const row = rows.length;
+    const ids: string[] = [];
+
+    cells.forEach((cell, col) => {
+      // a cell with nothing in it is a gap, and is not drawn
+      if (!cell.text) {
+        return;
+      }
+
+      ids.push(
+        add(cell.text, header ? "header" : "cell", line.no, { row, col }, cell)
+          .id,
+      );
+    });
+
+    rows.push(ids);
+  }
+
+  return { ok: true, preset, nodes, edges, rows, problems };
+};
+
+/** how many levels a line's indentation is: a tab, or two spaces (D-236) */
+const depthOf = (indent: string) =>
+  [...indent].filter((c) => c === "\t").length +
+  Math.floor([...indent].filter((c) => c === " ").length / 2);
+
+/** a tree: one line for each node, its level the indentation it starts with (D-236) */
+const parseHierarchy = (lines: ScriptLine[]): ParsedFlow => {
+  const { nodes, edges, problems, problem, add, link } = createGraph();
+  /** the last node at each level, so that a node finds its parent */
+  const lastAt: FlowScriptNode[] = [];
+
+  lines.forEach((line, index) => {
+    let depth = depthOf(line.indent);
+
+    if (index === 0 && depth > 0) {
+      problem(line.no, "The first line is the root: it cannot be indented.");
+      depth = 0;
+    } else if (depth > lastAt.length) {
+      problem(
+        line.no,
+        "A line is one level under the line above it at most: indent it once.",
+      );
+      depth = lastAt.length;
+    }
+
+    const node = add(line.text, "step", line.no, { depth }, wholeOf(line));
+
+    if (depth > 0) {
+      link(lastAt[depth - 1].id, node.id);
+    }
+
+    lastAt[depth] = node;
+    lastAt.length = depth + 1;
+  });
+
+  return { ok: true, preset: "hierarchy", nodes, edges, problems };
+};
+
 /**
  * Reads a script for a preset. A script with no usable line builds **nothing**
  * and says so - it never builds an empty chart.
@@ -478,6 +669,21 @@ export const parseFlowScript = (
       break;
     case "network":
       parsed = parseNetwork(lines);
+      break;
+    case "list":
+    case "pyramid":
+    case "funnel":
+    case "timeline":
+    case "target":
+    case "venn":
+      parsed = parseItems(preset, lines);
+      break;
+    case "grid":
+    case "matrix":
+      parsed = parseGrid(preset, lines);
+      break;
+    case "hierarchy":
+      parsed = parseHierarchy(lines);
       break;
   }
 

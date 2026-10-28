@@ -22,12 +22,17 @@ import {
   buildFlowPreset,
 } from "../scene/flowPresets";
 
+import { FLOW_PRESET_IDS } from "../scene/flowScript";
+
 import type { FlowPageRect, FlowPresetId } from "../scene/flowPresets";
 
 const DEFAULT_PAGE: FlowPageRect = { x: 0, y: 0, width: 1920, height: 1080 };
 const SMALL_PAGE: FlowPageRect = { x: 5000, y: 300, width: 900, height: 700 };
 
-const PRESET_IDS = FLOW_PRESETS.map((p) => p.id);
+// the seven kinds that join their shapes: the gallery has its own tests (AC-258)
+const PRESET_IDS = FLOW_PRESETS.map((p) => p.id).filter((id) =>
+  (FLOW_PRESET_IDS as readonly string[]).includes(id),
+);
 
 /** a script of about `n` nodes for a preset */
 const scriptFor = (preset: FlowPresetId, n: number): string => {

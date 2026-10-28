@@ -103,6 +103,63 @@ export const FLOW_PRESETS: readonly FlowPreset[] = [
     example:
       "Client -> Server\nServer -> Database\nServer -> Cache\nClient -> CDN",
   },
+  {
+    id: "list",
+    name: "List",
+    description: "Blocks one under the next, with no arrows.",
+    example: "Warm-up\nExplain the idea\nWork in pairs\nShare back",
+  },
+  {
+    id: "grid",
+    name: "Grid",
+    description: "A table: a row for each line, the cells between bars.",
+    example:
+      "# Day | Topic | Homework\nMonday | Fractions | Page 12\nTuesday | Decimals | Page 14\nWednesday | Percentages | Page 16",
+  },
+  {
+    id: "matrix",
+    name: "Matrix",
+    description: "Four quadrants, two columns of larger cells.",
+    example:
+      "Urgent and important | Important, not urgent\nUrgent, not important | Neither",
+  },
+  {
+    id: "pyramid",
+    name: "Pyramid",
+    description: "Blocks that widen down the page, the first the narrowest.",
+    example: "Create\nEvaluate\nAnalyse\nApply\nUnderstand\nRemember",
+  },
+  {
+    id: "funnel",
+    name: "Funnel",
+    description: "Blocks that narrow down the page, the first the widest.",
+    example: "Visitors\nSign-ups\nTrials\nCustomers",
+  },
+  {
+    id: "timeline",
+    name: "Timeline",
+    description: "Boxes along a line, above it and below it in turn.",
+    example: "1990 Idea\n1995 Launch\n2005 Growth\n2020 Today",
+  },
+  {
+    id: "target",
+    name: "Target",
+    description: "Rings one inside the next, the first the outermost.",
+    example: "Community\nSchool\nClass\nMe",
+  },
+  {
+    id: "venn",
+    name: "Venn",
+    description: "Two to four circles that cross.",
+    example: "Maths\nArt\nMusic",
+  },
+  {
+    id: "hierarchy",
+    name: "Hierarchy",
+    description: "A tree: the level of a line is how far it is indented.",
+    example:
+      "Principal\n  Head of maths\n    Teacher A\n    Teacher B\n  Head of art\n    Teacher C",
+  },
 ];
 
 /** a preset as the Flow tab lists it: the built-in seven first, then the teacher's own (D-228) */
@@ -178,6 +235,11 @@ const fillOf = (
     question: at(2),
     spoke: at(3),
     hub: at(4),
+    cell: at(1),
+    header: at(0),
+    ring: at(0),
+    set: at(0),
+    block: at(0),
   }[kind];
 };
 
@@ -187,6 +249,11 @@ const FILL: Record<FlowNodeKind, string> = {
   branch: "#b2f2bb",
   hub: "#d0bfff",
   spoke: "#ffd8a8",
+  cell: "#b2f2bb",
+  header: "#a5d8ff",
+  ring: "#a5d8ff",
+  set: "#a5d8ff",
+  block: "#a5d8ff",
 };
 
 /** a "no" branch is told apart from a "yes" by its colour */
@@ -226,6 +293,8 @@ export type BuildFlowOptions = {
   direction?: "TB" | "LR";
   /** the shape of every node that its script line does not mark (D-229) */
   shape?: FlowChartShape;
+  /** `none` draws no arrow, no connector and no yes or no label (D-231) */
+  arrows?: "own" | "none";
   /**
    * The chart's id. When it is given the chart remembers how it was made - its
    * preset, script, fit mode and shape - on its own elements (D-221).
@@ -283,7 +352,16 @@ type Sized = {
   height: number;
 };
 
-type Placed = Sized & { x: number; y: number };
+type Placed = Sized & {
+  x: number;
+  y: number;
+  /**
+   * Where the node's words are, when they are not in the middle of the shape: a
+   * ring's band, a circle's far side (D-235). Such words are a text of their own,
+   * grouped with the shape.
+   */
+  label?: { cx: number; cy: number };
+};
 
 export const wrapFlowLabel = (label: string, maxChars = WRAP_CHARS) => {
   const lines: string[] = [];
@@ -309,6 +387,14 @@ const ownShapeOf = (kind: FlowNodeKind): FlowNodeShape => {
       return "diamond";
     case "hub":
       return "ellipse";
+    case "ring":
+      return "ellipse";
+    case "set":
+      return "circle";
+    case "cell":
+    case "header":
+    case "block":
+      return "rectangle";
     default:
       return "rounded";
   }
@@ -584,7 +670,207 @@ const layoutSnake = (
   });
 };
 
-const layoutFor = (
+/* ---------------------------------------------------------------------- the gallery (D-232) */
+
+/** the room between the blocks of a stack, in text sizes */
+const STACK_GAP = 0.7;
+
+/** a run of blocks, one under the next, all as wide as the widest (D-232) */
+const layoutList = (sized: Sized[], fontSize: number): Placed[] => {
+  const width = Math.max(...sized.map((s) => s.width));
+  const gap = fontSize * STACK_GAP;
+  let y = 0;
+
+  return sized.map((s) => {
+    const placed = { ...s, width, x: -width / 2, y };
+
+    y += s.height + gap;
+
+    return placed;
+  });
+};
+
+/**
+ * Blocks that widen down the page (a pyramid) or narrow down it (a funnel): the
+ * first line is the narrowest of a pyramid and the widest of a funnel. Every
+ * block is at least as wide as its own words need (D-232).
+ */
+const layoutPyramid = (
+  sized: Sized[],
+  fontSize: number,
+  funnel: boolean,
+): Placed[] => {
+  const base = Math.max(...sized.map((s) => s.width)) * 2.4;
+  const tallest = Math.max(...sized.map((s) => s.height));
+  const narrow = base * 0.4;
+  const gap = fontSize * STACK_GAP * 0.5;
+  const last = Math.max(sized.length - 1, 1);
+
+  return sized.map((s, i) => {
+    const rank = funnel ? sized.length - 1 - i : i;
+    const width = Math.max(s.width, narrow + ((base - narrow) * rank) / last);
+
+    return {
+      ...s,
+      width,
+      height: tallest,
+      x: -width / 2,
+      y: i * (tallest + gap),
+    };
+  });
+};
+
+/**
+ * The boxes of a timeline: they sit on the two sides of one horizontal line in
+ * turn, the first above, so that a box has the room of two beside it (D-237).
+ * The line is at \`y = 0\`.
+ */
+const layoutTimeline = (sized: Sized[], fontSize: number): Placed[] => {
+  const width = Math.max(...sized.map((s) => s.width));
+  const gap = fontSize * 1.2;
+  const stem = fontSize * 1.8;
+  const pitch = (width + gap) / 2;
+
+  return sized.map((s, i) => {
+    const above = i % 2 === 0;
+
+    return {
+      ...s,
+      width,
+      x: i * pitch - width / 2,
+      y: above ? -(stem + s.height) : stem,
+    };
+  });
+};
+
+/**
+ * A grid of cells: every column is as wide as its widest cell and every row as
+ * high as its highest, so the cells meet in straight lines (D-234). A matrix is
+ * the same with larger cells.
+ */
+const layoutGrid = (
+  sized: Sized[],
+  fontSize: number,
+  matrix: boolean,
+): Placed[] => {
+  const grow = matrix ? 1.5 : 1;
+  const gap = fontSize * (matrix ? 0.8 : 0.35);
+  const rows = [...new Set(sized.map((s) => s.node.row ?? 0))].sort(
+    (a, b) => a - b,
+  );
+  const cols = [...new Set(sized.map((s) => s.node.col ?? 0))].sort(
+    (a, b) => a - b,
+  );
+
+  const colWidth = new Map<number, number>();
+  const rowHeight = new Map<number, number>();
+
+  for (const s of sized) {
+    const c = s.node.col ?? 0;
+    const r = s.node.row ?? 0;
+
+    colWidth.set(c, Math.max(colWidth.get(c) ?? 0, s.width * grow));
+    rowHeight.set(r, Math.max(rowHeight.get(r) ?? 0, s.height * grow));
+  }
+
+  const xOf = new Map<number, number>();
+  const yOf = new Map<number, number>();
+  let x = 0;
+  let y = 0;
+
+  for (const c of cols) {
+    xOf.set(c, x);
+    x += colWidth.get(c)! + gap;
+  }
+
+  for (const r of rows) {
+    yOf.set(r, y);
+    y += rowHeight.get(r)! + gap;
+  }
+
+  return sized.map((s) => ({
+    ...s,
+    width: colWidth.get(s.node.col ?? 0)!,
+    height: rowHeight.get(s.node.row ?? 0)!,
+    x: xOf.get(s.node.col ?? 0)!,
+    y: yOf.get(s.node.row ?? 0)!,
+  }));
+};
+
+/**
+ * Rings that lie one inside the next, the first line the outermost. Each ring's
+ * words are at the top of its own band, so that no two labels meet (D-235).
+ */
+const layoutTarget = (sized: Sized[], fontSize: number): Placed[] => {
+  const band = Math.max(...sized.map((s) => s.height / 1.4)) + fontSize * 0.9;
+  const inner = sized[sized.length - 1];
+  const rings: { width: number; height: number }[] = [];
+
+  let width = Math.max(inner.width, band * 2.4);
+  let height = Math.max(inner.height, band * 1.6);
+
+  for (let i = sized.length - 1; i >= 0; i--) {
+    rings[i] = { width, height };
+    width += band * 2.4;
+    height += band * 1.6;
+  }
+
+  return sized.map((s, i) => {
+    const ring = rings[i];
+    const innermost = i === sized.length - 1;
+
+    return {
+      ...s,
+      width: ring.width,
+      height: ring.height,
+      x: -ring.width / 2,
+      y: -ring.height / 2,
+      label: {
+        cx: 0,
+        cy: innermost ? 0 : -ring.height / 2 + band / 2 + fontSize * 0.1,
+      },
+    };
+  });
+};
+
+/**
+ * Two to four circles that cross; each one's words are on its own far side, away
+ * from where the others cross it (D-235).
+ */
+const layoutVenn = (sized: Sized[]): Placed[] => {
+  const n = sized.length;
+  const diameter = Math.max(...sized.map((s) => s.width)) * 2.2;
+  const reach = n === 2 ? 0.3 : 0.32;
+
+  return sized.map((s, i) => {
+    const angle =
+      n === 1
+        ? 0
+        : n === 2
+        ? i === 0
+          ? Math.PI
+          : 0
+        : n === 3
+        ? -Math.PI / 2 + (i * 2 * Math.PI) / 3
+        : -Math.PI * 0.75 + (i * Math.PI) / 2;
+    const cx = n === 1 ? 0 : Math.cos(angle) * diameter * reach;
+    const cy = n === 1 ? 0 : Math.sin(angle) * diameter * reach;
+
+    return {
+      ...s,
+      width: diameter,
+      height: diameter,
+      x: cx - diameter / 2,
+      y: cy - diameter / 2,
+      label: {
+        cx: cx + (n === 1 ? 0 : Math.cos(angle) * diameter * 0.26),
+        cy: cy + (n === 1 ? 0 : Math.sin(angle) * diameter * 0.26),
+      },
+    };
+  });
+};
+
+const layoutForRaw = (
   flow: Extract<ParsedFlow, { ok: true }>,
   sized: Sized[],
   fontSize: number,
@@ -657,10 +943,67 @@ const layoutFor = (
       return layoutSnake(sized, fontSize, held.room, held.constrained);
     }
 
+    case "list":
+      return layoutList(sized, fontSize);
+
+    case "pyramid":
+    case "funnel":
+      return layoutPyramid(sized, fontSize, flow.preset === "funnel");
+
+    case "timeline":
+      return layoutTimeline(sized, fontSize);
+
+    case "grid":
+    case "matrix":
+      return layoutGrid(sized, fontSize, flow.preset === "matrix");
+
+    case "target":
+      return layoutTarget(sized, fontSize);
+
+    case "venn":
+      return layoutVenn(sized);
+
+    case "hierarchy":
+      return layoutLayers(sized, flow.edges, fontSize, page, "TB");
+
     default:
       return layoutLayers(sized, flow.edges, fontSize, page, held.direction);
   }
 };
+
+/**
+ * A chart laid out, and a circle kept a circle (D-229): a layout that stretches a
+ * node to its cell - a column, a row, the width of a stack - must not stretch a
+ * circle, so it is made as large as the smaller side of its cell allows and put
+ * in the middle of it.
+ */
+const layoutFor = (
+  flow: Extract<ParsedFlow, { ok: true }>,
+  sized: Sized[],
+  fontSize: number,
+  page: FlowPageRect,
+  chart: FlowChartShape,
+  held: {
+    room: { width: number; height: number };
+    constrained: boolean;
+    direction?: "TB" | "LR";
+  },
+): Placed[] =>
+  layoutForRaw(flow, sized, fontSize, page, chart, held).map((p) => {
+    if (shapeOfNode(p.node, chart) !== "circle" || p.width === p.height) {
+      return p;
+    }
+
+    const side = Math.min(p.width, p.height);
+
+    return {
+      ...p,
+      width: side,
+      height: side,
+      x: p.x + (p.width - side) / 2,
+      y: p.y + (p.height - side) / 2,
+    };
+  });
 
 /* ------------------------------------------------------------------- elements */
 
@@ -728,7 +1071,10 @@ export const buildEdge = (
   edge: { from: string; to: string; label?: string },
   fontSize: number,
   ids: { id: (kind: string) => string; roughSeed: () => number },
-  options: Pick<BuildFlowOptions, "pageId" | "palette">,
+  options: Pick<BuildFlowOptions, "pageId" | "palette"> & {
+    /** a connector has no arrowhead (D-236) */
+    noHead?: boolean;
+  },
 ): { arrowId: string; elements: ExcalidrawElement[] } => {
   const [fromSide, toSide] = facingSides(fromBox, toBox);
   const start = sidePoint(fromBox, fromSide);
@@ -744,7 +1090,7 @@ export const buildEdge = (
       pointFrom<LocalPoint>(0, 0),
       pointFrom<LocalPoint>(end.x - start.x, end.y - start.y),
     ],
-    endArrowhead: "arrow",
+    endArrowhead: options.noHead ? null : "arrow",
     strokeColor: outlineOf(options),
     customData: { flow: { role: "edge", from: edge.from, to: edge.to } },
     pageId: options.pageId,
@@ -805,6 +1151,161 @@ export const buildEdge = (
   };
 };
 
+/** the fill a gallery node has by where it is in its chart (D-232, D-234, D-235) */
+const galleryFill = (
+  p: Placed,
+  index: number,
+  flow: Extract<ParsedFlow, { ok: true }>,
+  options: Pick<BuildFlowOptions, "palette">,
+) => {
+  const fills = options.palette?.fills ?? TIER_FILLS;
+  const kind = p.node.kind;
+
+  if (
+    kind === "ring" ||
+    kind === "set" ||
+    kind === "block" ||
+    flow.preset === "matrix"
+  ) {
+    return fills[index % fills.length];
+  }
+
+  // a table: its header in the first fill, its cells in the second
+  if (kind === "header") {
+    return fills[0];
+  }
+
+  if (kind === "cell") {
+    return fills[1 % fills.length];
+  }
+
+  return undefined;
+};
+
+/**
+ * What a timeline has besides its boxes (D-237, D-238): the line across, a dot
+ * for each part and a short stem from each dot to its box. The line is a segment
+ * for each gap between two dots, and each segment joins the two boxes it runs
+ * between, so that the animation runs along it from one moment to the next; the
+ * lead past the first and the last dot, and the stems, join nothing.
+ */
+const timelineElements = (
+  placed: readonly Placed[],
+  shapeIds: ReadonlyMap<string, string>,
+  origin: { x: number; y: number },
+  fontSize: number,
+  ids: ReturnType<typeof createIds>,
+  options: BuildFlowOptions,
+): ExcalidrawElement[] => {
+  if (placed.length === 0) {
+    return [];
+  }
+
+  const axisY = origin.y;
+  const dots = placed.map((p) => ({
+    x: p.x + origin.x + p.width / 2,
+    above: p.y + p.height <= 0,
+    box: p,
+  }));
+  const left = Math.min(...dots.map((d) => d.x)) - fontSize * 2;
+  const right = Math.max(...dots.map((d) => d.x)) + fontSize * 2;
+
+  const plain = (
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    role: string,
+    joins?: [string, string],
+    box?: string,
+  ): ExcalidrawElement => ({
+    ...newArrowElement({
+      type: "arrow",
+      seed: ids.roughSeed(),
+      x: from.x,
+      y: from.y,
+      points: [
+        pointFrom<LocalPoint>(0, 0),
+        pointFrom<LocalPoint>(to.x - from.x, to.y - from.y),
+      ],
+      startArrowhead: null,
+      endArrowhead: null,
+      strokeColor: outlineOf(options),
+      customData: {
+        flow: {
+          role,
+          ...(joins ? { joins } : {}),
+          ...(box ? { box } : {}),
+        },
+      },
+      pageId: options.pageId,
+    }),
+    id: ids.id(role),
+    width: Math.abs(to.x - from.x),
+    height: Math.abs(to.y - from.y),
+  });
+
+  const first = dots[0];
+  const last = dots[dots.length - 1];
+  // with no arrows the line is drawn and joins nothing (D-231)
+  const joinsOf = (i: number): [string, string] | undefined =>
+    options.arrows === "none"
+      ? undefined
+      : [
+          shapeIds.get(placed[i].node.id)!,
+          shapeIds.get(placed[i + 1].node.id)!,
+        ];
+
+  const decor: ExcalidrawElement[] = [
+    plain({ x: left, y: axisY }, { x: first.x, y: axisY }, "timeline-line"),
+    ...dots
+      .slice(0, -1)
+      .map((dot, i) =>
+        plain(
+          { x: dot.x, y: axisY },
+          { x: dots[i + 1].x, y: axisY },
+          "timeline-segment",
+          joinsOf(i),
+        ),
+      ),
+    plain({ x: last.x, y: axisY }, { x: right, y: axisY }, "timeline-line"),
+  ];
+
+  for (const dot of dots) {
+    const boxId = shapeIds.get(dot.box.node.id);
+    const radius = Math.max(fontSize * 0.3, 4);
+    const edgeY = dot.above
+      ? dot.box.y + dot.box.height + origin.y
+      : dot.box.y + origin.y;
+
+    decor.push(
+      plain(
+        { x: dot.x, y: axisY },
+        { x: dot.x, y: edgeY },
+        "timeline-stem",
+        undefined,
+        boxId,
+      ),
+      {
+        ...newElement({
+          type: "ellipse",
+          seed: ids.roughSeed(),
+          x: dot.x - radius,
+          y: axisY - radius,
+          width: radius * 2,
+          height: radius * 2,
+          strokeColor: outlineOf(options),
+          backgroundColor: outlineOf(options),
+          fillStyle: "solid",
+          customData: { flow: { role: "timeline-dot" } },
+          pageId: options.pageId,
+        }),
+        id: ids.id("timeline-dot"),
+      },
+    );
+  }
+
+  return decor;
+};
+
 const buildElements = (
   flow: Extract<ParsedFlow, { ok: true }>,
   placed: Placed[],
@@ -818,7 +1319,7 @@ const buildElements = (
   const shapes = new Map<string, ExcalidrawElement>();
   const texts: ExcalidrawElement[] = [];
 
-  placed.forEach((p) => {
+  placed.forEach((p, index) => {
     const box = {
       x: p.x + origin.x,
       y: p.y + origin.y,
@@ -841,6 +1342,8 @@ const buildElements = (
     // and the text needs its container's id before it is made
     const shapeId = ids.id("shape");
     const textId = ids.id("text");
+    // words that are not in the middle of their shape stay with it as a group
+    const groupId = p.label ? ids.id("group") : undefined;
 
     const shape: ExcalidrawElement = {
       ...newElement({
@@ -848,8 +1351,14 @@ const buildElements = (
         seed: ids.roughSeed(),
         ...box,
         strokeColor: outlineOf(options),
-        backgroundColor: tierFill ?? fillOf(p.node.kind, isNoBranch, options),
+        backgroundColor:
+          tierFill ??
+          galleryFill(p, index, flow, options) ??
+          fillOf(p.node.kind, isNoBranch, options),
         fillStyle: "solid",
+        // the rings of a target and the circles of a venn let each other show through
+        opacity: p.label ? 70 : 100,
+        ...(groupId ? { groupIds: [groupId] } : {}),
         roundness:
           shapeOfNode(p.node, options.shape) === "rounded" ? { type: 3 } : null,
         customData: {
@@ -870,7 +1379,7 @@ const buildElements = (
       fontSize,
       textAlign: "center",
       verticalAlign: "middle",
-      containerId: shapeId,
+      ...(p.label ? { groupIds: [groupId!] } : { containerId: shapeId }),
       x: box.x + box.width / 2,
       y: box.y + box.height / 2,
       seed: ids.roughSeed(),
@@ -883,18 +1392,27 @@ const buildElements = (
     const centred: ExcalidrawTextElement = {
       ...text,
       id: textId,
-      x: box.x + (box.width - text.width) / 2,
-      y: box.y + (box.height - text.height) / 2,
+      x: p.label
+        ? origin.x + p.label.cx - text.width / 2
+        : box.x + (box.width - text.width) / 2,
+      y: p.label
+        ? origin.y + p.label.cy - text.height / 2
+        : box.y + (box.height - text.height) / 2,
     };
 
     shapeIds.set(p.node.id, shapeId);
-    shapes.set(p.node.id, withBound(shape, { id: textId, type: "text" }));
+    shapes.set(
+      p.node.id,
+      p.label ? shape : withBound(shape, { id: textId, type: "text" }),
+    );
     texts.push(centred);
   });
 
   const arrows: ExcalidrawElement[] = [];
 
-  for (const edge of flow.edges) {
+  // with no arrows nothing is drawn between the shapes (D-231); a hierarchy's
+  // connectors have no arrowhead (D-236)
+  for (const edge of options.arrows === "none" ? [] : flow.edges) {
     const made = buildEdge(
       boxes.get(edge.from)!,
       boxes.get(edge.to)!,
@@ -903,7 +1421,7 @@ const buildElements = (
       edge,
       fontSize,
       ids,
-      options,
+      { ...options, noHead: flow.preset === "hierarchy" },
     );
 
     // both sides of the binding: the shapes name the arrow back
@@ -926,7 +1444,13 @@ const buildElements = (
     ordered.push(shapes.get(p.node.id)!, texts[i]);
   });
 
-  return [...ordered, ...arrows];
+  return [
+    ...ordered,
+    ...arrows,
+    ...(flow.preset === "timeline"
+      ? timelineElements(placed, shapeIds, origin, fontSize, ids, options)
+      : []),
+  ];
 };
 
 /* ---------------------------------------------------------------------- build */
@@ -954,6 +1478,7 @@ const remembered = (
         ...(options.custom ? { custom: options.custom } : {}),
         fit: options.fit ?? "page",
         shape: options.shape ?? "own",
+        arrows: options.arrows ?? "own",
       })
     : elements;
 
@@ -1074,6 +1599,9 @@ const subFlow = (parsed: Parsed, ids: ReadonlySet<string>): Parsed => ({
   tiers: parsed.tiers
     ?.map((tier) => tier.filter((id) => ids.has(id)))
     .filter((tier) => tier.length > 0),
+  rows: parsed.rows
+    ?.map((row) => row.filter((id) => ids.has(id)))
+    .filter((row) => row.length > 0),
 });
 
 /** the page the k-th group goes on: the ones the caller has, then the same size beyond them */

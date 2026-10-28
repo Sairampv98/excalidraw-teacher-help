@@ -7,7 +7,11 @@
  * (D-228) is described by the layout it was made with.
  */
 
-import type { FlowPresetId } from "@excalidraw/excalidraw/scene/flowScript";
+import type {
+  FlowGalleryPresetId,
+  FlowJoinedPresetId,
+  FlowPresetId,
+} from "@excalidraw/excalidraw/scene/flowScript";
 import type { FlowCustomLayout } from "@excalidraw/excalidraw/scene/flowCustomPresets";
 
 export type FlowGuideEntry = {
@@ -17,7 +21,7 @@ export type FlowGuideEntry = {
   looks: string;
 };
 
-export const FLOW_GUIDE: Record<FlowPresetId, FlowGuideEntry> = {
+const JOINED_GUIDE: Record<FlowJoinedPresetId, FlowGuideEntry> = {
   process: {
     rules: [
       "Write one line for each step, in the order they happen.",
@@ -78,6 +82,81 @@ export const FLOW_GUIDE: Record<FlowPresetId, FlowGuideEntry> = {
   },
 };
 
+/** what the gallery's layouts say (D-232) */
+const GALLERY_GUIDE: Record<FlowGalleryPresetId, FlowGuideEntry> = {
+  list: {
+    rules: [
+      "Write one line for each block, in the order they go down the page.",
+      "Nothing joins the blocks: a list has no arrows.",
+    ],
+    looks: "Blocks one under the next, all as wide as the widest.",
+  },
+  grid: {
+    rules: [
+      "Write one line for each row, with a | between the cells.",
+      "Start a line with # to make it the header row.",
+      "A row with fewer cells than the widest leaves the cells at its right empty.",
+    ],
+    looks:
+      "A table: columns as wide as their widest cell, rows as high as theirs.",
+  },
+  matrix: {
+    rules: [
+      "Write one line for each row, with a | between its two cells.",
+      "A matrix has two columns, so a row has two cells at most.",
+    ],
+    looks:
+      "Four quadrants, larger than the cells of a grid, each in its own colour.",
+  },
+  pyramid: {
+    rules: [
+      "Write one line for each layer, the top one first.",
+      "Each layer is wider than the one above it.",
+    ],
+    looks: "Blocks that widen down the page.",
+  },
+  funnel: {
+    rules: [
+      "Write one line for each stage, the widest first.",
+      "Each stage is narrower than the one above it.",
+    ],
+    looks: "Blocks that narrow down the page.",
+  },
+  timeline: {
+    rules: [
+      "Write one line for each moment, in the order they happen.",
+      "The boxes sit above and below a line in turn, so long words have room.",
+    ],
+    looks:
+      "One line across the page with a dot for each moment and a box on each dot.",
+  },
+  target: {
+    rules: [
+      "Write one line for each ring, the outermost first. Six rings at most.",
+    ],
+    looks:
+      "Rings one inside the next, each with its words at the top of its band.",
+  },
+  venn: {
+    rules: ["Write one line for each circle. Two to four circles."],
+    looks: "Circles that cross, each with its words on its far side.",
+  },
+  hierarchy: {
+    rules: [
+      "Write one line for each node. Indent a line once - a tab, or two spaces - to put it under the line above.",
+      "The first line is the top of the tree and is not indented.",
+    ],
+    looks:
+      "A tree, a parent over its children, joined by lines with no arrowheads.",
+  },
+};
+
+/** the guide of every kind of chart: the seven, then the gallery */
+export const FLOW_GUIDE: Record<FlowPresetId, FlowGuideEntry> = {
+  ...JOINED_GUIDE,
+  ...GALLERY_GUIDE,
+};
+
 /** the guide for a custom preset: its layout decides the rules (D-228) */
 export const GUIDE_OF_LAYOUT: Record<FlowCustomLayout, FlowPresetId> = {
   "top-down": "process",
@@ -85,6 +164,15 @@ export const GUIDE_OF_LAYOUT: Record<FlowCustomLayout, FlowPresetId> = {
   ring: "cycle",
   tiers: "tiers",
   hub: "integration",
+  list: "list",
+  grid: "grid",
+  matrix: "matrix",
+  pyramid: "pyramid",
+  funnel: "funnel",
+  timeline: "timeline",
+  target: "target",
+  venn: "venn",
+  hierarchy: "hierarchy",
 };
 
 /** the shape marks (D-229) */

@@ -12,6 +12,7 @@ import { CaptureUpdateAction } from "@excalidraw/element";
 import type { ElementsMap, ExcalidrawElement } from "@excalidraw/element/types";
 
 import { checkFlowScript } from "../scene/flowCheck";
+import { convertScript } from "../scene/flowConvert";
 import { applyFlowScript } from "../scene/flowApply";
 import { isBuiltInPreset } from "../scene/flowChart";
 import { resolveChart } from "../scene/flowChartOf";
@@ -32,6 +33,7 @@ import {
   clampFlowBarPlace,
 } from "../scene/flowBarPlace";
 import { flowPagesOf, planChartPages } from "../scene/flowPagesFor";
+import { flowKindPreview } from "../scene/flowPreview";
 import { listFlowPresets } from "../scene/flowPresets";
 import { FLOW_FIT_MODES } from "../scene/flowChart";
 import {
@@ -55,6 +57,8 @@ import {
   getFlowScriptDraft,
   setFlowScriptDraft,
 } from "./FlowScriptEditorState";
+
+import { FlowPreview } from "./FlowPreview";
 
 import "./FlowScriptEditor.scss";
 
@@ -156,7 +160,21 @@ export const FlowScriptEditor = ({
   hidden,
 }: FlowScriptEditorProps) => {
   const { anchorId } = useAtomValue(flowScriptEditorAtom);
-  const anchor = anchorId ? elementsMap.get(anchorId) : undefined;
+  // the chart the panel is on, so that it stays on it when the chart is made
+  // again and the shape it was opened on is gone
+  const chartIdRef = useRef<string | null>(null);
+
+  let anchor = anchorId ? elementsMap.get(anchorId) : undefined;
+
+  if (anchorId && (!anchor || anchor.isDeleted) && chartIdRef.current) {
+    anchor = elements.find(
+      (element) =>
+        element.type !== "text" &&
+        element.type !== "arrow" &&
+        element.customData?.flow?.role === "node" &&
+        element.customData.flow.chartId === chartIdRef.current,
+    );
+  }
 
   const chart =
     anchor && !anchor.isDeleted && !hidden
@@ -168,6 +186,8 @@ export const FlowScriptEditor = ({
   if (!anchor || !chart) {
     return null;
   }
+
+  chartIdRef.current = chart.chartId;
 
   return (
     <EditorPanel
@@ -212,6 +232,9 @@ const EditorPanel = ({
   const [shape, setShape] = useState<FlowChartShape>(
     draft?.shape ?? record.shape,
   );
+  const [arrows, setArrows] = useState<"own" | "none">(
+    draft?.arrows ?? record.arrows,
+  );
   const [message, setMessage] = useState<{
     kind: "ok" | "error";
     text: string;
@@ -228,8 +251,8 @@ const EditorPanel = ({
 
   // what was typed is kept for this chart, so that closing the panel loses nothing
   useEffect(() => {
-    setFlowScriptDraft(chart.key, { script, presetId, fit, shape });
-  }, [chart.key, script, presetId, fit, shape]);
+    setFlowScriptDraft(chart.key, { script, presetId, fit, shape, arrows });
+  }, [chart.key, script, presetId, fit, shape, arrows]);
 
   const customs = useMemo(() => readStoredCustomPresets(), []);
   const choices = useMemo(() => {
@@ -270,6 +293,7 @@ const EditorPanel = ({
       page: pageRect,
       fit,
       shape,
+      arrows,
       ...(custom ? buildSettingsOfCustom(custom).options : {}),
     }),
     // the rect is a value: only what it says matters
@@ -281,11 +305,13 @@ const EditorPanel = ({
       pageRect.height,
       fit,
       shape,
+      arrows,
       custom,
     ],
   );
-  // the shape the teacher chose wins over the preset's own default
+  // what the teacher chose wins over the preset's own defaults
   options.shape = shape;
+  options.arrows = arrows;
 
   const check = useMemo(
     () => checkFlowScript(builtIn, script, options),
@@ -332,6 +358,7 @@ const EditorPanel = ({
         script: text,
         fit,
         shape,
+        arrows,
         custom,
         page: pageRect,
         pageId,
@@ -372,6 +399,7 @@ const EditorPanel = ({
       pageRect,
       pages,
       shape,
+      arrows,
     ],
   );
 
@@ -584,7 +612,19 @@ const EditorPanel = ({
           <select
             aria-label="Kind of chart"
             value={presetId}
-            onChange={(event) => setPresetId(event.target.value)}
+            onChange={(event) => {
+              // the words come across to the new kind, written for it (D-233)
+              const next = choices.customs.find(
+                (c) => c.id === event.target.value,
+              );
+              const target: FlowPresetId = next
+                ? BUILT_IN_OF_LAYOUT[next.layout]
+                : (event.target.value as FlowPresetId);
+
+              setScript(convertScript(builtIn, script, target));
+              setPresetId(event.target.value);
+              setMessage(null);
+            }}
           >
             {choices.list.map((preset) => (
               <option key={preset.id} value={preset.id}>
@@ -652,6 +692,36 @@ const EditorPanel = ({
           </label>
         </div>
       )}
+
+      <div
+        className="excalidraw__flow-editor-picture"
+        data-testid="flow-editor-kind-picture"
+        title="The kind of chart"
+      >
+        <FlowPreview
+          preview={flowKindPreview(
+            builtIn,
+            choices.list.find((p) => p.id === presetId)?.example ?? script,
+            custom ? buildSettingsOfCustom(custom).options : {},
+          )}
+        />
+      </div>
+
+      <div className="excalidraw__flow-editor-row">
+        <label>
+          <span>Arrows</span>
+          <select
+            aria-label="Arrows"
+            value={arrows}
+            onChange={(event) =>
+              setArrows(event.target.value as "own" | "none")
+            }
+          >
+            <option value="own">As the preset</option>
+            <option value="none">None</option>
+          </select>
+        </label>
+      </div>
 
       <textarea
         className="excalidraw__flow-editor-script"

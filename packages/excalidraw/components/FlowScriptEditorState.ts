@@ -18,6 +18,8 @@ export type FlowScriptDraft = {
   presetId: string;
   fit: FlowFitMode;
   shape: FlowChartShape;
+  /** whether arrows are drawn between the shapes (D-231) */
+  arrows: "own" | "none";
 };
 
 type FlowScriptEditorState = {

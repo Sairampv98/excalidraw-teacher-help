@@ -112,6 +112,7 @@ export const resolveChart = (
       script: rebuilt.script,
       fit: "page",
       shape: "own",
+      arrows: "own",
     },
     legacy: true,
     legacyElementIds: [...ids],

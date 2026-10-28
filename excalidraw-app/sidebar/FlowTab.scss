@@ -257,3 +257,14 @@
     }
   }
 }
+
+// the small picture of a kind of chart, above its name (D-239)
+.flow-tab__preset-picture {
+  display: block;
+  width: 100%;
+  height: 54px;
+  margin-bottom: 4px;
+  border-radius: 6px;
+  background-color: rgba(127, 127, 127, 0.08);
+  overflow: hidden;
+}

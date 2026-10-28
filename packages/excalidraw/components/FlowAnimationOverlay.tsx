@@ -108,6 +108,49 @@ export type MarkedArrow = { id: string; path: PathPoint[] };
  * that **leave the current step**; the marching dashes and the pipe are the
  * look of **every** arrow of the flow.
  */
+/**
+ * The path of a timeline's hop from one box to the next (D-240): up from the
+ * first box's edge to its dot, along the line, and to the next box's edge. A
+ * stem is drawn from its dot to its box, so the first one is walked backwards.
+ */
+const timelineHop = (
+  segment: PathPoint[],
+  edge: { from: string; to: string },
+  elementsMap: ElementsMap,
+): PathPoint[] => {
+  const stems = new Map<string, PathPoint[]>();
+
+  for (const element of elementsMap.values()) {
+    const flow = element.customData?.flow;
+
+    if (
+      !element.isDeleted &&
+      flow?.role === "timeline-stem" &&
+      typeof flow.box === "string" &&
+      (flow.box === edge.from || flow.box === edge.to)
+    ) {
+      stems.set(flow.box, getArrowPath(element as ExcalidrawLinearElement));
+    }
+  }
+
+  const out = stems.get(edge.from);
+  const into = stems.get(edge.to);
+
+  const whole = [
+    ...(out ? [...out].reverse() : []),
+    ...segment,
+    ...(into ?? []),
+  ];
+
+  // the end of one piece is the start of the next: it is one point of the path
+  return whole.filter(
+    (p, i) =>
+      i === 0 ||
+      Math.abs(p.x - whole[i - 1].x) > 0.001 ||
+      Math.abs(p.y - whole[i - 1].y) > 0.001,
+  );
+};
+
 export const arrowsFor = (
   style: FlowArrowStyle,
   graph: FlowGraph | null,
@@ -132,9 +175,15 @@ export const arrowsFor = (
     const element = elementsMap.get(edge.arrowId);
 
     if (element && !element.isDeleted) {
+      const path = getArrowPath(element as ExcalidrawLinearElement);
+
       arrows.push({
         id: edge.arrowId,
-        path: getArrowPath(element as ExcalidrawLinearElement),
+        path:
+          (style === "beam" || style === "token") &&
+          element.customData?.flow?.role === "timeline-segment"
+            ? timelineHop(path, edge, elementsMap)
+            : path,
       });
     }
   }
