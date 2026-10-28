@@ -154,7 +154,8 @@
   color: var(--color-danger, #c92a2a);
 }
 
-.flow-tab__edit {
+.flow-tab__edit,
+.flow-tab__media-button {
   padding: 6px 10px;
   border: 1px solid var(--color-border);
   border-radius: 8px;
@@ -267,4 +268,12 @@
   border-radius: 6px;
   background-color: rgba(127, 127, 127, 0.08);
   overflow: hidden;
+}
+
+// the picture, GIF or video of the selected node (D-246)
+.flow-tab__media {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
 }

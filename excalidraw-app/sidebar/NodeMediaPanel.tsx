@@ -93,7 +93,7 @@ export const NodeMediaPanel = () => {
       />
       <button
         type="button"
-        className="flow-tab__edit"
+        className="flow-tab__media-button"
         data-testid="node-media-add"
         onClick={() => input.current?.click()}
       >
@@ -102,7 +102,7 @@ export const NodeMediaPanel = () => {
       {hasMedia && (
         <button
           type="button"
-          className="flow-tab__edit"
+          className="flow-tab__media-button"
           data-testid="node-media-remove"
           onClick={() => removeMediaFromNode(api, node.id)}
         >
