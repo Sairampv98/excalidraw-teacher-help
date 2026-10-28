@@ -1215,6 +1215,7 @@ const timelineElements = (
     to: { x: number; y: number },
     role: string,
     joins?: [string, string],
+    box?: string,
   ): ExcalidrawElement => ({
     ...newArrowElement({
       type: "arrow",
@@ -1228,7 +1229,13 @@ const timelineElements = (
       startArrowhead: null,
       endArrowhead: null,
       strokeColor: outlineOf(options),
-      customData: { flow: { role, ...(joins ? { joins } : {}) } },
+      customData: {
+        flow: {
+          role,
+          ...(joins ? { joins } : {}),
+          ...(box ? { box } : {}),
+        },
+      },
       pageId: options.pageId,
     }),
     id: ids.id(role),
@@ -1263,13 +1270,20 @@ const timelineElements = (
   ];
 
   for (const dot of dots) {
+    const boxId = shapeIds.get(dot.box.node.id);
     const radius = Math.max(fontSize * 0.3, 4);
     const edgeY = dot.above
       ? dot.box.y + dot.box.height + origin.y
       : dot.box.y + origin.y;
 
     decor.push(
-      plain({ x: dot.x, y: axisY }, { x: dot.x, y: edgeY }, "timeline-stem"),
+      plain(
+        { x: dot.x, y: axisY },
+        { x: dot.x, y: edgeY },
+        "timeline-stem",
+        undefined,
+        boxId,
+      ),
       {
         ...newElement({
           type: "ellipse",
