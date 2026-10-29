@@ -46,6 +46,30 @@ const FIT_MARGIN = 12;
 /** one wheel notch of ctrl + wheel changes the zoom by this factor */
 const WHEEL_ZOOM_FACTOR = 1.12;
 
+/**
+ * A page is drawn when it is near the view: a screen's height above it and
+ * below it (D-319). Pages further off keep their room but give their pixels
+ * back.
+ */
+const NEAR_VIEW_MARGIN = "100% 0px";
+
+/** a viewer that cannot tell what is near (no IntersectionObserver) draws these */
+const FALLBACK_PAGES = 4;
+
+/** the most pixels a page's canvas has; the browser stretches it beyond that */
+const MAX_CANVAS_PIXELS = 16 * 1024 * 1024;
+
+/** how long a change of the zoom has to be left alone before pages are drawn */
+const ZOOM_SETTLE_MS = 60;
+
+/**
+ * The picture of a part of a page is drawn again from the PDF (D-316): at six
+ * times the size of the page, or less when its long edge would pass this many
+ * pixels.
+ */
+const PICTURE_SCALE = 6;
+const PICTURE_MAX_EDGE = 4096;
+
 export const clampPdfZoom = (zoom: number) =>
   Math.min(PDF_ZOOM_MAX, Math.max(PDF_ZOOM_MIN, zoom));
 
@@ -60,7 +84,7 @@ export type PdfPageProxy = {
     canvasContext: CanvasRenderingContext2D;
     viewport: unknown;
     transform?: number[];
-  }) => { promise: Promise<void> };
+  }) => { promise: Promise<void>; cancel?: () => void };
   streamTextContent: () => unknown;
 };
 
@@ -133,36 +157,37 @@ export type PdfRegion = {
   text: string;
   /** the same text, a piece to a line, each where it was on its page (D-301) */
   lines: OcrLine[];
-  /** the part of the page in the box, as a picture (D-315) */
-  picture: () => PdfPagePicture | null;
+  /** the part of the page in the box, as a picture of the best sharpness (D-316) */
+  picture: () => Promise<PdfPagePicture | null>;
 };
 
 /** a box smaller than this is a click, not a selection */
 const MIN_BOX = 6;
 
-/** what the choices under a box need, to be put where they fit (css pixels) */
-const REGION_BAR_WIDTH = 220;
-const REGION_BAR_HEIGHT = 36;
-const REGION_BAR_GAP = 6;
-
 const clamp = (value: number, low: number, high: number) =>
   Math.min(Math.max(value, low), high);
 
-/** the part of a drawn page that a box covers, as a picture of its own pixels */
+/**
+ * The part of a drawn page that a box covers, as a picture of the pixels the
+ * viewer drew. It is what is taken when the page cannot be drawn again.
+ *
+ * `box` is from the corner of the sheet, in css pixels, and `size` is the size
+ * the sheet had when the box was drawn.
+ */
 const cropPage = (
   sheet: HTMLElement,
+  size: { width: number; height: number },
   box: { left: number; top: number; right: number; bottom: number },
 ): PdfPagePicture | null => {
   const canvas = sheet.querySelector("canvas");
-  const page = sheet.getBoundingClientRect();
 
-  if (!canvas || !page.width || !page.height) {
+  if (!canvas || !canvas.width || !size.width || !size.height) {
     return null;
   }
 
   // the canvas has more pixels than the page has css pixels on a sharp screen
-  const scaleX = canvas.width / page.width;
-  const scaleY = canvas.height / page.height;
+  const scaleX = canvas.width / size.width;
+  const scaleY = canvas.height / size.height;
   const width = Math.max(1, Math.round((box.right - box.left) * scaleX));
   const height = Math.max(1, Math.round((box.bottom - box.top) * scaleY));
 
@@ -179,8 +204,8 @@ const cropPage = (
 
   context.drawImage(
     canvas,
-    (box.left - page.left) * scaleX,
-    (box.top - page.top) * scaleY,
+    box.left * scaleX,
+    box.top * scaleY,
     width,
     height,
     0,
@@ -190,6 +215,89 @@ const cropPage = (
   );
 
   return { dataURL: cut.toDataURL("image/png"), width, height };
+};
+
+/**
+ * The part of a page that a box covers, drawn again from the PDF (D-316).
+ *
+ * The part is found in the page's own units, so the picture is the same at any
+ * zoom of the viewer: the page is `size` big on the screen and `unit` big at a
+ * scale of 1. Only the part is drawn - the canvas is as big as the part and the
+ * page is moved under it - so a big scale costs what the part costs and not
+ * what the whole page does.
+ */
+const drawPicture = async (
+  page: PdfPageProxy,
+  size: { width: number; height: number },
+  box: { left: number; top: number; right: number; bottom: number },
+): Promise<PdfPagePicture | null> => {
+  const unit = page.getViewport({ scale: 1 });
+  const perPixel = unit.width / size.width;
+
+  const left = box.left * perPixel;
+  const top = box.top * perPixel;
+  const width = (box.right - box.left) * perPixel;
+  const height = (box.bottom - box.top) * perPixel;
+
+  const scale = Math.min(
+    PICTURE_SCALE,
+    PICTURE_MAX_EDGE / Math.max(width, height),
+  );
+  const pixelsWide = Math.max(1, Math.round(width * scale));
+  const pixelsHigh = Math.max(1, Math.round(height * scale));
+
+  const canvas = document.createElement("canvas");
+
+  canvas.width = pixelsWide;
+  canvas.height = pixelsHigh;
+
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    return null;
+  }
+
+  await page.render({
+    canvasContext: context,
+    viewport: page.getViewport({ scale }),
+    transform: [1, 0, 0, 1, -left * scale, -top * scale],
+  }).promise;
+
+  return {
+    dataURL: canvas.toDataURL("image/png"),
+    width: pixelsWide,
+    height: pixelsHigh,
+  };
+};
+
+/** the size of the row of choices under a box, in css pixels */
+const REGION_BAR = { width: 220, height: 36, gap: 6 };
+
+/**
+ * Where the row of choices goes (D-318): under the box when there is room for it
+ * in the part of the pages that is shown, else over the box, else at the bottom
+ * of what is shown - and never further to the left or to the right than that.
+ */
+export const placeRegionBar = (
+  box: { x: number; y: number; width: number; height: number },
+  shown: { left: number; top: number; right: number; bottom: number },
+  bar: { width: number; height: number; gap: number } = REGION_BAR,
+) => {
+  const left = clamp(
+    box.x,
+    shown.left,
+    Math.max(shown.left, shown.right - bar.width),
+  );
+
+  const under = box.y + box.height + bar.gap;
+  const over = box.y - bar.height - bar.gap;
+  let top = under;
+
+  if (under + bar.height > shown.bottom) {
+    top = over >= shown.top ? over : shown.bottom - bar.height - bar.gap;
+  }
+
+  return { left, top: Math.max(top, shown.top) };
 };
 
 export const PdfViewer = ({
@@ -228,8 +336,14 @@ export const PdfViewer = ({
   const [status, setStatus] = useState<Status>({ state: "loading" });
   /** the box that was drawn and what it covers, kept until it is put away */
   const [region, setRegion] = useState<PdfRegion | null>(null);
+  /** where the choices under that box go, from the corner of the pages (D-318) */
+  const [barAt, setBarAt] = useState<{ left: number; top: number } | null>(
+    null,
+  );
   /** the box while it is being drawn */
   const [draft, setDraft] = useState<PdfRegion["box"] | null>(null);
+  /** the file the pages were last made for, to keep the view when it is the same */
+  const builtFor = useRef<File | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const boxRef = useRef<{
     sheet: HTMLElement;
@@ -514,14 +628,65 @@ export const PdfViewer = ({
     }
 
     const runs = pdfRegionRuns(drawing.sheet, box);
+
+    // the box is kept from the corner of its page, so that it is the same part
+    // of the page whatever the viewer is scrolled to when its picture is asked
+    const page = drawing.sheet.getBoundingClientRect();
+    const size = { width: page.width, height: page.height };
+    const onPage = {
+      left: box.left - page.left,
+      top: box.top - page.top,
+      right: box.right - page.left,
+      bottom: box.bottom - page.top,
+    };
+
     const next: PdfRegion = {
       box: fromStage(box),
       text: runsText(runs),
       lines: mergeRuns(runs),
-      picture: () => cropPage(drawing.sheet, box),
+      picture: async () => {
+        const doc = documentRef.current;
+        const index = Number(drawing.sheet.dataset.page);
+
+        if (doc && index && size.width && size.height) {
+          try {
+            const sharp = await drawPicture(
+              await doc.getPage(index),
+              size,
+              onPage,
+            );
+
+            if (sharp) {
+              return sharp;
+            }
+          } catch (error) {
+            console.error(error);
+          }
+        }
+
+        // the page cannot be drawn again: the pixels the viewer drew are taken
+        return cropPage(drawing.sheet, size, onPage);
+      },
     };
 
+    // the choices are put against the part of the pages that is shown (D-318)
+    const viewer = viewerRef.current;
+    const area = viewer?.getBoundingClientRect();
+    const stage = stageRef.current?.getBoundingClientRect();
+    const left = area && stage ? area.left - stage.left : 0;
+    const top = area && stage ? area.top - stage.top : 0;
+    const shown =
+      viewer?.clientWidth && viewer.clientHeight
+        ? {
+            left,
+            top,
+            right: left + viewer.clientWidth,
+            bottom: top + viewer.clientHeight,
+          }
+        : { left: 0, top: 0, right: Infinity, bottom: Infinity };
+
     setRegion(next);
+    setBarAt(placeRegionBar(next.box, shown));
     onRegion?.(next);
   };
 
@@ -570,118 +735,268 @@ export const PdfViewer = ({
       }
     }
 
-    const canvas = (
-      best ?? pages.querySelector<HTMLElement>(".app-doc-pdf-page")
-    )?.querySelector("canvas");
+    const sheet = best ?? pages.querySelector<HTMLElement>(".app-doc-pdf-page");
+    const canvas = sheet?.querySelector("canvas");
 
-    if (!canvas) {
+    if (canvas) {
+      onReadPage({
+        dataURL: canvas.toDataURL("image/png"),
+        width: canvas.width,
+        height: canvas.height,
+      });
+
       return;
     }
 
-    onReadPage({
-      dataURL: canvas.toDataURL("image/png"),
-      width: canvas.width,
-      height: canvas.height,
-    });
+    // a page that is not drawn (it has not come near the view yet) is drawn
+    // for the read, whole, from the PDF (D-319)
+    const doc = documentRef.current;
+    const index = Number(sheet?.dataset.page);
+    const size = sheet?.getBoundingClientRect();
+
+    if (!doc || !index || !size?.width || !size.height) {
+      return;
+    }
+
+    void doc
+      .getPage(index)
+      .then((page) =>
+        drawPicture(
+          page,
+          { width: size.width, height: size.height },
+          { left: 0, top: 0, right: size.width, bottom: size.height },
+        ),
+      )
+      .then((picture) => picture && onReadPage(picture))
+      .catch((error) => console.error(error));
   };
 
-  // The pages are drawn, and drawn again when the zoom changes - and for no
-  // other reason (D-307): drawing them replaces every page, which sends the
-  // viewer back to the top and loses the selection, so nothing the host passes
-  // in may be a dependency here.
+  // The pages (D-319, D-307): every page has its room at once, and only the
+  // pages near the view are drawn. They are made again when the zoom changes -
+  // and for no other reason: making them again sends the viewer back to the top
+  // and loses what was drawn, so nothing the host passes in may be a dependency
+  // here.
   useEffect(() => {
     const container = containerRef.current;
+    const viewer = viewerRef.current;
     const doc = documentRef.current;
     const pdfjs = jsRef.current;
+    const first = firstPageRef.current;
 
-    if (status.state !== "ready" || !container || !doc || !pdfjs) {
+    if (status.state !== "ready" || !container || !doc || !pdfjs || !first) {
       return;
     }
 
     let cancelled = false;
+    const scale = BASE_SCALE * zoom;
+
+    // the part of this document that is at the middle of the view, to keep it
+    // there when the zoom changes (another document starts at its top)
+    const middle =
+      viewer &&
+      viewer.scrollHeight &&
+      viewer.scrollWidth &&
+      builtFor.current === file
+        ? {
+            x:
+              (viewer.scrollLeft + viewer.clientWidth / 2) / viewer.scrollWidth,
+            y:
+              (viewer.scrollTop + viewer.clientHeight / 2) /
+              viewer.scrollHeight,
+          }
+        : null;
+
+    builtFor.current = file;
 
     container.replaceChildren();
     // the pages are new, so a box on the old ones has nothing under it
     setRegion(null);
 
-    (async () => {
-      for (let index = 1; index <= status.shown; index++) {
-        if (cancelled) {
-          return;
-        }
+    // every page has its room at once: as big as the first until it is drawn
+    const sheets: HTMLElement[] = [];
 
-        const page = await doc.getPage(index);
-        const viewport = page.getViewport({ scale: BASE_SCALE * zoom });
-        const ratio = window.devicePixelRatio || 1;
+    for (let index = 1; index <= status.shown; index++) {
+      const sheet = document.createElement("div");
 
-        const sheet = document.createElement("div");
+      sheet.className = "app-doc-pdf-page";
+      sheet.dataset.page = String(index);
+      sheet.style.width = `${first.width * zoom}px`;
+      sheet.style.height = `${first.height * zoom}px`;
+      sheets.push(sheet);
+    }
 
-        sheet.className = "app-doc-pdf-page";
-        sheet.dataset.page = String(index);
-        sheet.style.width = `${viewport.width}px`;
-        sheet.style.height = `${viewport.height}px`;
+    container.append(...sheets);
 
-        const canvas = document.createElement("canvas");
+    if (viewer && middle) {
+      viewer.scrollTop =
+        middle.y * viewer.scrollHeight - viewer.clientHeight / 2;
+      viewer.scrollLeft =
+        middle.x * viewer.scrollWidth - viewer.clientWidth / 2;
+    }
 
-        canvas.width = Math.floor(viewport.width * ratio);
-        canvas.height = Math.floor(viewport.height * ratio);
-        canvas.style.width = `${viewport.width}px`;
-        canvas.style.height = `${viewport.height}px`;
+    /** the pages that have their pixels */
+    const drawn = new Set<HTMLElement>();
+    /** the pages that are near the view */
+    const wanted = new Set<HTMLElement>();
+    let task: { cancel?: () => void } | null = null;
 
-        const text = document.createElement("div");
-
-        text.className = "app-doc-pdf-text";
-        text.style.setProperty("--scale-factor", String(viewport.scale));
-
-        sheet.append(canvas, text);
-        container.append(sheet);
-
-        const context = canvas.getContext("2d");
-
-        if (context) {
-          await page.render({
-            canvasContext: context,
-            viewport,
-            transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0],
-          }).promise;
-        }
-
-        // the text on top of the picture is real text: it can be selected
-        await new pdfjs.TextLayer({
-          textContentSource: page.streamTextContent(),
-          container: text,
-          viewport,
-        }).render();
-
-        // a page with no text on it (a scan) cannot be selected from: it says
-        // so, and the way to read it is not hidden (D-287)
-        const scanned = !text.querySelector("span");
-
-        if (scanned) {
-          sheet.classList.add("app-doc-pdf-page--scan");
-
-          const note = document.createElement("div");
-
-          note.className = "app-doc-pdf-scan";
-          note.dataset.testid = "pdf-scan-note";
-          note.textContent =
-            "No text to select on this page - it looks scanned. Read it with the toolbar's Read this page.";
-          sheet.append(note);
-        }
-      }
-    })().catch((error) => {
+    const fail = (error: unknown) => {
       if (!cancelled) {
         setStatus({
           state: "failed",
           reason: error instanceof Error ? error.message : String(error),
         });
       }
+    };
+
+    /** a page gives its pixels back; its room stays */
+    const release = (sheet: HTMLElement) => {
+      for (const canvas of sheet.querySelectorAll("canvas")) {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+
+      sheet.replaceChildren();
+      sheet.classList.remove("app-doc-pdf-page--scan");
+      drawn.delete(sheet);
+    };
+
+    const draw = async (sheet: HTMLElement) => {
+      if (drawn.has(sheet)) {
+        return;
+      }
+
+      const page = await doc.getPage(Number(sheet.dataset.page));
+
+      // the zoom changed, or the page went far from the view, meanwhile
+      if (cancelled || !wanted.has(sheet)) {
+        return;
+      }
+
+      const viewport = page.getViewport({ scale });
+
+      sheet.style.width = `${viewport.width}px`;
+      sheet.style.height = `${viewport.height}px`;
+
+      // a canvas has only so many pixels: beyond them it is stretched
+      const ratio = Math.min(
+        window.devicePixelRatio || 1,
+        Math.sqrt(MAX_CANVAS_PIXELS / (viewport.width * viewport.height)),
+      );
+
+      const canvas = document.createElement("canvas");
+
+      canvas.width = Math.max(1, Math.floor(viewport.width * ratio));
+      canvas.height = Math.max(1, Math.floor(viewport.height * ratio));
+      canvas.style.width = `${viewport.width}px`;
+      canvas.style.height = `${viewport.height}px`;
+
+      const text = document.createElement("div");
+
+      text.className = "app-doc-pdf-text";
+      text.style.setProperty("--scale-factor", String(viewport.scale));
+
+      sheet.append(canvas, text);
+      drawn.add(sheet);
+
+      const context = canvas.getContext("2d");
+
+      if (context) {
+        const rendering = page.render({
+          canvasContext: context,
+          viewport,
+          transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0],
+        });
+
+        task = rendering;
+
+        try {
+          await rendering.promise;
+        } catch (error) {
+          // a drawing that was stopped is not a failure
+          if (cancelled || !wanted.has(sheet)) {
+            return;
+          }
+
+          throw error;
+        }
+      }
+
+      if (cancelled || !wanted.has(sheet)) {
+        return;
+      }
+
+      // the text on top of the picture is real text: the box finds it there
+      await new pdfjs.TextLayer({
+        textContentSource: page.streamTextContent(),
+        container: text,
+        viewport,
+      }).render();
+
+      if (cancelled || !wanted.has(sheet)) {
+        return;
+      }
+
+      // a page with no text on it (a scan) has nothing for a box to find: it
+      // says so, and the way to read it is not hidden (D-287)
+      if (!text.querySelector("span")) {
+        sheet.classList.add("app-doc-pdf-page--scan");
+
+        const note = document.createElement("div");
+
+        note.className = "app-doc-pdf-scan";
+        note.dataset.testid = "pdf-scan-note";
+        note.textContent =
+          "No text to select on this page - it looks scanned. Read it with the toolbar's Read this page.";
+        sheet.append(note);
+      }
+    };
+
+    // the pages are drawn one at a time, once the zoom has been left alone
+    let settle: ReturnType<typeof setTimeout> | undefined;
+    let queue = new Promise<void>((resolve) => {
+      settle = setTimeout(resolve, ZOOM_SETTLE_MS);
     });
+
+    const want = (sheet: HTMLElement) => {
+      if (wanted.has(sheet)) {
+        return;
+      }
+
+      wanted.add(sheet);
+      queue = queue.then(() => draw(sheet)).catch(fail);
+    };
+
+    let observer: IntersectionObserver | null = null;
+
+    if (typeof IntersectionObserver === "undefined") {
+      sheets.slice(0, FALLBACK_PAGES).forEach(want);
+    } else {
+      observer = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            const sheet = entry.target as HTMLElement;
+
+            if (entry.isIntersecting) {
+              want(sheet);
+            } else if (wanted.delete(sheet)) {
+              release(sheet);
+            }
+          }
+        },
+        { root: viewer, rootMargin: NEAR_VIEW_MARGIN },
+      );
+
+      sheets.forEach((sheet) => observer?.observe(sheet));
+    }
 
     return () => {
       cancelled = true;
+      clearTimeout(settle);
+      observer?.disconnect();
+      task?.cancel?.();
     };
-  }, [status, zoom, containerRef]);
+  }, [status, zoom, containerRef, file]);
 
   const toolbar = (
     <div className="app-doc-pdf-tools" data-testid="pdf-tools">
@@ -723,31 +1038,7 @@ export const PdfViewer = ({
     </div>
   );
 
-  // where the choices under the box go (D-314): under it, on the pages, and
-  // above it when there is no room below
-  const stage = stageRef.current;
   const shown = draft ?? region?.box ?? null;
-  const bar = (() => {
-    if (!region) {
-      return null;
-    }
-
-    // a viewer that has no size yet has room for everything
-    const room = stage?.clientHeight || Infinity;
-    const below = region.box.y + region.box.height + REGION_BAR_GAP;
-
-    return {
-      left: clamp(
-        region.box.x,
-        0,
-        Math.max(0, (stage?.clientWidth || Infinity) - REGION_BAR_WIDTH),
-      ),
-      top:
-        below + REGION_BAR_HEIGHT <= room
-          ? below
-          : Math.max(0, region.box.y - REGION_BAR_HEIGHT - REGION_BAR_GAP),
-    };
-  })();
 
   return (
     <div
@@ -797,11 +1088,11 @@ export const PdfViewer = ({
             }}
           />
         ) : null}
-        {region && bar && renderRegionBar ? (
+        {region && barAt && renderRegionBar ? (
           <div
             className="app-doc-pdf-regionbar"
             data-testid="pdf-region-bar"
-            style={{ left: bar.left, top: bar.top }}
+            style={{ left: barAt.left, top: barAt.top }}
           >
             {renderRegionBar(region, () => setRegion(null))}
           </div>

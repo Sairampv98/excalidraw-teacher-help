@@ -32,6 +32,9 @@ import type { PdfRegion } from "./PdfViewer";
 
 import type { ScannedFile } from "./sidebarFiles";
 
+/** the width of the choices under a selected text, to keep them in the document */
+const SELECTION_BAR_WIDTH = 140;
+
 /** highlighting a megabyte of source in the main thread is not worth it */
 const MAX_HIGHLIGHT_BYTES = 400 * 1024;
 
@@ -106,6 +109,11 @@ export const DocumentViewer = ({
   const [zoom, setZoom] = useState(1);
   /** the text the teacher has just selected in the document, if any */
   const [picked, setPicked] = useState<string | null>(null);
+  /** where the choices for it float, from the corner of the document (D-317) */
+  const [pickedAt, setPickedAt] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
   /** the place in the zoom row where the PDF's toolbar is drawn (D-313) */
   const [toolbarHost, setToolbarHost] = useState<HTMLElement | null>(null);
 
@@ -193,6 +201,19 @@ export const DocumentViewer = ({
         console.error(error);
         api?.setToast({ message: "Clipboard was blocked", closable: true });
       }
+
+      // the choices float under the end of the selection, inside the document:
+      // they scroll with the text and move nothing (D-317)
+      const end = range.getBoundingClientRect?.();
+      const area = body.getBoundingClientRect();
+
+      setPickedAt({
+        left: Math.min(
+          Math.max(0, (end?.left ?? area.left) - area.left + body.scrollLeft),
+          Math.max(0, body.clientWidth - SELECTION_BAR_WIDTH) + body.scrollLeft,
+        ),
+        top: (end?.bottom ?? area.top) - area.top + body.scrollTop + 6,
+      });
 
       // the bar is offered whether or not the copy went through
       setPicked(text);
@@ -608,7 +629,6 @@ export const DocumentViewer = ({
             // the choices are under the box that was drawn (D-314)
             renderRegionBar={(region, close) => (
               <SelectionBar
-                compact
                 api={api}
                 text={region.text}
                 lines={region.lines}
@@ -622,13 +642,6 @@ export const DocumentViewer = ({
         <>
           {isMarkdown && zoomBar}
 
-          {picked && (
-            <SelectionBar
-              api={api}
-              text={picked}
-              onDone={() => setPicked(null)}
-            />
-          )}
           {html ? (
             <div
               ref={bodyRef}
@@ -640,10 +653,24 @@ export const DocumentViewer = ({
                   ? { fontSize: `${Math.round(zoom * 100)}%` }
                   : undefined
               }
-              // the renderer escapes raw HTML and untrusted URLs first
               onClick={onMarkdownClick}
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
+            >
+              {/* the renderer escapes raw HTML and untrusted URLs first */}
+              <div dangerouslySetInnerHTML={{ __html: html }} />
+              {picked && pickedAt && (
+                <div
+                  className="app-doc-selection-float"
+                  data-testid="selection-float"
+                  style={{ left: pickedAt.left, top: pickedAt.top }}
+                >
+                  <SelectionBar
+                    api={api}
+                    text={picked}
+                    onDone={() => setPicked(null)}
+                  />
+                </div>
+              )}
+            </div>
           ) : (
             <pre className="app-doc-code app-doc-code--loading">
               {loaded.text}

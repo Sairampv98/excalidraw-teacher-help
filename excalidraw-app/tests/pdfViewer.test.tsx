@@ -14,28 +14,60 @@ import { createRef } from "react";
 import { vi } from "vitest";
 
 import { Provider, appJotaiStore, ocrEngineChoiceAtom } from "../app-jotai";
-import { PDF_MAX_PAGES, PdfViewer } from "../sidebar/PdfViewer";
+import { PDF_MAX_PAGES, PdfViewer, placeRegionBar } from "../sidebar/PdfViewer";
 
 import type { ReactNode } from "react";
 
 import type { PdfJs, PdfPageProxy, PdfRegion } from "../sidebar/PdfViewer";
 
-const fakePdfjs = (pageCount: number, withText = true): PdfJs =>
+type FakeHooks = {
+  /** the size of a page in PDF points */
+  size?: [width: number, height: number];
+  /** every drawing: what it was asked for, and what the stand-in gives back */
+  onRender?: (call: {
+    scale: number;
+    transform?: number[];
+    width: number;
+    height: number;
+  }) => { promise: Promise<void>; cancel?: () => void } | undefined;
+  /** a page cannot be fetched while this says so */
+  broken?: () => boolean;
+};
+
+const fakePdfjs = (
+  pageCount: number,
+  withText = true,
+  hooks: FakeHooks = {},
+): PdfJs =>
   ({
     GlobalWorkerOptions: { workerSrc: "" },
     getDocument: () => ({
       promise: Promise.resolve({
         numPages: pageCount,
         destroy: () => {},
-        getPage: async (index: number): Promise<PdfPageProxy> => ({
-          getViewport: ({ scale }) => ({
-            width: 100 * scale,
-            height: 140 * scale,
-            scale,
-          }),
-          render: () => ({ promise: Promise.resolve() }),
-          streamTextContent: () => index,
-        }),
+        getPage: async (index: number): Promise<PdfPageProxy> => {
+          if (hooks.broken?.()) {
+            throw new Error("the page is gone");
+          }
+
+          const [width, height] = hooks.size ?? [100, 140];
+
+          return {
+            getViewport: ({ scale }) => ({
+              width: width * scale,
+              height: height * scale,
+              scale,
+            }),
+            render: ({ viewport, transform, canvasContext }) =>
+              hooks.onRender?.({
+                scale: (viewport as { scale: number }).scale,
+                transform,
+                width: canvasContext.canvas.width,
+                height: canvasContext.canvas.height,
+              }) ?? { promise: Promise.resolve() },
+            streamTextContent: () => index,
+          };
+        },
       }),
     }),
     TextLayer: class {
@@ -77,6 +109,7 @@ const mount = (
     onReadPage?: (picture: unknown) => void;
     onZoomChange?: (zoom: number) => void;
     withText?: boolean;
+    hooks?: FakeHooks;
     /** the file, when a test has to open the same one again */
     pdf?: File;
     toolbarHost?: HTMLElement | null;
@@ -87,7 +120,8 @@ const mount = (
   const ref = createRef<HTMLDivElement>();
   const loader =
     options.loader ??
-    (async () => fakePdfjs(options.pages ?? 3, options.withText ?? true));
+    (async () =>
+      fakePdfjs(options.pages ?? 3, options.withText ?? true, options.hooks));
   const utils = render(
     <PdfViewer
       file={options.pdf ?? file()}
@@ -120,10 +154,16 @@ describe("AC-318 the PDF viewer", () => {
   it("AC-318 every page is drawn, with its text on top that can be selected", async () => {
     const { ref } = mount({ pages: 3 });
 
+    // every page has its room at once, and is drawn as it is near the view
     await waitFor(() =>
       expect(ref.current!.querySelectorAll(".app-doc-pdf-page")).toHaveLength(
         3,
       ),
+    );
+    await waitFor(() =>
+      expect(
+        ref.current!.querySelectorAll(".app-doc-pdf-text span"),
+      ).toHaveLength(3),
     );
 
     const texts = [...ref.current!.querySelectorAll(".app-doc-pdf-text span")];
@@ -187,9 +227,7 @@ describe("AC-318 the PDF viewer", () => {
     const { ref, getByTestId } = mount({ pages: 2, onReadPage });
 
     await waitFor(() =>
-      expect(ref.current!.querySelectorAll(".app-doc-pdf-page")).toHaveLength(
-        2,
-      ),
+      expect(ref.current!.querySelectorAll("canvas")).toHaveLength(2),
     );
 
     // the toolbar's Read this page is the one way to read a page (D-307)
@@ -495,8 +533,12 @@ describe("AC-354 a PDF is selected with a box", () => {
   const openPage = async (
     runs: Array<[text: string, ...rect: Rect]> = [],
     options: Parameters<typeof mount>[0] = {},
+    /** where things are on the screen: a page, the column of pages, the view */
+    layout: { sheet?: Rect; stage?: Rect; viewer?: Rect } = {},
   ) => {
     const original = HTMLElement.prototype.getBoundingClientRect;
+    const sheet = layout.sheet ?? [0, 0, 300, 400];
+    const stage = layout.stage ?? [0, 0, 300, 800];
 
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
       function (this: HTMLElement) {
@@ -505,11 +547,15 @@ describe("AC-354 a PDF is selected with a box", () => {
         }
 
         if (this.classList.contains("app-doc-pdf-page")) {
-          return domRect([0, 0, 300, 400]);
+          return domRect(sheet);
         }
 
         if (this.classList.contains("app-doc-pdf-stage")) {
-          return domRect([0, 0, 300, 800]);
+          return domRect(stage);
+        }
+
+        if (layout.viewer && this.dataset.testid === "pdf-viewer") {
+          return domRect(layout.viewer);
         }
 
         return original.call(this);
@@ -518,9 +564,24 @@ describe("AC-354 a PDF is selected with a box", () => {
 
     const view = mount({ pages: 1, onReadPage: vi.fn(), ...options });
 
+    // the view is as big as it is on the screen: what is shown depends on it
+    if (layout.viewer) {
+      const viewer = view.getByTestId("pdf-viewer");
+
+      Object.defineProperty(viewer, "clientWidth", {
+        configurable: true,
+        value: layout.viewer[2],
+      });
+      Object.defineProperty(viewer, "clientHeight", {
+        configurable: true,
+        value: layout.viewer[3],
+      });
+    }
+
+    // the page is drawn once it is near the view: its text is what is waited for
     await waitFor(() =>
       expect(
-        view.ref.current!.querySelector(".app-doc-pdf-page"),
+        view.ref.current!.querySelector(".app-doc-pdf-text span"),
       ).not.toBeNull(),
     );
 
@@ -629,13 +690,14 @@ describe("AC-354 a PDF is selected with a box", () => {
       ["9", 200, 40],
     ]);
 
-    // the picture is cut from the page's own pixels: the page is drawn at 140
-    // x 196 pixels, so the whole width and a quarter of the height of it are
-    const picture = region.picture()!;
+    // the picture is drawn again from the page (D-316): the box is 100 x 33
+    // points, which is 600 x 200 pixels at six times - not the 140 x 49 pixels
+    // that the viewer drew of it
+    const picture = (await region.picture())!;
 
     expect(picture.dataURL.startsWith("data:image/png")).toBe(true);
-    expect(picture.width).toBe(140);
-    expect(picture.height).toBe(49);
+    expect(picture.width).toBe(600);
+    expect(picture.height).toBe(200);
   });
 
   it("AC-354 a run that is half inside is taken, and one that is less is left out", async () => {
@@ -669,7 +731,7 @@ describe("AC-354 a PDF is selected with a box", () => {
 
     expect(region.text).toBe("");
     expect(region.lines).toEqual([]);
-    expect(region.picture()).not.toBeNull();
+    expect(await region.picture()).not.toBeNull();
   });
 
   it("AC-354 a click, a new box and the zoom put the box away", async () => {
@@ -727,24 +789,12 @@ describe("AC-354 a PDF is selected with a box", () => {
   });
 
   it("AC-354 the choices are drawn under the box", async () => {
-    const { getByTestId, ref } = await openPage([], {
-      renderRegionBar: () => <span data-testid="bar">bar</span>,
-    });
+    const { getByTestId } = await openPage(
+      [],
+      { renderRegionBar: () => <span data-testid="bar">bar</span> },
+      { viewer: [0, 0, 300, 420] },
+    );
     const viewer = getByTestId("pdf-viewer");
-    const stage = ref.current!.parentElement as HTMLElement;
-
-    const size = (width: number, height: number) => {
-      Object.defineProperty(stage, "clientWidth", {
-        configurable: true,
-        value: width,
-      });
-      Object.defineProperty(stage, "clientHeight", {
-        configurable: true,
-        value: height,
-      });
-    };
-
-    size(300, 800);
 
     await drag(viewer, [20, 50], [120, 150]);
 
@@ -754,19 +804,470 @@ describe("AC-354 a PDF is selected with a box", () => {
     expect(bar.style.left).toBe("20px");
     expect(bar.style.top).toBe("156px");
     expect(bar.contains(getByTestId("bar"))).toBe(true);
+  });
 
-    // near the right edge it is moved in, so it is not cut off
-    await drag(viewer, [280, 50], [299, 150]);
-    expect(parseFloat(getByTestId("pdf-region-bar").style.left)).toBeLessThan(
-      280,
+  it("AC-358 a box far to the right on a page wider than the view has its choices in view", async () => {
+    // a page 900 pixels wide in a view 300 wide, scrolled 500 to the right: the
+    // column of pages starts 500 pixels to the left of the view
+    const { getByTestId } = await openPage(
+      [],
+      { renderRegionBar: () => <span data-testid="bar">bar</span> },
+      {
+        sheet: [-500, 0, 900, 400],
+        stage: [-500, 0, 900, 800],
+        viewer: [0, 0, 300, 420],
+      },
     );
 
-    // with no room under the box it is above it
-    size(300, 420);
-    await drag(viewer, [20, 300], [120, 399]);
-    expect(parseFloat(getByTestId("pdf-region-bar").style.top)).toBeLessThan(
-      300,
+    await drag(getByTestId("pdf-viewer"), [100, 50], [200, 150]);
+
+    // from the corner of the column, the part that is shown is 500 to 800, and
+    // the choices are in it - not under the box's own place far to the left
+    const left = parseFloat(getByTestId("pdf-region-bar").style.left);
+
+    expect(left).toBeGreaterThanOrEqual(500);
+    expect(left).toBeLessThanOrEqual(800 - 220);
+  });
+});
+
+describe("AC-356 the picture of a box is as sharp as the page can give", () => {
+  type Render = {
+    scale: number;
+    transform?: number[];
+    width: number;
+    height: number;
+  };
+
+  /** a page that is open, and every drawing that was asked of it */
+  const openRecorded = async (
+    options: {
+      size?: [number, number];
+      sheet: [number, number];
+      zoom?: number;
+    },
+    broken?: () => boolean,
+  ) => {
+    const renders: Render[] = [];
+    const original = HTMLElement.prototype.getBoundingClientRect;
+
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        if (
+          this.classList.contains("app-doc-pdf-page") ||
+          this.classList.contains("app-doc-pdf-stage")
+        ) {
+          return {
+            left: 0,
+            top: 0,
+            width: options.sheet[0],
+            height: options.sheet[1],
+            right: options.sheet[0],
+            bottom: options.sheet[1],
+          } as DOMRect;
+        }
+
+        return original.call(this);
+      },
     );
+
+    const onRegion = vi.fn();
+    const view = mount({
+      pages: 1,
+      zoom: options.zoom,
+      onReadPage: vi.fn(),
+      onRegion,
+      hooks: {
+        size: options.size,
+        broken,
+        onRender: (call) => {
+          renders.push(call);
+
+          return undefined;
+        },
+      },
+    });
+
+    await waitFor(() =>
+      expect(
+        view.ref.current!.querySelector(".app-doc-pdf-text span"),
+      ).not.toBeNull(),
+    );
+
+    return { ...view, onRegion, renders };
+  };
+
+  const draw = async (
+    viewer: HTMLElement,
+    from: [number, number],
+    to: [number, number],
+  ) => {
+    for (const [type, [x, y]] of [
+      ["pointerdown", from],
+      ["pointermove", to],
+      ["pointerup", to],
+    ] as const) {
+      act(() => {
+        viewer.dispatchEvent(
+          new MouseEvent(type, {
+            bubbles: true,
+            button: 0,
+            clientX: x,
+            clientY: y,
+          }),
+        );
+      });
+    }
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("AC-356 the picture is drawn again from the page at a scale of its own", async () => {
+    // a page of 100 x 140 points that the viewer shows at 300 x 400 pixels
+    const { getByTestId, onRegion, renders } = await openRecorded({
+      sheet: [300, 400],
+    });
+
+    await draw(getByTestId("pdf-viewer"), [30, 60], [120, 180]);
+
+    const before = renders.length;
+    const picture = (await onRegion.mock.calls[0][0].picture())!;
+
+    // the box is 30 x 40 points, at 10 and 20 points from the corner: drawn at
+    // six times the size of the page, with the page moved under the canvas
+    expect(renders).toHaveLength(before + 1);
+    expect(renders.at(-1)).toMatchObject({
+      scale: 6,
+      transform: [1, 0, 0, 1, -60, -120],
+      width: 180,
+      height: 240,
+    });
+    expect(picture.width).toBe(180);
+    expect(picture.height).toBe(240);
+    expect(picture.dataURL.startsWith("data:image/png")).toBe(true);
+  });
+
+  it("AC-356 it is the same at any zoom of the viewer", async () => {
+    // the same part of the page, seen at a zoom of 1 and of 2
+    const small = await openRecorded({ sheet: [300, 400], zoom: 1 });
+
+    await draw(small.getByTestId("pdf-viewer"), [30, 60], [120, 180]);
+
+    const one = (await small.onRegion.mock.calls[0][0].picture())!;
+    const drawn = small.renders.at(-1);
+
+    small.unmount();
+    vi.restoreAllMocks();
+
+    const big = await openRecorded({ sheet: [600, 800], zoom: 2 });
+
+    await draw(big.getByTestId("pdf-viewer"), [60, 120], [240, 360]);
+
+    const two = (await big.onRegion.mock.calls[0][0].picture())!;
+
+    expect(two.width).toBe(one.width);
+    expect(two.height).toBe(one.height);
+    expect(big.renders.at(-1)).toEqual(drawn);
+  });
+
+  it("AC-356 a big part is held to the longest edge", async () => {
+    // a page of 1000 x 2000 points: six times it would be 12000 pixels tall
+    const { getByTestId, onRegion, renders } = await openRecorded({
+      size: [1000, 2000],
+      sheet: [300, 600],
+    });
+
+    await draw(getByTestId("pdf-viewer"), [0, 0], [300, 600]);
+
+    const picture = (await onRegion.mock.calls[0][0].picture())!;
+
+    expect(renders.at(-1)!.scale).toBeCloseTo(4096 / 2000, 5);
+    expect(picture.height).toBe(4096);
+    expect(picture.width).toBe(2048);
+  });
+
+  it("AC-356 a page that cannot be drawn again gives the pixels of the viewer", async () => {
+    let broken = false;
+    const { getByTestId, onRegion } = await openRecorded(
+      { sheet: [300, 400] },
+      () => broken,
+    );
+
+    await draw(getByTestId("pdf-viewer"), [0, 0], [300, 100]);
+
+    // the page cannot be fetched: the viewer's own canvas is cut instead, which
+    // is 140 x 196 pixels
+    broken = true;
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const picture = (await onRegion.mock.calls[0][0].picture())!;
+
+    expect(picture.width).toBe(140);
+    expect(picture.height).toBe(49);
+  });
+});
+
+describe("AC-358 the choices are always where they can be seen", () => {
+  it("AC-358 the choices are put against the part of the pages that is shown", () => {
+    const shown = { left: 0, top: 0, right: 300, bottom: 420 };
+    const box = (x: number, y: number, width: number, height: number) => ({
+      x,
+      y,
+      width,
+      height,
+    });
+
+    // under the box, when there is room
+    expect(placeRegionBar(box(20, 50, 100, 100), shown)).toEqual({
+      left: 20,
+      top: 156,
+    });
+
+    // moved in from the right edge, so that it is not cut off
+    expect(placeRegionBar(box(280, 50, 19, 100), shown).left).toBe(80);
+
+    // no room under the box: over it
+    expect(placeRegionBar(box(20, 300, 100, 99), shown).top).toBe(258);
+
+    // no room over it or under it: at the bottom of what is shown
+    expect(placeRegionBar(box(0, 0, 300, 420), shown).top).toBe(378);
+
+    // the view is scrolled to the right: the choices are in it, not under a
+    // box that is out of it
+    expect(
+      placeRegionBar(box(100, 50, 100, 100), {
+        ...shown,
+        left: 500,
+        right: 800,
+      }).left,
+    ).toBe(500);
+    expect(
+      placeRegionBar(box(900, 50, 100, 100), {
+        ...shown,
+        left: 500,
+        right: 800,
+      }).left,
+    ).toBe(580);
+  });
+});
+
+describe("AC-359 a PDF keeps up at a high zoom", () => {
+  /** what the browser's IntersectionObserver is told: the pages near the view */
+  class FakeObserver {
+    static all: FakeObserver[] = [];
+
+    targets = new Set<Element>();
+
+    constructor(
+      readonly callback: (
+        entries: Array<Partial<IntersectionObserverEntry>>,
+      ) => void,
+      readonly init: IntersectionObserverInit,
+    ) {
+      FakeObserver.all.push(this);
+    }
+
+    observe(target: Element) {
+      this.targets.add(target);
+    }
+
+    unobserve() {}
+
+    disconnect() {
+      this.targets.clear();
+    }
+
+    /** the pages that are now near the view, or no longer near it */
+    near(pages: Element[], isIntersecting: boolean) {
+      act(() => {
+        this.callback(pages.map((target) => ({ target, isIntersecting })));
+      });
+    }
+  }
+
+  beforeEach(() => {
+    FakeObserver.all = [];
+    vi.stubGlobal("IntersectionObserver", FakeObserver);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const sheets = (ref: { current: HTMLElement | null }) => [
+    ...ref.current!.querySelectorAll<HTMLElement>(".app-doc-pdf-page"),
+  ];
+
+  it("AC-359 every page has its room at once", async () => {
+    const { ref } = mount({ pages: 5, zoom: 2 });
+
+    await waitFor(() => expect(sheets(ref)).toHaveLength(5));
+
+    // before anything is drawn - nothing has come near the view yet - every
+    // page is there, as big as the page will be: the scroll bars are right
+    expect(sheets(ref)).toHaveLength(5);
+
+    for (const sheet of sheets(ref)) {
+      expect(sheet.style.width).toBe("280px");
+      expect(sheet.style.height).toBe("392px");
+      expect(sheet.children).toHaveLength(0);
+    }
+
+    expect(ref.current!.querySelectorAll("canvas")).toHaveLength(0);
+  });
+
+  it("AC-359 only the pages near the view are drawn, and far ones give their pixels back", async () => {
+    const { ref, getByTestId } = mount({ pages: 5 });
+
+    await waitFor(() => expect(sheets(ref)).toHaveLength(5));
+
+    const pages = sheets(ref);
+    const [observer] = FakeObserver.all;
+
+    // the pages are watched against the view, a screen above it and below it
+    expect(observer.init.root).toBe(getByTestId("pdf-viewer"));
+    expect(observer.init.rootMargin).toBe("100% 0px");
+    expect(observer.targets.size).toBe(5);
+
+    observer.near([pages[0], pages[1]], true);
+
+    await waitFor(() => {
+      expect(pages[0].querySelector("canvas")).not.toBeNull();
+      expect(pages[1].querySelector("canvas")).not.toBeNull();
+      expect(pages[1].querySelector(".app-doc-pdf-text span")).not.toBeNull();
+    });
+
+    // the rest have their room and nothing else
+    for (const far of pages.slice(2)) {
+      expect(far.children).toHaveLength(0);
+    }
+
+    // the first goes far from the view: it gives its pixels back, and keeps
+    // its room
+    const canvas = pages[0].querySelector("canvas")!;
+
+    observer.near([pages[0]], false);
+
+    expect(pages[0].children).toHaveLength(0);
+    expect(canvas.width).toBe(0);
+    expect(pages[0].style.height).toBe("196px");
+    expect(pages[1].querySelector("canvas")).not.toBeNull();
+
+    // and it is drawn again when it comes back
+    observer.near([pages[0]], true);
+
+    await waitFor(() =>
+      expect(pages[0].querySelector("canvas")).not.toBeNull(),
+    );
+  });
+
+  it("AC-359 a canvas is never more than 16 million pixels", async () => {
+    Object.defineProperty(window, "devicePixelRatio", {
+      configurable: true,
+      value: 8,
+    });
+
+    const { ref } = mount({ pages: 1, zoom: 4 });
+
+    await waitFor(() => expect(sheets(ref)).toHaveLength(1));
+
+    const [observer] = FakeObserver.all;
+
+    observer.near(sheets(ref), true);
+
+    // a page of 560 x 784 pixels at a ratio of 8 would be 28 million pixels
+    await waitFor(() =>
+      expect(ref.current!.querySelector("canvas")).not.toBeNull(),
+    );
+
+    const canvas = ref.current!.querySelector("canvas")!;
+    const pixels = canvas.width * canvas.height;
+
+    expect(pixels).toBeLessThanOrEqual(16 * 1024 * 1024);
+    // and it is not smaller than it has to be
+    expect(pixels).toBeGreaterThan(15 * 1024 * 1024);
+    // the browser stretches it to the page's size
+    expect(canvas.style.width).toBe("560px");
+
+    Reflect.deleteProperty(window, "devicePixelRatio");
+  });
+
+  it("AC-359 a change of the zoom keeps the middle of the view", () => {
+    const pdf = file();
+    const ref = createRef<HTMLDivElement>();
+    const loader = async () => fakePdfjs(5);
+    const view = (zoom: number) => (
+      <PdfViewer file={pdf} zoom={zoom} containerRef={ref} loader={loader} />
+    );
+
+    const { rerender, getByTestId } = render(view(1));
+
+    return waitFor(() => expect(sheets(ref)).toHaveLength(5)).then(() => {
+      const viewer = getByTestId("pdf-viewer");
+
+      // the scroll area is as high as the pages are: 5 x 196 at a zoom of 1
+      Object.defineProperty(viewer, "scrollHeight", {
+        configurable: true,
+        get: () =>
+          sheets(ref).reduce(
+            (height, sheet) => height + parseFloat(sheet.style.height),
+            0,
+          ),
+      });
+      Object.defineProperty(viewer, "scrollWidth", {
+        configurable: true,
+        value: 300,
+      });
+      Object.defineProperty(viewer, "clientHeight", {
+        configurable: true,
+        value: 200,
+      });
+      Object.defineProperty(viewer, "clientWidth", {
+        configurable: true,
+        value: 300,
+      });
+
+      // the middle of the view is half way down the document
+      viewer.scrollTop = 390;
+
+      rerender(view(2));
+
+      // twice as high now, and the middle of the view is still half way down
+      expect(viewer.scrollTop).toBe(0.5 * 1960 - 100);
+    });
+  });
+
+  it("AC-359 a drawing that is still going is stopped by a change of the zoom", async () => {
+    const cancel = vi.fn();
+    const renders = vi.fn();
+    const pdf = file();
+    const ref = createRef<HTMLDivElement>();
+    // the drawing never finishes by itself
+    const loader = async () =>
+      fakePdfjs(1, true, {
+        onRender: (call) => {
+          renders(call);
+
+          return { promise: new Promise<void>(() => {}), cancel };
+        },
+      });
+    const view = (zoom: number) => (
+      <PdfViewer file={pdf} zoom={zoom} containerRef={ref} loader={loader} />
+    );
+
+    const { rerender } = render(view(1));
+
+    await waitFor(() => expect(sheets(ref)).toHaveLength(1));
+    FakeObserver.all[0].near(sheets(ref), true);
+
+    await waitFor(() => expect(renders).toHaveBeenCalledTimes(1));
+    expect(cancel).not.toHaveBeenCalled();
+
+    rerender(view(2));
+
+    expect(cancel).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -882,9 +1383,7 @@ describe("AC-342 the PDF toolbar reads the page you are on", () => {
     const { getByTestId, ref } = mount({ pages: 3, onReadPage });
 
     await waitFor(() =>
-      expect(ref.current!.querySelectorAll(".app-doc-pdf-page")).toHaveLength(
-        3,
-      ),
+      expect(ref.current!.querySelectorAll("canvas")).toHaveLength(3),
     );
 
     const rects = [

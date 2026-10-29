@@ -272,7 +272,9 @@ describe("AC-344 the selection bar offers where the text was", () => {
     expect(
       document.querySelector('[data-testid="selection-where"]'),
     ).toBeNull();
-    expect(document.body.textContent).toContain("As a code card");
+    expect(
+      document.querySelector('[aria-label="As a code card"]'),
+    ).not.toBeNull();
   });
 
   it("AC-344 Where it was puts one text for each line on the page, in the same places", async () => {
@@ -370,7 +372,6 @@ describe("AC-355 the choices under the box", () => {
 
     return (
       <SelectionBar
-        compact
         api={api}
         text={text}
         lines={lines}

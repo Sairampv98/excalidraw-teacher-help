@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 
 import { ExcalidrawAPIContext } from "@excalidraw/excalidraw/components/App";
@@ -126,6 +126,9 @@ const openMarkdown = async () => {
     () => expect(container.querySelector(".app-doc-markdown")).toBeTruthy(),
     { timeout: CLIPBOARD_WAIT_MS },
   );
+
+  // the viewer listens for the end of a selection from an effect: let it run
+  await act(async () => {});
 
   const body = container.querySelector<HTMLElement>(".app-doc-markdown")!;
 

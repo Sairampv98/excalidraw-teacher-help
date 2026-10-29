@@ -10,7 +10,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 
 import { ExcalidrawAPIContext } from "@excalidraw/excalidraw/components/App";
@@ -235,6 +235,9 @@ describe("AC-347 a link in the viewer", () => {
     await waitFor(() =>
       expect(container.querySelector(".app-doc-markdown a")).not.toBeNull(),
     );
+
+    // the viewer listens for the end of a selection from an effect: let it run
+    await act(async () => {});
 
     return { container, setToast };
   };
