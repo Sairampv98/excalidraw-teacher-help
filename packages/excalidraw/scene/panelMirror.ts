@@ -129,6 +129,97 @@ export const isSamePanelMirrorRegion = (
   );
 };
 
+/**
+ * The three ways to look at the editor's window (D-322).
+ *
+ *  - **whole**: the window as a screenshot gives it - the default;
+ *  - **part**: the region the teacher drew on the whole window, kept until
+ *    they draw another;
+ *  - **follow**: a region of the chosen size that moves with the pointer.
+ *
+ * The mode is not stored on its own: it is what the panel's mirror says (no
+ * region is the whole window, a region is a part, a region that follows is a
+ * follow), so the protocol, the payload and the descriptor stay as they were.
+ */
+export type PanelMirrorMode = "whole" | "part" | "follow";
+
+/** The region a follow starts with when none was drawn: 40% by 40%, centred. */
+export const DEFAULT_FOLLOW_REGION: PanelMirrorRegion = {
+  x: 0.3,
+  y: 0.3,
+  width: 0.4,
+  height: 0.4,
+};
+
+/** The mode a mirror is in. */
+export const panelMirrorMode = (mirror: PanelMirror): PanelMirrorMode =>
+  !mirror.region ? "whole" : mirror.follow ? "follow" : "part";
+
+/**
+ * The mirror in another mode (D-322).
+ *
+ * **Whole** forgets the region and the follow; **part** keeps the region and
+ * stops following (with no region there is nothing to keep, and the mirror
+ * stays whole - the picker is what draws one); **follow** keeps the region and
+ * follows, and starts with {@link DEFAULT_FOLLOW_REGION} when there is none.
+ */
+export const withPanelMirrorMode = (
+  mirror: PanelMirror,
+  mode: PanelMirrorMode,
+): PanelMirror => {
+  switch (mode) {
+    case "whole":
+      return { region: null, follow: false };
+    case "part":
+      return mirror.region
+        ? { region: mirror.region, follow: false }
+        : { region: null, follow: false };
+    case "follow":
+      return { region: mirror.region ?? DEFAULT_FOLLOW_REGION, follow: true };
+  }
+};
+
+/**
+ * A pointer's place in the box of the view, as fractions of the box (D-324).
+ *
+ * A place outside the box is held on its edge: a drag that leaves the view is
+ * still a drag, and it ends at the edge. A box with no size has no places, so
+ * its middle is the answer.
+ */
+export const panelPointInView = (
+  box: { left: number; top: number; width: number; height: number },
+  point: { x: number; y: number },
+): { x: number; y: number } => ({
+  x:
+    box.width > 0
+      ? Math.min(Math.max((point.x - box.left) / box.width, 0), 1)
+      : 0.5,
+  y:
+    box.height > 0
+      ? Math.min(Math.max((point.y - box.top) / box.height, 0), 1)
+      : 0.5,
+});
+
+/**
+ * A place in the view, as a place in the **whole window** (D-324).
+ *
+ * The view shows a region of the window (the whole of it when there is no
+ * region), so a place in the view goes through the region: the view's corners
+ * are the region's corners. What comes out is a fraction of the whole window,
+ * which is the same place whatever size the window is.
+ */
+export const panelPointToWindow = (
+  region: PanelMirrorRegion | null,
+  place: { x: number; y: number },
+): { x: number; y: number } => {
+  const shown = region ?? WHOLE_WINDOW;
+
+  return {
+    x: roundMirrorPlace(shown.x + place.x * shown.width),
+    y: roundMirrorPlace(shown.y + place.y * shown.height),
+  };
+};
+
 /** The picture the region is a part of: the whole window's own size. */
 export interface PanelMirrorPicture {
   /** the picture's own width, in its own pixels */

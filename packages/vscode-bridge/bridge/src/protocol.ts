@@ -53,6 +53,9 @@ export const BRIDGE_MESSAGE_TYPES = [
   "editor:content",
   "editor:capture",
   "editor:mirror",
+  "editor:control",
+  "editor:input",
+  "editor:window",
   "run:started",
   "run:output",
   "run:exit",
@@ -203,6 +206,239 @@ export const isSameBridgeMirrorRegion = (
     a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
   );
 };
+
+/**
+ * The **control** of the mirrored window (D-323, D-327).
+ *
+ * The canvas can send the mouse and the keyboard into the editor's window, and
+ * the events that travel are a **closed list**: a pointer event, a wheel
+ * event, a key event and a text event. Every number is bounded, every key is
+ * a name from a table (never a raw code), and a text is short and has no
+ * control characters - so what arrives is never more than what a keyboard and
+ * a mouse can do in that one window.
+ */
+
+/** The modifiers of an input event, as a mask. The Windows key is never one. */
+export const INPUT_MOD_CTRL = 1;
+export const INPUT_MOD_SHIFT = 2;
+export const INPUT_MOD_ALT = 4;
+/** Every bit a mask may carry. */
+export const INPUT_MOD_MASK = INPUT_MOD_CTRL | INPUT_MOD_SHIFT | INPUT_MOD_ALT;
+
+/** The most a text event may carry, in UTF-16 units (D-327). */
+export const INPUT_TEXT_MAX = 256;
+
+/** The most a wheel event may turn, in notches, either way (D-327). */
+export const INPUT_WHEEL_MAX = 20;
+
+/** The pointer buttons an event may name. */
+export type BridgeInputButton = "left" | "middle" | "right";
+
+/** The keys an event may name: `KeyboardEvent.code`'s own names (D-327). */
+export const BRIDGE_KEY_CODES: readonly string[] = [
+  ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((letter) => `Key${letter}`),
+  ...Array.from({ length: 10 }, (_, digit) => `Digit${digit}`),
+  ...Array.from({ length: 10 }, (_, digit) => `Numpad${digit}`),
+  ...Array.from({ length: 12 }, (_, key) => `F${key + 1}`),
+  "Enter",
+  "NumpadEnter",
+  "Tab",
+  "Escape",
+  "Backspace",
+  "Delete",
+  "Insert",
+  "Home",
+  "End",
+  "PageUp",
+  "PageDown",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "Space",
+  "Minus",
+  "Equal",
+  "BracketLeft",
+  "BracketRight",
+  "Backslash",
+  "Semicolon",
+  "Quote",
+  "Backquote",
+  "Comma",
+  "Period",
+  "Slash",
+  "NumpadAdd",
+  "NumpadSubtract",
+  "NumpadMultiply",
+  "NumpadDivide",
+  "NumpadDecimal",
+];
+
+/** What the teacher's canvas sends into the editor's window (D-323). */
+export type BridgeInputEvent =
+  | {
+      kind: "pointer";
+      /**
+       * A double click is two presses: the extension recognises it the way
+       * Windows does (same button, near, quick), so there is no event for it.
+       */
+      action: "move" | "down" | "up";
+      /** a place in the WHOLE window, as a fraction of it (D-324) */
+      x: number;
+      y: number;
+      button?: BridgeInputButton;
+      mods: number;
+    }
+  | {
+      kind: "wheel";
+      x: number;
+      y: number;
+      /** notches: positive is down and to the right, like the browser's */
+      dx: number;
+      dy: number;
+      mods: number;
+    }
+  | {
+      kind: "key";
+      action: "down" | "up";
+      /** a name from {@link BRIDGE_KEY_CODES} */
+      code: string;
+      /** the character the key types, when it types one */
+      char?: string;
+      mods: number;
+    }
+  | { kind: "text"; text: string };
+
+/** Whether a value is a fraction of the window: 0 to 1. */
+const isFraction = (value: unknown): value is number =>
+  typeof value === "number" &&
+  Number.isFinite(value) &&
+  value >= 0 &&
+  value <= 1;
+
+/** Whether a value is a modifier mask. */
+const isModMask = (value: unknown): value is number =>
+  typeof value === "number" &&
+  Number.isInteger(value) &&
+  value >= 0 &&
+  (value & ~INPUT_MOD_MASK) === 0;
+
+/** Whether a value is a number of notches the wheel may turn. */
+const isNotches = (value: unknown): value is number =>
+  typeof value === "number" &&
+  Number.isFinite(value) &&
+  Math.abs(value) <= INPUT_WHEEL_MAX;
+
+/** Whether a text is short and made of characters a person types (D-327). */
+export const isInputText = (value: unknown): value is string =>
+  typeof value === "string" &&
+  value.length > 0 &&
+  value.length <= INPUT_TEXT_MAX &&
+  // a line feed and a tab are typed (as Enter and Tab); nothing else below a
+  // space is, and neither is DEL
+  // eslint-disable-next-line no-control-regex
+  !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value);
+
+/**
+ * Whether a value is an input event the control accepts (D-327).
+ *
+ * The list is closed: a kind that is not here, a number out of its range, a
+ * key that is not in the table and a text that is too long are all refused.
+ */
+export const isBridgeInputEvent = (
+  value: unknown,
+): value is BridgeInputEvent => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  switch (value.kind) {
+    case "pointer":
+      return (
+        (value.action === "move" ||
+          value.action === "down" ||
+          value.action === "up") &&
+        isFraction(value.x) &&
+        isFraction(value.y) &&
+        (value.button === undefined ||
+          value.button === "left" ||
+          value.button === "middle" ||
+          value.button === "right") &&
+        isModMask(value.mods)
+      );
+    case "wheel":
+      return (
+        isFraction(value.x) &&
+        isFraction(value.y) &&
+        isNotches(value.dx) &&
+        isNotches(value.dy) &&
+        isModMask(value.mods)
+      );
+    case "key":
+      return (
+        (value.action === "down" || value.action === "up") &&
+        typeof value.code === "string" &&
+        BRIDGE_KEY_CODES.includes(value.code) &&
+        (value.char === undefined ||
+          (typeof value.char === "string" &&
+            // one printed character (a surrogate pair is one) and no control
+            [...value.char].length === 1 &&
+            isInputText(value.char))) &&
+        isModMask(value.mods)
+      );
+    case "text":
+      return isInputText(value.text);
+    default:
+      return false;
+  }
+};
+
+/**
+ * How the control gets its input into the editor's window (D-325, D-326).
+ *
+ * `background` posts messages to the window's own page and never takes the
+ * focus; `focus` brings the window to the front for a burst and uses real
+ * input; `none` is said when there is nothing to send to.
+ */
+export type BridgeControlRoute = "background" | "focus" | "none";
+
+/** What the capture's descriptor says about the control (D-323, D-326). */
+export interface BridgeControlState {
+  /** is Control on? */
+  enabled: boolean;
+  /** the way the input goes in */
+  route: BridgeControlRoute;
+  /** one sentence: why this route, or why there is none. Never empty. */
+  reason: string;
+}
+
+/** Whether a value is the control's state. */
+export const isBridgeControlState = (
+  value: unknown,
+): value is BridgeControlState =>
+  isRecord(value) &&
+  typeof value.enabled === "boolean" &&
+  (value.route === "background" ||
+    value.route === "focus" ||
+    value.route === "none") &&
+  typeof value.reason === "string" &&
+  value.reason.length > 0;
+
+/** What the panel asks of the editor's window itself (D-328). */
+export type BridgeWindowAction = "park" | "bring-back";
+
+/** Every action on the window the panel may ask for. The list is closed. */
+export const BRIDGE_WINDOW_ACTIONS: readonly BridgeWindowAction[] = [
+  "park",
+  "bring-back",
+];
+
+/** Whether a value is one of the window's actions. */
+export const isBridgeWindowAction = (
+  value: unknown,
+): value is BridgeWindowAction =>
+  typeof value === "string" &&
+  (BRIDGE_WINDOW_ACTIONS as readonly string[]).includes(value);
 
 /**
  * The presenter's **controls**, as they travel over the bridge (D-145).
@@ -381,7 +617,37 @@ export type BridgeMessage =
        */
       width?: number;
       height?: number;
+      /**
+       * The **control** of the window: whether it is on, the route its input
+       * takes and why (D-323, D-326). Absent from an extension that predates
+       * the control, and the panel then offers none.
+       */
+      control?: BridgeControlState;
+      /**
+       * Whether the editor's window is **parked** off every display (D-328).
+       * Absent means it is not.
+       */
+      parked?: boolean;
     }
+  /**
+   * panel -> extension. Control on or off (D-323).
+   *
+   * Control is **off** until a panel says otherwise, and it is off again when
+   * the connection ends (D-327).
+   */
+  | { v: 1; type: "editor:control"; enabled: boolean }
+  /**
+   * panel -> extension. One input event for the editor's window (D-323).
+   *
+   * It is accepted only while Control is on, and only when it is one of the
+   * closed list of events (D-327).
+   */
+  | { v: 1; type: "editor:input"; event: BridgeInputEvent }
+  /**
+   * panel -> extension. Park the editor's window off every display, or bring
+   * it back (D-328). The list is closed.
+   */
+  | { v: 1; type: "editor:window"; action: BridgeWindowAction }
   /**
    * panel -> extension. What is mirrored, and whether it follows the pointer
    * (D-143).
@@ -720,8 +986,18 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
         (value.region === undefined || isBridgeMirrorRegion(value.region)) &&
         (value.follow === undefined || typeof value.follow === "boolean") &&
         (value.width === undefined || typeof value.width === "number") &&
-        (value.height === undefined || typeof value.height === "number")
+        (value.height === undefined || typeof value.height === "number") &&
+        // the control and the parking are optional: an extension that
+        // predates them still connects (D-323, D-328)
+        (value.control === undefined || isBridgeControlState(value.control)) &&
+        (value.parked === undefined || typeof value.parked === "boolean")
       );
+    case "editor:control":
+      return typeof value.enabled === "boolean";
+    case "editor:input":
+      return isBridgeInputEvent(value.event);
+    case "editor:window":
+      return isBridgeWindowAction(value.action);
     case "editor:mirror":
       return (
         // the region is optional: no region means the whole window (D-143)

@@ -109,7 +109,7 @@ export interface BridgeServerOptions {
    * It is served by the very same HTTP server that carries the websocket
    * upgrade and the capture stream: the same fixed loopback port, another
    * path. The panel is the teacher's own page - the controls they use while
-   * the presenter is on the virtual display.
+   * the presenter is showing and their editor is parked out of sight.
    */
   inputPanel?: {
     handle: (req: IncomingMessage, res: ServerResponse) => boolean;

@@ -510,13 +510,17 @@ copyFileSync(
   join(stageDir, "extension", "media", "ocr_sidecar.py"),
 );
 
-// The virtual-display helper SHIPS with the extension as well: the extension
-// resolves it inside its own installed folder, and a helper that is not in the
-// package is a feature that is DEAD in every install (D-151).
-copyFileSync(
-  join(extensionDir, "media", "virtual-display.ps1"),
-  join(stageDir, "extension", "media", "virtual-display.ps1"),
-);
+// The window helper (parking) and the input helper (the canvas's control)
+// SHIP with the extension as well: the extension resolves them inside its own
+// installed folder, and a helper that is not in the package is a feature that
+// is DEAD in every install (D-151). The virtual display's helper is gone with
+// the driver (D-329).
+for (const helper of ["window.ps1", "input.ps1"]) {
+  copyFileSync(
+    join(extensionDir, "media", helper),
+    join(stageDir, "extension", "media", helper),
+  );
+}
 
 // The OCR engine SHIPS with the extension as FILES: it loads its worker and
 // its core from paths at run time, so bundling the extension's TypeScript is
@@ -546,10 +550,12 @@ const entries = [
     data: readFileSync(join(stageDir, "extension", "media", "ocr_sidecar.py")),
   },
   {
-    name: "extension/media/virtual-display.ps1",
-    data: readFileSync(
-      join(stageDir, "extension", "media", "virtual-display.ps1"),
-    ),
+    name: "extension/media/window.ps1",
+    data: readFileSync(join(stageDir, "extension", "media", "window.ps1")),
+  },
+  {
+    name: "extension/media/input.ps1",
+    data: readFileSync(join(stageDir, "extension", "media", "input.ps1")),
   },
 ];
 if (existsSync(join(stageDir, "extension", "README.md"))) {

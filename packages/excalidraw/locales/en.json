@@ -287,7 +287,21 @@
       "wholeWindow": "Mirror the whole window",
       "cancel": "Cancel",
       "handle": "Crop the mirrored region",
-      "fetchFailed": "The editor's window could not be fetched - the whole window is mirrored."
+      "fetchFailed": "The editor's window could not be fetched - the whole window is mirrored.",
+      "modeWhole": "Whole",
+      "modePart": "Part",
+      "modeFollow": "Follow"
+    },
+    "control": {
+      "label": "Control",
+      "offTitle": "Control the editor's window from here: your clicks, the wheel and your typing go into it",
+      "onTitle": "Control is on: click the picture to type into the editor. {{chord}} gives the keyboard back. Press to turn it off",
+      "park": "Park",
+      "parkTitle": "Park the editor's window out of sight - it keeps working",
+      "bringBack": "Bring back",
+      "bringBackTitle": "Bring the editor's window back",
+      "routeBackground": "no focus taken",
+      "routeFocus": "with focus"
     },
     "pages": {
       "title": "Page",

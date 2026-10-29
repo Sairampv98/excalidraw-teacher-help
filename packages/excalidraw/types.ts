@@ -62,6 +62,7 @@ import type { ImportedDataState } from "./data/types";
 import type { Language } from "./i18n";
 import type { isOverScrollBars } from "./scene/scrollbars";
 import type { PanelBridgeStatus } from "./scene/panelContent";
+import type { PanelControlControls } from "./scene/panelControl";
 import type { PanelMirror } from "./scene/panelMirror";
 import type { PanelScreenshotChoice } from "./scene/panelScreenshot";
 import type { PagePaper, PagePaperDraw } from "./scene/paper";
@@ -1008,6 +1009,18 @@ export interface ExcalidrawProps {
    * editor's window, which is the default anyway.
    */
   panelMirror?: PanelMirrorControls;
+  /**
+   * The host app's controls for the **control** of the mirrored editor window
+   * (D-323).
+   *
+   * The library draws the switch and turns what the teacher does over the live
+   * view into events; the host sends them over the bridge, because the host is
+   * the side that talks to it.
+   *
+   * Without this prop there is no control: the panel only shows the editor's
+   * window.
+   */
+  panelControl?: PanelControlControls;
 
   /**
    * The host app's controls for the code panel's **draft** (D-123).

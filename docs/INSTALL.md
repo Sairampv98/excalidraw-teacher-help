@@ -154,7 +154,7 @@ The token is a secret and is treated like one:
 
 Everything here works on **Windows on ARM** — but two things differ, and it is better to say so than to let you find out.
 
-**What is the same.** The extension is plain JavaScript, the capture and the virtual-display helpers call **Windows' own APIs** (`user32.dll`) and nothing else, and the OCR engine is **WebAssembly**. There is no x64 binary anywhere in the package.
+**What is the same.** The extension is plain JavaScript, the capture, window and input helpers call **Windows' own APIs** (`user32.dll`) and nothing else, and the OCR engine is **WebAssembly**. There is no x64 binary anywhere in the package.
 
 **What differs.**
 

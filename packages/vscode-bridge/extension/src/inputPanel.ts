@@ -11,11 +11,10 @@ import type { IncomingMessage, ServerResponse } from "node:http";
  * The **input panel** - the controls the teacher uses, on their **real**
  * screen (D-145).
  *
- * The owner approved it in one line: *"yes work on the virtual display+input
- * panel"*. The idea is that **the screen the students see and the controls the
- * teacher uses are different surfaces**: the presenter's window goes on the
- * virtual display, and the teacher drives it from a small page beside their
- * notes and their IDE.
+ * The idea is that **the screen the students see and the controls the teacher
+ * uses are different surfaces**: the teacher drives the presenter from a small
+ * page beside their notes and their IDE, and parks the editor's window out of
+ * the way (D-328) from the same page.
  *
  * This module is that page, and the route that serves it. The rules it keeps:
  *
@@ -32,10 +31,10 @@ import type { IncomingMessage, ServerResponse } from "node:http";
  *    so there is one way to drive a presentation. A command that is not on the
  *    list is refused, so the panel can never run anything on the teacher's
  *    machine that the bridge does not already allow.
- *  - **the panel's own ACTIONS stay on the teacher's machine**. The one action
- *    there is - the editor's window moving onto the virtual display (D-147) -
- *    is the extension's own business, it never goes on the bridge, and the
- *    list of actions is closed.
+ *  - **the panel's own ACTIONS stay on the teacher's machine**. The two actions
+ *    there are - the editor's window parked off every display, and brought back
+ *    (D-328) - are the extension's own business, they never go on the bridge,
+ *    and the list of actions is closed.
  *  - **the panel does not take the teacher's keystrokes**. It installs no key
  *    handler at all, it never calls `focus()`, and its buttons do not take
  *    the focus when they are clicked: the teacher types in their own editor
@@ -73,28 +72,12 @@ const PANEL_ROUTE = new RegExp(
   `^${PANEL_PATH_PREFIX}/([^/]+)/(?:${PANEL_PAGE_SUFFIX}|${PANEL_STATE_SUFFIX}|${PANEL_CONTROL_SUFFIX})$`,
 );
 
-/** What the panel shows about the presenter's screen. */
+/** What the panel shows about the editor's window. */
 export interface PanelState {
-  /** the display the presenter's window is on */
-  display: {
-    device: string;
-    name: string;
-    width: number;
-    height: number;
-    x: number;
-    y: number;
-  } | null;
-  /** is that display a virtual one? */
-  virtual: boolean;
+  /** is the editor's window parked off every display? (D-328) */
+  parked: boolean;
   /** the sentence the teacher reads. Never empty. */
   reason: string;
-  /**
-   * The click the teacher has to make, when there is one (D-146).
-   *
-   * A virtual display driver that is installed but DETACHED is one click away
-   * from being usable, and the panel shows that click instead of hiding it.
-   */
-  remedy?: string;
 }
 
 /**
@@ -105,14 +88,14 @@ export interface PanelState {
  * never leaves the teacher's own machine. The list is closed - a page that
  * asks for anything else is refused.
  *
- * The editor's window moves only when the teacher presses the button
+ * The editor's window is parked only when the teacher presses the button
  * (D-148): their window is theirs, and nothing moves unless they ask.
  */
-export type PanelAction = "move-editor-window" | "bring-back-editor-window";
+export type PanelAction = "park-editor-window" | "bring-back-editor-window";
 
 /** Every action the panel may ask for. */
 export const PANEL_ACTIONS: readonly PanelAction[] = [
-  "move-editor-window",
+  "park-editor-window",
   "bring-back-editor-window",
 ];
 
@@ -129,10 +112,9 @@ export const isPanelAction = (value: unknown): value is PanelAction =>
 
 /** The state the panel shows when nothing is known yet. */
 export const UNKNOWN_PANEL_STATE: PanelState = {
-  display: null,
-  virtual: false,
+  parked: false,
   reason:
-    "the presenter's screen is not known yet - open the input panel again once the bridge is up",
+    "the editor's window is not known yet - open the input panel again once the bridge is up",
 };
 
 /**
@@ -184,11 +166,6 @@ export const panelPage = (): string => `<!doctype html>
   }
   h1 { font-size: 16px; margin: 0 0 4px; }
   #where { margin: 0 0 12px; opacity: 0.8; }
-  #remedy {
-    margin: 0 0 12px;
-    padding: 8px 10px;
-    border-left: 3px solid rgba(128, 128, 128, 0.6);
-  }
   .controls { display: flex; flex-wrap: wrap; gap: 8px; }
   button {
     font: inherit;
@@ -205,8 +182,7 @@ export const panelPage = (): string => `<!doctype html>
 </head>
 <body>
 <h1>Presenter controls</h1>
-<p id="where">Looking for the presenter's screen...</p>
-<p id="remedy" hidden></p>
+<p id="where">Looking for the editor's window...</p>
 <div class="controls">
   <button type="button" data-command="previous-page">Previous page</button>
   <button type="button" data-command="next-page">Next page</button>
@@ -216,8 +192,8 @@ export const panelPage = (): string => `<!doctype html>
   <button type="button" data-command="stop">Stop</button>
 </div>
 <div class="controls">
-  <button type="button" data-action="move-editor-window">Move this editor to the virtual display</button>
-  <button type="button" data-action="bring-back-editor-window">Bring this editor back to this screen</button>
+  <button type="button" data-action="park-editor-window">Park this editor out of sight</button>
+  <button type="button" data-action="bring-back-editor-window">Bring this editor back</button>
 </div>
 <p id="status"></p>
 <script>
@@ -229,8 +205,8 @@ export const panelPage = (): string => `<!doctype html>
   // driven the same way it is driven from its own window.
   //
   // An ACTION is the panel's own business on the teacher's machine - the
-  // editor's window moving onto the virtual display (D-147). It never goes on
-  // the bridge.
+  // editor's window parked out of sight, or brought back (D-328). It never goes
+  // on the bridge.
   // The status line's own name. NOT "status": window.status is a string the
   // browser owns, so a "var status" here would BE that string, and every
   // status.textContent = ... would be silently dropped onto it - the line
@@ -301,18 +277,10 @@ export const panelPage = (): string => `<!doctype html>
     })
     .then(function (state) {
       document.getElementById("where").textContent = state.reason;
-
-      // The remedy, when there is one: a virtual display that is installed
-      // but detached is one click away, and the panel says which click
-      // (D-146).
-      var remedy = document.getElementById("remedy");
-
-      remedy.textContent = state.remedy || "";
-      remedy.hidden = !state.remedy;
     })
     .catch(function () {
       document.getElementById("where").textContent =
-        "the presenter's screen is not known yet";
+        "the editor's window is not known yet";
     });
 </script>
 </body>
@@ -525,8 +493,8 @@ export const createInputPanel = (options: InputPanelOptions): InputPanel => {
 
       if (isPanelAction(parsed?.action)) {
         // An ACTION is the panel's own business on the teacher's own machine:
-        // the editor's window moving onto the virtual display (D-147). It
-        // never goes on the bridge, and the list of actions is closed.
+        // the editor's window parked out of sight, or brought back (D-328).
+        // It never goes on the bridge, and the list of actions is closed.
         options.onAction?.(parsed.action);
 
         text(

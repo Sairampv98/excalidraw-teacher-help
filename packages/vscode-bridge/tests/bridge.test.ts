@@ -26,8 +26,11 @@ import {
 import { createRunner, type SpawnedProcess } from "../extension/src/runner";
 import { runSnippet } from "../extension/src/snippet";
 import { resolvePort, resolveToken } from "../extension/src/config";
-import { createInputPanel } from "../extension/src/inputPanel";
-import { createVirtualDisplay } from "../extension/src/virtualDisplay";
+import {
+  createInputPanel,
+  isPanelAction,
+  PANEL_ACTIONS,
+} from "../extension/src/inputPanel";
 import {
   applyMirrorMessage,
   createMirrorStore,
@@ -151,6 +154,13 @@ describe("the bridge protocol", () => {
       region: { x: 0.25, y: 0.1, width: 0.5, height: 0.4 },
       follow: false,
     },
+    { v: 1, type: "editor:control", enabled: true },
+    {
+      v: 1,
+      type: "editor:input",
+      event: { kind: "pointer", action: "down", x: 0.5, y: 0.25, mods: 0 },
+    },
+    { v: 1, type: "editor:window", action: "park" },
     {
       v: 1,
       type: "run:started",
@@ -753,106 +763,21 @@ describe("the runnable snippet", () => {
 });
 
 /**
- * The **virtual display** and the **input panel** (D-145).
+ * The **input panel** (D-145).
  *
  * The screen the students see and the controls the teacher uses are different
- * surfaces: the presenter's window goes on a virtual display when the machine
- * has one, and the teacher drives it from a small page on their real screen.
+ * surfaces: the teacher drives the presenter from a small page on their real
+ * screen, and parks the editor's window out of sight from the same page
+ * (D-328).
  *
  * These are the extension's half of that, and the rules they keep:
  *
- *  - a virtual display is found and the presenter's window is placed on it;
- *  - with no virtual display the feature says so plainly and falls back to the
- *    desktop - never a silent failure and never a crash;
  *  - the panel's controls travel over the **bridge**, so there is one way to
  *    drive a presentation;
+ *  - the panel's own actions are a closed list: park, and bring back;
  *  - the panel is served on 127.0.0.1 only, and it carries no token.
  */
-describe("the virtual display and the input panel", () => {
-  /** The real display on this kind of machine. */
-  const REAL_DISPLAY = {
-    device: "\\\\.\\DISPLAY1",
-    name: "Generic PnP Monitor",
-    adapter: "AMD Radeon(TM) Graphics",
-    adapterId: "PCI\\VEN_1002&DEV_1638",
-    adapterKey:
-      "\\Registry\\Machine\\System\\CurrentControlSet\\Control\\Video\\{DDC0}\\0000",
-    deviceId: "MONITOR\\LEN9059\\{4d36e96e}\\0001",
-    deviceKey:
-      "\\Registry\\Machine\\System\\CurrentControlSet\\Control\\Class\\{4d36e96e}\\0001",
-    width: 1920,
-    height: 1080,
-    x: 0,
-    y: 0,
-    attached: true,
-    primary: true,
-    adapterFlags: 524293,
-    deviceFlags: 3,
-  };
-
-  /** The virtual display an indirect display driver would add. */
-  const VIRTUAL_DISPLAY = {
-    ...REAL_DISPLAY,
-    device: "\\\\.\\DISPLAY2",
-    name: "Virtual Monitor",
-    adapter: "Virtual Display Driver",
-    adapterId: "ROOT\\DISPLAY\\0001",
-    width: 2560,
-    height: 1440,
-    x: 1920,
-    y: 0,
-    primary: false,
-  };
-
-  /** The helper's output: one json object per line. */
-  const helperOutput = (displays: unknown[]) =>
-    displays.map((display) => JSON.stringify(display)).join("\n");
-
-  /** A helper that answers without a Windows machine behind it. */
-  const fakeHelper = (displays: unknown[]) => {
-    const calls: string[][] = [];
-
-    const run = async (args: string[]) => {
-      calls.push(args);
-
-      if (args.includes("Enumerate")) {
-        return helperOutput(displays);
-      }
-
-      if (args.includes("Find")) {
-        return JSON.stringify({
-          found: true,
-          visible: true,
-          handle: 4242,
-          title: "Excalidraw - Presenter view",
-          x: 100,
-          y: 100,
-          width: 800,
-          height: 600,
-        });
-      }
-
-      // the placement is MEASURED: the helper reads the window back after
-      // the move, and the measured rect is the answer (D-147)
-      return JSON.stringify({
-        placed: true,
-        moved: true,
-        wasMaximised: false,
-        restored: false,
-        maximised: false,
-        minimised: false,
-        handle: 4242,
-        measuredX: 1920,
-        measuredY: 0,
-        measuredWidth: 2560,
-        measuredHeight: 1440,
-        reason: "",
-      });
-    };
-
-    return { calls, run };
-  };
-
+describe("the input panel", () => {
   /** A plain http request against the bridge's own loopback server. */
   const fetchFrom = async (
     port: number,
@@ -889,73 +814,6 @@ describe("the virtual display and the input panel", () => {
       req.end();
     });
 
-  it("AC-181 the virtual display is detected and the presenter's window is placed on it", async () => {
-    const helper = fakeHelper([REAL_DISPLAY, VIRTUAL_DISPLAY]);
-    const service = createVirtualDisplay({
-      scriptPath: "virtual-display.ps1",
-      run: helper.run,
-    });
-
-    const displays = await service.displays();
-
-    expect(displays).toHaveLength(2);
-
-    // the virtual one is the virtual one, and the real one is not
-    expect(
-      displays.find((display) => display.device === VIRTUAL_DISPLAY.device),
-    ).toMatchObject({ virtual: true, width: 2560, height: 1440, x: 1920 });
-    expect(
-      displays.find((display) => display.device === REAL_DISPLAY.device),
-    ).toMatchObject({ virtual: false, width: 1920, height: 1080 });
-
-    const target = await service.target();
-
-    expect(target.virtual).toBe(true);
-    expect(target.display?.device).toBe(VIRTUAL_DISPLAY.device);
-    expect(target.reason).toContain("virtual display");
-
-    const placement = await service.placePresenter();
-
-    expect(placement.placed).toBe(true);
-    expect(placement.display?.device).toBe(VIRTUAL_DISPLAY.device);
-
-    // and the window was moved to the display's OWN rectangle
-    const placeCall = helper.calls.find((args) => args.includes("Place"));
-
-    expect(placeCall).toBeTruthy();
-    expect(placeCall?.join(" ")).toContain("-X 1920");
-    expect(placeCall?.join(" ")).toContain("-Y 0");
-    expect(placeCall?.join(" ")).toContain("-Width 2560");
-    expect(placeCall?.join(" ")).toContain("-Height 1440");
-  });
-
-  it("AC-181 with no virtual display the feature says so plainly and falls back to the desktop", async () => {
-    const helper = fakeHelper([REAL_DISPLAY]);
-    const service = createVirtualDisplay({
-      scriptPath: "virtual-display.ps1",
-      run: helper.run,
-    });
-
-    const target = await service.target();
-
-    expect(target.virtual).toBe(false);
-    expect(target.display?.device).toBe(REAL_DISPLAY.device);
-
-    // the reason is a plain sentence, and it is never empty: a failure is a
-    // message, not a silence (D-75)
-    expect(target.reason.length).toBeGreaterThan(0);
-    expect(target.reason).toContain("no virtual display");
-    expect(target.reason).toContain("opens on the desktop");
-
-    const placement = await service.placePresenter();
-
-    expect(placement.placed).toBe(false);
-    expect(placement.reason).toContain("no virtual display");
-
-    // and NOTHING was moved: the presenter's own window opens on the desktop
-    expect(helper.calls.some((args) => args.includes("Place"))).toBe(false);
-  });
-
   it("AC-181 the input panel's controls drive the presenter over the bridge and not the teacher's own window", async () => {
     const sent: BridgeMessage[] = [];
     const panel = createInputPanel({
@@ -964,9 +822,8 @@ describe("the virtual display and the input panel", () => {
         sent.push({ v: 1, type: "present:command", command });
       },
       state: () => ({
-        display: null,
-        virtual: false,
-        reason: "the presenter's window opens on the desktop",
+        parked: false,
+        reason: "the editor's window is on a display",
       }),
     });
     const capability = panel.createCapability();
@@ -1048,6 +905,282 @@ describe("the virtual display and the input panel", () => {
     expect(page.body).not.toMatch(/\.focus\(/);
     expect(page.body).not.toMatch(/autofocus/i);
     expect(page.body).toContain('data-command="next-page"');
+  });
+
+  it("AC-376 the input panel's actions are park and bring back and the list is closed", async () => {
+    // the closed list: the two actions of the window, and nothing else
+    expect([...PANEL_ACTIONS]).toEqual([
+      "park-editor-window",
+      "bring-back-editor-window",
+    ]);
+    expect(isPanelAction("park-editor-window")).toBe(true);
+    expect(isPanelAction("bring-back-editor-window")).toBe(true);
+    expect(isPanelAction("move-editor-window")).toBe(false);
+    expect(isPanelAction("move-to-display")).toBe(false);
+    expect(isPanelAction("code:run")).toBe(false);
+
+    const actions: string[] = [];
+    const commands: string[] = [];
+    const panel = createInputPanel({
+      port: () => 47511,
+      onCommand: (command) => commands.push(command),
+      onAction: (action) => actions.push(action),
+    });
+    const capability = panel.createCapability();
+    const server = await startServer({ inputPanel: panel });
+
+    const post = (body: unknown) =>
+      fetchFrom(server.port, {
+        method: "POST",
+        path: `/panel/${capability}/control`,
+        body: JSON.stringify(body),
+      });
+
+    expect((await post({ action: "park-editor-window" })).status).toBe(200);
+    expect((await post({ action: "bring-back-editor-window" })).status).toBe(
+      200,
+    );
+
+    // an action the list does not have is refused and nothing runs
+    expect((await post({ action: "move-editor-window" })).status).toBe(400);
+    expect((await post({ action: "move-to-display" })).status).toBe(400);
+
+    expect(actions).toEqual(["park-editor-window", "bring-back-editor-window"]);
+
+    // an action is the panel's own business: it is not a presenter command and
+    // it never goes on the bridge
+    expect(commands).toEqual([]);
+
+    // the page offers the two buttons, and no button that moves a window to a
+    // display
+    const page = await fetchFrom(server.port, {
+      path: `/panel/${capability}/index.html`,
+    });
+
+    expect(page.body).toContain('data-action="park-editor-window"');
+    expect(page.body).toContain('data-action="bring-back-editor-window"');
+    expect(page.body).not.toMatch(/virtual/i);
+    expect(page.body).not.toMatch(/Move this editor/i);
+  });
+
+  it("AC-376 the input panel's state is the window's", async () => {
+    const panel = createInputPanel({
+      port: () => 47511,
+      onCommand: () => undefined,
+      state: () => ({
+        parked: true,
+        reason: "the editor's window is parked: it keeps working, out of sight",
+      }),
+    });
+    const capability = panel.createCapability();
+    const server = await startServer({ inputPanel: panel });
+
+    const state = await fetchFrom(server.port, {
+      path: `/panel/${capability}/state`,
+    });
+
+    expect(JSON.parse(state.body)).toEqual({
+      parked: true,
+      reason: "the editor's window is parked: it keeps working, out of sight",
+    });
+
+    // the state the panel starts with says nothing about a display or a driver
+    const unknown = createInputPanel({
+      port: () => 47511,
+      onCommand: () => undefined,
+    });
+    const other = unknown.createCapability();
+    const second = await startServer({ inputPanel: unknown });
+    const fresh = await fetchFrom(second.port, {
+      path: `/panel/${other}/state`,
+    });
+
+    expect(JSON.parse(fresh.body)).toMatchObject({ parked: false });
+    expect(fresh.body).not.toMatch(/virtual|display|driver/i);
+  });
+});
+
+describe("the control of the editor's window (D-323, D-327)", () => {
+  const POINTER = {
+    kind: "pointer",
+    action: "down",
+    x: 0.5,
+    y: 0.25,
+    button: "left",
+    mods: 0,
+  } as const;
+
+  const accepts = (event: unknown) =>
+    parseBridgeMessage(
+      JSON.stringify({ v: 1, type: "editor:input", event }),
+    ) !== null;
+
+  it("AC-369 the control's messages are in the protocol and round-trip", () => {
+    for (const type of ["editor:control", "editor:input", "editor:window"]) {
+      expect(BRIDGE_MESSAGE_TYPES as readonly string[]).toContain(type);
+    }
+
+    for (const message of [
+      { v: 1, type: "editor:control", enabled: true },
+      { v: 1, type: "editor:control", enabled: false },
+      { v: 1, type: "editor:input", event: POINTER },
+      { v: 1, type: "editor:window", action: "park" },
+      { v: 1, type: "editor:window", action: "bring-back" },
+    ] as BridgeMessage[]) {
+      expect(parseBridgeMessage(encodeBridgeMessage(message))).toEqual(message);
+    }
+
+    // a control message with the wrong shape is refused
+    expect(
+      parseBridgeMessage('{"v":1,"type":"editor:control","enabled":"yes"}'),
+    ).toBeNull();
+    expect(
+      parseBridgeMessage('{"v":1,"type":"editor:window","action":"move"}'),
+    ).toBeNull();
+    expect(
+      parseBridgeMessage('{"v":1,"type":"editor:window","action":"close"}'),
+    ).toBeNull();
+  });
+
+  it("AC-369 an input event is one of four kinds and the others are refused", () => {
+    expect(accepts(POINTER)).toBe(true);
+    expect(
+      accepts({ kind: "pointer", action: "move", x: 0, y: 1, mods: 3 }),
+    ).toBe(true);
+    expect(
+      accepts({ kind: "wheel", x: 0.2, y: 0.8, dx: 0, dy: -2.5, mods: 0 }),
+    ).toBe(true);
+    expect(
+      accepts({
+        kind: "key",
+        action: "down",
+        code: "KeyS",
+        char: "s",
+        mods: 0,
+      }),
+    ).toBe(true);
+    expect(accepts({ kind: "key", action: "up", code: "Enter", mods: 1 })).toBe(
+      true,
+    );
+    expect(accepts({ kind: "text", text: "héllo\nworld" })).toBe(true);
+
+    // any other kind: a click that is not an event, a script, a command
+    for (const kind of ["click", "drop", "exec", "eval", "focus", ""]) {
+      expect([kind, accepts({ kind, x: 0.5, y: 0.5, mods: 0 })]).toEqual([
+        kind,
+        false,
+      ]);
+    }
+
+    // a double click is two presses: it is not an event of its own
+    expect(
+      accepts({ kind: "pointer", action: "dblclick", x: 0.5, y: 0.5, mods: 0 }),
+    ).toBe(false);
+    expect(accepts("down")).toBe(false);
+    expect(accepts(null)).toBe(false);
+  });
+
+  it("AC-369 a malformed input event is refused", () => {
+    const bad = [
+      // a place outside the window, or not a number
+      { ...POINTER, x: 1.01 },
+      { ...POINTER, y: -0.01 },
+      { ...POINTER, x: Number.NaN },
+      { ...POINTER, x: "0.5" },
+      // a button that is not one of three
+      { ...POINTER, button: "back" },
+      // modifiers that are not a mask (the Windows key is never one)
+      { ...POINTER, mods: 8 },
+      { ...POINTER, mods: -1 },
+      { ...POINTER, mods: 1.5 },
+      // a wheel that turns too far
+      { kind: "wheel", x: 0.5, y: 0.5, dx: 0, dy: 21, mods: 0 },
+      {
+        kind: "wheel",
+        x: 0.5,
+        y: 0.5,
+        dx: 0,
+        dy: Number.POSITIVE_INFINITY,
+        mods: 0,
+      },
+      // a key that is not in the table, a raw code, a character that is not one
+      { kind: "key", action: "down", code: "MetaLeft", mods: 0 },
+      { kind: "key", action: "down", code: "OSLeft", mods: 0 },
+      { kind: "key", action: "down", code: 91, mods: 0 },
+      { kind: "key", action: "down", code: "KeyA", char: "ab", mods: 0 },
+      { kind: "key", action: "down", code: "KeyA", char: "\u0007", mods: 0 },
+      { kind: "key", action: "hold", code: "KeyA", mods: 0 },
+      // a text that is too long, empty or made of control characters
+      { kind: "text", text: "a".repeat(257) },
+      { kind: "text", text: "" },
+      { kind: "text", text: "ab\u0000c" },
+      { kind: "text", text: "ab\u001bc" },
+      { kind: "text", text: 5 },
+    ];
+
+    for (const event of bad) {
+      expect([JSON.stringify(event), accepts(event)]).toEqual([
+        JSON.stringify(event),
+        false,
+      ]);
+    }
+
+    // and the largest a text may be is still accepted
+    expect(accepts({ kind: "text", text: "a".repeat(256) })).toBe(true);
+  });
+
+  it("AC-369 the descriptor carries the control's state", () => {
+    const published: CaptureStateMessage[] = [];
+    const captureState = createCaptureStatePublisher((message) =>
+      published.push(message),
+    );
+
+    // nothing is said about the control until it is said
+    captureState.live(1, { width: 1282, height: 674 });
+    expect(published[0].control).toBeUndefined();
+    expect(published[0].parked).toBeUndefined();
+
+    captureState.setControl({
+      enabled: true,
+      route: "background",
+      reason: "input goes to the editor's window without taking the focus",
+    });
+
+    expect(published).toHaveLength(2);
+    expect(published[1].control).toEqual({
+      enabled: true,
+      route: "background",
+      reason: "input goes to the editor's window without taking the focus",
+    });
+
+    // the same thing again is not a change
+    captureState.setControl({
+      enabled: true,
+      route: "background",
+      reason: "input goes to the editor's window without taking the focus",
+    });
+    expect(published).toHaveLength(2);
+
+    captureState.setParked(true);
+    expect(published).toHaveLength(3);
+    expect(published[2].parked).toBe(true);
+    expect(published[2].control?.enabled).toBe(true);
+
+    // and what travels is a legal message, with the route and the reason
+    for (const message of published) {
+      expect(parseBridgeMessage(encodeBridgeMessage(message))).toEqual(message);
+    }
+
+    expect(
+      parseBridgeMessage(
+        '{"v":1,"type":"editor:capture","state":"live","seq":1,"control":{"enabled":true,"route":"teleport","reason":"x"}}',
+      ),
+    ).toBeNull();
+    expect(
+      parseBridgeMessage(
+        '{"v":1,"type":"editor:capture","state":"live","seq":1,"control":{"enabled":true,"route":"focus","reason":""}}',
+      ),
+    ).toBeNull();
   });
 });
 

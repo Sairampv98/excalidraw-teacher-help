@@ -330,30 +330,46 @@ describe("the .vsix", () => {
   );
 
   it(
-    "AC-184 the .vsix ships the virtual-display helper",
+    "AC-184 the .vsix ships the window helper and the input helper",
     () => {
       const { entries } = buildOnce();
       const names = entries.map((entry) => entry.name);
 
-      // The virtual-display helper SHIPS with the extension: the extension
-      // resolves it inside its own installed folder, and a helper that is not
-      // in the package is a feature that is DEAD in every install (D-151).
-      expect(names).toContain("extension/media/virtual-display.ps1");
+      // The helpers SHIP with the extension: the extension resolves them inside
+      // its own installed folder, and a helper that is not in the package is a
+      // feature that is DEAD in every install (D-151).
+      for (const [name, says] of [
+        ["extension/media/window.ps1", "The window helper"],
+        ["extension/media/input.ps1", "The input helper"],
+        ["extension/media/capture.ps1", "The capture helper"],
+      ]) {
+        expect(names).toContain(name);
 
-      // The check is the ENTRY LIST, not a byte search: the helper's name
-      // appears inside extension.js too (the extension resolves the helper by
-      // that relative path), so a byte search would give a false positive.
-      const helper = entries.find(
-        (entry) => entry.name === "extension/media/virtual-display.ps1",
-      );
+        // The check is the ENTRY LIST, not a byte search: the helper's name
+        // appears inside extension.js too (the extension resolves the helper
+        // by that relative path), so a byte search would give a false
+        // positive.
+        const helper = entries.find((entry) => entry.name === name);
 
-      expect(helper).toBeTruthy();
+        expect(helper).toBeTruthy();
 
-      // and the entry carries the helper ITSELF, not an empty placeholder
-      expect(helper!.data.length).toBeGreaterThan(0);
-      expect(helper!.data.toString("utf8")).toContain(
-        "The virtual display helper",
-      );
+        // and the entry carries the helper ITSELF, not an empty placeholder
+        expect(helper!.data.length).toBeGreaterThan(0);
+        expect(helper!.data.toString("utf8")).toContain(says);
+      }
+    },
+    BUILD_TIMEOUT_MS,
+  );
+
+  it(
+    "AC-184 the .vsix does not ship the virtual-display helper",
+    () => {
+      const { entries } = buildOnce();
+      const names = entries.map((entry) => entry.name);
+
+      // the driver's helper is gone with the driver (D-329)
+      expect(names).not.toContain("extension/media/virtual-display.ps1");
+      expect(names.filter((name) => /virtual/i.test(name))).toEqual([]);
     },
     BUILD_TIMEOUT_MS,
   );

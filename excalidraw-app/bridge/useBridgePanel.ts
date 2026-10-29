@@ -14,10 +14,14 @@ import {
 import type {
   PanelBridgeControls,
   PanelCaptionControls,
+  PanelControlControls,
+  PanelControlState,
   PanelDraftControls,
+  PanelInputEvent,
   PanelMirrorControls,
   PanelMirror,
   PanelRunControls,
+  PanelWindowAction,
 } from "@excalidraw/excalidraw";
 import type {
   CodePanelDraft,
@@ -69,13 +73,27 @@ import type { CaptureStateMessage } from "../../packages/vscode-bridge/extension
  * know whether it changed: the same stream URL and the same state is the
  * same live view, and the panel must not re-render for it (D-85).
  */
+const sameControl = (
+  a: PanelControlState | undefined,
+  b: PanelControlState | undefined,
+): boolean =>
+  a?.enabled === b?.enabled && a?.route === b?.route && a?.reason === b?.reason;
+
 const sameCapture = (a: PanelCapture | null, b: PanelCapture): boolean => {
   if (!a || a.status !== b.status) {
     return false;
   }
 
   if (a.status === "live" && b.status === "live") {
-    return a.streamUrl === b.streamUrl;
+    // The control and the parking are part of the live view (D-323, D-328): a
+    // panel that says Control is on has to be told when it is not.
+    return (
+      a.streamUrl === b.streamUrl &&
+      a.width === b.width &&
+      a.height === b.height &&
+      a.parked === b.parked &&
+      sameControl(a.control, b.control)
+    );
   }
 
   if (a.status === "unavailable" && b.status === "unavailable") {
@@ -1060,6 +1078,33 @@ export const useBridgePanel = (
     [onMirrorChange],
   );
 
+  /**
+   * The **control** of the editor's window (D-323).
+   *
+   * The library turns what the teacher does over the live view into events and
+   * the session sends them: now, or not at all (D-327). The state - whether
+   * Control is on, the way its input goes in, whether the window is parked -
+   * comes back in the capture's descriptor, so it is the extension's word and
+   * every panel says the same thing.
+   */
+  const panelControl: PanelControlControls = useMemo(
+    () => ({
+      onToggle: (panelId: string, enabled: boolean) => {
+        void panelId;
+        sessionRef.current?.setControl(enabled);
+      },
+      onInput: (panelId: string, event: PanelInputEvent) => {
+        void panelId;
+        sessionRef.current?.sendInput(event);
+      },
+      onWindow: (panelId: string, action: PanelWindowAction) => {
+        void panelId;
+        sessionRef.current?.windowAction(action);
+      },
+    }),
+    [],
+  );
+
   const bridge: PanelBridgeControls = useMemo(
     () => ({
       status: state.connection,
@@ -1089,5 +1134,6 @@ export const useBridgePanel = (
     panelRun,
     panelCaptions,
     panelMirror,
+    panelControl,
   };
 };

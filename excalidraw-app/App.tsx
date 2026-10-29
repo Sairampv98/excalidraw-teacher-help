@@ -462,6 +462,7 @@ const ExcalidrawWrapper = () => {
     panelRun,
     panelCaptions,
     panelMirror,
+    panelControl,
   } = useBridgePanel(excalidrawAPI, publishLiveView);
 
   /**
@@ -1545,6 +1546,7 @@ const ExcalidrawWrapper = () => {
         // what is mirrored of the editor's window: the teacher's own choice,
         // and the editor has to know it (D-143)
         panelMirror={panelMirror}
+        panelControl={panelControl}
         // the OCR option of a panel: the read happens in the bridge's Node
         // process, and the app puts the text back on the canvas (D-59)
         panelOcr={{

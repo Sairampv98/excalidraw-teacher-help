@@ -65,8 +65,11 @@ import {
 import {
   openPanelMirrorPicker,
   panelMirrorCrop,
+  panelMirrorMode,
   panelMirrorRegionAtPointer,
+  withPanelMirrorMode,
 } from "../scene/panelMirror";
+import { CONTROL_RELEASE_CHORD } from "../scene/panelControl";
 import {
   appliedPlaybackState,
   INITIAL_PLAYBACK_SYNC_STATE,
@@ -87,6 +90,7 @@ import { PANEL_PALETTES, VS_CODE_DARK } from "./vscodeTheme";
 
 import { captionCueAt, DEFAULT_CAPTION_LANGUAGE } from "./panelCaptions";
 import { codeMirrorLanguageIds } from "./codeLanguages";
+import { usePanelControlSurface } from "./usePanelControlSurface";
 import {
   registerVideoSurface,
   unregisterVideoSurface,
@@ -110,7 +114,8 @@ import type { CodeMirrorEditorProps } from "./TTDDialog/CodeMirrorEditor";
 import type { MediaFallback, MediaPanelSource } from "../scene/mediaRegistry";
 import type { PanelCamera } from "../scene/panelContent";
 import type { PanelChrome } from "../scene/panelChrome";
-import type { PanelMirror } from "../scene/panelMirror";
+import type { PanelControlControls } from "../scene/panelControl";
+import type { PanelMirror, PanelMirrorMode } from "../scene/panelMirror";
 import type { PanelPlayback } from "../scene/panelContent";
 import type { PlaybackSyncState } from "../scene/panelPlayback";
 import type { YoutubePanelSource } from "../scene/panelContent";
@@ -227,6 +232,8 @@ type PanelOverlayProps = {
    * card is the host's own.
    */
   copy?: PanelCopyControls;
+  /** the host's controls for the control of the mirrored window (D-323) */
+  control?: PanelControlControls;
   /**
    * The teacher chose the language the panel **reads** the file as (D-142).
    *
@@ -663,6 +670,7 @@ const CodePanelSurface = ({
   draft,
   run,
   copy,
+  control,
   onReadLanguageChange,
   onZoomChange,
   onThemeChange,
@@ -683,6 +691,8 @@ const CodePanelSurface = ({
   run?: PanelRunControls;
   /** the host's controls for the copy (D-142) */
   copy?: PanelCopyControls;
+  /** the host's controls for the control of the mirrored window (D-323) */
+  control?: PanelControlControls;
   /** the teacher chose the language the panel reads the file as (D-142) */
   onReadLanguageChange?: (panelId: string, language: string) => void;
   /** the teacher zoomed the editor (D-142) */
@@ -1012,27 +1022,84 @@ const CodePanelSurface = ({
   };
 
   /**
-   * The teacher turned the follow mode on or off (D-143).
+   * The mode the mirror is in: whole, part or follow (D-322).
    *
-   * It is a **mode**: it is off until they turn it on, and they can turn it
-   * off again.
+   * It is what the panel's mirror says, so there is nothing else to keep.
    */
-  const toggleFollow = () => {
-    onMirrorChange?.(panel.id, {
-      ...panelMirror,
-      follow: !panelMirror.follow,
-    });
+  const mode = panelMirrorMode(panelMirror);
+
+  /**
+   * The teacher chose a mode (D-322).
+   *
+   * **Part** with no region to keep - or when the part is already the mode -
+   * opens the picker: it is how a part is drawn, and how it is drawn again.
+   * Every other change is the mirror in its new mode.
+   */
+  const chooseMode = (next: PanelMirrorMode) => {
+    if (next === "part" && (mode === "part" || !panelMirror.region)) {
+      openMirrorPicker();
+
+      return;
+    }
+
+    if (next === mode) {
+      return;
+    }
+
+    onMirrorChange?.(panel.id, withPanelMirrorMode(panelMirror, next));
   };
+
+  /**
+   * The control of the editor's window (D-323).
+   *
+   * It is the **extension's** state - the descriptor says whether Control is on,
+   * the way the input goes in and whether the window is parked - so every panel
+   * says the same thing, and a connection that ends turns it off in all of
+   * them. A descriptor with no control is an extension that predates it, and
+   * the panel then offers none.
+   */
+  const controlState = capture?.status === "live" ? capture.control : undefined;
+  const controlOn =
+    Boolean(control?.onToggle) && controlState?.enabled === true;
+  const parked = capture?.status === "live" && capture.parked === true;
+
+  /**
+   * What the teacher does over the view, as events for the editor's window
+   * (D-323, D-324).
+   */
+  const surface = usePanelControlSurface({
+    panelId: panel.id,
+    enabled: controlOn && !mirror,
+    region: panelMirror.region,
+    boxRef: cropWindowRef,
+    picture:
+      capture?.status === "live" && capture.width && capture.height
+        ? { width: capture.width, height: capture.height }
+        : null,
+    onInput: control?.onInput,
+    onRelease: () => {
+      // the keyboard goes back to the canvas
+      cropWindowRef.current
+        ?.closest<HTMLElement>(EDITOR_CONTAINER_SELECTOR)
+        ?.focus({ preventScroll: true });
+    },
+  });
 
   /**
    * The pointer moved inside the mirrored region (D-143).
    *
    * The region keeps its size and moves so that its middle is under the
    * pointer - so the teacher points at the part of the editor they are talking
-   * about, and the panel shows it.
+   * about, and the panel shows it. It stands still while a button is down, so a
+   * drag does not run away from the pointer (D-324).
    */
   const onFollowMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!panelMirror.follow || !panelMirror.region || !cropWindowRef.current) {
+    if (
+      !panelMirror.follow ||
+      !panelMirror.region ||
+      !cropWindowRef.current ||
+      surface.isPressed()
+    ) {
       return;
     }
 
@@ -1227,6 +1294,21 @@ const CodePanelSurface = ({
    * does not change it (D-57).
    */
   const canToggleView = Boolean(onToggleView) && !mirror && connected;
+
+  /**
+   * Whether the panel may offer the **control** (D-323).
+   *
+   * Like what is mirrored, it means something only when the panel shows the
+   * editor's own window - a MIRROR (the presenter) does not get it - and only
+   * when the extension said it has a control: a descriptor without one is an
+   * extension that predates it.
+   */
+  const canControl =
+    Boolean(control?.onToggle) &&
+    !mirror &&
+    view === "live" &&
+    capture?.status === "live" &&
+    capture.control !== undefined;
 
   /**
    * Whether the panel may say **what is mirrored** (D-143).
@@ -1477,9 +1559,21 @@ const CodePanelSurface = ({
               : undefined
           }
           ref={cropWindowRef}
-          onPointerMove={onFollowMove}
-          style={
-            crop
+          // What the teacher does over the view goes into the editor's window
+          // while Control is on (D-323); with it off these do nothing
+          {...surface.handlers}
+          onPointerMove={(event) => {
+            onFollowMove(event);
+            surface.handlers.onPointerMove(event);
+          }}
+          // the view takes the keyboard when it is clicked, and only while
+          // Control is on (D-323)
+          tabIndex={controlOn ? 0 : undefined}
+          data-control={
+            controlOn ? (surface.engaged ? "engaged" : "on") : "off"
+          }
+          style={{
+            ...(crop
               ? {
                   // The **region** the teacher chose (D-143): the picture is
                   // drawn whole and the window shows only the part they
@@ -1506,14 +1600,27 @@ const CodePanelSurface = ({
                   left: 0,
                   right: 0,
                   bottom: 0,
+                }),
+            // Control is on: the view says so, and says whether it has the
+            // keyboard (D-323). The browser does not scroll or drag it.
+            ...(controlOn
+              ? {
+                  outline: surface.engaged
+                    ? `2px solid ${palette.accent}`
+                    : `1px dashed ${palette.accent}`,
+                  outlineOffset: -2,
+                  touchAction: "none",
+                  userSelect: "none",
                 }
-          }
+              : {}),
+          }}
         >
           <img
             className="excalidraw__panel-code-live"
             data-testid="code-panel-live-frame"
             src={capture.streamUrl}
             alt=""
+            draggable={false}
             style={
               crop
                 ? {
@@ -1766,53 +1873,64 @@ const CodePanelSurface = ({
                   </button>
                 ) : null}
                 {canMirror ? (
-                  <>
-                    {/* What is **mirrored** (D-143): the teacher's own control, and
-                    it is in the panel's own header - the header is always
-                    mounted, so the teacher can change it mid-class. */}
-                    <button
-                      type="button"
-                      className="excalidraw__panel-code-mirror"
-                      data-testid="code-panel-mirror-region"
-                      data-panel-id={panel.id}
-                      onClick={() => void openMirrorPicker()}
-                      title={t("labels.mirror.change")}
-                      aria-label={t("labels.mirror.change")}
-                      style={{
-                        background: "transparent",
-                        border: `1px solid ${palette.border}`,
-                        borderRadius: 2,
-                        color: palette.foreground,
-                        cursor: "pointer",
-                        font: "inherit",
-                      }}
-                    >
-                      {t("labels.mirror.change")}
-                    </button>
-                    {panelMirror.region ? (
-                      /* The follow mode: it is **off** until the teacher turns it
-                     on, and they can turn it off again (D-143). */
+                  <div
+                    className="excalidraw__panel-code-mirror-modes"
+                    data-testid="code-panel-mirror-modes"
+                    data-mode={mode}
+                    role="group"
+                    aria-label={t("labels.mirror.picker")}
+                    style={{ display: "inline-flex", gap: 2 }}
+                  >
+                    {/* What is **mirrored** (D-143, D-322): three ways to look
+                    at the editor's window, in one control, in the panel's own
+                    header - the header is always mounted, so the teacher can
+                    change it mid-class. */}
+                    {(
+                      [
+                        {
+                          option: "whole",
+                          testId: "code-panel-mirror-whole",
+                          label: t("labels.mirror.modeWhole"),
+                          title: t("labels.mirror.wholeWindow"),
+                        },
+                        {
+                          option: "part",
+                          testId: "code-panel-mirror-region",
+                          label: t("labels.mirror.modePart"),
+                          title: t("labels.mirror.change"),
+                        },
+                        {
+                          option: "follow",
+                          testId: "code-panel-mirror-follow",
+                          label: t("labels.mirror.modeFollow"),
+                          title:
+                            mode === "follow"
+                              ? t("labels.mirror.following")
+                              : t("labels.mirror.follow"),
+                        },
+                      ] as const
+                    ).map(({ option, testId, label, title }) => (
                       <button
+                        key={option}
                         type="button"
-                        className="excalidraw__panel-code-mirror-follow"
-                        data-testid="code-panel-mirror-follow"
+                        className="excalidraw__panel-code-mirror"
+                        data-testid={testId}
                         data-panel-id={panel.id}
-                        data-follow={panelMirror.follow ? "on" : "off"}
-                        onClick={toggleFollow}
-                        title={
-                          panelMirror.follow
-                            ? t("labels.mirror.following")
-                            : t("labels.mirror.follow")
+                        data-mode-option={option}
+                        data-follow={
+                          option === "follow"
+                            ? panelMirror.follow
+                              ? "on"
+                              : "off"
+                            : undefined
                         }
-                        aria-label={
-                          panelMirror.follow
-                            ? t("labels.mirror.following")
-                            : t("labels.mirror.follow")
-                        }
+                        aria-pressed={mode === option}
+                        onClick={() => chooseMode(option)}
+                        title={title}
+                        aria-label={title}
                         style={{
-                          background: panelMirror.follow
-                            ? palette.accent
-                            : "transparent",
+                          background:
+                            mode === option ? palette.accent : "transparent",
                           border: `1px solid ${palette.border}`,
                           borderRadius: 2,
                           color: palette.foreground,
@@ -1820,8 +1938,98 @@ const CodePanelSurface = ({
                           font: "inherit",
                         }}
                       >
-                        {t("labels.mirror.follow")}
+                        {label}
                       </button>
+                    ))}
+                  </div>
+                ) : null}
+                {canControl ? (
+                  <>
+                    {/* The **control** of the editor's window (D-323): off until
+                    the teacher turns it on, lit while it is on. */}
+                    <button
+                      type="button"
+                      className="excalidraw__panel-code-control"
+                      data-testid="code-panel-control"
+                      data-panel-id={panel.id}
+                      data-control={controlOn ? "on" : "off"}
+                      aria-pressed={controlOn}
+                      onClick={() => control?.onToggle?.(panel.id, !controlOn)}
+                      title={
+                        controlOn
+                          ? t("labels.control.onTitle", {
+                              chord: CONTROL_RELEASE_CHORD,
+                            })
+                          : t("labels.control.offTitle")
+                      }
+                      aria-label={t("labels.control.label")}
+                      style={{
+                        background: controlOn ? palette.accent : "transparent",
+                        border: `1px solid ${palette.border}`,
+                        borderRadius: 2,
+                        color: palette.foreground,
+                        cursor: "pointer",
+                        font: "inherit",
+                      }}
+                    >
+                      {t("labels.control.label")}
+                    </button>
+                    {/* Park the editor's window, or bring it back (D-328): the
+                    teacher's choice, and one button for both ways. */}
+                    <button
+                      type="button"
+                      className="excalidraw__panel-code-park"
+                      data-testid="code-panel-park"
+                      data-panel-id={panel.id}
+                      data-parked={parked ? "yes" : "no"}
+                      onClick={() =>
+                        control?.onWindow?.(
+                          panel.id,
+                          parked ? "bring-back" : "park",
+                        )
+                      }
+                      title={
+                        parked
+                          ? t("labels.control.bringBackTitle")
+                          : t("labels.control.parkTitle")
+                      }
+                      aria-label={
+                        parked
+                          ? t("labels.control.bringBackTitle")
+                          : t("labels.control.parkTitle")
+                      }
+                      style={{
+                        background: parked ? palette.accent : "transparent",
+                        border: `1px solid ${palette.border}`,
+                        borderRadius: 2,
+                        color: palette.foreground,
+                        cursor: "pointer",
+                        font: "inherit",
+                      }}
+                    >
+                      {parked
+                        ? t("labels.control.bringBack")
+                        : t("labels.control.park")}
+                    </button>
+                    {controlOn && controlState ? (
+                      /* The way the input goes in, and why: the teacher is
+                      told, never left to guess (D-326). */
+                      <span
+                        className="excalidraw__panel-code-control-route"
+                        data-testid="code-panel-control-route"
+                        data-route={controlState.route}
+                        title={controlState.reason}
+                        style={{
+                          color: palette.muted,
+                          fontSize: chrome.languageFontSize,
+                        }}
+                      >
+                        {controlState.route === "background"
+                          ? t("labels.control.routeBackground")
+                          : controlState.route === "focus"
+                          ? t("labels.control.routeFocus")
+                          : controlState.reason}
+                      </span>
                     ) : null}
                   </>
                 ) : null}
@@ -3150,6 +3358,7 @@ const PanelSurface = ({
   draft,
   run,
   copy,
+  control,
   onReadLanguageChange,
   onZoomChange,
   onThemeChange,
@@ -3175,6 +3384,8 @@ const PanelSurface = ({
   run?: PanelRunControls;
   /** the host's controls for the copy (D-142) */
   copy?: PanelCopyControls;
+  /** the host's controls for the control of the mirrored window (D-323) */
+  control?: PanelControlControls;
   /** the teacher chose the language the panel reads the file as (D-142) */
   onReadLanguageChange?: (panelId: string, language: string) => void;
   /** the teacher zoomed the editor (D-142) */
@@ -3201,6 +3412,7 @@ const PanelSurface = ({
         draft={draft}
         run={run}
         copy={copy}
+        control={control}
         onReadLanguageChange={onReadLanguageChange}
         onZoomChange={onZoomChange}
         onThemeChange={onThemeChange}
@@ -3322,6 +3534,7 @@ const Panel = ({
   draft,
   run,
   copy,
+  control,
   onReadLanguageChange,
   onZoomChange,
   onThemeChange,
@@ -3348,6 +3561,8 @@ const Panel = ({
   run?: PanelRunControls;
   /** the host's controls for the copy (D-142) */
   copy?: PanelCopyControls;
+  /** the host's controls for the control of the mirrored window (D-323) */
+  control?: PanelControlControls;
   /** the teacher chose the language the panel reads the file as (D-142) */
   onReadLanguageChange?: (panelId: string, language: string) => void;
   /** the teacher zoomed the editor (D-142) */
@@ -3482,6 +3697,7 @@ const Panel = ({
           draft={draft}
           run={run}
           copy={copy}
+          control={control}
           onReadLanguageChange={onReadLanguageChange}
           onZoomChange={onZoomChange}
           onThemeChange={onThemeChange}
@@ -3541,6 +3757,7 @@ const PanelOverlayImpl = ({
   draft,
   run,
   copy,
+  control,
   onReadLanguageChange,
   onZoomChange,
   onThemeChange,
@@ -3575,6 +3792,7 @@ const PanelOverlayImpl = ({
           draft={draft}
           run={run}
           copy={copy}
+          control={control}
           onReadLanguageChange={onReadLanguageChange}
           onZoomChange={onZoomChange}
           onThemeChange={onThemeChange}
@@ -3611,6 +3829,7 @@ const areEqual = (prev: PanelOverlayProps, next: PanelOverlayProps) =>
   prev.draft === next.draft &&
   prev.run === next.run &&
   prev.copy === next.copy &&
+  prev.control === next.control &&
   prev.onReadLanguageChange === next.onReadLanguageChange &&
   prev.onZoomChange === next.onZoomChange &&
   prev.onThemeChange === next.onThemeChange &&

@@ -45,8 +45,6 @@ The payload is about **780 MB** and it holds nine things:
 | the **VSCodium** installer | the same bridge, in the open-source editor |
 | the **Python** installer | only for the optional `indra` and `paddle` OCR engines |
 | the **Java** archive | only for the **Run** button on `.java` files |
-| the **display driver** | a second screen, for the projector |
-| **VDD Control** | the app a teacher uses to put that second screen into **Extend** |
 
 Two of those are worth spelling out, because they are what make the offline setup possible at all:
 
@@ -67,22 +65,9 @@ Everything comes out of the payload, so every install below works with **no inte
 | **VSCodium** | its own installer, the same way — the **per-user** one, so no password is needed |
 | **Python** | its own installer, `/quiet InstallAllUsers=0 PrependPath=1 Include_pip=1` |
 | **Java** | the Temurin archive is **unpacked**, and its `bin` is added to the machine's `PATH` |
-| **the display driver** | the driver's own installer, through `pnputil` |
 | **the extension** | `code --install-extension` / `codium --install-extension` |
 
-The two steps that change the **whole machine** — the display driver and Java's `PATH` — need **administrator rights**, so the setup **relaunches itself** with Windows' `runas` verb and you get the usual password prompt.
-
----
-
-## The second screen, and the reboot
-
-The **virtual display driver** is the one step that cannot be finished in the moment. It needs **administrator rights**, and the machine needs a **reboot** before the second screen exists.
-
-The setup says both, plainly:
-
-> the driver was installed. IT NEEDS A REBOOT before there is a second screen. Until the machine has been restarted, the display does NOT work — and the extension will say so, because there is no virtual display yet.
-
-After the reboot, open **VDD Control** (it is in the payload, and the setup unpacks it) and set the monitor to **Extend**. The extension then finds the virtual screen and the live view can be projected.
+The step that changes the **whole machine** — Java's `PATH` — needs **administrator rights**, so the setup **relaunches itself** with Windows' `runas` verb and you get the usual password prompt.
 
 ---
 
@@ -119,7 +104,7 @@ node installer/offline/build-payload.mjs --arch arm64
 
 Everything in the payload has an ARM64 version, and the executable itself is built **AnyCPU**, so the same file runs on x64 and on ARM64 Windows.
 
-Two things still differ, and it is better to say so than to let you find out:
+One thing still differs, and it is better to say so than to let you find out:
 
 1. **The Python path.** The extension ships a default path to the Python that was on the machine that built it, and that path is an **x64** Python. On an ARM64 machine it is not there. Change it in the settings:
 
@@ -128,8 +113,6 @@ Two things still differ, and it is better to say so than to let you find out:
    ```
 
    You only need Python for the **Paddle** OCR engine. **Tesseract** needs no Python at all.
-
-2. **The display driver.** The ARM64 build carries `VirtualDisplayDriver-ARM64.Driver.Only.zip` — the ARM64 driver — rather than the x86 one. The `VDD Control` app is the same for both.
 
 ---
 
@@ -243,7 +226,5 @@ THE PROOF IS VALID: the setup worked on a machine with no internet.
 ![the proof, as the machine said it](images/offline-report.png)
 
 ### What cannot be proved in a Sandbox
-
-**The display driver.** It needs a reboot and a real display, and neither exists inside a Sandbox. The setup's behaviour there — asking, elevating, and saying that a reboot is needed — is the part that is shown.
 
 **One thing to watch: the disk.** The Sandbox's disk is a file on the host's drive, and it grows with everything written inside it — the payload, the unpacked app, and the installs. The full payload is 780 MB, and unpacking it inside a Sandbox needs more room than a laptop with a nearly full C: drive has to spare. Put the mapped folder on a drive with room, and watch the free space while the Sandbox runs.

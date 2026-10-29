@@ -395,6 +395,10 @@ export const toPanelCapture = (
           ...(message.region ? { region: message.region } : {}),
           ...(message.width ? { width: message.width } : {}),
           ...(message.height ? { height: message.height } : {}),
+          // The control of the window and whether it is parked (D-323, D-328):
+          // the extension's own state, so every panel says the same thing.
+          ...(message.control ? { control: message.control } : {}),
+          ...(message.parked ? { parked: true } : {}),
         }
       : {
           status: "unavailable",

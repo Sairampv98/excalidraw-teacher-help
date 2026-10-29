@@ -67,20 +67,12 @@
         "title": "Excalidraw Bridge: Open the presenter's input panel"
       },
       {
-        "command": "excalidraw-bridge.placePresenterOnVirtualDisplay",
-        "title": "Excalidraw Bridge: Put the presenter's window on the virtual display"
+        "command": "excalidraw-bridge.parkEditorWindow",
+        "title": "Excalidraw Bridge: Park the editor's window out of sight"
       },
       {
-        "command": "excalidraw-bridge.placeEditorOnVirtualDisplay",
-        "title": "Excalidraw Bridge: Put the editor's window on the virtual display"
-      },
-      {
-        "command": "excalidraw-bridge.bringBackEditorToPrimaryDisplay",
-        "title": "Excalidraw Bridge: Bring the editor's window back to this screen"
-      },
-      {
-        "command": "excalidraw-bridge.bringBackPresenterToPrimaryDisplay",
-        "title": "Excalidraw Bridge: Bring the presenter's window back to this screen"
+        "command": "excalidraw-bridge.bringBackEditorWindow",
+        "title": "Excalidraw Bridge: Bring the editor's window back"
       }
     ],
     "configuration": {
@@ -99,6 +91,16 @@
           "type": "number",
           "default": 6,
           "description": "How many frames a second the panel's live view of this editor's window takes. Six a second is enough to read by. Without the capture the panel falls back to the mirrored text and says why."
+        },
+        "excalidraw-bridge.inputRoute": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "background",
+            "focus"
+          ],
+          "default": "auto",
+          "description": "How the canvas's mouse and keyboard reach this editor's window when Control is on. background posts the input to the window's own page and never takes your focus; focus brings the window to the front for a moment and uses real input (it needs the window on a display); auto uses background where the window has a page to post to, and focus where it has not."
         },
         "excalidraw-bridge.ocrEngine": {
           "type": "string",

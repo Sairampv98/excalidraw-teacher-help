@@ -2605,6 +2605,11 @@ class App extends React.Component<AppProps, AppState> {
                             // the host owns the copy: the code card is the
                             // host's own (D-142)
                             copy={this.props.panelCopy}
+                            // the host owns the control of the mirrored
+                            // editor window: the library turns what the
+                            // teacher does over the live view into events
+                            // (D-323)
+                            control={this.props.panelControl}
                             // the panel's own reading language and the editor's
                             // own zoom (D-142)
                             onReadLanguageChange={this.setPanelReadLanguage}

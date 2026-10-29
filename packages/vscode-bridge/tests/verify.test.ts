@@ -64,7 +64,7 @@ const CLIPS = [
   "08-what-is-mirrored.mp4",
   "09-run-code.mp4",
   "10-pages-frame-number-size.mp4",
-  "11-virtual-display.mp4",
+  "11-park-and-control.mp4",
   "12-youtube-captions.mp4",
   "13-the-code-card.mp4",
   "14-the-file-sidebar.mp4",
@@ -97,7 +97,6 @@ describe("the install check", () => {
     expect(used).toEqual([]);
 
     // and it does read
-    expect(script).toMatch(/Get-PnpDevice/);
     expect(script).toMatch(/Get-NetTCPConnection/);
     expect(script).toMatch(/Test-Path/);
     expect(script).toMatch(/Invoke-WebRequest/);

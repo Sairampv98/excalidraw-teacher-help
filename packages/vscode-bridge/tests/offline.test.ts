@@ -154,7 +154,6 @@ describe("the offline setup: one file, no internet, nothing to install", () => {
       "msiexec.exe",
       "/VERYSILENT",
       "/quiet InstallAllUsers=0",
-      "pnputil.exe",
       "--install-extension",
     ];
 
@@ -214,9 +213,9 @@ describe("the offline setup: one file, no internet, nothing to install", () => {
       "https://api.github.com/repos/VSCodium/vscodium/releases/latest",
     );
     expect(builder).toContain("https://www.python.org/ftp/python/");
-    expect(builder).toContain(
-      "https://api.github.com/repos/itsmikethetech/Virtual-Display-Driver/releases/latest",
-    );
+
+    // and not the virtual display driver: nothing needs it any more (D-329)
+    expect(builder).not.toContain("Virtual-Display-Driver");
 
     // the MSI's NAME has no "win-" in it - the index calls it that, the file
     // does not, and getting it wrong is a 404
@@ -227,11 +226,10 @@ describe("the offline setup: one file, no internet, nothing to install", () => {
     // wants: it needs no administrator rights
     expect(builder).toContain("VSCodiumUserSetup-");
 
-    // the driver package, and the CONTROL app a teacher uses to extend the
-    // display
-    expect(builder).toContain("VirtualDisplayDriver-ARM64.Driver.Only.zip");
-    expect(builder).toContain("VirtualDisplayDriver-x86.Driver.Only.zip");
-    expect(builder).toContain("VDD.Control.");
+    // no driver package and no control app for a second screen
+    expect(builder).not.toContain("VirtualDisplayDriver");
+    expect(builder).not.toContain("VDD.Control");
+    expect(builder).not.toContain("display-driver");
 
     // the architecture is an argument, not a guess
     expect(builder).toContain("--arch");
@@ -315,9 +313,8 @@ describe("the offline setup: one file, no internet, nothing to install", () => {
     expect(source).toContain("runas");
     expect(source).toContain("administrator rights");
 
-    // the virtual display driver needs a REBOOT, and the program must not
-    // claim the display works before it
-    expect(source).toContain("REBOOT");
-    expect(source).toContain("does NOT work");
+    // nothing the program installs needs a reboot, and it installs no driver
+    expect(source).not.toContain("REBOOT");
+    expect(source).not.toMatch(/pnputil|IddCx|InstallDisplayDriver/);
   });
 });

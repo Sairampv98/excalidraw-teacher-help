@@ -109,7 +109,7 @@ function Get-BridgePort {
 
 function Get-HelperNames {
   # the helpers the extension ships.
-  return @("media\capture.ps1", "media\virtual-display.ps1", "media\ocr_sidecar.py")
+  return @("media\capture.ps1", "media\window.ps1", "media\input.ps1", "media\ocr_sidecar.py")
 }
 
 # --------------------------------------------------------------------------
@@ -241,53 +241,6 @@ function Get-ListeningPort {
     }
   }
   return $list
-}
-
-function Get-VirtualDisplayState {
-  # reads the virtual display's own state:
-  #   installed   - the driver is there (Get-PnpDevice)
-  #   attached    - a virtual display is on the desktop
-  #   readable    - the state could be read at all
-  $state = @{ installed = $false; attached = $false; readable = $false; detail = "" }
-
-  try {
-    $devices = @(Get-PnpDevice -ErrorAction SilentlyContinue |
-        Where-Object { $_.InstanceId -like "ROOT\DISPLAY*" })
-    if ($devices.Count -gt 0) {
-      $state.installed = $true
-      $state.detail = (($devices | ForEach-Object { $_.FriendlyName }) -join ", ")
-    }
-  } catch {
-    $state.installed = $false
-  }
-
-  # the extension's own helper reads the attached state - it only enumerates.
-  $helper = Get-InstalledHelper "media\virtual-display.ps1"
-  if ($helper) {
-    try {
-      # the running PowerShell's own path - a bare "powershell.exe" would not
-      # be found on a machine whose PATH is not the usual one.
-      $psExe = Join-Path $PSHOME "powershell.exe"
-      if (-not (Test-Path $psExe)) { $psExe = "powershell.exe" }
-      $lines = & $psExe -NoProfile -ExecutionPolicy Bypass -File $helper -Mode Enumerate 2>$null
-      foreach ($line in @($lines)) {
-        $text = ([string]$line).Trim()
-        if (-not $text -or $text -notlike "{*") { continue }
-        try { $entry = $text | ConvertFrom-Json } catch { continue }
-        if (-not $entry.virtual) { continue }
-        $state.readable = $true
-        if ($entry.attached) {
-          $state.attached = $true
-          $state.detail = "$($entry.adapter) ($($entry.width) x $($entry.height))"
-        } else {
-          $state.detail = "$($entry.adapter) (not attached)"
-        }
-      }
-    } catch {
-      # the helper would not answer: the attached state stays unknown
-    }
-  }
-  return $state
 }
 
 function Get-InstalledHelper {
@@ -578,25 +531,13 @@ foreach ($entry in $editors) {
     if (-not (Test-Path (Join-Path $folder $helper))) { $absent += $helper }
   }
   if ($absent.Count -eq 0) {
-    Add-Result "the extension's helpers, in $name" ($helperNames -join ", ") "all three are there" "PASS"
+    Add-Result "the extension's helpers, in $name" ($helperNames -join ", ") "all four are there" "PASS"
   } else {
     Add-Result "the extension's helpers, in $name" ($helperNames -join ", ") ("missing: " + ($absent -join ", ")) "FAIL"
   }
 }
 
-# 8. the virtual display driver
-$display = Get-VirtualDisplayState
-if (-not $display.installed) {
-  Add-Result "the virtual display driver" "installed and attached" "not installed" "MISSING"
-} elseif ($display.readable -and $display.attached) {
-  Add-Result "the virtual display driver" "installed and attached" $display.detail "PASS"
-} elseif ($display.readable) {
-  Add-Result "the virtual display driver" "installed and attached" "installed, but not attached - a reboot is needed" "FAIL"
-} else {
-  Add-Result "the virtual display driver" "installed and attached" "$($display.detail) - the attached state could not be read" "PASS"
-}
-
-# 9. the bridge
+# 8. the bridge
 $listening = Get-ListeningPort $BridgePort
 $runningEditors = Get-EditorState
 if ($listening.Count -gt 0) {
@@ -607,7 +548,7 @@ if ($listening.Count -gt 0) {
   Add-Result "the bridge" "listening on $BridgePort" ("not listening while " + ($runningEditors -join " and ") + " is running") "FAIL"
 }
 
-# 10. the app
+# 9. the app
 if (-not $AppUrl) {
   Add-Result "the app" "HTTP 200 at the address it is served from" "not checked - no address was given" "NOT CHECKED"
 } else {
@@ -631,7 +572,7 @@ if (-not $AppUrl) {
   }
 }
 
-# 11. the offline payload's hashes
+# 10. the offline payload's hashes
 $manifestPath = Find-Manifest $Manifest
 if (-not $manifestPath) {
   Add-Result "the offline payload's hashes" "every file in manifest.json matches" "there is no manifest.json on this machine" "MISSING"
