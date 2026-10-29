@@ -1,4 +1,14 @@
+import { normalizeStyleRuns } from "@excalidraw/element";
+
+import type { TextStyleRun } from "@excalidraw/element/types";
+
 import type { OcrLine } from "../../packages/vscode-bridge/bridge/src/ocr";
+
+/**
+ * A line of text with the place it had. A line that came out of a PDF knows
+ * which parts of it are bold or italic (D-321).
+ */
+export type StyledOcrLine = OcrLine & { styleRuns?: readonly TextStyleRun[] };
 
 /** one line of a read, as it goes on the page, from the top-left of the lot */
 export type PlacedOcrLine = {
@@ -6,6 +16,7 @@ export type PlacedOcrLine = {
   x: number;
   y: number;
   fontSize: number;
+  styleRuns?: TextStyleRun[];
 };
 
 export type OcrLayout = {
@@ -56,7 +67,7 @@ export const layoutOcrLines = ({
   measureWidth,
 }: {
   /** the lines, in the picture's own pixels */
-  lines: readonly OcrLine[];
+  lines: readonly StyledOcrLine[];
   /** the width of the page they go on */
   pageWidth: number;
   /** the width of a text at a font size, in the face the lines are set in */
@@ -88,11 +99,23 @@ export const layoutOcrLines = ({
       fontSize = Math.max(MIN_FONT_SIZE, (fontSize * wanted) / natural);
     }
 
+    // the text is trimmed, so its styled parts move up by what was cut off
+    const cut = line.text.length - line.text.trimStart().length;
+    const styleRuns = normalizeStyleRuns(
+      line.styleRuns?.map((run) => ({
+        ...run,
+        start: run.start - cut,
+        end: run.end - cut,
+      })),
+      text.length,
+    );
+
     return {
       text,
       x: (line.x - left) * scale,
       y: (line.y - top) * scale,
       fontSize,
+      ...(styleRuns.length ? { styleRuns } : {}),
     };
   });
 

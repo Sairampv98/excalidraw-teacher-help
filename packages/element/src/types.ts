@@ -372,7 +372,26 @@ export type ExcalidrawTextElement = _ExcalidrawElementBase &
      *  with font size (using `getLineHeightInPx` helper).
      */
     lineHeight: number & { _brand: "unitlessLineHeight" };
+    /**
+     * The parts of the text that are bold, italic or both (D-320), as runs over
+     * `originalText`. A text with no styled part has no such field.
+     */
+    styleRuns?: readonly TextStyleRun[];
   }>;
+
+/** the two styles a part of a text can have (D-320) */
+export type TextStyleKey = "bold" | "italic";
+
+/**
+ * Characters `start` up to `end` of a text's `originalText` are bold, italic or
+ * both (D-320).
+ */
+export type TextStyleRun = Readonly<{
+  start: number;
+  end: number;
+  bold?: true;
+  italic?: true;
+}>;
 
 export type ExcalidrawBindableElement =
   | ExcalidrawRectangleElement

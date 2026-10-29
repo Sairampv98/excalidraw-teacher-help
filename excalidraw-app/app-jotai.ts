@@ -10,6 +10,8 @@ import {
 } from "jotai";
 import { useLayoutEffect } from "react";
 
+import type { OcrEngineName } from "../packages/vscode-bridge/bridge/src/ocr";
+
 export const appJotaiStore = createStore();
 
 export { atom, Provider, useAtom, useAtomValue, useSetAtom };
@@ -55,3 +57,16 @@ export const ocrProgressAtom = atom<{
   label: string;
   fraction: number | null;
 } | null>(null);
+
+/**
+ * The engine the teacher chose for reading a page or a picture (D-300), or null
+ * when they chose none and the machine chooses. It is the same choice wherever
+ * a page is read: the PDF toolbar and the question about the area share it.
+ */
+export const ocrEngineChoiceAtom = atom<OcrEngineName | null>(null);
+
+/**
+ * Whether the bridge is connected, for the parts of the page that say what an
+ * engine needs (D-300). The app sets it; the pickers read it.
+ */
+export const ocrBridgeConnectedAtom = atom(false);

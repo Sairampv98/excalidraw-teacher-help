@@ -2,7 +2,7 @@
 id: wave8c-v1-fixes
 paths: packages,excalidraw-app,SPEC.md
 base: v1.1
-status: open
+status: merged
 ---
 
 Fixes found while testing the repaired line.

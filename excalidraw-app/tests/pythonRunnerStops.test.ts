@@ -89,7 +89,7 @@ describe("AC-323 a run that ends badly says why", () => {
       "more memory",
     );
     expect(explainError("EOFError: EOF when reading a line")).toContain(
-      "Input box",
+      "more input than there is",
     );
     expect(explainError("NameError: name 'x' is not defined")).toBeNull();
   });

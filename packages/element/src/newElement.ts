@@ -23,6 +23,7 @@ import {
 import { newElementWith } from "./mutateElement";
 import { getBoundTextMaxWidth } from "./textElement";
 import { normalizeText, measureText } from "./textMeasurements";
+import { normalizeStyleRuns } from "./textStyle";
 import { wrapText } from "./textWrapping";
 
 import { isLineElement } from "./typeChecks";
@@ -255,6 +256,8 @@ export const newTextElement = (
     containerId?: ExcalidrawTextContainer["id"] | null;
     lineHeight?: ExcalidrawTextElement["lineHeight"];
     autoResize?: ExcalidrawTextElement["autoResize"];
+    /** the bold and italic parts of `originalText` (D-320) */
+    styleRuns?: ExcalidrawTextElement["styleRuns"];
   } & ElementConstructorOpts,
 ): NonDeleted<ExcalidrawTextElement> => {
   const fontFamily = opts.fontFamily || DEFAULT_FONT_FAMILY;
@@ -290,9 +293,15 @@ export const newTextElement = (
     lineHeight,
   };
 
+  // only a text that has styled parts has the field (D-320)
+  const styleRuns = normalizeStyleRuns(
+    opts.styleRuns,
+    textElementProps.originalText.length,
+  );
+
   const textElement: ExcalidrawTextElement = newElementWith(
     textElementProps,
-    {},
+    styleRuns.length ? { styleRuns } : {},
   );
 
   return textElement;
