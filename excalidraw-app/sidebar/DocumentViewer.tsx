@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useExcalidrawAPI } from "@excalidraw/excalidraw";
 import { codeToHtml } from "shiki";
 
+import type { TextStyleRun } from "@excalidraw/element/types";
+
 import { appJotaiStore, pdfPageReadRequestAtom } from "../app-jotai";
 
 import {
@@ -17,6 +19,7 @@ import {
   PDF_ZOOM_MIN,
   clampPdfZoom,
 } from "./PdfViewer";
+import { selectionStyleRuns } from "./selectionStyle";
 import { SelectionBar } from "./SelectionBar";
 import {
   escapeHtml,
@@ -109,6 +112,8 @@ export const DocumentViewer = ({
   const [zoom, setZoom] = useState(1);
   /** the text the teacher has just selected in the document, if any */
   const [picked, setPicked] = useState<string | null>(null);
+  /** the parts of it that are bold or italic in the document (D-321) */
+  const [pickedRuns, setPickedRuns] = useState<TextStyleRun[]>([]);
   /** where the choices for it float, from the corner of the document (D-317) */
   const [pickedAt, setPickedAt] = useState<{
     left: number;
@@ -215,7 +220,9 @@ export const DocumentViewer = ({
         top: (end?.bottom ?? area.top) - area.top + body.scrollTop + 6,
       });
 
-      // the bar is offered whether or not the copy went through
+      // the bar is offered whether or not the copy went through; a text box
+      // made of the text keeps what was bold or italic in it (D-321)
+      setPickedRuns(selectionStyleRuns(range, text));
       setPicked(text);
     };
 
@@ -631,6 +638,7 @@ export const DocumentViewer = ({
               <SelectionBar
                 api={api}
                 text={region.text}
+                styleRuns={region.styleRuns}
                 lines={region.lines}
                 picture={region.picture}
                 onDone={close}
@@ -666,6 +674,7 @@ export const DocumentViewer = ({
                   <SelectionBar
                     api={api}
                     text={picked}
+                    styleRuns={pickedRuns}
                     onDone={() => setPicked(null)}
                   />
                 </div>

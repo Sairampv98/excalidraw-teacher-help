@@ -41,6 +41,10 @@ import { normalizeText } from "@excalidraw/element";
 import { wrapText } from "@excalidraw/element";
 import { getWrappedTextLines } from "@excalidraw/element";
 import {
+  adjustStyleRunsForEdit,
+  getStyledStretches,
+} from "@excalidraw/element";
+import {
   isArrowElement,
   isBoundToContainer,
   isTextElement,
@@ -71,6 +75,8 @@ import {
   actionZoomIn,
   actionZoomOut,
 } from "../actions/actionCanvas";
+
+import { setActiveTextEditor } from "./editorSelection";
 
 import type { ParsedDataTranferList } from "../clipboard";
 
@@ -421,6 +427,8 @@ export const textWysiwyg = ({
         editable.style.fontFamily = getFontFamilyString(updatedTextElement);
       }
 
+      syncMirror(updatedTextElement);
+
       app.scene.mutateElement(updatedTextElement, { x: coordX, y: coordY });
     }
   };
@@ -462,6 +470,59 @@ export const textWysiwyg = ({
     boxSizing: "content-box",
   });
   editable.value = element.originalText;
+
+  // The textarea can only show one style, so a text that has bold or italic
+  // parts is shown by a styled copy of it underneath, with the same box, font
+  // and wrapping; the textarea keeps the caret, the selection and the typing,
+  // and its own letters are not shown (D-320).
+  const mirror = document.createElement("div");
+
+  mirror.className = "excalidraw-wysiwyg-mirror";
+  mirror.setAttribute("aria-hidden", "true");
+
+  let plainColor = "";
+
+  const syncMirror = (current: ExcalidrawTextElement) => {
+    const stretches = getStyledStretches(editable.value, current.styleRuns);
+    const styled = stretches.some((stretch) => stretch.bold || stretch.italic);
+
+    if (!styled) {
+      mirror.style.display = "none";
+      editable.style.caretColor = "";
+      return;
+    }
+
+    plainColor = editable.style.color;
+    mirror.style.cssText = editable.style.cssText;
+    mirror.dir = editable.dir;
+    Object.assign(mirror.style, {
+      display: "block",
+      pointerEvents: "none",
+      color: plainColor,
+      caretColor: "",
+    });
+
+    mirror.replaceChildren(
+      ...stretches.map((stretch) => {
+        const part = document.createElement("span");
+
+        part.textContent = stretch.text;
+        part.classList.toggle("excalidraw-wysiwyg-mirror__bold", stretch.bold);
+        part.classList.toggle(
+          "excalidraw-wysiwyg-mirror__italic",
+          stretch.italic,
+        );
+
+        return part;
+      }),
+      // a line break at the very end shows as a line, as in a textarea
+      ...(editable.value.endsWith("\n") ? [document.createTextNode("​")] : []),
+    );
+
+    editable.style.color = "transparent";
+    editable.style.caretColor = plainColor;
+  };
+
   updateWysiwygStyle();
 
   const getCaretIndexFromInitialSceneCoords = () => {
@@ -624,6 +685,22 @@ export const textWysiwyg = ({
         editable.selectionStart = selectionStart;
         editable.selectionEnd = selectionStart;
       }
+
+      // the bold and italic parts follow the edit (D-320): what is typed has
+      // the style of the letter before it, and what is deleted takes its own
+      const styled = app.scene.getElement<ExcalidrawTextElement>(id);
+
+      if (styled?.styleRuns?.length) {
+        const styleRuns = adjustStyleRunsForEdit(
+          styled.styleRuns,
+          styled.originalText,
+          editable.value,
+        );
+
+        // an empty list: an update to nothing is not an update
+        app.scene.mutateElement(styled, { styleRuns });
+      }
+
       onChange(editable.value);
     };
   }
@@ -870,6 +947,7 @@ export const textWysiwyg = ({
     }
 
     window.removeEventListener("resize", updateWysiwygStyle);
+    setActiveTextEditor(null);
     window.removeEventListener("wheel", stopEvent, true);
     window.removeEventListener("pointerdown", onPointerDown);
     window.removeEventListener("pointerup", bindBlurEvent);
@@ -879,6 +957,7 @@ export const textWysiwyg = ({
     unsubOnChange();
     unbindOnScroll();
 
+    mirror.remove();
     editable.remove();
   };
 
@@ -1029,15 +1108,21 @@ export const textWysiwyg = ({
 
   editable.onpointerdown = (event) => event.stopPropagation();
 
+  setActiveTextEditor(editable);
+
   // rAF (+ capture to by doubly sure) so we don't catch te pointerdown that
   // triggered the wysiwyg
   requestAnimationFrame(() => {
     window.addEventListener("pointerdown", onPointerDown, { capture: true });
   });
   window.addEventListener("beforeunload", handleSubmit);
-  excalidrawContainer
-    ?.querySelector(".excalidraw-textEditorContainer")!
-    .appendChild(editable);
+  const editorContainer = excalidrawContainer?.querySelector(
+    ".excalidraw-textEditorContainer",
+  )!;
+
+  // the styled copy is under the textarea
+  editorContainer.appendChild(mirror);
+  editorContainer.appendChild(editable);
 
   return handleSubmit;
 };

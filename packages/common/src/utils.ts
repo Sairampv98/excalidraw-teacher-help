@@ -106,25 +106,15 @@ export const getFontFamilyString = ({
   return WINDOWS_EMOJI_FALLBACK_FONT;
 };
 
-/**
- * returns the font string for assignment to DOM elements and canvases:
- * style, size and family. Bold and italic are the text element's own (D-320),
- * so an element can be given as it is.
- */
+/** returns fontSize+fontFamily string for assignment to DOM elements */
 export const getFontString = ({
   fontSize,
   fontFamily,
-  bold,
-  italic,
 }: {
   fontSize: number;
   fontFamily: FontFamilyValues;
-  bold?: boolean;
-  italic?: boolean;
 }) => {
-  return `${italic ? "italic " : ""}${
-    bold ? "bold " : ""
-  }${fontSize}px ${getFontFamilyString({ fontFamily })}` as FontString;
+  return `${fontSize}px ${getFontFamilyString({ fontFamily })}` as FontString;
 };
 
 /** executes callback in the frame that's after the current one */

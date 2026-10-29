@@ -49,6 +49,7 @@ import {
 import { syncInvalidIndices } from "@excalidraw/element";
 
 import { refreshTextDimensions } from "@excalidraw/element";
+import { normalizeStyleRuns } from "@excalidraw/element";
 
 import { getNormalizedDimensions } from "@excalidraw/element";
 
@@ -514,6 +515,18 @@ export const restoreElement = (
         autoResize: element.autoResize ?? true,
         lineHeight,
       });
+
+      // the bold and italic parts (D-320): what a file says is made to fit the
+      // text, and a text with none has no such field
+      if (element.styleRuns) {
+        const { styleRuns: written, ...unstyled } = element;
+        const styleRuns = normalizeStyleRuns(
+          written,
+          element.originalText.length,
+        );
+
+        element = styleRuns.length ? { ...unstyled, styleRuns } : unstyled;
+      }
 
       // if empty text, mark as deleted. We keep in array
       // for data integrity purposes (collab etc.)

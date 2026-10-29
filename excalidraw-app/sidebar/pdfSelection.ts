@@ -1,3 +1,7 @@
+import { normalizeStyleRuns } from "@excalidraw/element";
+
+import type { TextStyleRun } from "@excalidraw/element/types";
+
 import type { OcrLine } from "../../packages/vscode-bridge/bridge/src/ocr";
 
 /**
@@ -8,6 +12,10 @@ import type { OcrLine } from "../../packages/vscode-bridge/bridge/src/ocr";
  * the text of the first and the last; this gives each of them back with the box
  * it fills, in pixels from the top-left corner of the first page that has any of
  * the selection - so the text can go on the canvas where it was.
+ *
+ * A run knows if the font it is set in is bold or italic (D-321), and the text
+ * and the lines made of the runs have those parts as runs of their own, so the
+ * text can go on the page as it was written.
  */
 
 /** a page of the viewer */
@@ -22,7 +30,20 @@ export type Run = {
   y: number;
   width: number;
   height: number;
+  /** the font of the run is bold (D-321) */
+  bold?: boolean;
+  /** the font of the run is italic (D-321) */
+  italic?: boolean;
 };
+
+/** a line of a PDF's text: where it was, and the parts of it that are bold or italic */
+export type StyledLine = OcrLine & { styleRuns?: TextStyleRun[] };
+
+/** the style a run was marked with when its page was drawn */
+const styleOf = (span: HTMLElement) => ({
+  ...(span.dataset.bold === "true" ? { bold: true } : {}),
+  ...(span.dataset.italic === "true" ? { italic: true } : {}),
+});
 
 /** the selected text of every run of the pages in `root`, with where it is */
 export const pdfSelectionRuns = (range: Range, root: ParentNode): Run[] => {
@@ -69,6 +90,7 @@ export const pdfSelectionRuns = (range: Range, root: ParentNode): Run[] => {
         y: box.top - corner.top,
         width: box.width,
         height: box.height,
+        ...styleOf(span),
       });
     }
   }
@@ -110,18 +132,63 @@ const rowsOf = (runs: readonly Run[]): Run[][] => {
   return rows;
 };
 
+/** a stretch of a text, and the style it has (D-321) */
+type Piece = { text: string; bold: boolean; italic: boolean };
+
+const pieceOf = (run: Run): Piece => ({
+  text: run.text,
+  bold: run.bold === true,
+  italic: run.italic === true,
+});
+
+/**
+ * What stands between two pieces of a row takes the style they both have, so a
+ * bold phrase is one bold stretch and not words with plain spaces between them.
+ */
+const between = (text: string, before: Piece, after: Piece): Piece => ({
+  text,
+  bold: before.bold && after.bold,
+  italic: before.italic && after.italic,
+});
+
+/** the pieces as one text, and the parts of it that are bold or italic */
+const joinPieces = (
+  pieces: readonly Piece[],
+): { text: string; styleRuns: TextStyleRun[] } => {
+  const runs: TextStyleRun[] = [];
+  let offset = 0;
+
+  for (const piece of pieces) {
+    if (piece.text && (piece.bold || piece.italic)) {
+      runs.push({
+        start: offset,
+        end: offset + piece.text.length,
+        ...(piece.bold ? { bold: true as const } : {}),
+        ...(piece.italic ? { italic: true as const } : {}),
+      });
+    }
+
+    offset += piece.text.length;
+  }
+
+  return {
+    text: pieces.map((piece) => piece.text).join(""),
+    styleRuns: normalizeStyleRuns(runs, offset),
+  };
+};
+
 /**
  * The runs as lines: the runs on one row are joined while they touch, and a
  * wide gap - a column of a table - keeps them apart, so every piece stays where
- * it was.
+ * it was. A line that has bold or italic parts says where they are.
  */
-export const mergeRuns = (runs: readonly Run[]): OcrLine[] => {
+export const mergeRuns = (runs: readonly Run[]): StyledLine[] => {
   const rows = rowsOf(runs);
 
-  const lines: Run[] = [];
+  const lines: Array<Run & { pieces: Piece[] }> = [];
 
   for (const row of rows) {
-    let last: Run | null = null;
+    let last: (Run & { pieces: Piece[] }) | null = null;
 
     for (const run of [...row].sort((a, b) => a.x - b.x)) {
       const height = last ? Math.max(last.height, run.height) : 0;
@@ -137,7 +204,15 @@ export const mergeRuns = (runs: readonly Run[]): OcrLine[] => {
         const right = Math.max(last.x + last.width, run.x + run.width);
         const top = Math.min(last.y, run.y);
         const bottom = Math.max(last.y + last.height, run.y + run.height);
+        const next = pieceOf(run);
 
+        if (space) {
+          last.pieces.push(
+            between(space, last.pieces[last.pieces.length - 1], next),
+          );
+        }
+
+        last.pieces.push(next);
         last.text += space + run.text;
         last.width = right - last.x;
         last.y = top;
@@ -145,56 +220,81 @@ export const mergeRuns = (runs: readonly Run[]): OcrLine[] => {
         continue;
       }
 
-      last = { ...run };
+      last = { ...run, pieces: [pieceOf(run)] };
       lines.push(last);
     }
   }
 
-  return lines.map(({ text, x, y, width, height }) => ({
-    text,
-    x,
-    y,
-    width,
-    height,
-  }));
+  return lines.map(({ text, x, y, width, height, pieces }) => {
+    const { styleRuns } = joinPieces(pieces);
+
+    return {
+      text,
+      x,
+      y,
+      width,
+      height,
+      ...(styleRuns.length ? { styleRuns } : {}),
+    };
+  });
 };
 
 /**
- * The text of the runs, a row to a line (D-314).
+ * The text of the runs, a row to a line, with the parts of it that are bold or
+ * italic (D-314, D-321).
  *
  * The pieces of a row that touch are one text, with a space where a space was;
  * the pieces that are far apart - the cells of a table - are split by a tab,
  * which is how a table copied out of a PDF reads, and what the table made of
  * the text splits a row on.
  */
-export const runsText = (runs: readonly Run[]): string =>
-  rowsOf(runs)
-    .map((row) => {
-      let text = "";
-      let last: Run | null = null;
+export const runsStyledText = (
+  runs: readonly Run[],
+): { text: string; styleRuns: TextStyleRun[] } => {
+  const pieces: Piece[] = [];
 
-      for (const run of [...row].sort((a, b) => a.x - b.x)) {
-        if (last) {
-          const height = Math.max(last.height, run.height);
-          const gap = run.x - (last.x + last.width);
+  rowsOf(runs).forEach((row, rowIndex) => {
+    if (rowIndex) {
+      pieces.push({ text: "\n", bold: false, italic: false });
+    }
 
-          text +=
-            gap > height * JOIN_GAP
-              ? "\t"
-              : gap > height * SPACE_GAP &&
-                !last.text.endsWith(" ") &&
-                !run.text.startsWith(" ")
-              ? " "
-              : "";
+    let last: Run | null = null;
+
+    for (const run of [...row].sort((a, b) => a.x - b.x)) {
+      const next = pieceOf(run);
+
+      if (last) {
+        const height = Math.max(last.height, run.height);
+        const gap = run.x - (last.x + last.width);
+        const separator =
+          gap > height * JOIN_GAP
+            ? "\t"
+            : gap > height * SPACE_GAP &&
+              !last.text.endsWith(" ") &&
+              !run.text.startsWith(" ")
+            ? " "
+            : "";
+
+        if (separator) {
+          pieces.push(
+            separator === "\t"
+              ? { text: separator, bold: false, italic: false }
+              : between(separator, pieceOf(last), next),
+          );
         }
-
-        text += run.text;
-        last = run;
       }
 
-      return text;
-    })
-    .join("\n");
+      pieces.push(next);
+      last = run;
+    }
+  });
+
+  return joinPieces(pieces);
+};
+
+/** the text of the runs, a row to a line */
+export const runsText = (runs: readonly Run[]): string =>
+  runsStyledText(runs).text;
 
 /** a box on the screen */
 export type ScreenBox = {
@@ -252,6 +352,7 @@ export const pdfRegionRuns = (sheet: HTMLElement, box: ScreenBox): Run[] => {
       y: rect.top - corner.top,
       width: rect.width,
       height: rect.height,
+      ...styleOf(span),
     });
   }
 

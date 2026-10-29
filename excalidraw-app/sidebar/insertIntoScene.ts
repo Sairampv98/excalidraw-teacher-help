@@ -36,7 +36,7 @@ import type {
   DataURL,
   ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
-import type { FileId } from "@excalidraw/element/types";
+import type { FileId, TextStyleRun } from "@excalidraw/element/types";
 import type {
   ExcalidrawElement,
   ExcalidrawTextElement,
@@ -46,7 +46,7 @@ import { layoutOcrLines } from "../ocr/ocrLayout";
 
 import { codeCardColumns, highlightCode, layoutCode } from "./codeCard";
 
-import type { OcrLine } from "../../packages/vscode-bridge/bridge/src/ocr";
+import type { StyledOcrLine } from "../ocr/ocrLayout";
 
 import type { LaidOutRun } from "./codeCard";
 
@@ -1238,7 +1238,14 @@ const insertLongCode = async (
 export const insertTextBoxIntoScene = (
   api: ExcalidrawImperativeAPI,
   text: string,
-  { monospace = false }: { monospace?: boolean } = {},
+  {
+    monospace = false,
+    styleRuns,
+  }: {
+    monospace?: boolean;
+    /** the parts of `text` that are bold or italic (D-321) */
+    styleRuns?: readonly TextStyleRun[];
+  } = {},
 ) => {
   const fontFamily = monospace ? FONT_FAMILY.Cascadia : DEFAULT_FONT_FAMILY;
   const fontSize = monospace ? CODE_FONT_SIZE + 4 : DEFAULT_FONT_SIZE;
@@ -1259,6 +1266,7 @@ export const insertTextBoxIntoScene = (
   const block = newTextElement({
     text: wrapped,
     originalText: text,
+    styleRuns,
     fontFamily,
     fontSize,
     lineHeight,
@@ -1296,7 +1304,7 @@ export const insertTextBlockIntoScene = (
  */
 export const insertOcrLinesIntoScene = (
   api: ExcalidrawImperativeAPI,
-  lines: readonly OcrLine[],
+  lines: readonly StyledOcrLine[],
 ) => {
   const fontFamily = FONT_FAMILY.Helvetica;
   const lineHeight = getLineHeight(fontFamily);
@@ -1325,6 +1333,7 @@ export const insertOcrLinesIntoScene = (
   const placed = layout.lines.map((line) =>
     newTextElement({
       text: line.text,
+      styleRuns: line.styleRuns,
       x: origin.x + line.x,
       y: origin.y + line.y,
       fontFamily,

@@ -373,13 +373,25 @@ export type ExcalidrawTextElement = _ExcalidrawElementBase &
      */
     lineHeight: number & { _brand: "unitlessLineHeight" };
     /**
-     * The text is bold, as a whole (D-320). A text that is not bold has no such
-     * field at all, so a drawing that never used it is saved as it was.
+     * The parts of the text that are bold, italic or both (D-320), as runs over
+     * `originalText`. A text with no styled part has no such field.
      */
-    bold?: boolean;
-    /** The text is italic, as a whole (D-320). Absent when it is not. */
-    italic?: boolean;
+    styleRuns?: readonly TextStyleRun[];
   }>;
+
+/** the two styles a part of a text can have (D-320) */
+export type TextStyleKey = "bold" | "italic";
+
+/**
+ * Characters `start` up to `end` of a text's `originalText` are bold, italic or
+ * both (D-320).
+ */
+export type TextStyleRun = Readonly<{
+  start: number;
+  end: number;
+  bold?: true;
+  italic?: true;
+}>;
 
 export type ExcalidrawBindableElement =
   | ExcalidrawRectangleElement

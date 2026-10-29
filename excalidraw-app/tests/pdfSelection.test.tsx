@@ -34,8 +34,17 @@ vi.mock("../sidebar/PdfViewer", async (importOriginal) => {
   const stubRegion = {
     box: { x: 10, y: 10, width: 50, height: 20 },
     text: "first line\nsecond line",
+    // the first line is bold in the PDF (D-321)
+    styleRuns: [{ start: 0, end: 10, bold: true }],
     lines: [
-      { text: "first line", x: 0, y: 0, width: 100, height: 20 },
+      {
+        text: "first line",
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 20,
+        styleRuns: [{ start: 0, end: 10, bold: true }],
+      },
       { text: "second line", x: 40, y: 30, width: 110, height: 20 },
     ],
     picture: () => ({
@@ -562,5 +571,50 @@ describe("AC-345 a selection can be put away", () => {
     });
 
     expect(document.querySelector(".app-doc-selection")).toBeNull();
+  });
+});
+
+describe("AC-364 the choices carry the bold and italic parts of a PDF", () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+    window.getSelection()?.removeAllRanges();
+  });
+
+  const texts = () =>
+    h.elements.filter(
+      (element) => !element.isDeleted && element.type === "text",
+    ) as unknown as Array<{ text: string; styleRuns?: unknown }>;
+
+  it("AC-364 a text box made of a box has its bold and italic parts", async () => {
+    await openPdf();
+    await drawBox();
+
+    await act(async () => {
+      fireEvent.click(
+        document.querySelector('[data-testid="selection-text-box"]')!,
+      );
+    });
+
+    await waitFor(() => expect(texts()).toHaveLength(1));
+
+    expect(texts()[0].styleRuns).toEqual([{ start: 0, end: 10, bold: true }]);
+  });
+
+  it("AC-364 Where it was puts each line with its own parts, and a plain line has none", async () => {
+    await openPdf();
+    await drawBox();
+
+    await act(async () => {
+      fireEvent.click(
+        document.querySelector('[data-testid="selection-where"]')!,
+      );
+    });
+
+    await waitFor(() => expect(texts()).toHaveLength(2));
+
+    const [first, second] = texts();
+
+    expect(first.styleRuns).toEqual([{ start: 0, end: 10, bold: true }]);
+    expect("styleRuns" in second).toBe(false);
   });
 });

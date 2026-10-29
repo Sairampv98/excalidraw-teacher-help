@@ -14,6 +14,8 @@ import { createRef } from "react";
 import { vi } from "vitest";
 
 import { Provider, appJotaiStore, ocrEngineChoiceAtom } from "../app-jotai";
+import { layoutOcrLines } from "../ocr/ocrLayout";
+import { mergeRuns, runsStyledText } from "../sidebar/pdfSelection";
 import { PDF_MAX_PAGES, PdfViewer, placeRegionBar } from "../sidebar/PdfViewer";
 
 import type { ReactNode } from "react";
@@ -32,6 +34,13 @@ type FakeHooks = {
   }) => { promise: Promise<void>; cancel?: () => void } | undefined;
   /** a page cannot be fetched while this says so */
   broken?: () => boolean;
+  /** the text of the page with its fonts, as pdf.js gives it (D-321) */
+  fonts?: {
+    items: Array<{ str: string; fontName: string }>;
+    objs: Record<string, { name?: string; bold?: boolean; italic?: boolean }>;
+    /** the elements of the text layer do not line up with the text */
+    misaligned?: boolean;
+  };
 };
 
 const fakePdfjs = (
@@ -66,11 +75,24 @@ const fakePdfjs = (
                 height: canvasContext.canvas.height,
               }) ?? { promise: Promise.resolve() },
             streamTextContent: () => index,
+            ...(hooks.fonts
+              ? {
+                  getTextContent: async () => ({ items: hooks.fonts!.items }),
+                  commonObjs: {
+                    has: (id: string) => id in hooks.fonts!.objs,
+                    get: (id: string) => hooks.fonts!.objs[id],
+                  },
+                }
+              : {}),
           };
         },
       }),
     }),
     TextLayer: class {
+      textDivs: HTMLElement[] = [];
+
+      textContentItemsStr: string[] = [];
+
       constructor(
         private options: { textContentSource: unknown; container: HTMLElement },
       ) {}
@@ -78,6 +100,31 @@ const fakePdfjs = (
       async render() {
         // a scanned page has a picture and no text
         if (!withText) {
+          return;
+        }
+
+        // the text given as it is, with its pieces: each piece that is not
+        // empty has an element of its own
+        const given = this.options.textContentSource as {
+          items?: Array<{ str?: string }>;
+        };
+
+        if (given && typeof given === "object" && given.items) {
+          for (const item of given.items) {
+            if (!item.str) {
+              continue;
+            }
+
+            const span = document.createElement("span");
+
+            span.textContent = item.str;
+            this.options.container.append(span);
+            this.textDivs.push(span);
+            this.textContentItemsStr.push(
+              hooks.fonts?.misaligned ? "other" : item.str,
+            );
+          }
+
           return;
         }
 
@@ -827,6 +874,192 @@ describe("AC-354 a PDF is selected with a box", () => {
 
     expect(left).toBeGreaterThanOrEqual(500);
     expect(left).toBeLessThanOrEqual(800 - 220);
+  });
+
+  it("AC-364 a box over bold and italic runs gives a text with the parts in it", async () => {
+    const onRegion = vi.fn();
+    const { getByTestId, ref } = await openPage(
+      [
+        ["Name", 10, 20, 60, 14],
+        ["Marks", 200, 20, 60, 14],
+        ["Ann", 10, 40, 40, 14],
+      ],
+      { onRegion },
+    );
+
+    // the page was drawn, and its pieces marked, as a PDF with a bold head is
+    const spans = ref.current!.querySelectorAll<HTMLElement>(
+      ".app-doc-pdf-text span",
+    );
+
+    spans[0].dataset.bold = "true";
+    spans[1].dataset.bold = "true";
+    spans[2].dataset.italic = "true";
+
+    await drag(getByTestId("pdf-viewer"), [0, 0], [300, 100]);
+
+    const region: PdfRegion = onRegion.mock.calls[0][0];
+
+    expect(region.text).toBe("Name\tMarks\nAnn");
+    expect(region.styleRuns).toEqual([
+      { start: 0, end: 4, bold: true },
+      { start: 5, end: 10, bold: true },
+      { start: 11, end: 14, italic: true },
+    ]);
+    // and each line it makes knows its own
+    expect(region.lines.map((line) => line.styleRuns)).toEqual([
+      [{ start: 0, end: 4, bold: true }],
+      [{ start: 0, end: 5, bold: true }],
+      [{ start: 0, end: 3, italic: true }],
+    ]);
+  });
+});
+
+describe("AC-364 a PDF's text keeps what is bold or italic in it", () => {
+  const plainRun = (
+    text: string,
+    x: number,
+    y: number,
+    width: number,
+    style: { bold?: boolean; italic?: boolean } = {},
+  ) => ({ text, x, y, width, height: 20, ...style });
+
+  it("AC-364 the pieces of the text that are bold or italic are marked when the page is drawn", async () => {
+    const { ref } = mount({
+      pages: 1,
+      hooks: {
+        fonts: {
+          items: [
+            { str: "Plain", fontName: "f1" },
+            // a piece with nothing in it has no element in the layer
+            { str: "", fontName: "f1" },
+            { str: "Bold", fontName: "f2" },
+            { str: "Slant", fontName: "f3" },
+            { str: "Named", fontName: "f4" },
+          ],
+          objs: {
+            f1: { name: "Arial" },
+            f2: { name: "Arial", bold: true },
+            f3: { name: "Arial", italic: true },
+            // pdf.js does not say, but the name of the font does
+            f4: { name: "ABCDEF+Calibri-BoldItalic" },
+          },
+        },
+      },
+    });
+
+    await waitFor(() =>
+      expect(
+        ref.current!.querySelectorAll(".app-doc-pdf-text span"),
+      ).toHaveLength(4),
+    );
+
+    const marks = Array.from(
+      ref.current!.querySelectorAll<HTMLElement>(".app-doc-pdf-text span"),
+    ).map((span) => [
+      span.textContent,
+      span.dataset.bold === "true",
+      span.dataset.italic === "true",
+    ]);
+
+    expect(marks).toEqual([
+      ["Plain", false, false],
+      ["Bold", true, false],
+      ["Slant", false, true],
+      ["Named", true, true],
+    ]);
+  });
+
+  it("AC-364 when the pieces of the layer do not line up with the text, nothing is marked", async () => {
+    const { ref } = mount({
+      pages: 1,
+      hooks: {
+        fonts: {
+          items: [{ str: "Bold", fontName: "f2" }],
+          objs: { f2: { bold: true } },
+          misaligned: true,
+        },
+      },
+    });
+
+    await waitFor(() =>
+      expect(
+        ref.current!.querySelectorAll(".app-doc-pdf-text span"),
+      ).toHaveLength(1),
+    );
+
+    expect(
+      ref.current!.querySelector<HTMLElement>(".app-doc-pdf-text span")!.dataset
+        .bold,
+    ).toBeUndefined();
+  });
+
+  it("AC-364 the text of a row carries its bold and italic parts, and a phrase is one stretch", () => {
+    const { text, styleRuns } = runsStyledText([
+      plainRun("Name", 0, 0, 40, { bold: true }),
+      plainRun("Marks", 200, 0, 50, { bold: true }),
+      // a bold phrase of two words: the space between them is bold too
+      plainRun("Very", 0, 40, 40, { bold: true }),
+      plainRun("good", 45, 40, 40, { bold: true }),
+      plainRun("and", 90, 40, 30),
+      plainRun("slanted", 125, 40, 60, { italic: true }),
+    ]);
+
+    expect(text).toBe("Name\tMarks\nVery good and slanted");
+    expect(styleRuns).toEqual([
+      // the tab between the cells is not bold
+      { start: 0, end: 4, bold: true },
+      { start: 5, end: 10, bold: true },
+      { start: 11, end: 20, bold: true },
+      { start: 25, end: 32, italic: true },
+    ]);
+
+    // nothing styled: no parts
+    expect(runsStyledText([plainRun("plain", 0, 0, 50)]).styleRuns).toEqual([]);
+  });
+
+  it("AC-364 a line made of runs says which parts of it are bold or italic, and a plain one says nothing", () => {
+    const lines = mergeRuns([
+      plainRun("Hello", 0, 0, 50, { bold: true }),
+      plainRun("world", 60, 0, 50, { bold: true }),
+      plainRun("plain", 0, 40, 50),
+    ]);
+
+    expect(lines).toEqual([
+      {
+        text: "Hello world",
+        x: 0,
+        y: 0,
+        width: 110,
+        height: 20,
+        styleRuns: [{ start: 0, end: 11, bold: true }],
+      },
+      { text: "plain", x: 0, y: 40, width: 50, height: 20 },
+    ]);
+  });
+
+  it("AC-364 the lines laid out on a page keep their parts, moved by what was trimmed", () => {
+    const layout = layoutOcrLines({
+      lines: [
+        {
+          text: "  ab cd",
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 20,
+          styleRuns: [{ start: 2, end: 4, bold: true }],
+        },
+        { text: "plain", x: 0, y: 40, width: 100, height: 20 },
+      ],
+      pageWidth: 1000,
+      measureWidth: () => 10,
+    })!;
+
+    expect(layout.lines[0]).toMatchObject({
+      text: "ab cd",
+      styleRuns: [{ start: 0, end: 2, bold: true }],
+    });
+    expect("styleRuns" in layout.lines[1]).toBe(false);
   });
 });
 

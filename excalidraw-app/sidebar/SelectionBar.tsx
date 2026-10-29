@@ -2,6 +2,8 @@ import { useCallback, useEffect } from "react";
 
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
+import type { TextStyleRun } from "@excalidraw/element/types";
+
 import {
   insertOcrLinesIntoScene,
   insertPdfPictureIntoScene,
@@ -10,7 +12,7 @@ import {
 import { insertTextAsCodeCard, insertTextAsTable } from "./reformat";
 import { SidebarIcon } from "./SidebarIcons";
 
-import type { OcrLine } from "../../packages/vscode-bridge/bridge/src/ocr";
+import type { StyledOcrLine } from "../ocr/ocrLayout";
 
 import type { SidebarIconName } from "./SidebarIcons";
 
@@ -38,13 +40,19 @@ export const SelectionBar = ({
   api,
   text,
   lines,
+  styleRuns,
   picture,
   onDone,
 }: {
   api: ExcalidrawImperativeAPI | null;
   text: string;
   /** where the selected text was on its page, when the document knows */
-  lines?: readonly OcrLine[];
+  lines?: readonly StyledOcrLine[];
+  /**
+   * the parts of `text` that are bold or italic in the document (D-321): a text
+   * box made of the text has them too
+   */
+  styleRuns?: readonly TextStyleRun[];
   /** the picture of the selected part of a page, when the document has one */
   picture?: () => Promise<SelectionPicture | null> | SelectionPicture | null;
   onDone: () => void;
@@ -66,7 +74,7 @@ export const SelectionBar = ({
       } else if (as === "where") {
         placed = insertOcrLinesIntoScene(api, lines ?? []).length > 0;
       } else if (as === "textBox") {
-        placed = !!insertTextBoxIntoScene(api, text);
+        placed = !!insertTextBoxIntoScene(api, text, { styleRuns });
       } else {
         placed = await insertTextAsCodeCard(api, text);
       }

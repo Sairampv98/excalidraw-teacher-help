@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import type { TextStyleRun } from "@excalidraw/element/types";
+
 import { OcrEnginePicker } from "../components/OcrEnginePicker";
 
-import { mergeRuns, pdfRegionRuns, runsText } from "./pdfSelection";
+import { mergeRuns, pdfRegionRuns, runsStyledText } from "./pdfSelection";
+
 import { SidebarIcon } from "./SidebarIcons";
 
-import type { ReactNode } from "react";
+import type { StyledLine } from "./pdfSelection";
 
-import type { OcrLine } from "../../packages/vscode-bridge/bridge/src/ocr";
+import type { ReactNode } from "react";
 
 /**
  * The PDF viewer (D-279).
@@ -86,6 +89,30 @@ export type PdfPageProxy = {
     transform?: number[];
   }) => { promise: Promise<void>; cancel?: () => void };
   streamTextContent: () => unknown;
+  /**
+   * The text of the page with the font of each piece (D-321). A stand-in may
+   * not have it, and then the text is shown without its styles.
+   */
+  getTextContent?: () => Promise<PdfTextContent>;
+  /** the fonts the page has drawn */
+  commonObjs?: {
+    has: (id: string) => boolean;
+    get: (id: string) => PdfFont | undefined;
+  };
+};
+
+/** the text of a page: a piece of it is a string in a font */
+export type PdfTextContent = {
+  items: Array<{ str?: string; fontName?: string }>;
+  styles?: Record<string, { fontFamily?: string }>;
+};
+
+/** what pdf.js knows of a font that has been drawn */
+export type PdfFont = {
+  name?: string;
+  bold?: boolean;
+  italic?: boolean;
+  black?: boolean;
 };
 
 export type PdfDocumentProxy = {
@@ -103,7 +130,12 @@ export type PdfJs = {
     textContentSource: unknown;
     container: HTMLElement;
     viewport: unknown;
-  }) => { render: () => Promise<void> };
+  }) => {
+    render: () => Promise<void>;
+    /** the element of each piece of the text, and what each says */
+    textDivs?: HTMLElement[];
+    textContentItemsStr?: string[];
+  };
 };
 
 let loading: Promise<PdfJs> | null = null;
@@ -143,6 +175,87 @@ export type PdfPagePicture = {
   height: number;
 };
 
+const BOLD_FONT_NAME = /bold|black|heavy|semibold|demi/i;
+const ITALIC_FONT_NAME = /italic|oblique/i;
+
+/**
+ * Says which pieces of a page's text are bold or italic (D-321): each piece of
+ * the text layer is marked with the style of the font it is set in, and a box
+ * that covers it carries the mark over to the text it makes.
+ *
+ * The font is what pdf.js knows of it once the page is drawn; where that says
+ * nothing, its name does (`Arial-BoldItalicMT`). The pieces of the layer are the
+ * pieces of the text that are not empty, in order; if they do not line up with
+ * them, nothing is marked rather than the wrong things.
+ */
+const markFontStyles = (
+  page: PdfPageProxy,
+  content: PdfTextContent,
+  layer: { textDivs?: HTMLElement[]; textContentItemsStr?: string[] },
+) => {
+  const divs = layer.textDivs;
+  const pieces = content.items.filter((item) => !!item.str);
+
+  if (
+    !divs ||
+    divs.length !== pieces.length ||
+    pieces.some(
+      (item, index) => layer.textContentItemsStr?.[index] !== item.str,
+    )
+  ) {
+    return;
+  }
+
+  const known = new Map<string, { bold: boolean; italic: boolean }>();
+
+  const styleOfFont = (fontName: string | undefined) => {
+    if (!fontName) {
+      return { bold: false, italic: false };
+    }
+
+    let style = known.get(fontName);
+
+    if (!style) {
+      let font: PdfFont | undefined;
+
+      try {
+        font = page.commonObjs?.has(fontName)
+          ? page.commonObjs.get(fontName)
+          : undefined;
+      } catch {
+        font = undefined;
+      }
+
+      const named = `${font?.name ?? ""} ${
+        content.styles?.[fontName]?.fontFamily ?? ""
+      }`;
+
+      style = {
+        bold:
+          font?.bold === true ||
+          font?.black === true ||
+          BOLD_FONT_NAME.test(named),
+        italic: font?.italic === true || ITALIC_FONT_NAME.test(named),
+      };
+      known.set(fontName, style);
+    }
+
+    return style;
+  };
+
+  pieces.forEach((item, index) => {
+    const { bold, italic } = styleOfFont(item.fontName);
+
+    if (bold) {
+      divs[index].dataset.bold = "true";
+    }
+
+    if (italic) {
+      divs[index].dataset.italic = "true";
+    }
+  });
+};
+
 /**
  * What a box drawn on a page covers (D-314).
  *
@@ -155,8 +268,10 @@ export type PdfRegion = {
   box: { x: number; y: number; width: number; height: number };
   /** the text in the box: a row to a line, a tab between far apart pieces */
   text: string;
+  /** the parts of `text` that are bold or italic in the PDF (D-321) */
+  styleRuns: TextStyleRun[];
   /** the same text, a piece to a line, each where it was on its page (D-301) */
-  lines: OcrLine[];
+  lines: StyledLine[];
   /** the part of the page in the box, as a picture of the best sharpness (D-316) */
   picture: () => Promise<PdfPagePicture | null>;
 };
@@ -628,6 +743,7 @@ export const PdfViewer = ({
     }
 
     const runs = pdfRegionRuns(drawing.sheet, box);
+    const styled = runsStyledText(runs);
 
     // the box is kept from the corner of its page, so that it is the same part
     // of the page whatever the viewer is scrolled to when its picture is asked
@@ -642,7 +758,7 @@ export const PdfViewer = ({
 
     const next: PdfRegion = {
       box: fromStage(box),
-      text: runsText(runs),
+      ...styled,
       lines: mergeRuns(runs),
       picture: async () => {
         const doc = documentRef.current;
@@ -926,12 +1042,21 @@ export const PdfViewer = ({
         return;
       }
 
-      // the text on top of the picture is real text: the box finds it there
-      await new pdfjs.TextLayer({
-        textContentSource: page.streamTextContent(),
+      // the text on top of the picture is real text: the box finds it there.
+      // It is given with its fonts, so the pieces that are bold or italic in
+      // the PDF are known (D-321)
+      const content = page.getTextContent ? await page.getTextContent() : null;
+      const layer = new pdfjs.TextLayer({
+        textContentSource: content ?? page.streamTextContent(),
         container: text,
         viewport,
-      }).render();
+      });
+
+      await layer.render();
+
+      if (content) {
+        markFontStyles(page, content, layer);
+      }
 
       if (cancelled || !wanted.has(sheet)) {
         return;
