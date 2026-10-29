@@ -51,6 +51,59 @@
   flex: 1 1 auto;
 }
 
+// A button that is an icon (D-310): square, with its name as the tooltip.
+.app-sidebar-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border-radius: 0.5rem;
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface-high);
+  color: var(--text-primary-color);
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+
+  &:hover:not(:disabled),
+  &:focus-visible {
+    background-color: var(--color-surface-low);
+    border-color: var(--color-primary);
+  }
+
+  &[aria-expanded="true"] {
+    border-color: var(--color-primary);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  &--primary {
+    background-color: var(--color-primary);
+    border-color: var(--color-primary);
+    color: var(--color-primary-contrast, #fff);
+
+    &:hover:not(:disabled),
+    &:focus-visible {
+      background-color: var(--color-primary-hover, var(--color-primary));
+      color: var(--color-primary-contrast, #fff);
+    }
+  }
+}
+
+.app-sidebar-icon__svg {
+  display: block;
+}
+
+// the Files tab's open buttons: icons side by side, left-aligned
+.app-sidebar-actions--icons {
+  gap: 0.4rem;
+}
+
 // The YouTube link: a field and a button, beside "Open files" (D-128).
 .app-sidebar-youtube {
   display: flex;
@@ -848,10 +901,24 @@
   background: var(--color-surface-low, rgba(127, 127, 127, 0.12));
 }
 
-.app-doc-selection__label {
+.app-doc-selection__head {
+  display: flex;
   flex: 1 1 100%;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.app-doc-selection__label {
+  flex: 1 1 auto;
   font-size: 0.75rem;
   opacity: 0.75;
+}
+
+// the close button of the bar (D-306): small, in the corner of its row
+.app-doc-selection__close {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.4rem;
 }
 
 // The PDF viewer (D-279): the pages are drawn by pdf.js, with the real text on
@@ -926,19 +993,6 @@
   }
 }
 
-.app-doc-pdf-read {
-  position: absolute;
-  top: 0.3rem;
-  right: 0.3rem;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-
-.app-doc-pdf-page:hover .app-doc-pdf-read,
-.app-doc-pdf-read:focus {
-  opacity: 1;
-}
-
 .app-doc-pdf-tools {
   display: flex;
   flex-wrap: wrap;
@@ -957,11 +1011,6 @@
   background: rgba(255, 244, 204, 0.95);
   color: #5c4400;
   font-size: 0.8rem;
-}
-
-// a page with no text keeps its button in view: it is how it is read
-.app-doc-pdf-page--scan .app-doc-pdf-read {
-  opacity: 1;
 }
 
 // the text of a PDF page can be selected: the sidebar's own rule against

@@ -314,3 +314,104 @@ describe("AC-344 a PDF's selection offers where it was", () => {
     Reflect.deleteProperty(Range.prototype, "getBoundingClientRect");
   });
 });
+
+describe("AC-345 a selection can be put away", () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+    window.getSelection()?.removeAllRanges();
+    Reflect.deleteProperty(Range.prototype, "getBoundingClientRect");
+  });
+
+  /** a PDF with text selected in it, and the bar that shows */
+  const selectInPdf = async () => {
+    const entry: ScannedFile = {
+      file: new File(["%PDF"], "lesson.pdf"),
+      name: "lesson.pdf",
+      path: "lesson.pdf",
+      dir: [],
+      kind: "pdf",
+    };
+
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn(async () => undefined) },
+    });
+
+    Range.prototype.getBoundingClientRect = function () {
+      return { left: 30, top: 40, width: 110, height: 20 } as DOMRect;
+    };
+
+    await render(
+      <Excalidraw pagesEnabled={true}>
+        <DocumentViewer
+          entry={entry}
+          documents={[entry]}
+          index={0}
+          onStep={() => {}}
+          onBack={() => {}}
+        />
+      </Excalidraw>,
+    );
+
+    const range = document.createRange();
+
+    range.selectNodeContents(document.querySelector(".app-doc-pdf-text span")!);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+
+    await act(async () => {
+      fireEvent.mouseUp(document);
+    });
+
+    await waitFor(() =>
+      expect(document.querySelector(".app-doc-selection")).not.toBeNull(),
+    );
+  };
+
+  it("AC-345 the close button puts the bar away, and it stays away", async () => {
+    await selectInPdf();
+
+    const close = document.querySelector<HTMLElement>(
+      '[data-testid="selection-close"]',
+    )!;
+
+    // pressing the bar's own button is not a new selection of the old text
+    await act(async () => {
+      fireEvent.mouseUp(close);
+    });
+    expect(document.querySelector(".app-doc-selection")).not.toBeNull();
+
+    await act(async () => {
+      fireEvent.click(close);
+    });
+
+    expect(document.querySelector(".app-doc-selection")).toBeNull();
+    // the browser's own selection is let go of too
+    expect(window.getSelection()!.isCollapsed).toBe(true);
+
+    // the end of any later gesture does not bring it back
+    await act(async () => {
+      fireEvent.mouseUp(document);
+      fireEvent.keyUp(document.body, { key: "a" });
+    });
+
+    expect(document.querySelector(".app-doc-selection")).toBeNull();
+  });
+
+  it("AC-345 Escape puts the bar away", async () => {
+    await selectInPdf();
+
+    await act(async () => {
+      fireEvent.keyDown(document.body, { key: "Escape" });
+    });
+
+    expect(document.querySelector(".app-doc-selection")).toBeNull();
+
+    // the key coming up again is not a selection either
+    await act(async () => {
+      fireEvent.keyUp(document.body, { key: "Escape" });
+    });
+
+    expect(document.querySelector(".app-doc-selection")).toBeNull();
+  });
+});

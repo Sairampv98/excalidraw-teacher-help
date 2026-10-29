@@ -1638,7 +1638,15 @@ const CodePanelSurface = ({
           ...barButton(),
           position: "absolute",
           top: 2,
-          right: screenshot ? chrome.cameraReserve : 4,
+          // Beside the editor, not over the console (D-311): with the console
+          // at the right the button is the width of the console (and of the
+          // divider) from the edge, at the editor's own top right corner.
+          right:
+            consoleView.dock === "right"
+              ? `calc(${consoleSize * 100}% + 8px)`
+              : screenshot
+              ? chrome.cameraReserve
+              : 4,
           zIndex: 2,
         }}
       >
@@ -1884,7 +1892,9 @@ const CodePanelSurface = ({
             className="excalidraw__panel-code-consolebar"
             style={{
               ...barRow,
-              flexWrap: "nowrap",
+              // a console beside the editor is narrow: the bar goes on to
+              // another line, so the + is never cut off (D-311)
+              flexWrap: "wrap",
               flex: "0 0 auto",
               color: palette.muted,
               ...hairline,

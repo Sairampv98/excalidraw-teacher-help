@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { OcrEnginePicker } from "../components/OcrEnginePicker";
 
+import { SidebarIcon } from "./SidebarIcons";
+
 /**
  * The PDF viewer (D-279).
  *
@@ -354,7 +356,10 @@ export const PdfViewer = ({
     });
   };
 
-  // the pages are drawn, and drawn again when the zoom changes
+  // The pages are drawn, and drawn again when the zoom changes - and for no
+  // other reason (D-307): drawing them replaces every page, which sends the
+  // viewer back to the top and loses the selection, so nothing the host passes
+  // in may be a dependency here.
   useEffect(() => {
     const container = containerRef.current;
     const doc = documentRef.current;
@@ -429,25 +434,8 @@ export const PdfViewer = ({
           note.className = "app-doc-pdf-scan";
           note.dataset.testid = "pdf-scan-note";
           note.textContent =
-            "No text to select on this page - it looks scanned.";
+            "No text to select on this page - it looks scanned. Read it with the toolbar's Read this page.";
           sheet.append(note);
-        }
-
-        if (onReadPage) {
-          const read = document.createElement("button");
-
-          read.type = "button";
-          read.className = "app-doc-pdf-read";
-          read.textContent = "Read the text";
-          read.title = "Read the text of this page with OCR";
-          read.addEventListener("click", () => {
-            onReadPage({
-              dataURL: canvas.toDataURL("image/png"),
-              width: canvas.width,
-              height: canvas.height,
-            });
-          });
-          sheet.append(read);
         }
       }
     })().catch((error) => {
@@ -462,7 +450,7 @@ export const PdfViewer = ({
     return () => {
       cancelled = true;
     };
-  }, [status, zoom, containerRef, onReadPage]);
+  }, [status, zoom, containerRef]);
 
   return (
     <div
@@ -476,32 +464,35 @@ export const PdfViewer = ({
       <div className="app-doc-pdf-tools" data-testid="pdf-tools">
         <button
           type="button"
-          className="app-sidebar-secondary"
+          className="app-sidebar-icon"
           data-testid="pdf-fit-width"
-          title="Fit the page to the width of the panel"
+          title="Fit width"
+          aria-label="Fit width"
           onClick={() => fit("width")}
         >
-          Fit width
+          <SidebarIcon name="fitWidth" />
         </button>
         <button
           type="button"
-          className="app-sidebar-secondary"
+          className="app-sidebar-icon"
           data-testid="pdf-fit-page"
-          title="Fit a whole page in the panel"
+          title="Fit page"
+          aria-label="Fit page"
           onClick={() => fit("page")}
         >
-          Fit page
+          <SidebarIcon name="fitPage" />
         </button>
         {onReadPage ? (
           <>
             <button
               type="button"
-              className="app-sidebar-secondary"
+              className="app-sidebar-icon"
               data-testid="pdf-read-page"
-              title="Read the text of the page you are on with OCR"
+              title="Read this page (the text of the page you are on, with OCR)"
+              aria-label="Read this page"
               onClick={readCurrentPage}
             >
-              Read this page
+              <SidebarIcon name="readPage" />
             </button>
             <OcrEnginePicker />
           </>

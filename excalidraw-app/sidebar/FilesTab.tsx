@@ -9,6 +9,7 @@ import { findCaptionSidecar } from "../components/videoCaptions";
 import { browserState, setBrowserCwd, setBrowserRoot } from "./browserState";
 import { hideVideoWireframe, showVideoWireframe } from "./dragWireframe";
 import { DocumentViewer } from "./DocumentViewer";
+import { SidebarIcon } from "./SidebarIcons";
 import {
   DRAG_MIME,
   armFileDragOnCanvas,
@@ -198,6 +199,11 @@ export const FilesTab = () => {
   const [selected, setSelected] = useState<string | null>(null);
   /** the path of the document being read, if any */
   const [reading, setReading] = useState<string | null>(null);
+  /** the heading a link opened the document at (D-308) */
+  const [linkAnchor, setLinkAnchor] = useState<{
+    path: string;
+    anchor: string;
+  } | null>(null);
   /** the paths of the files that could not be read — they are not usable */
   const [unreadable, setUnreadable] = useState<string[]>([]);
   /**
@@ -276,6 +282,33 @@ export const FilesTab = () => {
   const readingEntry = useMemo(
     () => documents.find((document) => document.path === reading) ?? null,
     [documents, reading],
+  );
+
+  /**
+   * What a link of a markdown document may open (D-308): every document of
+   * the opened folder, whichever folder of it the list is in.
+   */
+  const linkTargets = useMemo(
+    () =>
+      scan.files.filter(
+        (file) =>
+          !isImageKind(file.kind) &&
+          file.kind !== "video" &&
+          file.kind !== "captions" &&
+          !unreadable.includes(file.path),
+      ),
+    [scan.files, unreadable],
+  );
+
+  /** a link opened another document: the list moves to its folder, and it is read */
+  const openLinkedDocument = useCallback(
+    (file: ScannedFile, anchor: string | null) => {
+      setCwd(file.dir);
+      setBrowserCwd(file.dir);
+      setLinkAnchor(anchor ? { path: file.path, anchor } : null);
+      setReading(file.path);
+    },
+    [],
   );
 
   // object URLs for the row thumbnails, revoked whenever the listing changes
@@ -775,31 +808,40 @@ export const FilesTab = () => {
         } as React.InputHTMLAttributes<HTMLInputElement>)}
       />
 
-      <div className="app-sidebar-actions">
+      {/* The three buttons are icons, each with its name as the tooltip (D-310) */}
+      <div className="app-sidebar-actions app-sidebar-actions--icons">
         <button
           type="button"
-          className="app-sidebar-primary"
+          className="app-sidebar-icon app-sidebar-icon--primary"
+          data-testid="files-open-files"
+          title="Open files"
+          aria-label="Open files"
           onClick={() => filesInputRef.current?.click()}
         >
-          Open files
+          <SidebarIcon name="openFiles" />
         </button>
         <button
           type="button"
-          className="app-sidebar-secondary"
+          className="app-sidebar-icon"
+          data-testid="files-open-folder"
+          title="Open folder"
+          aria-label="Open folder"
           onClick={() => folderInputRef.current?.click()}
         >
-          Open folder
+          <SidebarIcon name="openFolder" />
         </button>
         {/* A YouTube video is added like a file: a button of its own beside
         the others (D-303). */}
         <button
           type="button"
-          className="app-sidebar-secondary"
+          className="app-sidebar-icon"
           data-testid="files-youtube-button"
+          title={t("labels.panel.youtube.button")}
+          aria-label={t("labels.panel.youtube.button")}
           aria-expanded={showYoutube}
           onClick={() => setShowYoutube((shown) => !shown)}
         >
-          {t("labels.panel.youtube.button")}
+          <SidebarIcon name="youtube" />
         </button>
       </div>
 
@@ -858,8 +900,16 @@ export const FilesTab = () => {
             (document) => document.path === readingEntry.path,
           )}
           onStep={step}
-          onBack={() => setReading(null)}
+          onBack={() => {
+            setLinkAnchor(null);
+            setReading(null);
+          }}
           onUnreadable={onUnreadable}
+          linkTargets={linkTargets}
+          onOpenDocument={openLinkedDocument}
+          anchor={
+            linkAnchor?.path === readingEntry.path ? linkAnchor.anchor : null
+          }
         />
       ) : !hasFiles ? (
         <p className="app-sidebar-empty">

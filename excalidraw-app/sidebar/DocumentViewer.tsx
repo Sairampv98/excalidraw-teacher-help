@@ -19,7 +19,13 @@ import {
 } from "./PdfViewer";
 import { mergeRuns, pdfSelectionRuns } from "./pdfSelection";
 import { SelectionBar } from "./SelectionBar";
-import { escapeHtml, kindLabel, renderMarkdown } from "./sidebarFiles";
+import {
+  escapeHtml,
+  findHeading,
+  kindLabel,
+  renderMarkdown,
+  resolveDocumentLink,
+} from "./sidebarFiles";
 
 import "./sidebar.scss";
 
@@ -62,6 +68,12 @@ type DocumentViewerProps = {
   onBack: () => void;
   /** the file could not be read — the picker names it with the reason */
   onUnreadable?: (entry: ScannedFile) => void;
+  /** the files a link of a markdown document may open (D-308) */
+  linkTargets?: readonly ScannedFile[];
+  /** a link opened this file: the viewer reads it, and goes to its heading */
+  onOpenDocument?: (file: ScannedFile, anchor: string | null) => void;
+  /** the heading to go to once the document is shown */
+  anchor?: string | null;
 };
 
 /**
@@ -78,6 +90,9 @@ export const DocumentViewer = ({
   onStep,
   onBack,
   onUnreadable,
+  linkTargets,
+  onOpenDocument,
+  anchor,
 }: DocumentViewerProps) => {
   const api = useExcalidrawAPI();
   /** the rendered document body — a selection has to lie inside it */
@@ -189,7 +204,13 @@ export const DocumentViewer = ({
       setPicked(text);
     };
 
-    const onSelectionEnd = () => {
+    const onSelectionEnd = (event: Event) => {
+      // pressing one of the bar's own buttons is not a new selection: the bar
+      // would come back after it was closed (D-306)
+      if ((event.target as Element | null)?.closest?.(".app-doc-selection")) {
+        return;
+      }
+
       void copySelection();
     };
 
@@ -311,15 +332,86 @@ export const DocumentViewer = ({
     }
   }, [api, copyAndArm, loaded]);
 
+  /** goes to the heading a link means; with none, to the top (D-308) */
+  const scrollToAnchor = useCallback((target: string) => {
+    const body = bodyRef.current;
+
+    if (!body) {
+      return;
+    }
+
+    const heading = target ? findHeading(body, target) : null;
+
+    if (heading) {
+      heading.scrollIntoView?.({ block: "start" });
+    } else if (!target) {
+      body.scrollTo?.({ top: 0 });
+    }
+  }, []);
+
+  // a document opened by a link to one of its headings goes there once it shows
+  useEffect(() => {
+    if (anchor && html) {
+      scrollToAnchor(anchor);
+    }
+  }, [anchor, html, scrollToAnchor]);
+
+  /**
+   * A link of the document goes where it points (D-308): a file of the opened
+   * folder opens here, a heading is scrolled to, and an address elsewhere is
+   * left to the browser, which opens it in a new tab.
+   */
+  const onLinkClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>, link: HTMLElement) => {
+      const resolved = resolveDocumentLink({
+        href: link.getAttribute("href") ?? "",
+        from: entry.path,
+        files: linkTargets ?? [],
+        origin: window.location.origin,
+      });
+
+      if (resolved.type === "external") {
+        return;
+      }
+
+      // none of these may load this app in a tab of its own
+      event.preventDefault();
+
+      if (resolved.type === "anchor") {
+        scrollToAnchor(resolved.anchor);
+      } else if (resolved.type === "document") {
+        if (resolved.file.path === entry.path) {
+          scrollToAnchor(resolved.anchor ?? "");
+        } else {
+          onOpenDocument?.(resolved.file, resolved.anchor);
+        }
+      } else {
+        api?.setToast({
+          message: `"${resolved.target}" is not among the opened files`,
+          closable: true,
+        });
+      }
+    },
+    [api, entry.path, linkTargets, onOpenDocument, scrollToAnchor],
+  );
+
   /**
    * One delegated listener for every fenced block's copy button. The buttons are
    * part of the injected markdown HTML, so there is no React node to hang a
    * handler on — and the code is read back from the block's own `<pre>`, which is
-   * verbatim.
+   * verbatim. The links of the document are read the same way.
    */
   const onMarkdownClick = useCallback(
     async (event: React.MouseEvent<HTMLDivElement>) => {
-      const button = (event.target as HTMLElement | null)?.closest?.(
+      const target = event.target as HTMLElement | null;
+      const link = target?.closest?.("a[href]") as HTMLElement | null;
+
+      if (link && isMarkdown) {
+        onLinkClick(event, link);
+        return;
+      }
+
+      const button = target?.closest?.(
         ".app-doc-copy-code",
       ) as HTMLElement | null;
 
@@ -366,7 +458,7 @@ export const DocumentViewer = ({
         }
       }, COPY_FEEDBACK_MS);
     },
-    [api, copyAndArm, loaded],
+    [api, copyAndArm, isMarkdown, loaded, onLinkClick],
   );
 
   const onInsert = useCallback(async () => {

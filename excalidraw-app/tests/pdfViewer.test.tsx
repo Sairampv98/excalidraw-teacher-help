@@ -179,12 +179,13 @@ describe("AC-318 the PDF viewer", () => {
     const { ref, getByTestId } = mount({ pages: 2, onReadPage });
 
     await waitFor(() =>
-      expect(ref.current!.querySelectorAll(".app-doc-pdf-read")).toHaveLength(
+      expect(ref.current!.querySelectorAll(".app-doc-pdf-page")).toHaveLength(
         2,
       ),
     );
 
-    fireEvent.click(ref.current!.querySelector(".app-doc-pdf-read")!);
+    // the toolbar's Read this page is the one way to read a page (D-307)
+    fireEvent.click(getByTestId("pdf-read-page"));
 
     expect(onReadPage).toHaveBeenCalledWith(
       expect.objectContaining({ dataURL: "data:image/png;base64,AAAA" }),
@@ -345,7 +346,9 @@ describe("AC-325 the PDF reader can be zoomed, panned and fitted", () => {
     expect(ref.current!.textContent).toContain(
       "No text to select on this page",
     );
-    expect(ref.current!.querySelectorAll(".app-doc-pdf-read")).toHaveLength(2);
+    // and it says where to read it from: the page has no button of its own
+    expect(ref.current!.textContent).toContain("Read this page");
+    expect(ref.current!.querySelectorAll(".app-doc-pdf-read")).toHaveLength(0);
   });
 });
 
@@ -416,6 +419,94 @@ describe("AC-334 the text of a PDF page can be selected", () => {
     // of the page, and it is not itself selectable
     expect(blockOf(".app-doc-pdf-text .endOfContent")).toMatch(
       /user-select:\s*none/,
+    );
+  });
+});
+
+describe("AC-346 the PDF keeps its place", () => {
+  it("AC-346 a change of the host does not draw the pages again", async () => {
+    const ref = createRef<HTMLDivElement>();
+    const loader = async () => fakePdfjs(2);
+    const pdf = file();
+    const view = (zoom: number) => (
+      <PdfViewer
+        file={pdf}
+        zoom={zoom}
+        containerRef={ref}
+        loader={loader}
+        onReadPage={vi.fn()}
+      />
+    );
+
+    const { rerender } = render(view(1));
+
+    await waitFor(() =>
+      expect(ref.current!.querySelectorAll(".app-doc-pdf-page")).toHaveLength(
+        2,
+      ),
+    );
+
+    const before = [...ref.current!.querySelectorAll(".app-doc-pdf-page")];
+
+    // what the host does when text is selected: it renders again, and its
+    // function for the read is a new one each time
+    rerender(view(1));
+    rerender(view(1));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const after = [...ref.current!.querySelectorAll(".app-doc-pdf-page")];
+
+    expect(after).toHaveLength(2);
+    after.forEach((page, index) => expect(page).toBe(before[index]));
+
+    // the zoom does draw them again
+    rerender(view(2));
+
+    await waitFor(() => {
+      const zoomed = [...ref.current!.querySelectorAll(".app-doc-pdf-page")];
+
+      expect(zoomed).toHaveLength(2);
+      expect(zoomed[0]).not.toBe(before[0]);
+    });
+  });
+
+  it("AC-346 a page has no read button of its own", async () => {
+    const { ref } = mount({ pages: 2, onReadPage: vi.fn() });
+
+    await waitFor(() =>
+      expect(ref.current!.querySelectorAll(".app-doc-pdf-page")).toHaveLength(
+        2,
+      ),
+    );
+
+    expect(ref.current!.querySelectorAll("button")).toHaveLength(0);
+    expect(ref.current!.textContent).not.toContain("Read the text");
+  });
+});
+
+describe("AC-350 the PDF toolbar is icons", () => {
+  it("AC-350 the toolbar buttons are icons with names", () => {
+    const { getByTestId } = mount({ pages: 1, onReadPage: vi.fn() });
+
+    const names = {
+      "pdf-fit-width": "Fit width",
+      "pdf-fit-page": "Fit page",
+      "pdf-read-page": "Read this page",
+    };
+
+    for (const [testId, name] of Object.entries(names)) {
+      const button = getByTestId(testId);
+
+      // an icon and no words, and the name where a tooltip and a reader find it
+      expect(button.querySelector("svg")).not.toBeNull();
+      expect(button.textContent).toBe("");
+      expect(button.getAttribute("aria-label")).toBe(name);
+      expect(button.getAttribute("title")).toContain(name);
+    }
+
+    // the engine that reads is chosen beside Read this page
+    expect(getByTestId("pdf-read-page").nextElementSibling).toBe(
+      getByTestId("ocr-engine-picker"),
     );
   });
 });

@@ -1640,6 +1640,59 @@ describe("the code panel's view", () => {
     return document.querySelector('[data-testid="panel-overlay"]')!;
   };
 
+  it("AC-351 the full screen button keeps clear of the console beside the editor", async () => {
+    const overlay = await renderEditorWithConsole({
+      dock: "bottom",
+      size: 0.3,
+    });
+
+    const button = () =>
+      document.querySelector(
+        '[data-testid="code-panel-fullscreen"]',
+      ) as HTMLElement;
+
+    // the console under the editor spans the panel: the corner is the panel's
+    expect(button().style.right).toBe("4px");
+
+    fireEvent.click(
+      overlay.querySelector('[data-testid="code-panel-dock-right"]')!,
+    );
+
+    await waitFor(() =>
+      expect(
+        document
+          .querySelector('[data-testid="code-panel-body"]')!
+          .getAttribute("data-console-dock"),
+      ).toBe("right"),
+    );
+
+    // beside the editor the console is the right of the panel, and the button
+    // is at the editor's own corner: as far from the edge as the console is wide
+    const size = storedConsole()!.size;
+
+    expect(button().style.right).toBe(`calc(${size * 100}% + 8px)`);
+    expect(
+      document
+        .querySelector('[data-testid="code-panel-consolebox"]')!
+        .getAttribute("style"),
+    ).toContain(`flex: 0 0 ${size * 100}%`);
+  });
+
+  it("AC-351 the bar of the console wraps", async () => {
+    const overlay = await renderEditorWithConsole({ dock: "right", size: 0.3 });
+
+    const bar = overlay.querySelector(
+      ".excalidraw__panel-code-consolebar",
+    ) as HTMLElement;
+
+    // a console beside the editor is narrow: a bar that cannot wrap cuts off
+    // its last button, the + of the console's zoom
+    expect(bar.style.flexWrap).toBe("wrap");
+    expect(
+      bar.querySelector('[data-testid="code-panel-console-zoom-in"]'),
+    ).not.toBeNull();
+  });
+
   it("AC-333 docking the console gives it the size of a new dock, not the one dragged for the other", async () => {
     const overlay = await renderEditorWithConsole({
       dock: "bottom",

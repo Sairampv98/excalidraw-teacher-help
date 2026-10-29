@@ -969,9 +969,42 @@ describe("FilesTab list and reader", () => {
 
     const actions = Array.from(
       container.querySelectorAll(".app-sidebar-actions > button"),
-    ).map((button) => button.textContent);
+    ).map((button) => button.getAttribute("aria-label"));
 
     expect(actions).toEqual(["Open files", "Open folder", "YouTube link"]);
+  });
+
+  it("AC-349 the open buttons are icons with names", () => {
+    mockObjectUrls();
+
+    const { container } = render(<FilesTab />);
+
+    const buttons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        ".app-sidebar-actions > button",
+      ),
+    );
+
+    expect(buttons).toHaveLength(3);
+
+    for (const button of buttons) {
+      // an icon and no words; the name is the tooltip and the accessible name
+      expect(button.querySelector("svg")).not.toBeNull();
+      expect(button.textContent).toBe("");
+      expect(button.getAttribute("title")).toBe(
+        button.getAttribute("aria-label"),
+      );
+    }
+
+    // the pickers are still opened by the buttons: the files one first
+    const input = getFilesInput(container);
+    const click = vi.spyOn(input, "click");
+
+    fireEvent.click(
+      container.querySelector('[data-testid="files-open-files"]')!,
+    );
+
+    expect(click).toHaveBeenCalledTimes(1);
   });
 
   it("AC-341 the field for the link opens with its button and closes with Escape", () => {
