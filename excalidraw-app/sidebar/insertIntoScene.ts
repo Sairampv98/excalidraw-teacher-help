@@ -511,6 +511,37 @@ export const insertScreenshotIntoScene = (
 };
 
 /**
+ * Puts the part of a PDF page that was in the selection box on the current page
+ * as an **image** (D-315): in the middle of the page, at the size an image of
+ * the sidebar has, selected, with the view moved to it.
+ *
+ * The picture is the page's own pixels, so it is as sharp as the page was drawn.
+ */
+export const insertPdfPictureIntoScene = (
+  api: ExcalidrawImperativeAPI,
+  picture: { dataURL: string; width: number; height: number },
+) => {
+  const size = screenshotCanvasSize(picture.width, picture.height);
+  const origin = pageCenterOrigin(api, size);
+
+  const fileId = insertScreenshotIntoScene(api, {
+    dataURL: picture.dataURL,
+    canvasWidth: size.width,
+    canvasHeight: size.height,
+    x: origin.x,
+    y: origin.y,
+  });
+
+  const placed = api
+    .getSceneElements()
+    .filter((element) => element.type === "image" && element.fileId === fileId);
+
+  showPlaced(api, placed);
+
+  return placed[0] ?? null;
+};
+
+/**
  * Places a screenshot on a **new page** (D-103, D-104).
  *
  * The page is created after the page the teacher is on, and the picture lands

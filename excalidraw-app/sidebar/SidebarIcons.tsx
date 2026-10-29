@@ -42,6 +42,32 @@ const SIDEBAR_ICON_PATHS = {
     </>
   ),
   close: <path d="M6 6l12 12M18 6L6 18" />,
+  codeCard: <path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 6l-3 12" />,
+  textBox: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M8 9h8M12 9v7" />
+    </>
+  ),
+  table: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 10h18M3 15h18M9 4v16M15 4v16" />
+    </>
+  ),
+  where: (
+    <>
+      <path d="M5 6h8M5 11h14M5 16h10" />
+      <path d="M19 15v6M16 18h6" />
+    </>
+  ),
+  image: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <circle cx="9" cy="10" r="1.6" />
+      <path d="M21 16l-5-5-8 9" />
+    </>
+  ),
 } as const;
 
 export type SidebarIconName = keyof typeof SIDEBAR_ICON_PATHS;

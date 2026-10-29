@@ -28,28 +28,72 @@ vi.mock("../sidebar/PdfViewer", async (importOriginal) => {
   const original = await importOriginal<
     typeof import("../sidebar/PdfViewer")
   >();
-  const { createElement } = await import("react");
+  const { createElement, useState } = await import("react");
+
+  // what a box drawn on the page covers: two lines, and a picture of them
+  const stubRegion = {
+    box: { x: 10, y: 10, width: 50, height: 20 },
+    text: "first line\nsecond line",
+    lines: [
+      { text: "first line", x: 0, y: 0, width: 100, height: 20 },
+      { text: "second line", x: 40, y: 30, width: 110, height: 20 },
+    ],
+    picture: () => ({
+      dataURL: "data:image/png;base64,AAAA",
+      width: 400,
+      height: 200,
+    }),
+  };
 
   return {
     ...original,
     PdfViewer: ({
       containerRef,
+      onRegion,
+      renderRegionBar,
+      toolbarHost,
     }: {
       containerRef: React.RefObject<HTMLDivElement | null>;
-    }) =>
-      createElement(
+      onRegion?: (region: typeof stubRegion) => void;
+      renderRegionBar?: (
+        region: typeof stubRegion,
+        close: () => void,
+      ) => React.ReactNode;
+      toolbarHost?: HTMLElement | null;
+    }) => {
+      const [region, setRegion] = useState<typeof stubRegion | null>(null);
+
+      return createElement(
         "div",
-        { ref: containerRef },
+        {
+          "data-testid": "stub-pdf",
+          // the viewer is given its place for the toolbar: in the zoom row
+          "data-host-in-zoom": String(!!toolbarHost?.closest(".app-doc-zoom")),
+        },
         createElement(
           "div",
-          { className: "app-doc-pdf-page" },
+          { ref: containerRef },
           createElement(
             "div",
-            { className: "app-doc-pdf-text" },
-            createElement("span", null, "Hello world"),
+            { className: "app-doc-pdf-page" },
+            createElement(
+              "div",
+              { className: "app-doc-pdf-text" },
+              createElement("span", null, "Hello world"),
+            ),
           ),
         ),
-      ),
+        // the teacher draws a box
+        createElement("button", {
+          "data-testid": "stub-box",
+          onClick: () => {
+            setRegion(stubRegion);
+            onRegion?.(stubRegion);
+          },
+        }),
+        region ? renderRegionBar?.(region, () => setRegion(null)) : null,
+      );
+    },
   };
 });
 
@@ -259,59 +303,210 @@ describe("AC-344 the selection bar offers where the text was", () => {
   });
 });
 
-describe("AC-344 a PDF's selection offers where it was", () => {
-  afterEach(() => {
-    document.body.replaceChildren();
+/** a PDF open in the viewer, with the box of the stand-in ready to be drawn */
+const openPdf = async () => {
+  const entry: ScannedFile = {
+    file: new File(["%PDF"], "lesson.pdf"),
+    name: "lesson.pdf",
+    path: "lesson.pdf",
+    dir: [],
+    kind: "pdf",
+  };
+
+  const writeText = vi.fn(async () => undefined);
+
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText },
   });
 
-  it("AC-344 selecting text in the pages of a PDF shows the bar with Where it was", async () => {
-    const entry: ScannedFile = {
-      file: new File(["%PDF"], "lesson.pdf"),
-      name: "lesson.pdf",
-      path: "lesson.pdf",
-      dir: [],
-      kind: "pdf",
-    };
+  await render(
+    <Excalidraw pagesEnabled={true}>
+      <DocumentViewer
+        entry={entry}
+        documents={[entry]}
+        index={0}
+        onStep={() => {}}
+        onBack={() => {}}
+      />
+    </Excalidraw>,
+  );
 
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText: vi.fn(async () => undefined) },
-    });
+  return { writeText };
+};
 
-    Range.prototype.getBoundingClientRect = function () {
-      return { left: 30, top: 40, width: 110, height: 20 } as DOMRect;
-    };
+/** draws the box, and waits for the choices under it */
+const drawBox = async () => {
+  await act(async () => {
+    fireEvent.click(document.querySelector('[data-testid="stub-box"]')!);
+  });
 
-    await render(
+  await waitFor(() =>
+    expect(document.querySelector(".app-doc-selection")).not.toBeNull(),
+  );
+};
+
+describe("AC-355 the choices under the box", () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+    window.getSelection()?.removeAllRanges();
+  });
+
+  const LINES = [
+    { text: "first line", x: 0, y: 0, width: 100, height: 20 },
+    { text: "second line", x: 40, y: 30, width: 110, height: 20 },
+  ];
+
+  const Choices = ({
+    text,
+    lines,
+    withPicture,
+  }: {
+    text: string;
+    lines?: typeof LINES;
+    withPicture: boolean;
+  }) => {
+    const api = useExcalidrawAPI();
+
+    return (
+      <SelectionBar
+        compact
+        api={api}
+        text={text}
+        lines={lines}
+        picture={
+          withPicture
+            ? () => ({
+                dataURL: "data:image/png;base64,AAAA",
+                width: 400,
+                height: 200,
+              })
+            : undefined
+        }
+        onDone={() => {}}
+      />
+    );
+  };
+
+  /** the names of the choices that are there, in order */
+  const names = () =>
+    Array.from(
+      document.querySelectorAll<HTMLElement>(".app-doc-selection button"),
+    ).map((button) => button.getAttribute("aria-label"));
+
+  it("AC-355 the choices are icons with names, and only the ones that can be made are there", async () => {
+    // text with places, and a picture: every choice
+    const { unmount } = await render(
       <Excalidraw pagesEnabled={true}>
-        <DocumentViewer
-          entry={entry}
-          documents={[entry]}
-          index={0}
-          onStep={() => {}}
-          onBack={() => {}}
-        />
+        <Choices text="first line second line" lines={LINES} withPicture />
       </Excalidraw>,
     );
 
-    const span = document.querySelector(".app-doc-pdf-text span")!;
-    const range = document.createRange();
+    expect(names()).toEqual([
+      "As a code card",
+      "As a text box",
+      "As a table",
+      "Where it was",
+      "As an image",
+      "Close",
+    ]);
 
-    range.selectNodeContents(span);
-    window.getSelection()!.removeAllRanges();
-    window.getSelection()!.addRange(range);
+    // an icon and no words, with the name for a tooltip
+    for (const button of document.querySelectorAll<HTMLElement>(
+      ".app-doc-selection button",
+    )) {
+      expect(button.querySelector("svg")).not.toBeNull();
+      expect(button.textContent).toBe("");
+      expect(button.getAttribute("title")).toBeTruthy();
+    }
+
+    unmount();
+    document.body.replaceChildren();
+
+    // a figure has no text: the picture, and the way out
+    await render(
+      <Excalidraw pagesEnabled={true}>
+        <Choices text="" withPicture />
+      </Excalidraw>,
+    );
+    expect(names()).toEqual(["As an image", "Close"]);
+
+    document.body.replaceChildren();
+
+    // text that has no places and no picture: the three that need text only
+    await render(
+      <Excalidraw pagesEnabled={true}>
+        <Choices text="some text" withPicture={false} />
+      </Excalidraw>,
+    );
+    expect(names()).toEqual([
+      "As a code card",
+      "As a text box",
+      "As a table",
+      "Close",
+    ]);
+  });
+
+  it("AC-355 As an image puts the part of the page on the canvas as an image", async () => {
+    await render(
+      <Excalidraw pagesEnabled={true}>
+        <Choices text="" withPicture />
+      </Excalidraw>,
+    );
 
     await act(async () => {
-      fireEvent.mouseUp(document);
+      fireEvent.click(
+        document.querySelector('[data-testid="selection-image"]')!,
+      );
     });
 
     await waitFor(() =>
       expect(
-        document.querySelector('[data-testid="selection-where"]'),
-      ).not.toBeNull(),
+        h.elements.filter(
+          (element) => !element.isDeleted && element.type === "image",
+        ),
+      ).toHaveLength(1),
     );
 
-    Reflect.deleteProperty(Range.prototype, "getBoundingClientRect");
+    const image = h.elements.find((element) => element.type === "image") as {
+      fileId: string;
+      width: number;
+      height: number;
+    };
+
+    // the picture is the file of the image: the page's own pixels
+    expect(h.app.files[image.fileId].dataURL).toBe(
+      "data:image/png;base64,AAAA",
+    );
+
+    // the size of an image of the sidebar: the long edge is at most 460, and
+    // the shape of the box is kept
+    expect(Math.max(image.width, image.height)).toBeLessThanOrEqual(460);
+    expect(image.width / image.height).toBeCloseTo(2, 5);
+  });
+
+  it("AC-355 a box in the pages of a PDF copies its text and shows the choices", async () => {
+    const { writeText } = await openPdf();
+
+    // the toolbar has its place in the row of the zoom (D-313)
+    expect(
+      document
+        .querySelector('[data-testid="stub-pdf"]')!
+        .getAttribute("data-host-in-zoom"),
+    ).toBe("true");
+
+    await drawBox();
+
+    expect(writeText).toHaveBeenCalledWith("first line\nsecond line");
+    expect(names()).toContain("Where it was");
+    expect(names()).toContain("As an image");
+
+    // and the box is the page's own choices: nothing is drawn above the viewer
+    expect(
+      document
+        .querySelector('[data-testid="stub-pdf"]')!
+        .contains(document.querySelector(".app-doc-selection")),
+    ).toBe(true);
   });
 });
 
@@ -319,40 +514,13 @@ describe("AC-345 a selection can be put away", () => {
   afterEach(() => {
     document.body.replaceChildren();
     window.getSelection()?.removeAllRanges();
-    Reflect.deleteProperty(Range.prototype, "getBoundingClientRect");
   });
 
-  /** a PDF with text selected in it, and the bar that shows */
-  const selectInPdf = async () => {
-    const entry: ScannedFile = {
-      file: new File(["%PDF"], "lesson.pdf"),
-      name: "lesson.pdf",
-      path: "lesson.pdf",
-      dir: [],
-      kind: "pdf",
-    };
+  it("AC-345 the close button puts the bar away, and it stays away", async () => {
+    await openPdf();
+    await drawBox();
 
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText: vi.fn(async () => undefined) },
-    });
-
-    Range.prototype.getBoundingClientRect = function () {
-      return { left: 30, top: 40, width: 110, height: 20 } as DOMRect;
-    };
-
-    await render(
-      <Excalidraw pagesEnabled={true}>
-        <DocumentViewer
-          entry={entry}
-          documents={[entry]}
-          index={0}
-          onStep={() => {}}
-          onBack={() => {}}
-        />
-      </Excalidraw>,
-    );
-
+    // the browser has a selection of its own, which closing lets go of
     const range = document.createRange();
 
     range.selectNodeContents(document.querySelector(".app-doc-pdf-text span")!);
@@ -360,33 +528,12 @@ describe("AC-345 a selection can be put away", () => {
     window.getSelection()!.addRange(range);
 
     await act(async () => {
-      fireEvent.mouseUp(document);
-    });
-
-    await waitFor(() =>
-      expect(document.querySelector(".app-doc-selection")).not.toBeNull(),
-    );
-  };
-
-  it("AC-345 the close button puts the bar away, and it stays away", async () => {
-    await selectInPdf();
-
-    const close = document.querySelector<HTMLElement>(
-      '[data-testid="selection-close"]',
-    )!;
-
-    // pressing the bar's own button is not a new selection of the old text
-    await act(async () => {
-      fireEvent.mouseUp(close);
-    });
-    expect(document.querySelector(".app-doc-selection")).not.toBeNull();
-
-    await act(async () => {
-      fireEvent.click(close);
+      fireEvent.click(
+        document.querySelector('[data-testid="selection-close"]')!,
+      );
     });
 
     expect(document.querySelector(".app-doc-selection")).toBeNull();
-    // the browser's own selection is let go of too
     expect(window.getSelection()!.isCollapsed).toBe(true);
 
     // the end of any later gesture does not bring it back
@@ -399,7 +546,8 @@ describe("AC-345 a selection can be put away", () => {
   });
 
   it("AC-345 Escape puts the bar away", async () => {
-    await selectInPdf();
+    await openPdf();
+    await drawBox();
 
     await act(async () => {
       fireEvent.keyDown(document.body, { key: "Escape" });

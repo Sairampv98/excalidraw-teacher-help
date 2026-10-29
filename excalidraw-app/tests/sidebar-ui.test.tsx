@@ -9,6 +9,7 @@ import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { resetBrowserState } from "../sidebar/browserState";
 import { hideVideoWireframe } from "../sidebar/dragWireframe";
 import { FilesTab } from "../sidebar/FilesTab";
+import { SidebarHeaderSlotContext } from "../sidebar/headerSlot";
 import {
   cancelCodePaste,
   cancelImageDrag,
@@ -1005,6 +1006,89 @@ describe("FilesTab list and reader", () => {
     );
 
     expect(click).toHaveBeenCalledTimes(1);
+  });
+
+  it("AC-352 the open buttons are in the header when it has a place for them", () => {
+    mockObjectUrls();
+
+    const slot = document.createElement("div");
+
+    document.body.append(slot);
+
+    const { container, unmount } = render(
+      <SidebarHeaderSlotContext.Provider value={slot}>
+        <FilesTab />
+      </SidebarHeaderSlotContext.Provider>,
+    );
+
+    // the three buttons are in the header, and the tab has none of its own
+    expect(
+      Array.from(slot.querySelectorAll("button")).map((button) =>
+        button.getAttribute("aria-label"),
+      ),
+    ).toEqual(["Open files", "Open folder", "YouTube link"]);
+    expect(container.querySelector(".app-sidebar-actions")).toBeNull();
+    expect(
+      container.querySelector("button[aria-label='Open files']"),
+    ).toBeNull();
+
+    unmount();
+
+    // until the header has given its place nothing is drawn, and nothing twice
+    const pending = render(
+      <SidebarHeaderSlotContext.Provider value={null}>
+        <FilesTab />
+      </SidebarHeaderSlotContext.Provider>,
+    );
+
+    expect(
+      pending.container.querySelector("button[aria-label='Open files']"),
+    ).toBeNull();
+    expect(slot.querySelectorAll("button")).toHaveLength(0);
+
+    pending.unmount();
+    slot.remove();
+  });
+
+  it("AC-352 the buttons in the header still open the pickers and the YouTube field", () => {
+    mockObjectUrls();
+
+    const slot = document.createElement("div");
+
+    document.body.append(slot);
+
+    const { container } = render(
+      <SidebarHeaderSlotContext.Provider value={slot}>
+        <FilesTab />
+      </SidebarHeaderSlotContext.Provider>,
+    );
+
+    const files = vi.spyOn(getFilesInput(container), "click");
+    const folder = vi.spyOn(getFolderInput(container), "click");
+
+    fireEvent.click(slot.querySelector('[data-testid="files-open-files"]')!);
+    fireEvent.click(slot.querySelector('[data-testid="files-open-folder"]')!);
+
+    expect(files).toHaveBeenCalledTimes(1);
+    expect(folder).toHaveBeenCalledTimes(1);
+
+    // the field for a link opens in the tab, below the header
+    const youtube = slot.querySelector<HTMLElement>(
+      '[data-testid="files-youtube-button"]',
+    )!;
+
+    expect(
+      container.querySelector('[data-testid="files-youtube-field"]'),
+    ).toBeNull();
+
+    fireEvent.click(youtube);
+
+    expect(
+      container.querySelector('[data-testid="files-youtube-field"]'),
+    ).not.toBeNull();
+    expect(youtube.getAttribute("aria-expanded")).toBe("true");
+
+    slot.remove();
   });
 
   it("AC-341 the field for the link opens with its button and closes with Escape", () => {

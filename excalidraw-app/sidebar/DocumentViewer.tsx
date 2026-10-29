@@ -17,7 +17,6 @@ import {
   PDF_ZOOM_MIN,
   clampPdfZoom,
 } from "./PdfViewer";
-import { mergeRuns, pdfSelectionRuns } from "./pdfSelection";
 import { SelectionBar } from "./SelectionBar";
 import {
   escapeHtml,
@@ -29,7 +28,7 @@ import {
 
 import "./sidebar.scss";
 
-import type { OcrLine } from "../../packages/vscode-bridge/bridge/src/ocr";
+import type { PdfRegion } from "./PdfViewer";
 
 import type { ScannedFile } from "./sidebarFiles";
 
@@ -107,8 +106,8 @@ export const DocumentViewer = ({
   const [zoom, setZoom] = useState(1);
   /** the text the teacher has just selected in the document, if any */
   const [picked, setPicked] = useState<string | null>(null);
-  /** where that text was on its page, for a PDF (D-301) */
-  const [pickedLines, setPickedLines] = useState<OcrLine[] | undefined>();
+  /** the place in the zoom row where the PDF's toolbar is drawn (D-313) */
+  const [toolbarHost, setToolbarHost] = useState<HTMLElement | null>(null);
 
   const isMarkdown = entry.kind === "markdown";
 
@@ -161,7 +160,8 @@ export const DocumentViewer = ({
   useEffect(() => {
     const body = bodyRef.current;
 
-    if (!body) {
+    // a PDF is selected with a box, not with the browser's selection (D-314)
+    if (!body || entry.kind === "pdf") {
       return;
     }
 
@@ -194,13 +194,7 @@ export const DocumentViewer = ({
         api?.setToast({ message: "Clipboard was blocked", closable: true });
       }
 
-      // the bar is offered whether or not the copy went through; for a PDF it
-      // also knows where the text was on the page (D-301)
-      setPickedLines(
-        entry.kind === "pdf"
-          ? mergeRuns(pdfSelectionRuns(range, body))
-          : undefined,
-      );
+      // the bar is offered whether or not the copy went through
       setPicked(text);
     };
 
@@ -481,6 +475,26 @@ export const DocumentViewer = ({
     }
   }, [api, busy, loaded]);
 
+  /**
+   * The box of a PDF covers text: it is copied, as a selection is (D-314). A
+   * box with no text - a figure - leaves the clipboard as it was.
+   */
+  const copyRegion = useCallback(
+    async (region: PdfRegion) => {
+      if (!region.text.trim()) {
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(region.text);
+      } catch (error) {
+        console.error(error);
+        api?.setToast({ message: "Clipboard was blocked", closable: true });
+      }
+    },
+    [api],
+  );
+
   const zoomBar = (
     <div className="app-doc-zoom">
       <button
@@ -510,6 +524,15 @@ export const DocumentViewer = ({
       >
         +
       </button>
+      {/* the PDF's tools are drawn here by its viewer, where they never scroll
+      away (D-313) */}
+      {isPdf ? (
+        <span
+          ref={setToolbarHost}
+          className="app-doc-pdf-toolhost"
+          data-testid="pdf-toolhost"
+        />
+      ) : null}
     </div>
   );
 
@@ -572,22 +595,27 @@ export const DocumentViewer = ({
       {entry.kind === "pdf" ? (
         <>
           {zoomBar}
-          {picked && (
-            <SelectionBar
-              api={api}
-              text={picked}
-              lines={pickedLines}
-              onDone={() => setPicked(null)}
-            />
-          )}
           <PdfViewer
             file={entry.file}
             zoom={zoom}
             onZoomChange={setZoom}
             containerRef={bodyRef}
+            toolbarHost={toolbarHost}
             onReadPage={(picture) =>
               appJotaiStore.set(pdfPageReadRequestAtom, picture)
             }
+            onRegion={copyRegion}
+            // the choices are under the box that was drawn (D-314)
+            renderRegionBar={(region, close) => (
+              <SelectionBar
+                compact
+                api={api}
+                text={region.text}
+                lines={region.lines}
+                picture={region.picture}
+                onDone={close}
+              />
+            )}
           />
         </>
       ) : loaded?.text != null ? (

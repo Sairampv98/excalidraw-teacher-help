@@ -9,7 +9,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { render, waitFor, fireEvent } from "@testing-library/react";
+import { render, waitFor, fireEvent, act } from "@testing-library/react";
 import { createRef } from "react";
 import { vi } from "vitest";
 
@@ -18,7 +18,7 @@ import { PDF_MAX_PAGES, PdfViewer } from "../sidebar/PdfViewer";
 
 import type { ReactNode } from "react";
 
-import type { PdfJs, PdfPageProxy } from "../sidebar/PdfViewer";
+import type { PdfJs, PdfPageProxy, PdfRegion } from "../sidebar/PdfViewer";
 
 const fakePdfjs = (pageCount: number, withText = true): PdfJs =>
   ({
@@ -77,6 +77,11 @@ const mount = (
     onReadPage?: (picture: unknown) => void;
     onZoomChange?: (zoom: number) => void;
     withText?: boolean;
+    /** the file, when a test has to open the same one again */
+    pdf?: File;
+    toolbarHost?: HTMLElement | null;
+    onRegion?: (region: PdfRegion) => void;
+    renderRegionBar?: (region: PdfRegion, close: () => void) => ReactNode;
   } = {},
 ) => {
   const ref = createRef<HTMLDivElement>();
@@ -85,12 +90,15 @@ const mount = (
     (async () => fakePdfjs(options.pages ?? 3, options.withText ?? true));
   const utils = render(
     <PdfViewer
-      file={file()}
+      file={options.pdf ?? file()}
       zoom={options.zoom ?? 1}
       onZoomChange={options.onZoomChange}
       containerRef={ref}
       loader={loader}
       onReadPage={options.onReadPage}
+      toolbarHost={options.toolbarHost}
+      onRegion={options.onRegion}
+      renderRegionBar={options.renderRegionBar}
     />,
   );
 
@@ -352,8 +360,8 @@ describe("AC-325 the PDF reader can be zoomed, panned and fitted", () => {
   });
 });
 
-describe("AC-334 the text of a PDF page can be selected", () => {
-  it("AC-334 a plain drag on the page is left to the browser, so the text under it is selected", async () => {
+describe("AC-334 the text of a PDF page is not selected by the browser", () => {
+  it("AC-334 a plain drag on the page is not the browser's selection, and the middle button drags the page", async () => {
     const { getByTestId, ref } = mount({ pages: 1 });
     const viewer = getByTestId("pdf-viewer");
 
@@ -363,22 +371,25 @@ describe("AC-334 the text of a PDF page can be selected", () => {
       ).toBe(1),
     );
 
-    const press = () => {
-      const event = new MouseEvent("pointerdown", {
+    // a plain drag draws a box (D-314); it does not drag the page
+    viewer.scrollTop = 100;
+    viewer.dispatchEvent(
+      new MouseEvent("pointerdown", {
         bubbles: true,
         cancelable: true,
         button: 0,
         clientX: 200,
         clientY: 200,
-      });
-
-      viewer.dispatchEvent(event);
-
-      return event;
-    };
-
-    // a drag that starts a selection must not be cancelled
-    expect(press().defaultPrevented).toBe(false);
+      }),
+    );
+    viewer.dispatchEvent(
+      new MouseEvent("pointermove", {
+        bubbles: true,
+        clientX: 100,
+        clientY: 100,
+      }),
+    );
+    expect(viewer.scrollTop).toBe(100);
 
     // with the middle button it is the page that is dragged, and the browser's
     // own selection is cancelled
@@ -394,10 +405,9 @@ describe("AC-334 the text of a PDF page can be selected", () => {
     expect(middle.defaultPrevented).toBe(true);
   });
 
-  it("AC-334 the style lifts the sidebar's rule against selecting on the page's text", () => {
-    // `.excalidraw` sets `user-select: none` and the sidebar inherits it: the
-    // text layer of a page has to say that it can be selected, or the cursor
-    // changes over the words and nothing can be selected
+  it("AC-334 the style keeps the browser from selecting the page's text", () => {
+    // a box is the selection of a PDF (D-314): left selectable, the text under
+    // the box would be highlighted run by run, which is what the box replaces
     const styles = readFileSync(
       join(__dirname, "..", "sidebar", "sidebar.scss"),
       "utf8",
@@ -412,13 +422,350 @@ describe("AC-334 the text of a PDF page can be selected", () => {
     };
 
     expect(blockOf(".app-doc-pdf-text,\n.app-doc-pdf-text span")).toMatch(
-      /user-select:\s*text/,
+      /user-select:\s*none/,
     );
 
-    // the end-of-content marker is what keeps a drag from jumping to the end
-    // of the page, and it is not itself selectable
+    // the end-of-content marker is not selectable either
     expect(blockOf(".app-doc-pdf-text .endOfContent")).toMatch(
       /user-select:\s*none/,
+    );
+  });
+});
+
+describe("AC-353 the PDF's tools are in the row of the zoom", () => {
+  it("AC-353 the toolbar is in the place it is given, outside the part that scrolls", () => {
+    const host = document.createElement("div");
+
+    document.body.append(host);
+
+    const { getByTestId } = mount({
+      pages: 1,
+      onReadPage: vi.fn(),
+      toolbarHost: host,
+    });
+
+    const viewer = getByTestId("pdf-viewer");
+
+    for (const id of ["pdf-fit-width", "pdf-fit-page", "pdf-read-page"]) {
+      expect(host.querySelector(`[data-testid="${id}"]`)).not.toBeNull();
+      // not in the part that scrolls: it would scroll away with the pages
+      expect(viewer.querySelector(`[data-testid="${id}"]`)).toBeNull();
+    }
+
+    host.remove();
+  });
+
+  it("AC-353 with no place given the toolbar is at the top of the viewer", () => {
+    const { getByTestId } = mount({ pages: 1, onReadPage: vi.fn() });
+
+    expect(
+      getByTestId("pdf-viewer").querySelector('[data-testid="pdf-fit-width"]'),
+    ).not.toBeNull();
+  });
+
+  it("AC-353 until the place is there the toolbar is not drawn", () => {
+    const { queryByTestId } = mount({
+      pages: 1,
+      onReadPage: vi.fn(),
+      toolbarHost: null,
+    });
+
+    expect(queryByTestId("pdf-tools")).toBeNull();
+    expect(queryByTestId("pdf-fit-width")).toBeNull();
+  });
+});
+
+describe("AC-354 a PDF is selected with a box", () => {
+  type Rect = [left: number, top: number, width: number, height: number];
+
+  /** a rect as the browser gives it */
+  const domRect = ([left, top, width, height]: Rect) =>
+    ({
+      left,
+      top,
+      width,
+      height,
+      right: left + width,
+      bottom: top + height,
+      x: left,
+      y: top,
+    } as DOMRect);
+
+  /** one page, 300 x 400, at the corner of the stage; its runs are given */
+  const openPage = async (
+    runs: Array<[text: string, ...rect: Rect]> = [],
+    options: Parameters<typeof mount>[0] = {},
+  ) => {
+    const original = HTMLElement.prototype.getBoundingClientRect;
+
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        if (this.dataset.rect) {
+          return domRect(this.dataset.rect.split(",").map(Number) as Rect);
+        }
+
+        if (this.classList.contains("app-doc-pdf-page")) {
+          return domRect([0, 0, 300, 400]);
+        }
+
+        if (this.classList.contains("app-doc-pdf-stage")) {
+          return domRect([0, 0, 300, 800]);
+        }
+
+        return original.call(this);
+      },
+    );
+
+    const view = mount({ pages: 1, onReadPage: vi.fn(), ...options });
+
+    await waitFor(() =>
+      expect(
+        view.ref.current!.querySelector(".app-doc-pdf-page"),
+      ).not.toBeNull(),
+    );
+
+    // the runs of text of the page, where they were laid out
+    const layer = view.ref.current!.querySelector(".app-doc-pdf-text")!;
+
+    layer.replaceChildren();
+
+    for (const [text, ...rect] of runs) {
+      const span = document.createElement("span");
+
+      span.textContent = text;
+      span.dataset.rect = rect.join(",");
+      layer.append(span);
+    }
+
+    return view;
+  };
+
+  const pointer = (
+    viewer: HTMLElement,
+    type: "pointerdown" | "pointermove" | "pointerup",
+    x: number,
+    y: number,
+  ) =>
+    act(() => {
+      viewer.dispatchEvent(
+        new MouseEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          clientX: x,
+          clientY: y,
+        }),
+      );
+    });
+
+  /** a drag from one corner to the other */
+  const drag = async (
+    viewer: HTMLElement,
+    from: [number, number],
+    to: [number, number],
+  ) => {
+    await pointer(viewer, "pointerdown", ...from);
+    await pointer(viewer, "pointermove", ...to);
+    await pointer(viewer, "pointerup", ...to);
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("AC-354 a drag draws a box that stays inside its page", async () => {
+    const { getByTestId, queryByTestId } = await openPage();
+    const viewer = getByTestId("pdf-viewer");
+
+    await pointer(viewer, "pointerdown", 50, 60);
+    await pointer(viewer, "pointermove", 500, 900);
+
+    // dragged far past the page: the box stops at its edges
+    const box = getByTestId("pdf-box");
+
+    expect(box.style.left).toBe("50px");
+    expect(box.style.top).toBe("60px");
+    expect(box.style.width).toBe("250px");
+    expect(box.style.height).toBe("340px");
+
+    await pointer(viewer, "pointerup", 500, 900);
+
+    // and it stays once the drag is over
+    expect(getByTestId("pdf-box").style.width).toBe("250px");
+
+    // a press that is not on a page draws no box
+    await pointer(viewer, "pointerdown", 350, 200);
+    await pointer(viewer, "pointermove", 360, 250);
+    expect(queryByTestId("pdf-box")).toBeNull();
+  });
+
+  it("AC-354 the box gives the text, the lines and the picture of what it covers", async () => {
+    const onRegion = vi.fn();
+    const { getByTestId } = await openPage(
+      [
+        ["Name", 10, 20, 60, 14],
+        ["Marks", 200, 20, 60, 14],
+        ["Ann", 10, 40, 40, 14],
+        ["9", 200, 40, 10, 14],
+      ],
+      { onRegion },
+    );
+
+    await drag(getByTestId("pdf-viewer"), [0, 0], [300, 100]);
+
+    expect(onRegion).toHaveBeenCalledTimes(1);
+
+    const region: PdfRegion = onRegion.mock.calls[0][0];
+
+    // a row to a line, and a tab between pieces that are far apart: the cells
+    // of a table
+    expect(region.text).toBe("Name\tMarks\nAnn\t9");
+
+    // each piece keeps the place it had on the page
+    expect(region.lines.map((line) => [line.text, line.x, line.y])).toEqual([
+      ["Name", 10, 20],
+      ["Marks", 200, 20],
+      ["Ann", 10, 40],
+      ["9", 200, 40],
+    ]);
+
+    // the picture is cut from the page's own pixels: the page is drawn at 140
+    // x 196 pixels, so the whole width and a quarter of the height of it are
+    const picture = region.picture()!;
+
+    expect(picture.dataURL.startsWith("data:image/png")).toBe(true);
+    expect(picture.width).toBe(140);
+    expect(picture.height).toBe(49);
+  });
+
+  it("AC-354 a run that is half inside is taken, and one that is less is left out", async () => {
+    const onRegion = vi.fn();
+    const { getByTestId } = await openPage(
+      [
+        // all of it is in the box
+        ["inside", 10, 20, 60, 14],
+        // 22 of 40 is in the box: taken whole
+        ["half", 78, 20, 40, 14],
+        // 5 of 40 is in the box: left out
+        ["edge", 95, 60, 40, 14],
+        // not touched
+        ["far", 200, 20, 40, 14],
+      ],
+      { onRegion },
+    );
+
+    await drag(getByTestId("pdf-viewer"), [0, 0], [100, 100]);
+
+    expect(onRegion.mock.calls[0][0].text).toBe("inside half");
+  });
+
+  it("AC-354 a box with nothing in it has no text and still has its picture", async () => {
+    const onRegion = vi.fn();
+    const { getByTestId } = await openPage([], { onRegion });
+
+    await drag(getByTestId("pdf-viewer"), [10, 10], [120, 90]);
+
+    const region: PdfRegion = onRegion.mock.calls[0][0];
+
+    expect(region.text).toBe("");
+    expect(region.lines).toEqual([]);
+    expect(region.picture()).not.toBeNull();
+  });
+
+  it("AC-354 a click, a new box and the zoom put the box away", async () => {
+    const renderRegionBar = vi.fn<
+      (region: PdfRegion, close: () => void) => ReactNode
+    >(() => <span data-testid="bar">bar</span>);
+    const pdf = file();
+    const { getByTestId, queryByTestId, rerender, ref, loader } =
+      await openPage([], { renderRegionBar, pdf });
+    const viewer = getByTestId("pdf-viewer");
+
+    // a box, and a click on the page that is not a drag
+    await drag(viewer, [10, 10], [120, 90]);
+    expect(queryByTestId("pdf-box")).not.toBeNull();
+    expect(queryByTestId("bar")).not.toBeNull();
+
+    await pointer(viewer, "pointerdown", 200, 200);
+    await pointer(viewer, "pointerup", 200, 200);
+    expect(queryByTestId("pdf-box")).toBeNull();
+    expect(queryByTestId("bar")).toBeNull();
+
+    // a new box puts the old one away: only one is there
+    await drag(viewer, [10, 10], [120, 90]);
+    await pointer(viewer, "pointerdown", 150, 150);
+    await pointer(viewer, "pointermove", 250, 300);
+
+    const boxes = document.querySelectorAll('[data-testid="pdf-box"]');
+
+    expect(boxes).toHaveLength(1);
+    expect((boxes[0] as HTMLElement).style.left).toBe("150px");
+    await pointer(viewer, "pointerup", 250, 300);
+
+    // the bar closes the box
+    const close = renderRegionBar.mock.calls.at(-1)![1];
+
+    act(() => close());
+    expect(queryByTestId("pdf-box")).toBeNull();
+
+    // the zoom draws the pages again, and the box has nothing under it
+    await drag(viewer, [10, 10], [120, 90]);
+    expect(queryByTestId("pdf-box")).not.toBeNull();
+
+    rerender(
+      <PdfViewer
+        file={pdf}
+        zoom={2}
+        containerRef={ref}
+        loader={loader}
+        onReadPage={vi.fn()}
+        renderRegionBar={renderRegionBar}
+      />,
+    );
+
+    await waitFor(() => expect(queryByTestId("pdf-box")).toBeNull());
+  });
+
+  it("AC-354 the choices are drawn under the box", async () => {
+    const { getByTestId, ref } = await openPage([], {
+      renderRegionBar: () => <span data-testid="bar">bar</span>,
+    });
+    const viewer = getByTestId("pdf-viewer");
+    const stage = ref.current!.parentElement as HTMLElement;
+
+    const size = (width: number, height: number) => {
+      Object.defineProperty(stage, "clientWidth", {
+        configurable: true,
+        value: width,
+      });
+      Object.defineProperty(stage, "clientHeight", {
+        configurable: true,
+        value: height,
+      });
+    };
+
+    size(300, 800);
+
+    await drag(viewer, [20, 50], [120, 150]);
+
+    // under the box, a little way off it
+    const bar = getByTestId("pdf-region-bar");
+
+    expect(bar.style.left).toBe("20px");
+    expect(bar.style.top).toBe("156px");
+    expect(bar.contains(getByTestId("bar"))).toBe(true);
+
+    // near the right edge it is moved in, so it is not cut off
+    await drag(viewer, [280, 50], [299, 150]);
+    expect(parseFloat(getByTestId("pdf-region-bar").style.left)).toBeLessThan(
+      280,
+    );
+
+    // with no room under the box it is above it
+    size(300, 420);
+    await drag(viewer, [20, 300], [120, 399]);
+    expect(parseFloat(getByTestId("pdf-region-bar").style.top)).toBeLessThan(
+      300,
     );
   });
 });

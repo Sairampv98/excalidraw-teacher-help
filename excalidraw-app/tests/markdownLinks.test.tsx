@@ -7,6 +7,9 @@
  * which opens it in a new tab; and a link to a file that was not opened says so.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 
@@ -332,6 +335,36 @@ describe("AC-347 a link in the viewer", () => {
       "lesson.md",
     );
   });
+
+  it("AC-348 the text of a link is part of the selected text", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    const { container } = await openLesson(
+      "Previous: [03-core.md](03-core.md) · Index: [README.md](README.md)",
+    );
+
+    const paragraph = container.querySelector(".app-doc-markdown p")!;
+    const range = document.createRange();
+
+    range.selectNodeContents(paragraph);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+
+    fireEvent.mouseUp(paragraph);
+
+    // the names of the links are in what was copied, not left out of it
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        "Previous: 03-core.md · Index: README.md",
+      ),
+    );
+    expect(container.querySelector(".app-doc-selection")).not.toBeNull();
+  });
 });
 
 describe("AC-348 the text of a link can be selected", () => {
@@ -365,5 +398,39 @@ describe("AC-348 the text of a link can be selected", () => {
 
     // the one in the table is a cell's text like any other
     expect(body.querySelector("td a")?.textContent).toBe("the docs");
+  });
+
+  it("AC-348 the style lifts the library's rule against selecting on a link", () => {
+    // the library puts `user-select: none` on every link inside `.excalidraw`:
+    // the text of such a link is not highlighted and is not in the selected
+    // text, which is how "Previous: · Index:" came out without its links
+    const library = readFileSync(
+      join(
+        __dirname,
+        "..",
+        "..",
+        "packages",
+        "excalidraw",
+        "css",
+        "styles.scss",
+      ),
+      "utf8",
+    );
+    const rule = library.slice(library.indexOf(".excalidraw-link,\n  a {"));
+
+    expect(rule.slice(0, rule.indexOf("&:hover"))).toMatch(
+      /user-select:\s*none/,
+    );
+
+    const styles = readFileSync(
+      join(__dirname, "..", "sidebar", "sidebar.scss"),
+      "utf8",
+    );
+    const override = styles.slice(styles.indexOf(".excalidraw & a {"));
+
+    expect(override.startsWith(".excalidraw & a {")).toBe(true);
+    expect(override.slice(0, override.indexOf("}"))).toMatch(
+      /user-select:\s*text/,
+    );
   });
 });

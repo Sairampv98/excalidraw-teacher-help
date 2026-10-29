@@ -99,6 +99,38 @@
   display: block;
 }
 
+// the small icons of the row under a box (D-314)
+.app-sidebar-icon--small {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.4rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+// The buttons that open files, drawn in the sidebar's header (D-312): one group
+// with the tab buttons, in the same quiet style.
+.app-sidebar-header-tools {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-left: 0.25rem;
+  padding-left: 0.25rem;
+  border-left: 1px solid var(--sidebar-border-color, var(--color-border));
+}
+
+.app-sidebar-icon--header {
+  width: 2rem;
+  height: 2rem;
+  border-color: transparent;
+  background-color: transparent;
+
+  &:hover:not(:disabled),
+  &:focus-visible {
+    background-color: var(--button-hover-bg, rgba(0, 0, 0, 0.06));
+    border-color: var(--color-primary);
+  }
+}
+
 // the Files tab's open buttons: icons side by side, left-aligned
 .app-sidebar-actions--icons {
   gap: 0.4rem;
@@ -572,9 +604,34 @@
 // zoom control is only rendered for markdown (the PDF has its own toolbar)
 .app-doc-zoom {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.2rem;
   flex: 0 0 auto;
+}
+
+// The PDF's tools are drawn in the row of the zoom, outside the part that
+// scrolls (D-313): they are items of that row, and the picker of the engine
+// takes what room is left in it.
+.app-doc-pdf-toolhost,
+.app-doc-zoom .app-doc-pdf-tools {
+  display: contents;
+}
+
+.app-doc-zoom .app-doc-pdf-tools {
+  padding-bottom: 0;
+}
+
+.app-doc-zoom .app-ocr-engine {
+  flex: 1 1 8rem;
+  min-width: 0;
+
+  select {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    text-overflow: ellipsis;
+  }
 }
 
 .app-doc-zoom__level {
@@ -770,6 +827,15 @@
     color: var(--color-primary);
   }
 
+  // The library gives every link inside `.excalidraw` `user-select: none`, which
+  // left the text of a link out of a selection and out of the text that was
+  // copied (D-309). A link in a document is text like the text round it, and
+  // this has more weight than the library's rule.
+  .excalidraw & a {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
   img {
     max-width: 100%;
   }
@@ -901,6 +967,17 @@
   background: var(--color-surface-low, rgba(127, 127, 127, 0.12));
 }
 
+// the choices under a box (D-314): one row of icons that is only as wide as it
+// needs to be
+.app-doc-selection--compact {
+  flex-wrap: nowrap;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0.25rem;
+  background: var(--island-bg-color, var(--color-surface-high, #fff));
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
 .app-doc-selection__head {
   display: flex;
   flex: 1 1 100%;
@@ -922,7 +999,8 @@
 }
 
 // The PDF viewer (D-279): the pages are drawn by pdf.js, with the real text on
-// top of each one so it can be selected.
+// top of each one - which is where the box of a selection finds the text
+// (D-314).
 .app-doc-pdf-viewer {
   display: flex;
   flex: 1 1 auto;
@@ -931,11 +1009,36 @@
   overflow: auto;
 }
 
+// the pages and what is drawn over them (the box and its choices) have the
+// same corner, so the box is in the pages' own coordinates
+.app-doc-pdf-stage {
+  position: relative;
+}
+
 .app-doc-pdf-pages {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 0.6rem;
+  cursor: crosshair;
+}
+
+// The box of a selection (D-314): a dashed border and a light fill, over the
+// page it was drawn on. It lets the pointer through to the page.
+.app-doc-pdf-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px dashed #1f3a8a;
+  background: rgba(96, 165, 250, 0.18);
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.45);
+  pointer-events: none;
+  z-index: 2;
+}
+
+// the choices under the box: a row of icons on the pages
+.app-doc-pdf-regionbar {
+  position: absolute;
+  z-index: 3;
 }
 
 .app-doc-pdf-page {
@@ -966,7 +1069,7 @@
     position: absolute;
     color: transparent;
     white-space: pre;
-    cursor: text;
+    cursor: crosshair;
     transform-origin: 0 0;
   }
 
@@ -978,14 +1081,6 @@
   span.markedContent {
     top: 0;
     height: 0;
-  }
-
-  ::selection {
-    background: rgba(0, 80, 255, 0.3);
-  }
-
-  br::selection {
-    background: transparent;
   }
 
   &.selecting .endOfContent {
@@ -1013,13 +1108,13 @@
   font-size: 0.8rem;
 }
 
-// the text of a PDF page can be selected: the sidebar's own rule against
-// selecting is lifted here, and pdf.js's end-of-content marker keeps a
-// selection from jumping to the end of the page
+// The text of a PDF page is not selected by the browser (D-314): a drag draws a
+// box, and what the box covers is the selection. Left selectable, the text under
+// the box would be highlighted run by run, which is what the box replaces.
 .app-doc-pdf-text,
 .app-doc-pdf-text span {
-  user-select: text;
-  -webkit-user-select: text;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .app-doc-pdf-text .endOfContent {

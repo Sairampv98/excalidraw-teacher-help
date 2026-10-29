@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 
 import { useExcalidrawAPI } from "@excalidraw/excalidraw";
 import { videoFormatName } from "@excalidraw/excalidraw";
@@ -9,6 +17,7 @@ import { findCaptionSidecar } from "../components/videoCaptions";
 import { browserState, setBrowserCwd, setBrowserRoot } from "./browserState";
 import { hideVideoWireframe, showVideoWireframe } from "./dragWireframe";
 import { DocumentViewer } from "./DocumentViewer";
+import { SidebarHeaderSlotContext } from "./headerSlot";
 import { SidebarIcon } from "./SidebarIcons";
 import {
   DRAG_MIME,
@@ -782,6 +791,52 @@ export const FilesTab = () => {
     );
   };
 
+  /** where the buttons that open files are drawn (D-312) */
+  const headerSlot = useContext(SidebarHeaderSlotContext);
+  const buttonClass = headerSlot
+    ? "app-sidebar-icon app-sidebar-icon--header"
+    : "app-sidebar-icon";
+
+  const openButtons = (
+    <>
+      <button
+        type="button"
+        className={
+          headerSlot ? buttonClass : `${buttonClass} app-sidebar-icon--primary`
+        }
+        data-testid="files-open-files"
+        title="Open files"
+        aria-label="Open files"
+        onClick={() => filesInputRef.current?.click()}
+      >
+        <SidebarIcon name="openFiles" />
+      </button>
+      <button
+        type="button"
+        className={buttonClass}
+        data-testid="files-open-folder"
+        title="Open folder"
+        aria-label="Open folder"
+        onClick={() => folderInputRef.current?.click()}
+      >
+        <SidebarIcon name="openFolder" />
+      </button>
+      {/* A YouTube video is added like a file: a button of its own beside
+      the others (D-303). */}
+      <button
+        type="button"
+        className={buttonClass}
+        data-testid="files-youtube-button"
+        title={t("labels.panel.youtube.button")}
+        aria-label={t("labels.panel.youtube.button")}
+        aria-expanded={showYoutube}
+        onClick={() => setShowYoutube((shown) => !shown)}
+      >
+        <SidebarIcon name="youtube" />
+      </button>
+    </>
+  );
+
   const hasFiles = scan.files.length > 0 || scan.unsupported.length > 0;
 
   return (
@@ -808,42 +863,16 @@ export const FilesTab = () => {
         } as React.InputHTMLAttributes<HTMLInputElement>)}
       />
 
-      {/* The three buttons are icons, each with its name as the tooltip (D-310) */}
-      <div className="app-sidebar-actions app-sidebar-actions--icons">
-        <button
-          type="button"
-          className="app-sidebar-icon app-sidebar-icon--primary"
-          data-testid="files-open-files"
-          title="Open files"
-          aria-label="Open files"
-          onClick={() => filesInputRef.current?.click()}
-        >
-          <SidebarIcon name="openFiles" />
-        </button>
-        <button
-          type="button"
-          className="app-sidebar-icon"
-          data-testid="files-open-folder"
-          title="Open folder"
-          aria-label="Open folder"
-          onClick={() => folderInputRef.current?.click()}
-        >
-          <SidebarIcon name="openFolder" />
-        </button>
-        {/* A YouTube video is added like a file: a button of its own beside
-        the others (D-303). */}
-        <button
-          type="button"
-          className="app-sidebar-icon"
-          data-testid="files-youtube-button"
-          title={t("labels.panel.youtube.button")}
-          aria-label={t("labels.panel.youtube.button")}
-          aria-expanded={showYoutube}
-          onClick={() => setShowYoutube((shown) => !shown)}
-        >
-          <SidebarIcon name="youtube" />
-        </button>
-      </div>
+      {/* The three buttons are icons, each with its name as the tooltip
+      (D-310). They are drawn in the sidebar's header when it has a place for
+      them (D-312), and at the top of the tab when it has not. */}
+      {headerSlot === undefined ? (
+        <div className="app-sidebar-actions app-sidebar-actions--icons">
+          {openButtons}
+        </div>
+      ) : headerSlot ? (
+        createPortal(openButtons, headerSlot)
+      ) : null}
 
       {/* The YouTube video: a link, and a panel that plays it (D-128). */}
       {showYoutube && (
