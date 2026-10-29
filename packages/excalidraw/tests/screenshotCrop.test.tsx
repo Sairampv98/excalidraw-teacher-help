@@ -107,9 +107,17 @@ afterEach(() => {
 });
 
 /** the editor, with a panel on it and a picture waiting to be placed */
-const renderEditor = async (stage?: "crop" | "page" | "place") => {
+const renderEditor = async (
+  stage?: "crop" | "page" | "place",
+  onChoice?: (panelId: string, choice: string) => void,
+) => {
   const { container } = await render(
-    <Excalidraw panelScreenshot={{ onCapture: () => {} }} />,
+    <Excalidraw
+      panelScreenshot={{
+        onCapture: () => {},
+        ...(onChoice ? { onChoice } : {}),
+      }}
+    />,
   );
 
   const panel = codePanel();
@@ -372,5 +380,81 @@ describe("the crop of a screenshot", () => {
     expect(css).toMatch(
       /&__panel-screenshot-focus-scrim \{[^}]*z-index: var\(--zIndex-panelFocusScrim\)/,
     );
+  });
+});
+
+describe("AC-317 the screenshot can always be placed or left", () => {
+  it("AC-317 the three choices and a way out are on the screen with the picture", async () => {
+    const onChoice = vi.fn();
+    const { container, panel } = await renderEditor("crop", onChoice);
+
+    const actions = container.querySelector(
+      '[data-testid="panel-screenshot-actions"]',
+    )!;
+
+    expect(actions).not.toBeNull();
+
+    for (const name of ["page", "ocr", "new-page"]) {
+      expect(
+        actions.querySelector(
+          `[data-testid="panel-screenshot-action-${name}"]`,
+        ),
+      ).not.toBeNull();
+    }
+
+    fireEvent.click(
+      actions.querySelector('[data-testid="panel-screenshot-action-ocr"]')!,
+    );
+
+    expect(onChoice).toHaveBeenCalledWith(panel.id, "ocr");
+  });
+
+  it("AC-317 cancel leaves the focus state and drops the picture", async () => {
+    const { container, panel } = await renderEditor("crop");
+
+    fireEvent.click(
+      container.querySelector('[data-testid="panel-screenshot-cancel"]')!,
+    );
+
+    expect(getPendingScreenshot(panel.id)).toBeNull();
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="panel-screenshot-focus"]'),
+      ).toBeNull(),
+    );
+  });
+
+  it("AC-317 Esc leaves the focus state at every step", async () => {
+    for (const stage of ["crop", "page", "place"] as const) {
+      const { container, panel } = await renderEditor(stage);
+
+      fireEvent.keyDown(window, { key: "Escape" });
+
+      expect(getPendingScreenshot(panel.id)).toBeNull();
+      await waitFor(() =>
+        expect(
+          container.querySelector('[data-testid="panel-screenshot-focus"]'),
+        ).toBeNull(),
+      );
+
+      act(() => {
+        clearAllPendingScreenshots();
+      });
+    }
+  });
+
+  it("AC-317 in the last step only the way out is offered", async () => {
+    const { container } = await renderEditor("place");
+
+    const actions = container.querySelector(
+      '[data-testid="panel-screenshot-actions"]',
+    )!;
+
+    expect(
+      actions.querySelector('[data-testid="panel-screenshot-cancel"]'),
+    ).not.toBeNull();
+    expect(
+      actions.querySelector('[data-testid="panel-screenshot-action-page"]'),
+    ).toBeNull();
   });
 });

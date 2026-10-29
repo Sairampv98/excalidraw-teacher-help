@@ -3,7 +3,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CaptureUpdateAction, isPanelElement } from "@excalidraw/element";
 import { clearAllPanelCaptures, setPanelCapture } from "@excalidraw/excalidraw";
 
-import { readCodePanelState, readPanelDraft } from "@excalidraw/excalidraw";
+import {
+  isStandaloneCodePanel,
+  readCodePanelState,
+  readPanelConsole,
+  readPanelDraft,
+  readPanelReadLanguage,
+} from "@excalidraw/excalidraw";
 
 import type {
   PanelBridgeControls,
@@ -37,7 +43,15 @@ import {
   createBridgeSession,
   INITIAL_BRIDGE_SESSION_STATE,
 } from "./bridgeSession";
+import { languagePacks } from "./languagePacks";
 import { applyYoutubeCaptions, isVideoCaptionMessage } from "./videoCaptions";
+import {
+  BROWSER_LANGUAGES,
+  isJavascript,
+  javascriptRunner,
+  pythonRunner,
+  runsInBrowser,
+} from "./pythonRunner";
 
 import type { BridgeSession, BridgeSessionState } from "./bridgeSession";
 import type { ConnectionTruth } from "./codePanel";
@@ -78,6 +92,9 @@ const sameCapture = (a: PanelCapture | null, b: PanelCapture): boolean => {
  * every message about that run carries it (D-124).
  */
 let runCounter = 0;
+
+/** how often the output of a run in the browser is written to the panel */
+const OUTPUT_FLUSH_MS = 100;
 
 /**
  * The bridge's hello - the message that names the editor (D-76).
@@ -156,6 +173,10 @@ export const useBridgePanel = (
    * picker never offers a language that cannot run here.
    */
   const [runtimes, setRuntimes] = useState<string[]>([]);
+  /** the runtimes, readable from a callback that was made earlier */
+  const runtimesRef = useRef<string[]>(runtimes);
+
+  runtimesRef.current = runtimes;
 
   const sessionRef = useRef<BridgeSession | null>(null);
   const panelStateRef = useRef<CodePanelState>(initialCodePanelState());
@@ -320,6 +341,11 @@ export const useBridgePanel = (
       onStateChange: (next) => {
         setState(next);
         sessionStateRef.current = next;
+
+        // the runtimes were found on a machine that is not there any more
+        if (next.connection !== "connected") {
+          setRuntimes([]);
+        }
 
         // The stream's URL is part of the CONNECTION's state (D-85): a new
         // connection gets a new capability, so the live view has to be
@@ -583,6 +609,12 @@ export const useBridgePanel = (
       elements,
       draft: readPanelDraft(element.panel),
       mirror: readCodePanelState(element.panel),
+      /** the lines the program reads with input() (D-283) */
+      input: readPanelConsole(element.panel).input,
+      /** a code editor of its own always runs in the browser (D-269) */
+      standalone: isStandaloneCodePanel(element),
+      /** the language the panel is read as (D-270) */
+      readAs: readPanelReadLanguage(element.panel) ?? "",
     };
   }, []);
 
@@ -627,7 +659,11 @@ export const useBridgePanel = (
 
       writeDraft(panelId, {
         text,
-        language: found.draft?.language || found.mirror?.editor.language || "",
+        language:
+          found.draft?.language ||
+          found.readAs ||
+          found.mirror?.editor.language ||
+          "",
         edited: true,
       });
     },
@@ -655,6 +691,116 @@ export const useBridgePanel = (
   );
 
   /**
+   * Run with no bridge: Python runs in the browser, and the run is told to the
+   * panel with the same messages the extension sends, so the panel shows it
+   * the same way.
+   */
+  const runInBrowser = useCallback(
+    (text: string, language: string, input = "") => {
+      const runId = `browser-run-${++runCounter}`;
+      const say = (message: BridgeMessage) =>
+        publish(reduceCodePanelState(panelStateRef.current, message));
+
+      if (!runsInBrowser(language)) {
+        say({
+          v: 1,
+          type: "run:notice",
+          runId,
+          kind: "missing-runtime",
+          text: `Running ${language} needs the Excalidraw Bridge. Without it only Python and JavaScript run, in the browser.`,
+        });
+        return false;
+      }
+
+      say({
+        v: 1,
+        type: "run:started",
+        runId,
+        command: isJavascript(language)
+          ? "javascript (in the browser)"
+          : "python (in the browser)",
+        cwd: "",
+      });
+
+      // The output arrives faster than a page can draw it: it is gathered and
+      // written to the panel a few times a second, so a program that prints a
+      // lot does not stall the page.
+      let pending: { stream: "stdout" | "stderr"; text: string } | null = null;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+
+      const flush = () => {
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+
+        if (pending) {
+          say({ v: 1, type: "run:output", runId, ...pending });
+          pending = null;
+        }
+      };
+
+      const gather = (stream: "stdout" | "stderr", text: string) => {
+        if (pending && pending.stream !== stream) {
+          flush();
+        }
+
+        pending = { stream, text: (pending?.text ?? "") + text };
+        timer ??= setTimeout(flush, OUTPUT_FLUSH_MS);
+      };
+
+      void (isJavascript(language) ? javascriptRunner : pythonRunner)
+        .run(
+          text,
+          {
+            onLoading: () =>
+              gather("stdout", "Loading Python (the first run only)...\n"),
+            onOutput: gather,
+            onNotice: (kind, notice) => {
+              flush();
+              say({ v: 1, type: "run:notice", runId, kind, text: notice });
+            },
+          },
+          // the lines the program reads with input() (D-283)
+          { stdin: input === "" ? [] : input.split("\n") },
+        )
+        .then((result) => {
+          flush();
+
+          if (result.kind === "crashed") {
+            say({
+              v: 1,
+              type: "run:output",
+              runId,
+              stream: "stderr",
+              text: `The program stopped: it used more memory than the browser allows, or it crashed (${result.reason}).\n`,
+            });
+          }
+
+          if (result.kind === "load-failed") {
+            say({
+              v: 1,
+              type: "run:notice",
+              runId,
+              kind: "missing-runtime",
+              text: `Python could not be downloaded (${result.reason}). Check the connection and press Run to try again.`,
+            });
+          }
+
+          say({
+            v: 1,
+            type: "run:exit",
+            runId,
+            code: result.kind === "exit" ? result.code : null,
+          });
+        });
+
+      return true;
+    },
+    [publish],
+  );
+
+  /**
    * The teacher pressed Run (D-124).
    *
    * The **draft** and its language go to the extension, which runs it in the
@@ -665,13 +811,45 @@ export const useBridgePanel = (
       const session = sessionRef.current;
       const found = panelAndMirror(panelId);
 
-      if (!session || !found) {
+      if (!found) {
         return false;
+      }
+
+      if (!session) {
+        return runInBrowser(
+          found.draft?.text ?? found.mirror?.editor.text ?? "",
+          found.draft?.language ||
+            found.readAs ||
+            found.mirror?.editor.language ||
+            "",
+          found.input,
+        );
       }
 
       const text = found.draft?.text ?? found.mirror?.editor.text ?? "";
       const language =
-        found.draft?.language || found.mirror?.editor.language || "";
+        found.draft?.language ||
+        found.readAs ||
+        found.mirror?.editor.language ||
+        "";
+
+      const connected = sessionStateRef.current.connection === "connected";
+      const bridgeHasIt = connected && runtimesRef.current.includes(language);
+      const inBrowser = runsInBrowser(language);
+
+      // Python and JavaScript run in the browser in a code editor of its own,
+      // with the bridge or without it. Every other language is run natively by
+      // the bridge - python, node, java, go, ... as found on the teacher's
+      // machine - and the bridge says what is missing when it lacks the
+      // runtime; with no bridge the panel says that the bridge is needed
+      // (D-290). A mirrored editor prefers the bridge's own runtime when it has
+      // one.
+      if (
+        !connected ||
+        (found.standalone ? inBrowser : inBrowser && !bridgeHasIt)
+      ) {
+        return runInBrowser(text, language, found.input);
+      }
 
       return session.runSnippet({
         id: `code-run-${++runCounter}`,
@@ -679,7 +857,7 @@ export const useBridgePanel = (
         text,
       });
     },
-    [panelAndMirror],
+    [panelAndMirror, runInBrowser],
   );
 
   const panelDraft: PanelDraftControls = useMemo(
@@ -687,9 +865,61 @@ export const useBridgePanel = (
     [onDraftChange, onLanguageChange],
   );
 
+  /**
+   * The teacher cleared the console (D-274): the program's output and the
+   * bridge's messages go; the line that says whether the bridge is connected
+   * stays, because that is a status, not a message.
+   */
+  const onClear = useCallback(() => {
+    const current = panelStateRef.current;
+
+    publish({
+      ...current,
+      output: [],
+      console: current.console.filter((line) => line.kind === "connection"),
+    });
+  }, [publish]);
+
+  /** where each language stands: here, to be downloaded, or on its way (D-289) */
+  const [packs, setPacks] = useState(() => languagePacks.list());
+
+  useEffect(
+    () => languagePacks.subscribe(() => setPacks(languagePacks.list())),
+    [],
+  );
+
+  const onInstallPack = useCallback((id: string) => {
+    languagePacks.install(id).catch((error: Error) => {
+      apiRef.current?.setToast({
+        message: `Could not download ${id}: ${error.message}`,
+        closable: true,
+      });
+    });
+  }, []);
+
+  /** the packs, with the languages the bridge runs on the teacher's machine ready too */
+  const allPacks = useMemo(() => {
+    const named = packs.map((pack) =>
+      runtimes.includes(pack.id) ? { ...pack, state: "ready" as const } : pack,
+    );
+    const rest = runtimes
+      .filter((id) => !packs.some((pack) => pack.id === id))
+      .map((id) => ({ id, name: id, state: "ready" as const }));
+
+    return [...named, ...rest];
+  }, [packs, runtimes]);
+
   const panelRun: PanelRunControls = useMemo(
-    () => ({ languages: runtimes, onRun }),
-    [runtimes, onRun],
+    () => ({
+      languages: runtimes,
+      onRun,
+      onClear,
+      canRunInBrowser: true,
+      browserLanguages: BROWSER_LANGUAGES,
+      languagePacks: allPacks,
+      onInstallPack,
+    }),
+    [runtimes, onRun, onClear, allPacks, onInstallPack],
   );
 
   /**

@@ -8,6 +8,7 @@ import type {
 } from "@excalidraw/element/types";
 
 import { insertCodeIntoScene } from "./insertIntoScene";
+import { loadTableFont } from "./table";
 import {
   insertTableIntoScene,
   normaliseRows,
@@ -135,6 +136,50 @@ export const reformatSelectionAsTable = (
   deleteElements(api, elements);
 
   return true;
+};
+
+/**
+ * Puts a text on the canvas as a code card, in the middle of what the teacher
+ * can see. Used for text selected in the document viewer.
+ */
+export const insertTextAsCodeCard = async (
+  api: ExcalidrawImperativeAPI,
+  text: string,
+) => {
+  if (!text.trim()) {
+    return false;
+  }
+
+  await insertCodeIntoScene(api, text, { language: "text" });
+
+  return true;
+};
+
+/**
+ * Puts a text on the canvas as a table, near the top-left of the view.
+ * Returns `false` when the text holds no cells.
+ */
+export const insertTextAsTable = async (
+  api: ExcalidrawImperativeAPI,
+  text: string,
+) => {
+  const { rows, markdown } = readTableCells(text.split("\n"));
+  const columns = tableColumnCount(rows, markdown);
+
+  if (!columns) {
+    return false;
+  }
+
+  const { scrollX, scrollY, zoom } = api.getAppState();
+
+  // the columns are measured with the table's own font: measured before it has
+  // loaded they come out too narrow and the text spills over the cell (D-286)
+  await loadTableFont();
+
+  return !!insertTableIntoScene(api, normaliseRows(rows, columns), {
+    x: -scrollX + 80 / zoom.value,
+    y: -scrollY + 80 / zoom.value,
+  });
 };
 
 /**

@@ -1,15 +1,23 @@
 import {
+  DEFAULT_FONT_FAMILY,
+  DEFAULT_FONT_SIZE,
   FONT_FAMILY,
   getFontString,
   getLineHeight,
   randomId,
 } from "@excalidraw/common";
 import {
+  measureText,
   newElement,
   newImageElement,
   newTextElement,
+  wrapText,
 } from "@excalidraw/element";
-import { reconcileElements, stampCurrentPage } from "@excalidraw/excalidraw";
+import {
+  openPasteOverflowModal,
+  reconcileElements,
+  stampCurrentPage,
+} from "@excalidraw/excalidraw";
 import {
   generateIdFromFile,
   getDataURL,
@@ -34,7 +42,13 @@ import type {
   ExcalidrawTextElement,
 } from "@excalidraw/element/types";
 
+import { layoutOcrLines } from "../ocr/ocrLayout";
+
 import { codeCardColumns, highlightCode, layoutCode } from "./codeCard";
+
+import type { OcrLine } from "../../packages/vscode-bridge/bridge/src/ocr";
+
+import type { LaidOutRun } from "./codeCard";
 
 /**
  * Appends freshly created elements to the scene. `reconcileElements` is what
@@ -256,6 +270,44 @@ const viewportCenter = (
   const center = viewportCenterScene(readFrame(api, canvas), readCover(canvas));
 
   return { x: center.x - width / 2, y: center.y - height / 2 };
+};
+
+/**
+ * Where a card of this size goes to sit in the middle of the **current page**.
+ *
+ * A card that is taller than the page starts at the page's top instead, so its
+ * first rows are on the page. With no pages system the middle of what the
+ * teacher can see is used, as it always was.
+ */
+export const pageCenterOrigin = (
+  api: ExcalidrawImperativeAPI,
+  size: { width: number; height: number },
+): ScenePoint => {
+  const state = api.getAppState();
+  const pages = state.pages ?? [];
+  const currentPageId = state.currentPageId ?? pages[0]?.id ?? "";
+
+  if (!pages.length || !currentPageId) {
+    return viewportCenter(api, size.width, size.height);
+  }
+
+  const rect = getPageRect(pages, currentPageId);
+
+  return {
+    x: rect.x + Math.max(0, (rect.width - size.width) / 2),
+    y:
+      size.height < rect.height
+        ? rect.y + (rect.height - size.height) / 2
+        : rect.y + CODE_PADDING * 2,
+  };
+};
+
+/** moves the view to what was just put on the page, when the editor can */
+const showPlaced = (
+  api: ExcalidrawImperativeAPI,
+  elements: readonly ExcalidrawElement[],
+) => {
+  api.scrollToContent?.(elements as ExcalidrawElement[], { animate: true });
 };
 
 const getImageSize = (src: string) =>
@@ -742,6 +794,27 @@ const isOverSidebar = (event: Event) => {
 };
 
 /**
+ * What the teacher is told when a file could not be added: the name and, when
+ * there is one, the reason - "could not add" alone leaves them guessing.
+ */
+export const couldNotAddMessage = (
+  name: string,
+  error: unknown,
+  verb: "add" | "insert" = "add",
+) => {
+  const reason =
+    error instanceof Error
+      ? error.message || error.name
+      : error
+      ? String(error)
+      : "";
+
+  return reason
+    ? `Could not ${verb} ${name}: ${reason}`
+    : `Could not ${verb} ${name}`;
+};
+
+/**
  * Stashes `dragged` for a single drag. `dragover` is only prevented over the
  * canvas, which is also what makes the copy cursor appear there and nowhere
  * else; everywhere else the browser ends the drag on its own. Returns the
@@ -824,7 +897,7 @@ export const armFileDragOnCanvas = (
     Promise.resolve(inserted).catch((error) => {
       console.error(error);
       api.setToast?.({
-        message: `Could not add ${stashed.file.name}`,
+        message: couldNotAddMessage(stashed.file.name, error),
         closable: true,
       });
     });
@@ -914,6 +987,335 @@ const codeCharWidth = () => {
   return Math.max(context.measureText("M").width || 0, CODE_FONT_SIZE * 0.6);
 };
 
+/** the text elements of the rows of a card: one per run of one colour */
+const codeRuns = (
+  rows: readonly LaidOutRun[][],
+  charWidth: number,
+  lineHeight: number,
+  groupId: string,
+) => {
+  const runs: ExcalidrawTextElement[] = [];
+
+  rows.forEach((row, rowIndex) => {
+    for (const run of row) {
+      if (!run.text) {
+        continue;
+      }
+
+      runs.push(
+        newTextElement({
+          text: run.text,
+          fontFamily: FONT_FAMILY.Cascadia,
+          fontSize: CODE_FONT_SIZE,
+          autoResize: true,
+          textAlign: "left",
+          verticalAlign: "top",
+          strokeColor: run.color,
+          x: run.column * charWidth,
+          y: rowIndex * lineHeight,
+          groupIds: [groupId],
+        }),
+      );
+    }
+  });
+
+  return runs;
+};
+
+/** a card (frame and text) with its top-left corner at `origin` */
+const codeCardAt = (
+  rows: readonly LaidOutRun[][],
+  origin: ScenePoint,
+  charWidth: number,
+  lineHeight: number,
+) => {
+  const groupId = randomId();
+  const runs = codeRuns(rows, charWidth, lineHeight, groupId);
+  const card = newElement({
+    type: "rectangle",
+    x: -CODE_PADDING,
+    y: -CODE_PADDING,
+    width: codeCardColumns([...rows]) * charWidth + CODE_PADDING * 2,
+    height: rows.length * lineHeight + CODE_PADDING * 2,
+    strokeColor: CODE_BORDER,
+    backgroundColor: CODE_BG,
+    fillStyle: "solid",
+    strokeWidth: 1,
+    strokeStyle: "solid",
+    roughness: 0,
+    opacity: 100,
+    roundness: { type: 3 },
+    groupIds: [groupId],
+  });
+
+  return [card, ...runs].map((element) => ({
+    ...element,
+    x: element.x + origin.x - card.x,
+    y: element.y + origin.y - card.y,
+  }));
+};
+
+/** the rows of a card of this height, with room for its padding and a margin */
+const rowsThatFit = (pageHeight: number, lineHeight: number) =>
+  Math.max(1, Math.floor((pageHeight - CODE_PADDING * 4) / lineHeight));
+
+/** the text of a row, as it is on the card */
+const rowText = (row: readonly LaidOutRun[]) =>
+  row.map((run) => run.text).join("");
+
+/**
+ * A card with more rows than the current page holds is offered the same three
+ * answers as a paste that does not fit: place what fits and keep the rest on
+ * the clipboard, keep it all on this page, or split it over pages.
+ *
+ * Returns `true` when it placed the card; `false` when the card fits (or there
+ * are no pages), and the caller places it as it always did.
+ */
+const insertLongCode = async (
+  api: ExcalidrawImperativeAPI,
+  rows: readonly LaidOutRun[][],
+  charWidth: number,
+  { at, topLeft }: { at?: ScenePoint; topLeft?: ScenePoint },
+) => {
+  const appState = api.getAppState();
+  const pages = appState.pages ?? [];
+  const currentPageId = appState.currentPageId ?? pages[0]?.id ?? "";
+
+  if (!pages.length || !currentPageId) {
+    return false;
+  }
+
+  const lineHeight = CODE_FONT_SIZE * getLineHeight(FONT_FAMILY.Cascadia);
+  const pageRect = getPageRect(pages, currentPageId);
+  const fitting = rowsThatFit(pageRect.height, lineHeight);
+
+  if (rows.length <= fitting) {
+    return false;
+  }
+
+  const choice = await openPasteOverflowModal({
+    fittingLineCount: fitting,
+    totalLineCount: rows.length,
+  });
+
+  const margin = CODE_PADDING * 2;
+  const start = { x: pageRect.x + margin, y: pageRect.y + margin };
+
+  if (choice === "all-on-page") {
+    // the page grows to hold the card, as it does for any content put on it
+    const card = codeCardAt(
+      rows,
+      topLeft ?? at ?? start,
+      charWidth,
+      lineHeight,
+    );
+
+    appendElements(api, card);
+    showPlaced(api, card);
+
+    return true;
+  }
+
+  if (choice === "multi-page") {
+    let nextPages = pages;
+    let remaining = rows;
+    let rect = pageRect;
+    let pageId = currentPageId;
+    const placed: ExcalidrawElement[] = [];
+
+    while (remaining.length) {
+      const count = rowsThatFit(rect.height, lineHeight);
+
+      placed.push(
+        ...stampCurrentPage(
+          codeCardAt(
+            remaining.slice(0, count),
+            { x: rect.x + margin, y: rect.y + margin },
+            charWidth,
+            lineHeight,
+          ),
+          pageId,
+        ),
+      );
+      remaining = remaining.slice(count);
+
+      if (remaining.length) {
+        pageId = `page-${randomId()}`;
+        nextPages = insertPageAfter({
+          pages: nextPages,
+          afterPageId: nextPages[nextPages.length - 1].id,
+          pageId,
+        });
+        rect = getPageRect(nextPages, pageId);
+      }
+    }
+
+    const existing = api.getSceneElementsIncludingDeleted();
+
+    api.updateScene({
+      elements: reconcileElements(
+        existing as RemoteExcalidrawElement[],
+        [...existing, ...placed] as RemoteExcalidrawElement[],
+        appState,
+      ),
+      appState: { pages: nextPages },
+    });
+
+    // the view goes to the first part, on the page the teacher is on
+    showPlaced(
+      api,
+      placed.filter((element) => element.pageId === currentPageId),
+    );
+
+    return true;
+  }
+
+  // "discard", or the offer dismissed: what fits is placed; the rest goes to
+  // the clipboard on "discard" and stays wherever it was on a dismissal
+  const firstPart = codeCardAt(
+    rows.slice(0, fitting),
+    topLeft ?? at ?? start,
+    charWidth,
+    lineHeight,
+  );
+
+  appendElements(api, firstPart);
+  showPlaced(api, firstPart);
+
+  if (choice === "discard") {
+    try {
+      await navigator.clipboard.writeText(
+        rows.slice(fitting).map(rowText).join("\n"),
+      );
+    } catch {
+      // a blocked clipboard must not undo the insert
+    }
+  }
+
+  return true;
+};
+
+/**
+ * Puts a text on the page as one **flexible text box** (D-286): a box with a
+ * width of its own that wraps the text, so a side can be dragged and the text
+ * flows into the new width. It goes in the middle of the current page, and the
+ * view moves to it.
+ *
+ * A monospace box keeps the indents of the text (code, read text); the other
+ * is the ordinary hand-written face.
+ */
+export const insertTextBoxIntoScene = (
+  api: ExcalidrawImperativeAPI,
+  text: string,
+  { monospace = false }: { monospace?: boolean } = {},
+) => {
+  const fontFamily = monospace ? FONT_FAMILY.Cascadia : DEFAULT_FONT_FAMILY;
+  const fontSize = monospace ? CODE_FONT_SIZE + 4 : DEFAULT_FONT_SIZE;
+  const font = getFontString({ fontFamily, fontSize });
+  const lineHeight = getLineHeight(fontFamily);
+
+  // a box about half the page wide: wide enough to read, narrow enough to drag
+  const state = api.getAppState();
+  const pages = state.pages ?? [];
+  const pageWidth = pages.length
+    ? getPageRect(pages, state.currentPageId ?? pages[0].id).width
+    : 1000;
+  const maxWidth = Math.min(640, Math.round(pageWidth * 0.5));
+
+  const wrapped = wrapText(text, font, maxWidth);
+  const metrics = measureText(wrapped, font, lineHeight);
+
+  const block = newTextElement({
+    text: wrapped,
+    originalText: text,
+    fontFamily,
+    fontSize,
+    lineHeight,
+    autoResize: false,
+    textAlign: "left",
+    verticalAlign: "top",
+    x: 0,
+    y: 0,
+  });
+
+  const size = {
+    width: Math.min(metrics.width, maxWidth),
+    height: metrics.height,
+  };
+  const origin = pageCenterOrigin(api, size);
+  const placed = { ...block, x: origin.x, y: origin.y };
+
+  appendElements(api, [placed], { selectedElementIds: { [placed.id]: true } });
+  showPlaced(api, [placed]);
+
+  return placed;
+};
+
+/** the text of an OCR read as a flexible box in a monospace face (D-277) */
+export const insertTextBlockIntoScene = (
+  api: ExcalidrawImperativeAPI,
+  text: string,
+) => insertTextBoxIntoScene(api, text, { monospace: true });
+
+/**
+ * Puts the lines of an OCR read on the page **where they were** (D-293): one
+ * text element for each line, at the place it had in the picture, all in one
+ * group so the lot moves and scales together. It goes in the middle of the
+ * current page, and the view moves to it.
+ */
+export const insertOcrLinesIntoScene = (
+  api: ExcalidrawImperativeAPI,
+  lines: readonly OcrLine[],
+) => {
+  const fontFamily = FONT_FAMILY.Helvetica;
+  const lineHeight = getLineHeight(fontFamily);
+
+  const state = api.getAppState();
+  const pages = state.pages ?? [];
+  const pageWidth = pages.length
+    ? getPageRect(pages, state.currentPageId ?? pages[0].id).width
+    : 1000;
+
+  const layout = layoutOcrLines({
+    lines,
+    pageWidth,
+    measureWidth: (text, fontSize) =>
+      measureText(text, getFontString({ fontFamily, fontSize }), lineHeight)
+        .width,
+  });
+
+  if (!layout) {
+    return [];
+  }
+
+  const groupId = randomId();
+  const origin = pageCenterOrigin(api, layout);
+
+  const placed = layout.lines.map((line) =>
+    newTextElement({
+      text: line.text,
+      x: origin.x + line.x,
+      y: origin.y + line.y,
+      fontFamily,
+      fontSize: line.fontSize,
+      lineHeight,
+      autoResize: true,
+      textAlign: "left",
+      verticalAlign: "top",
+      groupIds: [groupId],
+    }),
+  );
+
+  appendElements(api, placed, {
+    selectedElementIds: Object.fromEntries(
+      placed.map((element) => [element.id, true]),
+    ),
+  });
+  showPlaced(api, placed);
+
+  return placed;
+};
+
 /**
  * Inserts a snippet as a syntax-highlighted code card.
  *
@@ -956,8 +1358,23 @@ export const insertCodeIntoScene = async (
 
   if (!lines) {
     // no colours available: one plain text element, wrapped the simple way
+    const wrapped = wrapCode(rawCode, CODE_MAX_CHARS);
+
+    // more lines than the page holds: the teacher is offered the split
+    const plainRows = wrapped
+      .split("\n")
+      .map((line): LaidOutRun[] =>
+        line ? [{ text: line, color: CODE_TEXT, column: 0 }] : [],
+      );
+
+    if (
+      await insertLongCode(api, plainRows, codeCharWidth(), { at, topLeft })
+    ) {
+      return false;
+    }
+
     const body = newTextElement({
-      text: wrapCode(rawCode, CODE_MAX_CHARS),
+      text: wrapped,
       fontFamily: FONT_FAMILY.Cascadia,
       fontSize: CODE_FONT_SIZE,
       autoResize: true,
@@ -978,33 +1395,14 @@ export const insertCodeIntoScene = async (
   const charWidth = codeCharWidth();
   const lineHeight = CODE_FONT_SIZE * getLineHeight(FONT_FAMILY.Cascadia);
 
-  const runs: ExcalidrawTextElement[] = [];
-
-  rows.forEach((row, rowIndex) => {
-    for (const run of row) {
-      if (!run.text) {
-        continue;
-      }
-
-      runs.push(
-        newTextElement({
-          text: run.text,
-          fontFamily: FONT_FAMILY.Cascadia,
-          fontSize: CODE_FONT_SIZE,
-          autoResize: true,
-          textAlign: "left",
-          verticalAlign: "top",
-          strokeColor: run.color,
-          x: run.column * charWidth,
-          y: rowIndex * lineHeight,
-          groupIds: [groupId],
-        }),
-      );
-    }
-  });
+  const runs = codeRuns(rows, charWidth, lineHeight, groupId);
 
   if (!runs.length) {
     return false;
+  }
+
+  if (await insertLongCode(api, rows, charWidth, { at, topLeft })) {
+    return true;
   }
 
   const contentWidth = codeCardColumns(rows) * charWidth;
@@ -1047,9 +1445,9 @@ const placeCodeCard = (
 
   // top-left of the card: an explicit point is the user's, anything else
   // centres on what they can see (and clear of the sidebar)
+  const size = { width: card.width, height: card.height };
   const origin =
-    topLeft ??
-    placementFor(api, { width: card.width, height: card.height }, at);
+    topLeft ?? (at ? placementFor(api, size, at) : pageCenterOrigin(api, size));
 
   const placed = [card, ...runs].map((element) => ({
     ...element,
@@ -1060,6 +1458,12 @@ const placeCodeCard = (
   appendElements(api, placed, {
     selectedElementIds: { [runs[0].id]: true },
   });
+
+  // asked for no place: the card is on the page's middle, and the view goes
+  // there too, so the teacher sees where it landed
+  if (!topLeft && !at) {
+    showPlaced(api, placed);
+  }
 };
 
 export const CODE_CARD_PADDING = CODE_PADDING;

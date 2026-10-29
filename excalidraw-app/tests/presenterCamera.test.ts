@@ -424,3 +424,35 @@ describe("resolvePresenterCamera", () => {
     expect(resolved.zoom.value).toBeCloseTo(editorCamera.zoom, 6);
   });
 });
+
+describe("AC-303 the presenter follows the editor off the page", () => {
+  it("AC-303 the presenter follows the editor far past the page's edge", () => {
+    const rect = getCurrentPageRect(PAGES, "page-1");
+
+    // the editor has scrolled down to three page heights below the page's top
+    const scrollY = -rect.y - rect.height * 3;
+    const scrollX = -rect.x;
+
+    const anchor = getPageRelativeCamera({ scrollX, scrollY, pageRect: rect });
+
+    expect(anchor.offsetY).toBeCloseTo(3, 6);
+
+    const published = getPresenterCamera(
+      makeAppState({
+        scrollX,
+        scrollY,
+        zoom: { value: 0.5 } as AppState["zoom"],
+      }),
+      true,
+    );
+
+    const resolved = resolvePresenterCamera(published, {
+      width: 1000,
+      height: 700,
+    });
+
+    // the projector shows the same place, not a bound the page used to put on it
+    expect(resolved.scrollY).toBeCloseTo(scrollY, 6);
+    expect(resolved.scrollX).toBeCloseTo(scrollX, 6);
+  });
+});

@@ -25,14 +25,23 @@ export const AppMainMenu: React.FC<{
   theme: Theme | "system";
   setTheme: (theme: Theme | "system") => void;
   refresh: () => void;
-  onInsertCodePanel: () => void;
+  onInsertCodePanel: (kind: "mirror" | "editor") => void;
 }> = React.memo((props) => {
   return (
     <MainMenu>
       <MainMenu.DefaultItems.LoadScene />
       <MainMenu.DefaultItems.InsertDocument />
-      <MainMenu.Item icon={codeIcon} onSelect={() => props.onInsertCodePanel()}>
-        Code panel (VS Code)
+      <MainMenu.Item
+        icon={codeIcon}
+        onSelect={() => props.onInsertCodePanel("editor")}
+      >
+        Code editor (in the browser)
+      </MainMenu.Item>
+      <MainMenu.Item
+        icon={codeIcon}
+        onSelect={() => props.onInsertCodePanel("mirror")}
+      >
+        VS Code mirror (bridge)
       </MainMenu.Item>
       <MainMenu.DefaultItems.SaveToActiveFile />
       <MainMenu.DefaultItems.Export />

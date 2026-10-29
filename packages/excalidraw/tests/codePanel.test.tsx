@@ -24,15 +24,19 @@ import { TTDDialogInput } from "../components/TTDDialog/TTDDialogInput";
 import { UIAppStateContext } from "../context/ui-appState";
 import { getDefaultAppState } from "../appState";
 import {
+  DEFAULT_PANEL_CONSOLE_VIEW,
   codePanelContent,
   emptyCodePanelState,
   readCodePanelState,
+  readPanelConsole,
   readPanelDraft,
+  readPanelTheme,
   readPanelReadLanguage,
   readPanelView,
   readPanelZoom,
   withCodePanelState,
   withPanelDraft,
+  withPanelTheme,
   withPanelMirror,
   withPanelView,
 } from "../scene/panelContent";
@@ -1395,6 +1399,638 @@ describe("the code panel's view", () => {
 
     expect(run).not.toBeNull();
     expect(run.disabled).toBe(true);
+  });
+
+  it("AC-307 with no bridge Run is on when the host runs Python, and says where", async () => {
+    const onRun = vi.fn();
+
+    const panel = codePanelInView(emptyCodePanelState(), "editor");
+
+    await render(<Excalidraw panelRun={{ onRun, canRunInBrowser: true }} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    const overlay = document.querySelector('[data-testid="panel-overlay"]');
+
+    const run = overlay!.querySelector(
+      '[data-testid="code-panel-run"]',
+    ) as HTMLButtonElement;
+
+    expect(run.disabled).toBe(false);
+
+    // the note names the browser, not the bridge
+    const note = overlay!.querySelector(
+      '[data-testid="code-panel-run-needs-bridge"]',
+    );
+
+    expect(note!.textContent).toContain("browser");
+    expect(note!.textContent).not.toContain("Bridge");
+
+    fireEvent.click(run);
+
+    expect(onRun).toHaveBeenCalledTimes(1);
+  });
+
+  const renderEditor = async (run?: { browserLanguages?: string[] }) => {
+    const panel = codePanelInView(emptyCodePanelState(), "editor");
+
+    await render(<Excalidraw panelRun={run} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    return document.querySelector('[data-testid="panel-overlay"]')!;
+  };
+
+  it("AC-320 a code editor of its own says nothing about a bridge and runs in the browser", async () => {
+    const onRun = vi.fn();
+    const panel = codePanelInView(emptyCodePanelState(), "editor");
+
+    (panel as unknown as { panel: { standalone: boolean } }).panel.standalone =
+      true;
+
+    await render(<Excalidraw panelRun={{ onRun, canRunInBrowser: true }} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    const overlay = document.querySelector('[data-testid="panel-overlay"]')!;
+
+    // no "Not connected to the Excalidraw Bridge" line: there is no bridge
+    expect(
+      overlay.querySelector('[data-testid="code-panel-status"]'),
+    ).toBeNull();
+
+    // the editor and the Run control are there and on
+    await waitFor(() =>
+      expect(
+        overlay.querySelector('[data-testid="code-panel-draft-editor"]'),
+      ).not.toBeNull(),
+    );
+
+    const run = overlay.querySelector(
+      '[data-testid="code-panel-run"]',
+    ) as HTMLButtonElement;
+
+    expect(run.disabled).toBe(false);
+
+    fireEvent.click(run);
+
+    expect(onRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("AC-308 a new editor reads its text as python, and says which languages run here", async () => {
+    const overlay = await renderEditor({ browserLanguages: ["python"] });
+
+    const picker = overlay.querySelector(
+      '[data-testid="code-panel-read-language"]',
+    ) as HTMLSelectElement;
+
+    // there is no "choose a language": the editor reads python until told
+    // otherwise, so its text has colours
+    expect(picker.value).toBe("python");
+    expect([...picker.options].some((option) => option.value === "")).toBe(
+      false,
+    );
+
+    const python = [...picker.options].find(
+      (option) => option.value === "python",
+    );
+
+    expect(python!.textContent).toContain("runs here");
+  });
+
+  it("AC-308 the editor's default size is what 200% used to be", async () => {
+    const overlay = await renderEditor();
+
+    expect(
+      overlay.querySelector('[data-testid="code-panel-zoom-level"]')!
+        .textContent,
+    ).toBe("100%");
+
+    // the editor draws its text at twice the base size at 100%
+    await waitFor(() => {
+      const css = [...document.querySelectorAll("style")]
+        .map((style) => style.textContent)
+        .join(" ");
+
+      expect(css).toMatch(/font-size:\s*2em/);
+    });
+  });
+
+  it("AC-308 the zoom goes up to 400%", async () => {
+    const overlay = await renderEditor();
+
+    const zoomIn = overlay.querySelector(
+      '[data-testid="code-panel-zoom-in"]',
+    ) as HTMLButtonElement;
+
+    for (let step = 0; step < 6; step++) {
+      fireEvent.click(zoomIn);
+    }
+
+    await waitFor(() =>
+      expect(
+        overlay.querySelector('[data-testid="code-panel-zoom-level"]')!
+          .textContent,
+      ).toBe("400%"),
+    );
+  });
+
+  it("AC-310 the full screen button shows only that panel full screen", async () => {
+    const requestFullscreen = vi.fn(() => Promise.resolve());
+
+    Object.defineProperty(HTMLElement.prototype, "requestFullscreen", {
+      configurable: true,
+      value: requestFullscreen,
+    });
+
+    const overlay = await renderEditor();
+
+    fireEvent.click(
+      overlay.querySelector('[data-testid="code-panel-fullscreen"]')!,
+    );
+
+    expect(requestFullscreen).toHaveBeenCalledTimes(1);
+
+    // the element is the panel itself, not the canvas or the page
+    const target = (requestFullscreen.mock.contexts as HTMLElement[])[0];
+
+    expect(target.classList.contains("excalidraw__panel")).toBe(true);
+    expect(target.getAttribute("data-panel-kind")).toBe("code");
+  });
+
+  const storedConsole = () =>
+    (
+      window.h.elements[0] as unknown as {
+        panel: { consoleView?: { dock: string; size: number; zoom: number } };
+      }
+    ).panel.consoleView;
+
+  it("AC-311 the console is under the editor to begin with, and can go to its right", async () => {
+    const overlay = await renderEditor();
+
+    const body = overlay.querySelector(
+      '[data-testid="code-panel-body"]',
+    ) as HTMLElement;
+
+    expect(body.getAttribute("data-console-dock")).toBe("bottom");
+    expect(body.style.flexDirection).toBe("column");
+
+    fireEvent.click(
+      overlay.querySelector('[data-testid="code-panel-dock-right"]')!,
+    );
+
+    expect(storedConsole()!.dock).toBe("right");
+    await waitFor(() => {
+      const next = document.querySelector(
+        '[data-testid="code-panel-body"]',
+      ) as HTMLElement;
+
+      expect(next.getAttribute("data-console-dock")).toBe("right");
+      expect(next.style.flexDirection).toBe("row");
+    });
+  });
+
+  it("AC-333 beside the editor the console is one column, and the input is part of it", async () => {
+    const overlay = await renderEditor();
+
+    fireEvent.click(
+      overlay.querySelector('[data-testid="code-panel-dock-right"]')!,
+    );
+
+    await waitFor(() =>
+      expect(
+        document
+          .querySelector('[data-testid="code-panel-body"]')!
+          .getAttribute("data-console-dock"),
+      ).toBe("right"),
+    );
+
+    const body = document.querySelector('[data-testid="code-panel-body"]')!;
+    const box = document.querySelector(
+      '[data-testid="code-panel-consolebox"]',
+    )!;
+    const input = document.querySelector('[data-testid="code-panel-input"]')!;
+
+    // the input is the console's own: as a child of the body it became a
+    // column of its own as wide as the panel, and the editor was squeezed out
+    // of sight
+    expect(input.parentElement).toBe(box);
+    expect(body.children).toHaveLength(3);
+  });
+
+  /** an editor whose console was already given a view, as an older panel is */
+  const renderEditorWithConsole = async (view: {
+    dock: "bottom" | "right";
+    size: number;
+  }) => {
+    const panel = codePanelInView(emptyCodePanelState(), "editor");
+
+    (
+      panel as unknown as { panel: { consoleView: unknown } }
+    ).panel.consoleView = { ...view, zoom: 1, input: "" };
+
+    await render(<Excalidraw />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    return document.querySelector('[data-testid="panel-overlay"]')!;
+  };
+
+  it("AC-333 docking the console gives it the size of a new dock, not the one dragged for the other", async () => {
+    const overlay = await renderEditorWithConsole({
+      dock: "bottom",
+      size: 0.7,
+    });
+
+    fireEvent.click(
+      overlay.querySelector('[data-testid="code-panel-dock-right"]')!,
+    );
+
+    expect(storedConsole()!.dock).toBe("right");
+    expect(storedConsole()!.size).toBe(DEFAULT_PANEL_CONSOLE_VIEW.size);
+  });
+
+  it("AC-333 beside the editor the console never takes more than 60% of the panel", async () => {
+    const stored = (dock: "bottom" | "right", size: number) =>
+      readPanelConsole({
+        ...codePanelContent(emptyCodePanelState(), "s"),
+        consoleView: { dock, size, zoom: 1, input: "" },
+      } as never);
+
+    // a size saved for a console under the editor is cut down beside it
+    expect(stored("right", 0.8).size).toBe(0.6);
+    expect(stored("bottom", 0.8).size).toBe(0.8);
+
+    const overlay = await renderEditorWithConsole({ dock: "right", size: 0.3 });
+
+    const body = overlay.querySelector(
+      '[data-testid="code-panel-body"]',
+    ) as HTMLElement;
+
+    body.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 1000,
+        width: 1000,
+        height: 1000,
+      } as DOMRect);
+
+    const divider = overlay.querySelector(
+      '[data-testid="code-panel-divider"]',
+    )!;
+
+    // dragged all the way to the left edge, the editor still has its share
+    divider.dispatchEvent(
+      new MouseEvent("pointerdown", {
+        bubbles: true,
+        clientX: 700,
+        clientY: 500,
+      }),
+    );
+    window.dispatchEvent(
+      new MouseEvent("pointermove", { clientX: 0, clientY: 500 }),
+    );
+    window.dispatchEvent(new MouseEvent("pointerup"));
+
+    expect(storedConsole()!.size).toBeCloseTo(0.6, 5);
+  });
+
+  it("AC-311 the console has its own zoom, apart from the editor's", async () => {
+    const overlay = await renderEditor();
+
+    const box = () =>
+      document.querySelector(
+        '[data-testid="code-panel-consolebox"]',
+      ) as HTMLElement;
+
+    expect(box().style.fontSize).toBe("16px");
+
+    fireEvent.click(
+      overlay.querySelector('[data-testid="code-panel-console-zoom-in"]')!,
+    );
+
+    expect(storedConsole()!.zoom).toBe(1.25);
+    await waitFor(() => expect(box().style.fontSize).toBe("20px"));
+
+    // the editor's zoom did not move
+    expect(
+      overlay.querySelector('[data-testid="code-panel-zoom-level"]')!
+        .textContent,
+    ).toBe("100%");
+  });
+
+  it("AC-311 the clear button clears the console", async () => {
+    const onClear = vi.fn();
+    const panel = codePanelInView(emptyCodePanelState(), "editor");
+
+    await render(<Excalidraw panelRun={{ onClear }} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    fireEvent.click(
+      document.querySelector('[data-testid="code-panel-clear"]')!,
+    );
+
+    expect(onClear).toHaveBeenCalledTimes(1);
+  });
+
+  it("AC-312 the language that is run follows the one the picker shows", async () => {
+    const onLanguageChange = vi.fn();
+    const panel = codePanelInView(emptyCodePanelState(), "editor");
+
+    await render(
+      <Excalidraw
+        panelDraft={{ onLanguageChange }}
+        panelRun={{ browserLanguages: ["python", "javascript"] }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    fireEvent.change(
+      document.querySelector('[data-testid="code-panel-read-language"]')!,
+      { target: { value: "javascript" } },
+    );
+
+    expect(onLanguageChange).toHaveBeenCalledWith(
+      expect.any(String),
+      "javascript",
+    );
+
+    // there is one picker, not two that can disagree
+    expect(
+      document.querySelector('[data-testid="code-panel-language-picker"]'),
+    ).toBeNull();
+  });
+
+  it("AC-311 the divider drags the console to the size the pointer leaves it at", async () => {
+    const overlay = await renderEditor();
+
+    const body = overlay.querySelector(
+      '[data-testid="code-panel-body"]',
+    ) as HTMLElement;
+
+    body.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 1000,
+        width: 1000,
+        height: 1000,
+      } as DOMRect);
+
+    const divider = overlay.querySelector(
+      '[data-testid="code-panel-divider"]',
+    )!;
+
+    divider.dispatchEvent(
+      new MouseEvent("pointerdown", {
+        bubbles: true,
+        clientX: 500,
+        clientY: 700,
+      }),
+    );
+    window.dispatchEvent(
+      new MouseEvent("pointermove", { clientX: 500, clientY: 500 }),
+    );
+    window.dispatchEvent(new MouseEvent("pointerup"));
+
+    // the console takes the part of the panel under the pointer
+    expect(storedConsole()!.size).toBeCloseTo(0.5, 5);
+
+    // and it cannot be dragged away: there is always a part of it left
+    divider.dispatchEvent(
+      new MouseEvent("pointerdown", {
+        bubbles: true,
+        clientX: 500,
+        clientY: 500,
+      }),
+    );
+    window.dispatchEvent(
+      new MouseEvent("pointermove", { clientX: 500, clientY: 1000 }),
+    );
+    window.dispatchEvent(new MouseEvent("pointerup"));
+
+    expect(storedConsole()!.size).toBeCloseTo(0.1, 5);
+  });
+
+  it("AC-322 the light theme paints the bars, the console and the borders too", async () => {
+    const overlay = await renderEditor();
+
+    const colorOf = (selector: string) =>
+      (document.querySelector(selector) as HTMLElement).style.color;
+
+    // dark to begin with
+    expect(colorOf('[data-testid="code-panel-output"]')).toBe(
+      "rgb(212, 212, 212)",
+    );
+
+    fireEvent.change(
+      overlay.querySelector('[data-testid="code-panel-theme"]')!,
+      { target: { value: "light" } },
+    );
+
+    await waitFor(() =>
+      expect(colorOf('[data-testid="code-panel-output"]')).toBe(
+        "rgb(36, 41, 47)",
+      ),
+    );
+
+    // the panel's own surface and the bar's controls follow it
+    expect(
+      (document.querySelector('[data-testid="code-panel"]') as HTMLElement)
+        .style.background,
+    ).toBe("rgb(255, 255, 255)");
+    expect(
+      (
+        document.querySelector(
+          '[data-testid="code-panel-clear"]',
+        ) as HTMLElement
+      ).style.borderColor,
+    ).not.toBe("");
+  });
+
+  it("AC-322 a panel saved with the old VS Code theme reads as dark", () => {
+    const content = withPanelTheme(
+      codePanelContent(emptyCodePanelState(), "s"),
+      "vscode" as never,
+    );
+
+    expect(readPanelTheme(content)).toBe("dark");
+  });
+
+  it("AC-328 the input box keeps what is typed in the panel", async () => {
+    const overlay = await renderEditor();
+
+    const box = overlay.querySelector(
+      '[data-testid="code-panel-input"]',
+    ) as HTMLTextAreaElement;
+
+    fireEvent.change(box, { target: { value: "Ada\n7" } });
+    fireEvent.blur(box);
+
+    const stored = (
+      window.h.elements[0] as unknown as {
+        panel: { consoleView?: { input: string } };
+      }
+    ).panel.consoleView;
+
+    expect(stored!.input).toBe("Ada\n7");
+  });
+
+  const PACKS = [
+    { id: "python", name: "Python", state: "ready" as const },
+    { id: "go", name: "Go", state: "download" as const },
+    { id: "java", name: "Java", state: "unavailable" as const },
+  ];
+
+  it("AC-327 the picker lists the languages with a download icon on those that are not here", async () => {
+    const panel = codePanelInView(emptyCodePanelState(), "editor");
+
+    await render(
+      <Excalidraw
+        panelRun={{ languagePacks: PACKS, browserLanguages: ["python"] }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    const picker = document.querySelector(
+      '[data-testid="code-panel-read-language"]',
+    ) as HTMLSelectElement;
+
+    const option = (value: string) =>
+      [...picker.options].find((entry) => entry.value === value)!;
+
+    expect(option("python").textContent).toBe("Python (runs here)");
+    expect(option("go").textContent).toContain("⬇");
+    expect(option("go").textContent).toContain("download");
+    expect(option("java").textContent).toContain("not available yet");
+    expect(option("java").disabled).toBe(true);
+  });
+
+  it("AC-332 the picker says which languages VS Code runs, and they can be chosen", async () => {
+    const onLanguageChange = vi.fn();
+    const panel = codePanelInView(emptyCodePanelState(), "editor");
+
+    await render(
+      <Excalidraw
+        panelDraft={{ onLanguageChange }}
+        panelRun={{
+          languages: ["python", "java"],
+          browserLanguages: ["python", "javascript"],
+          // the way the app lists them: what VS Code has is ready
+          languagePacks: [
+            { id: "python", name: "Python", state: "ready" },
+            { id: "java", name: "Java", state: "ready" },
+            { id: "c", name: "C", state: "unavailable" },
+          ],
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    const picker = document.querySelector(
+      '[data-testid="code-panel-read-language"]',
+    ) as HTMLSelectElement;
+
+    const option = (value: string) =>
+      [...picker.options].find((entry) => entry.value === value)!;
+
+    expect(option("python").textContent).toBe("Python (runs here)");
+    expect(option("java").textContent).toBe("Java (runs in VS Code)");
+    expect(option("java").disabled).toBe(false);
+    expect(option("c").textContent).toContain("not available yet");
+
+    fireEvent.change(picker, { target: { value: "java" } });
+
+    expect(onLanguageChange).toHaveBeenCalledWith(expect.any(String), "java");
+  });
+
+  it("AC-327 choosing a language that is to be downloaded starts the download and keeps the language", async () => {
+    const onInstallPack = vi.fn();
+    const onLanguageChange = vi.fn();
+    const panel = codePanelInView(emptyCodePanelState(), "editor");
+
+    await render(
+      <Excalidraw
+        panelDraft={{ onLanguageChange }}
+        panelRun={{ languagePacks: PACKS, onInstallPack }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    const picker = document.querySelector(
+      '[data-testid="code-panel-read-language"]',
+    ) as HTMLSelectElement;
+
+    fireEvent.change(picker, { target: { value: "go" } });
+
+    expect(onInstallPack).toHaveBeenCalledWith("go");
+    // the language that is run did not change: Go is not here yet
+    expect(onLanguageChange).not.toHaveBeenCalled();
+    expect(picker.value).toBe("python");
+  });
+
+  it("AC-327 a download shows a bar with its name and how far it is", async () => {
+    const panel = codePanelInView(emptyCodePanelState(), "editor");
+
+    await render(
+      <Excalidraw
+        panelRun={{
+          languagePacks: [
+            ...PACKS.slice(0, 1),
+            { id: "go", name: "Go", state: "downloading", progress: 0.25 },
+          ],
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    const bar = document.querySelector(
+      '[data-testid="code-panel-pack-progress"]',
+    )!;
+
+    expect(bar.textContent).toContain("Go");
+    expect(bar.querySelector("progress")!.getAttribute("value")).toBe("25");
+  });
+
+  it("AC-308 the theme picker offers dark and light and keeps the choice in the panel", async () => {
+    const overlay = await renderEditor();
+
+    const picker = overlay.querySelector(
+      '[data-testid="code-panel-theme"]',
+    ) as HTMLSelectElement;
+
+    expect([...picker.options].map((option) => option.value)).toEqual([
+      "dark",
+      "light",
+    ]);
+    expect(picker.value).toBe("dark");
+
+    fireEvent.change(picker, { target: { value: "light" } });
+
+    const stored = (
+      window.h.elements[0] as unknown as { panel: { theme?: string } }
+    ).panel.theme;
+
+    expect(stored).toBe("light");
   });
 });
 

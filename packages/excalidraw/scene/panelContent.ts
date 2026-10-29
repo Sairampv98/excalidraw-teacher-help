@@ -324,6 +324,47 @@ export interface CodePanelState {
  * in one place: every writer goes through `withCodePanelState()` and every
  * reader through `readCodePanelState()`.
  */
+/** where the output console of a code panel sits and how it looks (D-274) */
+export type PanelConsoleView = {
+  /** under the editor, or to its right */
+  dock: "bottom" | "right";
+  /** the part of the panel the console takes, between 0.1 and 0.8 */
+  size: number;
+  /** the console's own text zoom, on the editor's ladder */
+  zoom: number;
+  /** the lines the program reads with input(), typed in advance (D-283) */
+  input: string;
+};
+
+export const DEFAULT_PANEL_CONSOLE_VIEW: PanelConsoleView = {
+  dock: "bottom",
+  size: 0.3,
+  zoom: 1,
+  input: "",
+};
+
+export const CONSOLE_SIZE_MIN = 0.1;
+export const CONSOLE_SIZE_MAX = 0.8;
+
+/**
+ * Beside the editor the console never takes more than this, so the editor
+ * keeps the larger part of the panel in view (D-295). Under the editor it may
+ * take up to `CONSOLE_SIZE_MAX`.
+ */
+export const CONSOLE_SIZE_MAX_RIGHT = 0.6;
+
+/** the most of the panel a console docked here may take */
+export const consoleSizeLimit = (dock: PanelConsoleView["dock"]) =>
+  dock === "right" ? CONSOLE_SIZE_MAX_RIGHT : CONSOLE_SIZE_MAX;
+
+/** the themes the editor of a code panel can wear (D-270) */
+export const PANEL_EDITOR_THEMES = ["dark", "light"] as const;
+
+export type PanelEditorTheme = typeof PANEL_EDITOR_THEMES[number];
+
+/** the theme of a panel that has none of its own */
+export const DEFAULT_PANEL_EDITOR_THEME: PanelEditorTheme = "dark";
+
 export type CodePanelContent = PanelContent & {
   /** the code panel's live state, or null when the panel has none yet */
   code: CodePanelState | null;
@@ -391,6 +432,15 @@ export type CodePanelContent = PanelContent & {
    * panel that carries none is at 1.
    */
   zoom?: number;
+  /**
+   * A code editor of its own (D-269): it works in the browser with no bridge,
+   * shows no bridge field or connection line, and runs its text in the browser.
+   */
+  standalone?: boolean;
+  /** the colours the editor is drawn in (D-270) */
+  theme?: PanelEditorTheme;
+  /** where the output console sits, how big it is and its text size (D-274) */
+  consoleView?: PanelConsoleView;
   /**
    * What the panel **mirrors** of the editor's window (D-143).
    *
@@ -471,6 +521,7 @@ export const emptyCodePanelState = (): CodePanelState => ({
 export const codePanelContent = (
   state: CodePanelState,
   sessionId: string,
+  options: { standalone?: boolean } = {},
 ): PanelContent => {
   const content: CodePanelContent = {
     source: { type: "bridge", sessionId },
@@ -479,10 +530,18 @@ export const codePanelContent = (
     // a new panel shows the LIVE WINDOW (D-99). It carries no choice: the
     // teacher has not chosen anything yet, so the panel follows the default.
     view: DEFAULT_CODE_PANEL_VIEW,
+    ...(options.standalone
+      ? { standalone: true, view: "editor" as const, viewChosen: true }
+      : {}),
   };
 
   return content;
 };
+
+/** whether the panel is a code editor of its own, with no bridge (D-269) */
+export const isStandaloneCodePanel = (panel: ExcalidrawPanelElement): boolean =>
+  panel.panelKind === "code" &&
+  (panel.panel as Partial<CodePanelContent>).standalone === true;
 
 /**
  * The live state of a panel's payload, or null when the payload carries none.
@@ -695,6 +754,76 @@ export const readPanelZoom = (content: PanelContent): number => {
 
   return typeof zoom === "number" && zoom > 0 ? zoom : 1;
 };
+
+/**
+ * The theme the panel's editor wears (D-270), or the default when the panel
+ * carries none.
+ */
+export const readPanelTheme = (content: PanelContent): PanelEditorTheme => {
+  const widened: Partial<CodePanelContent> = content;
+  const theme = widened.theme;
+
+  return PANEL_EDITOR_THEMES.includes(theme as PanelEditorTheme)
+    ? (theme as PanelEditorTheme)
+    : DEFAULT_PANEL_EDITOR_THEME;
+};
+
+/** where the panel's console sits, or the default when the panel carries none */
+export const readPanelConsole = (content: PanelContent): PanelConsoleView => {
+  const widened: Partial<CodePanelContent> = content;
+  const view = widened.consoleView;
+  const dock = view?.dock === "right" ? "right" : "bottom";
+
+  return {
+    dock,
+    size:
+      typeof view?.size === "number"
+        ? Math.min(
+            consoleSizeLimit(dock),
+            Math.max(CONSOLE_SIZE_MIN, view.size),
+          )
+        : DEFAULT_PANEL_CONSOLE_VIEW.size,
+    zoom:
+      typeof view?.zoom === "number" && view.zoom > 0
+        ? view.zoom
+        : DEFAULT_PANEL_CONSOLE_VIEW.zoom,
+    input: typeof view?.input === "string" ? view.input : "",
+  };
+};
+
+/** the element update that changes the console's place, size or zoom */
+export const panelConsoleUpdate = (
+  content: PanelContent,
+  view: PanelConsoleView,
+): PanelViewUpdate => {
+  const widened: PanelContent & { consoleView?: PanelConsoleView } = {
+    ...content,
+    consoleView: view,
+  };
+
+  return { panel: widened };
+};
+
+/** the same payload with the editor's theme in it */
+export const withPanelTheme = (
+  content: PanelContent,
+  theme: PanelEditorTheme,
+): PanelContent => {
+  const widened: PanelContent & { theme?: PanelEditorTheme } = {
+    ...content,
+    theme,
+  };
+
+  return widened;
+};
+
+/** the element update that changes the editor's theme */
+export const panelThemeUpdate = (
+  content: PanelContent,
+  theme: PanelEditorTheme,
+): PanelViewUpdate => ({
+  panel: withPanelTheme(content, theme),
+});
 
 /**
  * The same payload with the editor's own zoom in it.

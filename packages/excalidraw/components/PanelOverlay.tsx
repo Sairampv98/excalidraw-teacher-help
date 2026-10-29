@@ -35,8 +35,16 @@ import {
   readPanelMirror,
   readPanelReadLanguage,
   readPanelView,
+  isStandaloneCodePanel,
+  readPanelConsole,
+  DEFAULT_PANEL_CONSOLE_VIEW,
+  consoleSizeLimit,
+  CONSOLE_SIZE_MIN,
+  readPanelTheme,
   readPanelZoom,
+  PANEL_EDITOR_THEMES,
 } from "../scene/panelContent";
+
 import { readVideoPanelState } from "../scene/panelContent";
 import { readPanelPlayback } from "../scene/panelContent";
 import { readYoutubePanelState, youtubeEmbedUrl } from "../scene/panelContent";
@@ -70,7 +78,9 @@ import {
 
 import { t } from "../i18n";
 
-import { VS_CODE_DARK } from "./vscodeTheme";
+import "./PanelFullscreen.scss";
+
+import { PANEL_PALETTES, VS_CODE_DARK } from "./vscodeTheme";
 
 import { captionCueAt, DEFAULT_CAPTION_LANGUAGE } from "./panelCaptions";
 import { codeMirrorLanguageIds } from "./codeLanguages";
@@ -78,6 +88,10 @@ import {
   registerVideoSurface,
   unregisterVideoSurface,
 } from "./videoPanelSurface";
+
+import type { PanelPalette } from "./vscodeTheme";
+
+import type { PanelConsoleView, PanelEditorTheme } from "../scene/panelContent";
 
 import type {
   BinaryFiles,
@@ -224,6 +238,10 @@ type PanelOverlayProps = {
    * into the panel's payload and survives the bridge's own writes.
    */
   onZoomChange?: (panelId: string, zoom: number) => void;
+  /** the teacher chose the editor's theme (D-270) */
+  onThemeChange?: (panelId: string, theme: PanelEditorTheme) => void;
+  /** the teacher moved, resized or zoomed the console (D-274) */
+  onConsoleChange?: (panelId: string, view: PanelConsoleView) => void;
   /**
    * The host's controls for a panel's **captions** (D-129).
    *
@@ -316,10 +334,16 @@ const CodePanelEditor = ({
   readOnly = true,
   focusOnMount = false,
   zoom = 1,
+  theme = "dark",
+  palette = VS_CODE_DARK,
   onCopy,
   onSelectionChange,
 }: {
   value: string;
+  /** the colours of the editor (D-270) */
+  theme?: PanelEditorTheme;
+  /** the colours of the text shown before the editor has loaded */
+  palette?: PanelPalette;
   language?: string;
   /** the teacher typed. The panel reports it; the host writes it (D-123). */
   onChange?: (value: string) => void;
@@ -371,8 +395,8 @@ const CodePanelEditor = ({
         className="excalidraw__panel-code-text"
         data-testid="code-panel-text"
         style={{
-          background: VS_CODE_DARK.background,
-          color: VS_CODE_DARK.foreground,
+          background: palette.background,
+          color: palette.foreground,
         }}
       >
         {value}
@@ -385,7 +409,7 @@ const CodePanelEditor = ({
       value={value}
       onChange={onChange ?? (() => {})}
       readOnly={readOnly}
-      theme="vscode"
+      theme={theme === "light" ? "light" : "vscode"}
       placeholder={t("labels.panel.code.noFile")}
       // the file's own language, so the editor wears the file's grammar and
       // not the mermaid one (D-84)
@@ -405,13 +429,59 @@ const CodePanelEditor = ({
 };
 
 /**
+ * The icons of a code panel's bars (D-274): drawn as paths so they are crisp at
+ * any size, and named so a bar can be read at a glance.
+ */
+const PANEL_ICON_PATHS: Record<string, React.ReactNode> = {
+  play: <path d="M8 5v14l11-7z" fill="currentColor" stroke="none" />,
+  copy: (
+    <>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15V6a2 2 0 0 1 2-2h9" />
+    </>
+  ),
+  plus: <path d="M12 5v14M5 12h14" />,
+  minus: <path d="M5 12h14" />,
+  fullscreen: <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />,
+  clear: <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" />,
+  dockBottom: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 14h18" />
+    </>
+  ),
+  dockRight: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M14 4v16" />
+    </>
+  ),
+};
+
+const PanelIcon = ({ name, size }: { name: string; size: number | string }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    {PANEL_ICON_PATHS[name]}
+  </svg>
+);
+
+/**
  * The hairline between a code panel's regions - VS Code's own.
  */
-const VS_CODE_HAIRLINE: React.CSSProperties = {
+const hairlineOf = (palette: PanelPalette): React.CSSProperties => ({
   borderTopWidth: 1,
   borderTopStyle: "solid",
-  borderTopColor: VS_CODE_DARK.border,
-};
+  borderTopColor: palette.border,
+});
 
 /**
  * The **zoom levels** the editor's own zoom steps through (D-142).
@@ -419,7 +489,36 @@ const VS_CODE_HAIRLINE: React.CSSProperties = {
  * The zoom is the editor's, and it is the editor's **own** ladder - the same
  * shape VS Code's zoom has: a few steps, and no more (D-117).
  */
-const ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+const ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
+
+/**
+ * Shows the panel the button is in full screen, or leaves full screen (D-271).
+ *
+ * The browser's own full screen is used on the panel's element: only that
+ * element is shown, the canvas is not, and Esc leaves.
+ */
+const toggleFullscreen = (button: HTMLElement) => {
+  if (document.fullscreenElement) {
+    void document.exitFullscreen?.();
+    return;
+  }
+
+  void button
+    .closest<HTMLElement>(".excalidraw__panel")
+    ?.requestFullscreen?.()
+    ?.catch(() => {
+      // full screen was refused: the panel stays as it is
+    });
+};
+
+/** the language an editor reads its text as until the teacher chooses (D-270) */
+const DEFAULT_CODE_LANGUAGE = "python";
+
+/** the names the themes are offered under (D-270) */
+const THEME_LABELS: Record<PanelEditorTheme, string> = {
+  dark: "Dark",
+  light: "Light",
+};
 
 /**
  * The **screenshot** button of a panel (D-102) lives in the panel's
@@ -563,6 +662,8 @@ const CodePanelSurface = ({
   copy,
   onReadLanguageChange,
   onZoomChange,
+  onThemeChange,
+  onConsoleChange,
   onMirrorChange,
 }: {
   panel: ExcalidrawPanelElement;
@@ -583,6 +684,10 @@ const CodePanelSurface = ({
   onReadLanguageChange?: (panelId: string, language: string) => void;
   /** the teacher zoomed the editor (D-142) */
   onZoomChange?: (panelId: string, zoom: number) => void;
+  /** the teacher chose the editor's theme (D-270) */
+  onThemeChange?: (panelId: string, theme: PanelEditorTheme) => void;
+  /** the teacher moved, resized or zoomed the console (D-274) */
+  onConsoleChange?: (panelId: string, view: PanelConsoleView) => void;
   /** the teacher chose what is mirrored, or turned the follow mode on (D-143) */
   onMirrorChange?: (panelId: string, mirror: PanelMirror) => void;
 }) => {
@@ -607,8 +712,11 @@ const CodePanelSurface = ({
   /** which view the panel shows: the default, or the teacher's own choice (D-99) */
   const view = readPanelView(panel.panel);
 
+  /** a code editor of its own: no bridge, no mirror (D-269) */
+  const standalone = isStandaloneCodePanel(panel);
+
   /** where the bridge connection stands */
-  const connected = state?.connection === "connected";
+  const connected = !standalone && state?.connection === "connected";
 
   /**
    * What the editor shows, and where the text came from (D-123).
@@ -618,7 +726,9 @@ const CodePanelSurface = ({
    */
   const editor = panelEditorText(
     panel.panel,
-    state ? { text: state.editor.text, language: state.editor.language } : null,
+    state && !standalone
+      ? { text: state.editor.text, language: state.editor.language }
+      : null,
   );
 
   /**
@@ -630,7 +740,135 @@ const CodePanelSurface = ({
    * It never changes the file in the editor: it is the panel's own reading of
    * the text, and nothing is sent to the extension.
    */
-  const readLanguage = readPanelReadLanguage(panel.panel) ?? editor.language;
+  const readLanguage =
+    readPanelReadLanguage(panel.panel) ||
+    editor.language ||
+    DEFAULT_CODE_LANGUAGE;
+
+  /** the colours the editor wears (D-270) */
+  const theme = readPanelTheme(panel.panel);
+
+  /** the colours of the whole panel: the editor, the bars, the console (D-282) */
+  const palette = PANEL_PALETTES[theme];
+  const hairline = hairlineOf(palette);
+
+  /**
+   * The bars' controls are sized for the SCREEN (D-92), so they are as easy to
+   * press at any canvas zoom: an icon button is `buttonSize` square.
+   */
+  // the bars' controls are one and a half times the chrome's buttons: they are
+  // the controls a teacher presses most, and they were too small to hit
+  const barSize = `calc(${chrome.buttonSize} * 1.5)`;
+
+  const barButton = (
+    options: { active?: boolean; disabled?: boolean; primary?: boolean } = {},
+  ): React.CSSProperties => ({
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flex: "0 0 auto",
+    width: barSize,
+    height: barSize,
+    padding: 0,
+    background: options.primary
+      ? "#238636"
+      : options.active
+      ? palette.accent
+      : "transparent",
+    border: `1px solid ${palette.border}`,
+    borderRadius: 4,
+    color: palette.foreground,
+    cursor: options.disabled ? "not-allowed" : "pointer",
+    opacity: options.disabled ? 0.5 : 1,
+  });
+
+  const barSelect: React.CSSProperties = {
+    height: barSize,
+    fontSize: chrome.headerFontSize,
+    background: palette.background,
+    color: palette.foreground,
+    border: `1px solid ${palette.border}`,
+    borderRadius: 4,
+    // the list that drops down is drawn dark too, so its entries can be read
+    colorScheme: "dark",
+  };
+
+  const barRow: React.CSSProperties = {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: chrome.chromeGap,
+    padding: chrome.chromeGap,
+    fontSize: chrome.headerFontSize,
+  };
+  const iconSize = "62%";
+
+  /**
+   * Where the console sits, how much of the panel it takes and its text size
+   * (D-274). The size is kept in local state while the divider is dragged, and
+   * written to the panel when it is let go.
+   */
+  const consoleView = readPanelConsole(panel.panel);
+  const [dragSize, setDragSize] = useState<number | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  /** what is typed in the input box, kept here until the box is left (D-283) */
+  const [inputDraft, setInputDraft] = useState<string | null>(null);
+  const consoleSize = dragSize ?? consoleView.size;
+
+  const changeConsole = (next: Partial<PanelConsoleView>) =>
+    onConsoleChange?.(panel.id, { ...consoleView, ...next });
+
+  const zoomConsole = (direction: 1 | -1) => {
+    const next =
+      direction === 1
+        ? ZOOM_LEVELS.find((level) => level > consoleView.zoom)
+        : [...ZOOM_LEVELS].reverse().find((level) => level < consoleView.zoom);
+
+    if (next) {
+      changeConsole({ zoom: next });
+    }
+  };
+
+  /** the divider follows the pointer, and the size is kept when it is let go */
+  const startDivider = (event: React.PointerEvent<HTMLDivElement>) => {
+    const body = bodyRef.current;
+
+    if (!body) {
+      return;
+    }
+
+    event.preventDefault();
+
+    const rect = body.getBoundingClientRect();
+    const sizeAt = (clientX: number, clientY: number) => {
+      const raw =
+        consoleView.dock === "bottom"
+          ? (rect.bottom - clientY) / rect.height
+          : (rect.right - clientX) / rect.width;
+
+      return Math.min(
+        consoleSizeLimit(consoleView.dock),
+        Math.max(CONSOLE_SIZE_MIN, raw),
+      );
+    };
+
+    let last = sizeAt(event.clientX, event.clientY);
+
+    const move = (moved: PointerEvent) => {
+      last = sizeAt(moved.clientX, moved.clientY);
+      setDragSize(last);
+    };
+
+    const end = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      setDragSize(null);
+      changeConsole({ size: last });
+    };
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+  };
 
   /**
    * The editor's **own** zoom (D-142).
@@ -843,26 +1081,41 @@ const CodePanelSurface = ({
     Boolean(editor.text) ||
     editor.source === "draft";
 
-  /**
-   * The languages the teacher may run.
-   *
-   * They are the ones the **extension** found on this machine (D-124): the
-   * picker never offers a language whose runtime is not there.
-   */
-  const languageOptions = useMemo(() => {
-    const options: string[] = [];
-    if (editor.language) {
-      options.push(editor.language);
+  /** Run works with the bridge, and without it when the host runs Python */
+  const canRun = connected || Boolean(run?.canRunInBrowser);
+
+  /** where a language stands, when the host says (D-289) */
+  const packOf = (language: string) =>
+    run?.languagePacks?.find((pack) => pack.id === language);
+
+  /** a language in the picker: its name, and what it needs, as an icon (D-289) */
+  const optionLabel = (language: string) => {
+    const pack = packOf(language);
+    const name = pack?.name ?? language;
+
+    if (pack?.state === "download") {
+      return `${name}  \u2B07 ${t("labels.editor.download")}`;
     }
 
-    for (const language of run?.languages ?? []) {
-      if (language && !options.includes(language)) {
-        options.push(language);
-      }
+    if (pack?.state === "downloading") {
+      return `${name}  \u2B07 ${
+        pack.progress == null ? "..." : `${Math.round(pack.progress * 100)}%`
+      }`;
     }
 
-    return options;
-  }, [editor.language, run?.languages]);
+    if (pack?.state === "unavailable") {
+      return `${name}  (${t("labels.editor.notAvailableYet")})`;
+    }
+
+    if (run?.browserLanguages?.includes(language)) {
+      return `${name} (${t("labels.editor.runsHere")})`;
+    }
+
+    // a language the teacher's own editor runs, through the bridge (D-290)
+    return run?.languages?.includes(language)
+      ? `${name} (${t("labels.editor.runsInEditor")})`
+      : name;
+  };
 
   const hasFile = Boolean(state?.editor.uri);
   const fileName = codePanelFileName(state?.editor.uri ?? "");
@@ -882,7 +1135,13 @@ const CodePanelSurface = ({
   const readLanguageOptions = useMemo(() => {
     const options: string[] = [];
 
-    for (const language of [editor.language, readLanguage]) {
+    for (const language of [
+      editor.language,
+      readLanguage,
+      ...(run?.browserLanguages ?? []),
+      ...(run?.languages ?? []),
+      ...(run?.languagePacks ?? []).map((pack) => pack.id),
+    ]) {
       if (language && language !== "mermaid" && !options.includes(language)) {
         options.push(language);
       }
@@ -895,7 +1154,13 @@ const CodePanelSurface = ({
     }
 
     return options;
-  }, [editor.language, readLanguage]);
+  }, [
+    editor.language,
+    readLanguage,
+    run?.browserLanguages,
+    run?.languages,
+    run?.languagePacks,
+  ]);
 
   /**
    * The teacher copies the code (D-142).
@@ -977,56 +1242,20 @@ const CodePanelSurface = ({
     <div
       className="excalidraw__panel-code-runbar"
       data-testid="code-panel-runbar"
+      style={barRow}
     >
-      {languageOptions.length ? (
-        <select
-          className="excalidraw__panel-code-language-picker"
-          data-testid="code-panel-language-picker"
-          aria-label={t("labels.panel.code.runLanguage")}
-          value={editor.language}
-          onChange={(event) =>
-            draft?.onLanguageChange?.(panel.id, event.target.value)
-          }
-          style={{
-            background: "transparent",
-            color: VS_CODE_DARK.foreground,
-            border: `1px solid ${VS_CODE_DARK.border}`,
-            borderRadius: 2,
-            font: "inherit",
-          }}
-        >
-          {/* The draft has no language yet: the picker says so instead of
-              pretending one is chosen (D-122's rule - say what is missing). */}
-          {editor.language ? null : (
-            <option value="">{t("labels.panel.code.runLanguageNone")}</option>
-          )}
-          {languageOptions.map((language) => (
-            <option key={language} value={language}>
-              {language}
-            </option>
-          ))}
-        </select>
-      ) : null}
       <button
         type="button"
         className="excalidraw__panel-code-run"
         data-testid="code-panel-run"
         data-panel-id={panel.id}
-        disabled={!connected}
+        disabled={!canRun}
         onClick={() => run?.onRun?.(panel.id)}
         title={t("labels.panel.code.runTitle")}
         aria-label={t("labels.panel.code.runTitle")}
-        style={{
-          background: "transparent",
-          border: `1px solid ${VS_CODE_DARK.border}`,
-          borderRadius: 2,
-          color: VS_CODE_DARK.foreground,
-          cursor: connected ? "pointer" : "not-allowed",
-          font: "inherit",
-          opacity: connected ? 1 : 0.6,
-        }}
+        style={barButton({ primary: true, disabled: !canRun })}
       >
-        {t("labels.panel.code.run")}
+        <PanelIcon name="play" size={iconSize} />
       </button>
       {/* Which text the editor is showing: the teacher's own draft, or the
           mirror it started from (D-123). */}
@@ -1034,21 +1263,23 @@ const CodePanelSurface = ({
         className="excalidraw__panel-code-editor-source"
         data-testid="code-panel-editor-source"
         data-source={editor.source}
-        style={{ color: VS_CODE_DARK.muted }}
+        style={{ color: palette.muted }}
       >
         {editor.source === "draft"
           ? t("labels.panel.code.yourDraft")
           : t("labels.panel.code.theMirror")}
       </span>
       {!connected ? (
-        // Running needs the extension, and the extension is not there: the
-        // panel says so instead of pretending (D-124).
+        // Without the extension Python and JavaScript run in the browser when
+        // the host can do it, and the panel says which it is (D-124).
         <span
           className="excalidraw__panel-code-run-note"
           data-testid="code-panel-run-needs-bridge"
-          style={{ color: VS_CODE_DARK.muted }}
+          style={{ color: palette.muted }}
         >
-          {t("labels.panel.code.runNeedsBridge")}
+          {run?.canRunInBrowser
+            ? t("labels.panel.code.runInBrowser")
+            : t("labels.panel.code.runNeedsBridge")}
         </span>
       ) : null}
     </div>
@@ -1071,34 +1302,93 @@ const CodePanelSurface = ({
     <div
       className="excalidraw__panel-code-editorbar"
       data-testid="code-panel-editorbar"
+      style={barRow}
     >
       <select
         className="excalidraw__panel-code-language-picker"
         data-testid="code-panel-read-language"
         aria-label={t("labels.editor.readLanguage")}
         value={readLanguage}
-        onChange={(event) =>
-          onReadLanguageChange?.(panel.id, event.target.value)
-        }
-        style={{
-          background: "transparent",
-          color: VS_CODE_DARK.foreground,
-          border: `1px solid ${VS_CODE_DARK.border}`,
-          borderRadius: 2,
-          font: "inherit",
+        onChange={(event) => {
+          const chosen = event.target.value;
+          const pack = packOf(chosen);
+
+          // a language that is not here yet is downloaded, and the language
+          // stays what it was until it is (D-289)
+          if (pack?.state === "download") {
+            run?.onInstallPack?.(chosen);
+            event.target.value = readLanguage;
+
+            return;
+          }
+
+          onReadLanguageChange?.(panel.id, chosen);
+          // the language that is run follows the one that is read (D-270)
+          draft?.onLanguageChange?.(panel.id, chosen);
         }}
+        style={barSelect}
       >
-        {/* Nothing to read as: the picker says so instead of pretending one
-            is chosen (D-122's rule - say what is missing). */}
-        {readLanguage ? null : (
-          <option value="">{t("labels.editor.readLanguageNone")}</option>
-        )}
-        {readLanguageOptions.map((language) => (
-          <option key={language} value={language}>
-            {language}
+        {readLanguageOptions.map((language) => {
+          const pack = packOf(language);
+
+          return (
+            <option
+              key={language}
+              value={language}
+              disabled={pack?.state === "unavailable"}
+            >
+              {optionLabel(language)}
+            </option>
+          );
+        })}
+      </select>
+      <select
+        className="excalidraw__panel-code-theme-picker"
+        data-testid="code-panel-theme"
+        aria-label={t("labels.editor.theme")}
+        value={theme}
+        onChange={(event) =>
+          onThemeChange?.(panel.id, event.target.value as PanelEditorTheme)
+        }
+        style={barSelect}
+      >
+        {PANEL_EDITOR_THEMES.map((name) => (
+          <option key={name} value={name}>
+            {THEME_LABELS[name]}
           </option>
         ))}
       </select>
+      {run?.languagePacks?.some((pack) => pack.state === "downloading") ? (
+        <div
+          data-testid="code-panel-pack-progress"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flex: "1 1 100%",
+          }}
+        >
+          <span>
+            {t("labels.editor.downloading")}{" "}
+            {
+              run.languagePacks.find((pack) => pack.state === "downloading")
+                ?.name
+            }
+          </span>
+          <progress
+            style={{ flex: 1 }}
+            {...(() => {
+              const progress = run.languagePacks.find(
+                (pack) => pack.state === "downloading",
+              )?.progress;
+
+              return progress == null
+                ? {}
+                : { value: Math.round(progress * 100), max: 100 };
+            })()}
+          />
+        </div>
+      ) : null}
       <button
         type="button"
         className="excalidraw__panel-code-copy"
@@ -1107,16 +1397,9 @@ const CodePanelSurface = ({
         onClick={() => copyAsCodeBlock(selection)}
         title={t("labels.editor.copyAsCodeBlockTitle")}
         aria-label={t("labels.editor.copyAsCodeBlock")}
-        style={{
-          background: "transparent",
-          border: `1px solid ${VS_CODE_DARK.border}`,
-          borderRadius: 2,
-          color: VS_CODE_DARK.foreground,
-          cursor: "pointer",
-          font: "inherit",
-        }}
+        style={barButton()}
       >
-        {t("labels.editor.copyAsCodeBlock")}
+        <PanelIcon name="copy" size={iconSize} />
       </button>
       <button
         type="button"
@@ -1125,21 +1408,14 @@ const CodePanelSurface = ({
         onClick={() => zoomBy(-1)}
         title={t("labels.editor.zoomOut")}
         aria-label={t("labels.editor.zoomOut")}
-        style={{
-          background: "transparent",
-          border: `1px solid ${VS_CODE_DARK.border}`,
-          borderRadius: 2,
-          color: VS_CODE_DARK.foreground,
-          cursor: "pointer",
-          font: "inherit",
-        }}
+        style={barButton()}
       >
-        {"−"}
+        <PanelIcon name="minus" size={iconSize} />
       </button>
       <span
         className="excalidraw__panel-code-zoom-level"
         data-testid="code-panel-zoom-level"
-        style={{ color: VS_CODE_DARK.muted }}
+        style={{ color: palette.muted }}
       >
         {`${Math.round(zoom * 100)}%`}
       </span>
@@ -1150,16 +1426,9 @@ const CodePanelSurface = ({
         onClick={() => zoomBy(1)}
         title={t("labels.editor.zoomIn")}
         aria-label={t("labels.editor.zoomIn")}
-        style={{
-          background: "transparent",
-          border: `1px solid ${VS_CODE_DARK.border}`,
-          borderRadius: 2,
-          color: VS_CODE_DARK.foreground,
-          cursor: "pointer",
-          font: "inherit",
-        }}
+        style={barButton()}
       >
-        {"+"}
+        <PanelIcon name="plus" size={iconSize} />
       </button>
     </div>
   );
@@ -1269,6 +1538,8 @@ const CodePanelSurface = ({
             onChange={(text) => draft?.onChange?.(panel.id, text)}
             // the editor's own zoom (D-142)
             zoom={zoom}
+            theme={theme}
+            palette={palette}
             // the teacher copied in the editor: the panel reports it, and the
             // host turns the next paste on the canvas into a code card.
             // A **mirror** does not: the presenter shows the host's panel, it
@@ -1291,7 +1562,7 @@ const CodePanelSurface = ({
         <div
           className="excalidraw__panel-code-status"
           data-testid="code-panel-empty-file"
-          style={{ color: VS_CODE_DARK.foreground }}
+          style={{ color: palette.foreground }}
         >
           {t("labels.panel.code.emptyFile")}
         </div>
@@ -1305,7 +1576,7 @@ const CodePanelSurface = ({
         <div
           className="excalidraw__panel-code-status"
           data-testid="code-panel-no-editor"
-          style={{ color: VS_CODE_DARK.foreground }}
+          style={{ color: palette.foreground }}
         >
           {t("labels.panel.code.noFile")}
         </div>
@@ -1327,7 +1598,7 @@ const CodePanelSurface = ({
         <div
           className="excalidraw__panel-code-status excalidraw__panel-code-notice"
           data-testid="code-panel-live-status"
-          style={{ color: VS_CODE_DARK.muted }}
+          style={{ color: palette.muted }}
         >
           {capture?.status === "unavailable"
             ? capture.reason
@@ -1342,231 +1613,406 @@ const CodePanelSurface = ({
       className="excalidraw__panel-code-panel"
       data-testid="code-panel"
       style={{
-        background: VS_CODE_DARK.background,
-        color: VS_CODE_DARK.foreground,
+        position: "relative",
+        background: palette.background,
+        color: palette.foreground,
       }}
     >
-      {connected ? (
+      <button
+        type="button"
+        className="excalidraw__panel-code-fullscreen"
+        data-testid="code-panel-fullscreen"
+        data-panel-id={panel.id}
+        onClick={(event) => toggleFullscreen(event.currentTarget)}
+        title={t("labels.editor.fullScreen")}
+        aria-label={t("labels.editor.fullScreen")}
+        style={{
+          ...barButton(),
+          position: "absolute",
+          top: 2,
+          right: screenshot ? chrome.cameraReserve : 4,
+          zIndex: 2,
+        }}
+      >
+        <PanelIcon name="fullscreen" size={iconSize} />
+      </button>
+      <div
+        ref={bodyRef}
+        className="excalidraw__panel-code-body"
+        data-testid="code-panel-body"
+        data-console-dock={consoleView.dock}
+        style={{
+          display: "flex",
+          flex: "1 1 auto",
+          minHeight: 0,
+          flexDirection: consoleView.dock === "bottom" ? "column" : "row",
+        }}
+      >
         <div
-          className="excalidraw__panel-code-editor"
-          data-testid="code-panel-editor"
-          style={CODE_PANEL_REGION_STYLE.editor}
+          className="excalidraw__panel-code-main"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            flex: "1 1 0",
+            minWidth: 0,
+            minHeight: 0,
+          }}
         >
-          {/* the tab strip: WHICH file this is, the way a VS Code tab says it */}
-          <div
-            className="excalidraw__panel-code-header"
-            data-testid="code-panel-header"
-            style={{
-              borderBottomWidth: 1,
-              borderBottomStyle: "solid",
-              borderBottomColor: VS_CODE_DARK.accent,
-              // The chrome is sized for the SCREEN and the content for the
-              // PANEL (D-92): the header keeps its size on screen at any zoom,
-              // and it is tall enough for its own text.
-              minHeight: chrome.headerHeight,
-              fontSize: chrome.headerFontSize,
-              // The camera hangs on the panel's own corner (D-115), so the
-              // header keeps the room it needs and the view toggle is never
-              // hidden under the camera.
-              ...(screenshot ? { paddingRight: chrome.cameraReserve } : {}),
-            }}
-          >
-            {hasFile ? (
-              <>
-                <span
-                  className="excalidraw__panel-code-file"
-                  data-testid="code-panel-file"
-                >
-                  {fileName || state?.editor.uri}
-                </span>
-                {state?.editor.language ? (
-                  <span
-                    className="excalidraw__panel-code-language"
-                    data-testid="code-panel-language"
-                    style={{
-                      color: VS_CODE_DARK.muted,
-                      fontSize: chrome.languageFontSize,
-                    }}
-                  >
-                    {state.editor.language}
-                  </span>
-                ) : null}
-              </>
-            ) : (
-              // no file is open: the panel says so, with the same wording it
-              // uses everywhere else for that case (D-80)
-              <span
-                className="excalidraw__panel-code-file"
-                data-testid="code-panel-no-file"
-              >
-                {t("labels.panel.code.noFile")}
-              </span>
-            )}
-            {canToggleView ? (
-              <button
-                type="button"
-                className="excalidraw__panel-code-view"
-                data-testid="code-panel-view-toggle"
-                data-panel-id={panel.id}
-                data-view={view}
-                onClick={() => onToggleView?.(panel.id)}
-                title={
-                  view === "live"
-                    ? t("labels.panel.code.showEditor")
-                    : t("labels.panel.code.showLive")
-                }
-                aria-label={
-                  view === "live"
-                    ? t("labels.panel.code.showEditor")
-                    : t("labels.panel.code.showLive")
-                }
+          {connected ? (
+            <div
+              className="excalidraw__panel-code-editor"
+              data-testid="code-panel-editor"
+              style={CODE_PANEL_REGION_STYLE.editor}
+            >
+              {/* the tab strip: WHICH file this is, the way a VS Code tab says it */}
+              <div
+                className="excalidraw__panel-code-header"
+                data-testid="code-panel-header"
                 style={{
-                  background: "transparent",
-                  border: `1px solid ${VS_CODE_DARK.border}`,
-                  borderRadius: 2,
-                  color: VS_CODE_DARK.foreground,
-                  cursor: "pointer",
-                  font: "inherit",
+                  borderBottomWidth: 1,
+                  borderBottomStyle: "solid",
+                  borderBottomColor: palette.accent,
+                  // The chrome is sized for the SCREEN and the content for the
+                  // PANEL (D-92): the header keeps its size on screen at any zoom,
+                  // and it is tall enough for its own text.
+                  minHeight: chrome.headerHeight,
+                  fontSize: chrome.headerFontSize,
+                  // The camera hangs on the panel's own corner (D-115), so the
+                  // header keeps the room it needs and the view toggle is never
+                  // hidden under the camera.
+                  ...(screenshot ? { paddingRight: chrome.cameraReserve } : {}),
                 }}
               >
-                {view === "live"
-                  ? t("labels.panel.code.viewLive")
-                  : t("labels.panel.code.viewEditor")}
-              </button>
-            ) : null}
-            {canMirror ? (
-              <>
-                {/* What is **mirrored** (D-143): the teacher's own control, and
-                    it is in the panel's own header - the header is always
-                    mounted, so the teacher can change it mid-class. */}
-                <button
-                  type="button"
-                  className="excalidraw__panel-code-mirror"
-                  data-testid="code-panel-mirror-region"
-                  data-panel-id={panel.id}
-                  onClick={() => void openMirrorPicker()}
-                  title={t("labels.mirror.change")}
-                  aria-label={t("labels.mirror.change")}
-                  style={{
-                    background: "transparent",
-                    border: `1px solid ${VS_CODE_DARK.border}`,
-                    borderRadius: 2,
-                    color: VS_CODE_DARK.foreground,
-                    cursor: "pointer",
-                    font: "inherit",
-                  }}
-                >
-                  {t("labels.mirror.change")}
-                </button>
-                {panelMirror.region ? (
-                  /* The follow mode: it is **off** until the teacher turns it
-                     on, and they can turn it off again (D-143). */
+                {hasFile ? (
+                  <>
+                    <span
+                      className="excalidraw__panel-code-file"
+                      data-testid="code-panel-file"
+                    >
+                      {fileName || state?.editor.uri}
+                    </span>
+                    {state?.editor.language ? (
+                      <span
+                        className="excalidraw__panel-code-language"
+                        data-testid="code-panel-language"
+                        style={{
+                          color: palette.muted,
+                          fontSize: chrome.languageFontSize,
+                        }}
+                      >
+                        {state.editor.language}
+                      </span>
+                    ) : null}
+                  </>
+                ) : (
+                  // no file is open: the panel says so, with the same wording it
+                  // uses everywhere else for that case (D-80)
+                  <span
+                    className="excalidraw__panel-code-file"
+                    data-testid="code-panel-no-file"
+                  >
+                    {t("labels.panel.code.noFile")}
+                  </span>
+                )}
+                {canToggleView ? (
                   <button
                     type="button"
-                    className="excalidraw__panel-code-mirror-follow"
-                    data-testid="code-panel-mirror-follow"
+                    className="excalidraw__panel-code-view"
+                    data-testid="code-panel-view-toggle"
                     data-panel-id={panel.id}
-                    data-follow={panelMirror.follow ? "on" : "off"}
-                    onClick={toggleFollow}
+                    data-view={view}
+                    onClick={() => onToggleView?.(panel.id)}
                     title={
-                      panelMirror.follow
-                        ? t("labels.mirror.following")
-                        : t("labels.mirror.follow")
+                      view === "live"
+                        ? t("labels.panel.code.showEditor")
+                        : t("labels.panel.code.showLive")
                     }
                     aria-label={
-                      panelMirror.follow
-                        ? t("labels.mirror.following")
-                        : t("labels.mirror.follow")
+                      view === "live"
+                        ? t("labels.panel.code.showEditor")
+                        : t("labels.panel.code.showLive")
                     }
                     style={{
-                      background: panelMirror.follow
-                        ? VS_CODE_DARK.accent
-                        : "transparent",
-                      border: `1px solid ${VS_CODE_DARK.border}`,
+                      background: "transparent",
+                      border: `1px solid ${palette.border}`,
                       borderRadius: 2,
-                      color: VS_CODE_DARK.foreground,
+                      color: palette.foreground,
                       cursor: "pointer",
                       font: "inherit",
                     }}
                   >
-                    {t("labels.mirror.follow")}
+                    {view === "live"
+                      ? t("labels.panel.code.viewLive")
+                      : t("labels.panel.code.viewEditor")}
                   </button>
                 ) : null}
-              </>
-            ) : null}
-            {mirrorNotice ? (
-              /* A failure is a **message**, not a silence (D-75). */
-              <span
-                className="excalidraw__panel-code-mirror-notice"
-                data-testid="code-panel-mirror-notice"
-                style={{
-                  color: VS_CODE_DARK.muted,
-                  fontSize: chrome.languageFontSize,
-                }}
-              >
-                {mirrorNotice}
-              </span>
-            ) : null}
-          </div>
+                {canMirror ? (
+                  <>
+                    {/* What is **mirrored** (D-143): the teacher's own control, and
+                    it is in the panel's own header - the header is always
+                    mounted, so the teacher can change it mid-class. */}
+                    <button
+                      type="button"
+                      className="excalidraw__panel-code-mirror"
+                      data-testid="code-panel-mirror-region"
+                      data-panel-id={panel.id}
+                      onClick={() => void openMirrorPicker()}
+                      title={t("labels.mirror.change")}
+                      aria-label={t("labels.mirror.change")}
+                      style={{
+                        background: "transparent",
+                        border: `1px solid ${palette.border}`,
+                        borderRadius: 2,
+                        color: palette.foreground,
+                        cursor: "pointer",
+                        font: "inherit",
+                      }}
+                    >
+                      {t("labels.mirror.change")}
+                    </button>
+                    {panelMirror.region ? (
+                      /* The follow mode: it is **off** until the teacher turns it
+                     on, and they can turn it off again (D-143). */
+                      <button
+                        type="button"
+                        className="excalidraw__panel-code-mirror-follow"
+                        data-testid="code-panel-mirror-follow"
+                        data-panel-id={panel.id}
+                        data-follow={panelMirror.follow ? "on" : "off"}
+                        onClick={toggleFollow}
+                        title={
+                          panelMirror.follow
+                            ? t("labels.mirror.following")
+                            : t("labels.mirror.follow")
+                        }
+                        aria-label={
+                          panelMirror.follow
+                            ? t("labels.mirror.following")
+                            : t("labels.mirror.follow")
+                        }
+                        style={{
+                          background: panelMirror.follow
+                            ? palette.accent
+                            : "transparent",
+                          border: `1px solid ${palette.border}`,
+                          borderRadius: 2,
+                          color: palette.foreground,
+                          cursor: "pointer",
+                          font: "inherit",
+                        }}
+                      >
+                        {t("labels.mirror.follow")}
+                      </button>
+                    ) : null}
+                  </>
+                ) : null}
+                {mirrorNotice ? (
+                  /* A failure is a **message**, not a silence (D-75). */
+                  <span
+                    className="excalidraw__panel-code-mirror-notice"
+                    data-testid="code-panel-mirror-notice"
+                    style={{
+                      color: palette.muted,
+                      fontSize: chrome.languageFontSize,
+                    }}
+                  >
+                    {mirrorNotice}
+                  </span>
+                ) : null}
+              </div>
 
-          {source}
-        </div>
-      ) : (
-        <>
-          {/* The panel says WHY it has nothing to show - a region with nothing
+              {source}
+            </div>
+          ) : (
+            <>
+              {/* The panel says WHY it has nothing to show - a region with nothing
               in it is never an answer (D-93). And the editor is STILL there:
               the teacher's own text does not need a bridge (D-123). */}
+              {standalone ? null : (
+                <div
+                  className="excalidraw__panel-code-status excalidraw__panel-code-notice"
+                  data-testid="code-panel-status"
+                  data-bridge-state={state?.connection ?? "not-connected"}
+                  style={{
+                    background: palette.background,
+                    color: palette.foreground,
+                  }}
+                >
+                  {state?.statusMessage || t("labels.panel.code.notConnected")}
+                </div>
+              )}
+              {source}
+            </>
+          )}
+        </div>
+        <div
+          className="excalidraw__panel-code-divider"
+          data-testid="code-panel-divider"
+          role="separator"
+          aria-orientation={
+            consoleView.dock === "bottom" ? "horizontal" : "vertical"
+          }
+          onPointerDown={startDivider}
+          style={{
+            flex: "0 0 auto",
+            background: palette.border,
+            cursor: consoleView.dock === "bottom" ? "row-resize" : "col-resize",
+            ...(consoleView.dock === "bottom" ? { height: 4 } : { width: 4 }),
+          }}
+        />
+        <div
+          className="excalidraw__panel-code-consolebox"
+          data-testid="code-panel-consolebox"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            minWidth: 0,
+            minHeight: 0,
+            flex: `0 0 ${consoleSize * 100}%`,
+            fontSize: `${16 * consoleView.zoom}px`,
+          }}
+        >
           <div
-            className="excalidraw__panel-code-status excalidraw__panel-code-notice"
-            data-testid="code-panel-status"
-            data-bridge-state={state?.connection ?? "not-connected"}
+            className="excalidraw__panel-code-consolebar"
             style={{
-              background: VS_CODE_DARK.background,
-              color: VS_CODE_DARK.foreground,
+              ...barRow,
+              flexWrap: "nowrap",
+              flex: "0 0 auto",
+              color: palette.muted,
+              ...hairline,
             }}
           >
-            {state?.statusMessage || t("labels.panel.code.notConnected")}
+            <span style={{ flex: 1 }}>{t("labels.editor.console")}</span>
+            <button
+              type="button"
+              data-testid="code-panel-clear"
+              title={t("labels.editor.clearConsole")}
+              aria-label={t("labels.editor.clearConsole")}
+              onClick={() => run?.onClear?.(panel.id)}
+              style={barButton()}
+            >
+              <PanelIcon name="clear" size={iconSize} />
+            </button>
+            {(["bottom", "right"] as const).map((dock) => (
+              <button
+                key={dock}
+                type="button"
+                data-testid={`code-panel-dock-${dock}`}
+                aria-pressed={consoleView.dock === dock}
+                title={t(
+                  dock === "bottom"
+                    ? "labels.editor.dockBottom"
+                    : "labels.editor.dockRight",
+                )}
+                // a size that was dragged for the other side is not a size for this one
+                onClick={() =>
+                  changeConsole({ dock, size: DEFAULT_PANEL_CONSOLE_VIEW.size })
+                }
+                style={barButton({ active: consoleView.dock === dock })}
+              >
+                <PanelIcon
+                  name={dock === "bottom" ? "dockBottom" : "dockRight"}
+                  size={iconSize}
+                />
+              </button>
+            ))}
+            <button
+              type="button"
+              data-testid="code-panel-console-zoom-out"
+              title={t("labels.editor.zoomOut")}
+              aria-label={t("labels.editor.zoomOut")}
+              onClick={() => zoomConsole(-1)}
+              style={barButton()}
+            >
+              <PanelIcon name="minus" size={iconSize} />
+            </button>
+            <span data-testid="code-panel-console-zoom-level">
+              {`${Math.round(consoleView.zoom * 100)}%`}
+            </span>
+            <button
+              type="button"
+              data-testid="code-panel-console-zoom-in"
+              title={t("labels.editor.zoomIn")}
+              aria-label={t("labels.editor.zoomIn")}
+              onClick={() => zoomConsole(1)}
+              style={barButton()}
+            >
+              <PanelIcon name="plus" size={iconSize} />
+            </button>
           </div>
-          {source}
-        </>
-      )}
-      <div
-        className="excalidraw__panel-code-output"
-        data-testid="code-panel-output"
-        style={{
-          ...CODE_PANEL_REGION_STYLE.output,
-          ...VS_CODE_HAIRLINE,
-          color: VS_CODE_DARK.foreground,
-        }}
-      >
-        {(state?.output ?? []).map((line, index) => (
           <div
-            key={`${index}-${line.text}`}
-            className="excalidraw__panel-code-line"
-            data-stream={line.stream}
+            className="excalidraw__panel-code-output"
+            data-testid="code-panel-output"
+            style={{
+              ...CODE_PANEL_REGION_STYLE.output,
+              ...hairline,
+              color: palette.foreground,
+            }}
           >
-            {line.text}
+            {(state?.output ?? []).map((line, index) => (
+              <div
+                key={`${index}-${line.text}`}
+                className="excalidraw__panel-code-line"
+                data-stream={line.stream}
+              >
+                {line.text}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <div
-        className="excalidraw__panel-code-console"
-        data-testid="code-panel-console"
-        style={{
-          ...CODE_PANEL_REGION_STYLE.console,
-          ...VS_CODE_HAIRLINE,
-          color: VS_CODE_DARK.foreground,
-        }}
-      >
-        {(state?.console ?? []).map((line, index) => (
           <div
-            key={`${index}-${line.text}`}
-            className="excalidraw__panel-code-line"
-            data-level={line.level}
+            className="excalidraw__panel-code-console"
+            data-testid="code-panel-console"
+            style={{
+              ...CODE_PANEL_REGION_STYLE.console,
+              ...hairline,
+              color: palette.foreground,
+            }}
           >
-            {line.text}
+            {(state?.console ?? [])
+              .filter((line) => !standalone || line.kind !== "connection")
+              .map((line, index) => (
+                <div
+                  key={`${index}-${line.text}`}
+                  className="excalidraw__panel-code-line"
+                  data-level={line.level}
+                >
+                  {line.text}
+                </div>
+              ))}
           </div>
-        ))}
+          {/* the input belongs to the console's column: beside the editor it
+          must not become a column of its own as wide as the panel (D-295) */}
+          <textarea
+            className="excalidraw__panel-code-input"
+            data-testid="code-panel-input"
+            aria-label={t("labels.editor.programInput")}
+            placeholder={t("labels.editor.programInputHint")}
+            rows={2}
+            spellCheck={false}
+            value={inputDraft ?? consoleView.input}
+            onChange={(event) => setInputDraft(event.target.value)}
+            onBlur={() => {
+              if (inputDraft !== null && inputDraft !== consoleView.input) {
+                changeConsole({ input: inputDraft });
+              }
+
+              setInputDraft(null);
+            }}
+            style={{
+              flex: "0 0 auto",
+              resize: "none",
+              font: "inherit",
+              fontSize: "0.85em",
+              boxSizing: "border-box",
+              width: "100%",
+              background: palette.background,
+              color: palette.foreground,
+              border: "none",
+              borderTop: `1px solid ${palette.border}`,
+              padding: "2px 6px",
+            }}
+          />
+        </div>
       </div>
     </div>
   );
@@ -2610,6 +3056,8 @@ const PanelSurface = ({
   copy,
   onReadLanguageChange,
   onZoomChange,
+  onThemeChange,
+  onConsoleChange,
   captions,
 }: {
   panel: ExcalidrawPanelElement;
@@ -2635,6 +3083,10 @@ const PanelSurface = ({
   onReadLanguageChange?: (panelId: string, language: string) => void;
   /** the teacher zoomed the editor (D-142) */
   onZoomChange?: (panelId: string, zoom: number) => void;
+  /** the teacher chose the editor's theme (D-270) */
+  onThemeChange?: (panelId: string, theme: PanelEditorTheme) => void;
+  /** the teacher moved, resized or zoomed the console (D-274) */
+  onConsoleChange?: (panelId: string, view: PanelConsoleView) => void;
   /** the host's controls for the panel's captions (D-129) */
   captions?: PanelCaptionControls;
 }) => {
@@ -2655,6 +3107,8 @@ const PanelSurface = ({
         copy={copy}
         onReadLanguageChange={onReadLanguageChange}
         onZoomChange={onZoomChange}
+        onThemeChange={onThemeChange}
+        onConsoleChange={onConsoleChange}
       />
     );
   }
@@ -2774,6 +3228,8 @@ const Panel = ({
   copy,
   onReadLanguageChange,
   onZoomChange,
+  onThemeChange,
+  onConsoleChange,
   captions,
 }: {
   panel: ExcalidrawPanelElement;
@@ -2800,6 +3256,10 @@ const Panel = ({
   onReadLanguageChange?: (panelId: string, language: string) => void;
   /** the teacher zoomed the editor (D-142) */
   onZoomChange?: (panelId: string, zoom: number) => void;
+  /** the teacher chose the editor's theme (D-270) */
+  onThemeChange?: (panelId: string, theme: PanelEditorTheme) => void;
+  /** the teacher moved, resized or zoomed the console (D-274) */
+  onConsoleChange?: (panelId: string, view: PanelConsoleView) => void;
   /** the host's controls for the panel's captions (D-129) */
   captions?: PanelCaptionControls;
 }) => {
@@ -2924,6 +3384,8 @@ const Panel = ({
           copy={copy}
           onReadLanguageChange={onReadLanguageChange}
           onZoomChange={onZoomChange}
+          onThemeChange={onThemeChange}
+          onConsoleChange={onConsoleChange}
           captions={captions}
         />
         {pending ? (
@@ -2981,6 +3443,8 @@ const PanelOverlayImpl = ({
   copy,
   onReadLanguageChange,
   onZoomChange,
+  onThemeChange,
+  onConsoleChange,
   captions,
 }: PanelOverlayProps) => {
   if (panels.length === 0) {
@@ -3013,6 +3477,8 @@ const PanelOverlayImpl = ({
           copy={copy}
           onReadLanguageChange={onReadLanguageChange}
           onZoomChange={onZoomChange}
+          onThemeChange={onThemeChange}
+          onConsoleChange={onConsoleChange}
           captions={captions}
         />
       ))}
@@ -3047,6 +3513,8 @@ const areEqual = (prev: PanelOverlayProps, next: PanelOverlayProps) =>
   prev.copy === next.copy &&
   prev.onReadLanguageChange === next.onReadLanguageChange &&
   prev.onZoomChange === next.onZoomChange &&
+  prev.onThemeChange === next.onThemeChange &&
+  prev.onConsoleChange === next.onConsoleChange &&
   prev.captions === next.captions;
 
 export const PanelOverlay = React.memo(PanelOverlayImpl, areEqual);

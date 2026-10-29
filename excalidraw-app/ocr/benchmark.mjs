@@ -447,12 +447,11 @@ const run = async () => {
           // and the measurement that WAS taken, wherever it was taken: an
           // engine that could not run HERE is not a verdict on the engine
           // (D-109)
-          measured:
-            carriedMeasurement(previous, engine) ?? {
-              where: "not measured here",
-              with: `no ${engine} on this machine's Python ${report.python}`,
-              at: null,
-            },
+          measured: carriedMeasurement(previous, engine) ?? {
+            where: "not measured here",
+            with: `no ${engine} on this machine's Python ${report.python}`,
+            at: null,
+          },
         };
         continue;
       }

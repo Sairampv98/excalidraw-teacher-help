@@ -1,13 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useExcalidrawAPI } from "@excalidraw/excalidraw";
 import { codeToHtml } from "shiki";
+
+import { appJotaiStore, pdfPageReadRequestAtom } from "../app-jotai";
 
 import {
   armInsert,
   cancelCodePaste,
   insertCodeIntoScene,
 } from "./insertIntoScene";
+
+import {
+  PdfViewer,
+  PDF_ZOOM_MAX,
+  PDF_ZOOM_MIN,
+  clampPdfZoom,
+} from "./PdfViewer";
+import { SelectionBar } from "./SelectionBar";
 import { escapeHtml, kindLabel, renderMarkdown } from "./sidebarFiles";
 
 import "./sidebar.scss";
@@ -77,35 +87,30 @@ export const DocumentViewer = ({
   const [failed, setFailed] = useState(false);
   /** scales the rendered document; the PDF viewer zooms with its own toolbar */
   const [zoom, setZoom] = useState(1);
+  /** the text the teacher has just selected in the document, if any */
+  const [picked, setPicked] = useState<string | null>(null);
 
   const isMarkdown = entry.kind === "markdown";
 
   // a new document starts at fit-to-panel, like the PDF viewer does
   useEffect(() => {
     setZoom(1);
+    setPicked(null);
   }, [entry]);
 
-  const changeZoom = useCallback((delta: number) => {
-    setZoom((prev) => clampZoom(Math.round((prev + delta) * 10) / 10));
-  }, []);
+  const isPdf = entry.kind === "pdf";
+  const zoomMin = isPdf ? PDF_ZOOM_MIN : ZOOM_MIN;
+  const zoomMax = isPdf ? PDF_ZOOM_MAX : ZOOM_MAX;
 
-  // The object URL is created together with the preview and revoked once the
-  // <object> for it has been swapped out (next document) or unmounted (read
-  // back to the list), so the URL on screen is never revoked underneath it.
-  const pdfUrl = useMemo(() => {
-    if (entry.kind !== "pdf") {
-      return null;
-    }
-    return URL.createObjectURL(entry.file);
-  }, [entry]);
-
-  useEffect(
-    () => () => {
-      if (pdfUrl) {
-        URL.revokeObjectURL(pdfUrl);
-      }
+  const changeZoom = useCallback(
+    (delta: number) => {
+      setZoom((prev) =>
+        isPdf
+          ? clampPdfZoom(Math.round((prev + delta) * 100) / 100)
+          : clampZoom(Math.round((prev + delta) * 10) / 10),
+      );
     },
-    [pdfUrl],
+    [isPdf],
   );
 
   // An armed code paste must not outlive the document, or a later paste
@@ -168,6 +173,9 @@ export const DocumentViewer = ({
         console.error(error);
         api?.setToast({ message: "Clipboard was blocked", closable: true });
       }
+
+      // the bar is offered whether or not the copy went through
+      setPicked(text);
     };
 
     const onSelectionEnd = () => {
@@ -183,7 +191,7 @@ export const DocumentViewer = ({
       document.removeEventListener("mouseup", onSelectionEnd);
       document.removeEventListener("keyup", onSelectionEnd);
     };
-  }, [api, html]);
+  }, [api, html, entry.kind]);
 
   // read + highlight the document being read
   useEffect(() => {
@@ -370,6 +378,38 @@ export const DocumentViewer = ({
     }
   }, [api, busy, loaded]);
 
+  const zoomBar = (
+    <div className="app-doc-zoom">
+      <button
+        type="button"
+        className="app-doc-step__btn"
+        onClick={() => changeZoom(-ZOOM_STEP)}
+        disabled={zoom <= zoomMin}
+        aria-label="Zoom out"
+      >
+        −
+      </button>
+      <button
+        type="button"
+        className="app-doc-zoom__level"
+        onClick={() => setZoom(1)}
+        title="Reset zoom"
+        aria-label="Reset zoom"
+      >
+        {Math.round(zoom * 100)}%
+      </button>
+      <button
+        type="button"
+        className="app-doc-step__btn"
+        onClick={() => changeZoom(ZOOM_STEP)}
+        disabled={zoom >= zoomMax}
+        aria-label="Zoom in"
+      >
+        +
+      </button>
+    </div>
+  );
+
   return (
     <div className="app-doc-viewer">
       {/* read-back: goes to the list we came from, without re-scanning */}
@@ -427,57 +467,36 @@ export const DocumentViewer = ({
       </div>
 
       {entry.kind === "pdf" ? (
-        pdfUrl ? (
-          <object
-            className="app-doc-pdf"
-            data={pdfUrl}
-            type="application/pdf"
-            aria-label={`${entry.name} preview`}
-          >
-            <div className="app-doc-fallback">
-              <p>Inline PDF preview is unavailable in this browser.</p>
-              <a href={pdfUrl} target="_blank" rel="noreferrer">
-                Open {entry.name}
-              </a>
-            </div>
-          </object>
-        ) : (
-          <div className="app-doc-fallback">Loading…</div>
-        )
+        <>
+          {zoomBar}
+          {picked && (
+            <SelectionBar
+              api={api}
+              text={picked}
+              onDone={() => setPicked(null)}
+            />
+          )}
+          <PdfViewer
+            file={entry.file}
+            zoom={zoom}
+            onZoomChange={setZoom}
+            containerRef={bodyRef}
+            onReadPage={(picture) =>
+              appJotaiStore.set(pdfPageReadRequestAtom, picture)
+            }
+          />
+        </>
       ) : loaded?.text != null ? (
         <>
-          {isMarkdown && (
-            <div className="app-doc-zoom">
-              <button
-                type="button"
-                className="app-doc-step__btn"
-                onClick={() => changeZoom(-ZOOM_STEP)}
-                disabled={zoom <= ZOOM_MIN}
-                aria-label="Zoom out"
-              >
-                −
-              </button>
-              <button
-                type="button"
-                className="app-doc-zoom__level"
-                onClick={() => setZoom(1)}
-                title="Reset zoom"
-                aria-label="Reset zoom"
-              >
-                {Math.round(zoom * 100)}%
-              </button>
-              <button
-                type="button"
-                className="app-doc-step__btn"
-                onClick={() => changeZoom(ZOOM_STEP)}
-                disabled={zoom >= ZOOM_MAX}
-                aria-label="Zoom in"
-              >
-                +
-              </button>
-            </div>
-          )}
+          {isMarkdown && zoomBar}
 
+          {picked && (
+            <SelectionBar
+              api={api}
+              text={picked}
+              onDone={() => setPicked(null)}
+            />
+          )}
           {html ? (
             <div
               ref={bodyRef}

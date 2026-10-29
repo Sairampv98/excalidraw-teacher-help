@@ -440,13 +440,25 @@ body.excalidraw-cursor-resize * {
 
   &__panel-code-output,
   &__panel-code-console {
-    max-height: 30%;
     padding: 2px 4px;
     overflow: auto;
     box-sizing: border-box;
     font-family: monospace;
-    font-size: 11px;
+    // the size comes from the console box, which the teacher zooms (D-274)
+    font-size: inherit;
     white-space: pre-wrap;
+  }
+
+  // the program's output takes what the console box has, and the bridge's own
+  // messages keep a smaller part under it
+  &__panel-code-output {
+    flex: 1 1 0 !important;
+    min-height: 0;
+  }
+
+  &__panel-code-console {
+    flex: 0 1 25% !important;
+    min-height: 0;
   }
 
   &__panel-code-console {

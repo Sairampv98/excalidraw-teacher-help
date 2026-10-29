@@ -47,6 +47,7 @@ import type { AppState } from "@excalidraw/excalidraw/types";
 import type { OrderedExcalidrawElement } from "@excalidraw/element/types";
 
 import { PresenterView } from "../presenter/PresenterView";
+import { panelFocusCamera } from "../presenter/presenterChannel";
 import { usePresenterBroadcaster } from "../presenter/usePresenterBroadcaster";
 
 const PAGE_ONE = "page-1";
@@ -377,5 +378,127 @@ describe("the presenter view", () => {
         new KeyboardEvent("keydown", { key: "f", bubbles: true }),
       );
     });
+  });
+});
+
+describe("AC-321 the presenter follows a panel that is full screen", () => {
+  // jsdom has no layout: the presenter's window is as big as the projector
+  beforeEach(() => {
+    for (const [name, value] of [
+      ["clientWidth", 1920],
+      ["clientHeight", 1080],
+    ] as const) {
+      Object.defineProperty(HTMLElement.prototype, name, {
+        configurable: true,
+        get: () => value,
+      });
+    }
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(HTMLElement.prototype, "clientWidth");
+    Reflect.deleteProperty(HTMLElement.prototype, "clientHeight");
+
+    Object.defineProperty(document, "fullscreenElement", {
+      configurable: true,
+      value: null,
+    });
+  });
+
+  it("AC-321 the presenter frames the panel across its window, and goes back when it leaves", async () => {
+    // any element the editor names is framed the same way; a plain one keeps
+    // the test free of a code editor that jsdom cannot lay out
+    const panel = newElementWith(
+      API.createElement({
+        type: "rectangle",
+        x: 300,
+        y: 200,
+        width: 400,
+        height: 300,
+      }),
+      { pageId: PAGE_ONE },
+    );
+
+    await render(
+      <Excalidraw
+        initialData={{
+          elements: [panel] as never,
+          appState: { pages, currentPageId: PAGE_ONE } as never,
+        }}
+        onChange={(elements, appState) => publishScene?.(elements, appState)}
+      >
+        <Broadcaster />
+      </Excalidraw>,
+    );
+
+    await render(
+      <ExcalidrawAPIProvider>
+        <PresenterView />
+      </ExcalidrawAPIProvider>,
+    );
+
+    const presenter = window.h.app as unknown as {
+      state: { scrollX: number; scrollY: number; zoom: { value: number } };
+    };
+
+    await waitFor(() =>
+      expect(
+        (window.h.app as unknown as PresenterApp).getSceneElements(),
+      ).toHaveLength(1),
+    );
+
+    const followingTheEditor = presenter.state.zoom.value;
+
+    // the teacher puts the panel full screen: the browser's full screen is on
+    // the panel's own element, which names the panel
+    const shown = document.createElement("div");
+
+    shown.setAttribute("data-panel-id", panel.id);
+    Object.defineProperty(document, "fullscreenElement", {
+      configurable: true,
+      value: shown,
+    });
+
+    await act(async () => {
+      document.dispatchEvent(new Event("fullscreenchange"));
+    });
+    const framed = panelFocusCamera(panel, { width: 1920, height: 1080 });
+
+    await waitFor(() => {
+      expect(presenter.state.zoom.value).toBeCloseTo(framed.zoom.value, 4);
+    });
+    expect(presenter.state.scrollX).toBeCloseTo(framed.scrollX, 3);
+    expect(presenter.state.scrollY).toBeCloseTo(framed.scrollY, 3);
+
+    // and when it leaves full screen the presenter follows the editor again
+    Object.defineProperty(document, "fullscreenElement", {
+      configurable: true,
+      value: null,
+    });
+
+    await act(async () => {
+      document.dispatchEvent(new Event("fullscreenchange"));
+    });
+
+    await waitFor(() => {
+      expect(presenter.state.zoom.value).toBeCloseTo(followingTheEditor, 4);
+    });
+  });
+
+  it("AC-321 the camera that frames a panel fills the window and centres the panel", () => {
+    const camera = panelFocusCamera(
+      { x: 100, y: 50, width: 400, height: 200 },
+      { width: 1000, height: 1000 },
+    );
+
+    // the width decides: 1000 / 400, with a small margin
+    expect(camera.zoom.value).toBeCloseTo((1000 / 400) * 0.98, 5);
+
+    // the panel's middle is the window's middle
+    expect((100 + 200 + camera.scrollX) * camera.zoom.value).toBeCloseTo(
+      500,
+      3,
+    );
+    expect((50 + 100 + camera.scrollY) * camera.zoom.value).toBeCloseTo(500, 3);
   });
 });

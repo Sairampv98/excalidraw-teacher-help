@@ -272,6 +272,7 @@ import type { GlobalPoint, LocalPoint, Radians } from "@excalidraw/math";
 
 import type {
   ExcalidrawElement,
+  FontString,
   ExcalidrawFreeDrawElement,
   ExcalidrawGenericElement,
   ExcalidrawLinearElement,
@@ -374,13 +375,11 @@ import { defaultLang, getLanguage, languages, setLanguage, t } from "../i18n";
 
 import {
   calculateScrollCenter,
-  clampCameraToPage,
   countElementsInsidePageRect,
   getCameraForPage,
   getCurrentPageRect,
   getElementsWithinSelection,
   getNormalizedZoom,
-  getPageClampRect,
   getPageDecoration,
   getPageRect,
   getPageViewportWidth,
@@ -447,6 +446,8 @@ import {
   panelPlaybackUpdate,
   panelReadLanguageUpdate,
   panelViewUpdate,
+  panelConsoleUpdate,
+  panelThemeUpdate,
   panelZoomUpdate,
   readCaptionBinding,
   readPanelPlayback,
@@ -529,7 +530,11 @@ import UnlockPopup from "./UnlockPopup";
 import type { PanelMirror, PanelMirrorRegion } from "../scene/panelMirror";
 
 import type { VideoPanelEvent } from "./PanelOverlay";
-import type { VideoPanelElement } from "../scene/panelContent";
+import type {
+  PanelConsoleView,
+  PanelEditorTheme,
+  VideoPanelElement,
+} from "../scene/panelContent";
 import type { DataURL } from "../types";
 
 import type { ExcalidrawLibraryIds } from "../data/types";
@@ -568,7 +573,6 @@ import type {
   ExcalidrawImperativeAPIEventMap,
   GenerateDiagramToCode,
   NullableGridSize,
-  NormalizedZoomValue,
   Offsets,
   PageDecoration,
   PageRect,
@@ -2595,6 +2599,8 @@ class App extends React.Component<AppProps, AppState> {
                             // own zoom (D-142)
                             onReadLanguageChange={this.setPanelReadLanguage}
                             onZoomChange={this.setPanelZoom}
+                            onThemeChange={this.setPanelTheme}
+                            onConsoleChange={this.setPanelConsole}
                             // the host asks for the captions and writes them
                             // into the panel's payload (D-129)
                             captions={this.props.panelCaptions}
@@ -2641,6 +2647,7 @@ class App extends React.Component<AppProps, AppState> {
                             onPageChoice={
                               this.props.panelScreenshot?.onPageChoice
                             }
+                            onChoice={this.props.panelScreenshot?.onChoice}
                           />
                           {/*
                             The **picker** for what is mirrored (D-143): the
@@ -3886,6 +3893,28 @@ class App extends React.Component<AppProps, AppState> {
     this.scene.mutateElement(element, panelZoomUpdate(element.panel, zoom));
   };
 
+  /** the teacher moved, resized or zoomed the panel's console (D-274) */
+  private setPanelConsole = (panelId: string, view: PanelConsoleView) => {
+    const element = this.scene.getNonDeletedElement(panelId);
+
+    if (!element || !isPanelElement(element)) {
+      return;
+    }
+
+    this.scene.mutateElement(element, panelConsoleUpdate(element.panel, view));
+  };
+
+  /** the teacher chose the colours of the panel's editor (D-270) */
+  private setPanelTheme = (panelId: string, theme: PanelEditorTheme) => {
+    const element = this.scene.getNonDeletedElement(panelId);
+
+    if (!element || !isPanelElement(element)) {
+      return;
+    }
+
+    this.scene.mutateElement(element, panelThemeUpdate(element.panel, theme));
+  };
+
   /**
    * What the panel **mirrors** of the editor's window (D-143).
    *
@@ -4324,60 +4353,8 @@ class App extends React.Component<AppProps, AppState> {
       return;
     }
 
-    // page-scoped view: keep the camera inside the current page's rect.
-    // Clamping is idempotent, so this converges in a single follow-up render.
-    //
-    // A page whose **own rect** moved counts as a camera change here (D-144:
-    // the teacher picked a preset, so the page changed size, and a page that
-    // changed size moves the pages after it): the camera has to be inside the
-    // current page's rect, and a page that just moved may have left it outside.
-    //
-    // The pages may be missing from either state (a document that has none
-    // yet), and then there is no page that could have moved.
-    const prevPageRect = prevState.pages
-      ? getPageRect(prevState.pages, prevState.currentPageId)
-      : null;
-    const nextPageRect = this.state.pages
-      ? getPageRect(this.state.pages, this.state.currentPageId)
-      : null;
-    const currentPageMoved =
-      this.pagesEnabled &&
-      prevPageRect !== null &&
-      nextPageRect !== null &&
-      prevState.pages !== this.state.pages &&
-      prevState.currentPageId === this.state.currentPageId &&
-      (prevPageRect.x !== nextPageRect.x ||
-        prevPageRect.y !== nextPageRect.y ||
-        prevPageRect.width !== nextPageRect.width ||
-        prevPageRect.height !== nextPageRect.height);
-
-    if (
-      this.pagesEnabled &&
-      (prevState.scrollX !== this.state.scrollX ||
-        prevState.scrollY !== this.state.scrollY ||
-        prevState.zoom.value !== this.state.zoom.value ||
-        currentPageMoved)
-    ) {
-      const clamped = this.clampCameraToCurrentPage({
-        scrollX: this.state.scrollX,
-        scrollY: this.state.scrollY,
-        zoom: this.state.zoom,
-      });
-
-      if (
-        clamped.scrollX !== this.state.scrollX ||
-        clamped.scrollY !== this.state.scrollY ||
-        clamped.zoom !== this.state.zoom.value
-      ) {
-        this.setState({
-          scrollX: clamped.scrollX,
-          scrollY: clamped.scrollY,
-          zoom: { value: clamped.zoom },
-        });
-        return;
-      }
-    }
-
+    // The camera is not bound to the page: scrolling and the Hand tool reach
+    // content outside the page, and the page bar offers a way back (D-261).
     if (
       prevState.zoom.value !== this.state.zoom.value ||
       prevState.scrollX !== this.state.scrollX ||
@@ -5143,6 +5120,31 @@ class App extends React.Component<AppProps, AppState> {
     }
   }
 
+  /**
+   * Whether the whole of a pasted text, wrapped, is shorter than the current
+   * page, so it can go on the page as one text box (D-276). Without the pages
+   * system a text is never split, so it is always one box.
+   */
+  private pastedTextFitsPageAsOneBox = (
+    text: string,
+    fontString: FontString,
+    lineHeight: ExcalidrawTextElement["lineHeight"],
+    maxTextWidth: number,
+  ) => {
+    const rect = this.getCurrentPageRect();
+
+    if (!this.pagesEnabled || !rect) {
+      return false;
+    }
+
+    const whole = normalizeText(text).trim();
+    const wrapped = wrapText(whole, fontString, maxTextWidth);
+
+    return (
+      measureText(wrapped, fontString, lineHeight).height < rect.height * 0.9
+    );
+  };
+
   private async addTextFromPaste(text: string, isPlainPaste = false) {
     const { x, y } = viewportCoordsToSceneCoords(
       {
@@ -5181,7 +5183,20 @@ class App extends React.Component<AppProps, AppState> {
     const LINE_GAP = 10;
     let currentY = y;
 
-    const lines = isPlainPaste ? [text] : text.split("\n");
+    // A paste that fits on the page becomes ONE text box (D-276): a teacher can
+    // drag its side to make the text flow in new lines, which a box for each
+    // line could never do. A paste that is too tall for the page keeps a box
+    // for each line, because that is what the offer to split it works on.
+    const pastedAsOneBox =
+      isPlainPaste ||
+      this.pastedTextFitsPageAsOneBox(
+        text,
+        fontString,
+        lineHeight,
+        maxTextWidth,
+      );
+
+    const lines = pastedAsOneBox ? [text] : text.split("\n");
     /**
      * The source line each text element came from — the text that did not fit
      * is written back to the clipboard from it (D-26).
@@ -5217,7 +5232,9 @@ class App extends React.Component<AppProps, AppState> {
             text,
             originalText,
             lineHeight,
-            autoResize: !isTextUnwrapped,
+            // a text that went on the page as one box is a wrapping box (D-286):
+            // its sides can be dragged and the text flows in the new width
+            autoResize: pastedAsOneBox ? false : !isTextUnwrapped,
             frameId: topLayerFrame ? topLayerFrame.id : null,
           });
           acc.push(element);
@@ -5803,43 +5820,6 @@ class App extends React.Component<AppProps, AppState> {
   /** the current page's frame and number, if it has either (D-144) */
   private getCurrentPageDecoration = (): PageDecoration | null =>
     this.getCurrentPageLayout()?.decoration ?? null;
-
-  /** keeps the camera inside the current page's rect */
-  private clampCameraToCurrentPage = (
-    nextState: Pick<AppState, "scrollX" | "scrollY" | "zoom">,
-    baseState: AppState = this.state,
-  ): { scrollX: number; scrollY: number; zoom: NormalizedZoomValue } => {
-    if (!this.pagesEnabled) {
-      return {
-        scrollX: nextState.scrollX,
-        scrollY: nextState.scrollY,
-        zoom: nextState.zoom.value,
-      };
-    }
-
-    return clampCameraToPage({
-      scrollX: nextState.scrollX,
-      scrollY: nextState.scrollY,
-      zoom: nextState.zoom.value,
-      viewportWidth: getPageViewportWidth(
-        baseState.width,
-        this.pageViewportInset,
-      ),
-      viewportHeight: baseState.height,
-      // a floating element is not owned by its page, so it may sit outside the
-      // page rect — the camera has to be able to reach it
-      pageRect: getPageClampRect(
-        getCurrentPageRect(baseState.pages, baseState.currentPageId),
-        this.scene
-          .getNonDeletedElements()
-          .filter(
-            (element) =>
-              element.pageId === baseState.currentPageId && element.floating,
-          ),
-      ),
-      maxZoom: MAX_ZOOM,
-    });
-  };
 
   /**
    * How much of the canvas the open sidebar is sitting on top of.

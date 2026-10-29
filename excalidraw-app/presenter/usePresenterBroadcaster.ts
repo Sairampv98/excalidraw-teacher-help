@@ -173,6 +173,29 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
     );
   }, [sendPointer]);
 
+  /**
+   * Tells the presenters which panel is full screen in the editor (D-281).
+   *
+   * The browser's full screen is on the panel's own element, so the panel is
+   * read from the element: `data-panel-id` names it.
+   */
+  const sendFocus = useCallback(() => {
+    const channel = channelRef.current;
+
+    if (!channel) {
+      return;
+    }
+
+    const panelId =
+      document.fullscreenElement?.getAttribute("data-panel-id") ?? null;
+
+    try {
+      channel.postMessage({ type: "presenter:focus-panel", panelId });
+    } catch (error) {
+      console.error("presenter: failed to publish the full screen", error);
+    }
+  }, []);
+
   const sendFiles = useCallback((presenterId: string, fileIds: FileId[]) => {
     const channel = channelRef.current;
     const api = apiRef.current;
@@ -271,6 +294,11 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
           for (const [panelId, capture] of liveViewsRef.current) {
             sendLiveView(panelId, capture);
           }
+
+          // and a panel that is full screen already
+          if (document.fullscreenElement) {
+            sendFocus();
+          }
           break;
         }
         case "presenter:bye": {
@@ -288,6 +316,9 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
 
     channelRef.current = channel;
 
+    // a panel goes full screen or leaves it: the presenters follow (D-281)
+    document.addEventListener("fullscreenchange", sendFocus);
+
     const keepAlive = setInterval(() => {
       if (hasPresenters()) {
         sendScene();
@@ -295,6 +326,7 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
     }, PRESENTER_KEEPALIVE_INTERVAL_MS);
 
     return () => {
+      document.removeEventListener("fullscreenchange", sendFocus);
       clearInterval(keepAlive);
       if (flushTimerRef.current !== null) {
         clearTimeout(flushTimerRef.current);
@@ -312,7 +344,7 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
       channelRef.current = null;
       channel?.close();
     };
-  }, [sendFiles, sendLiveView, sendScene]);
+  }, [sendFiles, sendFocus, sendLiveView, sendScene]);
 
   const publishScene = useCallback(
     (elements: readonly OrderedExcalidrawElement[], appState: AppState) => {

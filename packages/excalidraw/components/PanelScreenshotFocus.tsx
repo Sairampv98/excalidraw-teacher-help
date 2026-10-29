@@ -1,9 +1,10 @@
-import React, { useRef, useSyncExternalStore } from "react";
+import React, { useEffect, useRef, useSyncExternalStore } from "react";
 
 import type { ExcalidrawPanelElement } from "@excalidraw/element/types";
 
 import {
   WHOLE_PICTURE,
+  clearPendingScreenshot,
   getAnyPendingScreenshot,
   revertPendingScreenshotCrop,
   setPendingScreenshotCrop,
@@ -13,7 +14,10 @@ import {
 import { t } from "../i18n";
 
 import type { ExcalidrawPage } from "../types";
-import type { PanelScreenshotCrop } from "../scene/panelScreenshot";
+import type {
+  PanelScreenshotChoice,
+  PanelScreenshotCrop,
+} from "../scene/panelScreenshot";
 
 /**
  * The **focus state** of a screenshot (D-116).
@@ -67,6 +71,7 @@ export const PanelScreenshotFocus = ({
   viewport,
   pages,
   onPageChoice,
+  onChoice,
 }: {
   /** the panels on the canvas: a focus whose panel is gone goes with it */
   panels: readonly ExcalidrawPanelElement[];
@@ -76,6 +81,8 @@ export const PanelScreenshotFocus = ({
   pages: readonly ExcalidrawPage[];
   /** the teacher picked a page in the ribbon (D-140) */
   onPageChoice?: (panelId: string, pageId: string | null) => void;
+  /** the teacher chose what to do with the picture (D-277) */
+  onChoice?: (panelId: string, choice: PanelScreenshotChoice) => void;
 }) => {
   const pending = useSyncExternalStore(
     subscribePendingScreenshots,
@@ -98,6 +105,28 @@ export const PanelScreenshotFocus = ({
     displayWidth: number;
     displayHeight: number;
   } | null>(null);
+
+  /**
+   * Esc leaves the focus state (D-278): the teacher can always get out of it,
+   * whatever step the picture is in.
+   */
+  const pendingPanelId = pending?.panelId ?? null;
+
+  useEffect(() => {
+    if (!pendingPanelId) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        clearPendingScreenshot(pendingPanelId);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [pendingPanelId]);
 
   if (!pending) {
     return null;
@@ -347,6 +376,64 @@ export const PanelScreenshotFocus = ({
           {t("labels.crop.revert")}
         </button>
       ) : null}
+
+      {/*
+        What to do with the picture, always on the screen (D-278): the three
+        choices and a way out. The choices used to hang on the panel's own
+        edge, which can be out of view or clipped, and then the teacher had a
+        picture and no way to place it - or to leave it.
+      */}
+      <div
+        className="excalidraw__panel-screenshot-actions"
+        data-testid="panel-screenshot-actions"
+        role="group"
+        style={{
+          position: "absolute",
+          bottom: 20,
+          left: "50%",
+          transform: "translateX(-50%)",
+          zIndex: "var(--zIndex-panelFocus)",
+          display: "flex",
+          flexWrap: "wrap",
+          justifyContent: "center",
+          gap: 8,
+          padding: 8,
+          pointerEvents: "auto",
+          ["--panel-scale" as string]: 1,
+        }}
+      >
+        {stage !== "place"
+          ? (
+              [
+                ["page", "page", t("labels.panel.screenshot.page")],
+                ["ocr", "ocr", t("labels.panel.screenshot.ocr")],
+                ["new-page", "new-page", t("labels.panel.screenshot.newPage")],
+              ] as const
+            ).map(([name, value, label]) => (
+              <button
+                key={name}
+                type="button"
+                className="excalidraw__panel-screenshot-choice"
+                data-testid={`panel-screenshot-action-${name}`}
+                data-panel-id={pending.panelId}
+                onClick={() => onChoice?.(pending.panelId, value)}
+                style={{ flexShrink: 0, padding: "8px 14px", fontSize: 15 }}
+              >
+                {label}
+              </button>
+            ))
+          : null}
+        <button
+          type="button"
+          className="excalidraw__panel-screenshot-choice"
+          data-testid="panel-screenshot-cancel"
+          data-panel-id={pending.panelId}
+          onClick={() => clearPendingScreenshot(pending.panelId)}
+          style={{ flexShrink: 0, padding: "8px 14px", fontSize: 15 }}
+        >
+          {t("labels.panel.screenshot.cancel")}
+        </button>
+      </div>
 
       {stage === "page" ? (
         /* The **page selector ribbon** (D-140): the third flow goes through it

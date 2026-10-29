@@ -85,12 +85,6 @@ export const OCR_ENGINE_CHOICES: readonly OcrEngineChoice[] = [
     measuredMs: MEASURED_MS.tesseract,
     color: OCR_SPEED_COLORS.middle,
   },
-  {
-    id: "paddle",
-    label: "paddle",
-    measuredMs: MEASURED_MS.paddle,
-    color: OCR_SPEED_COLORS.slow,
-  },
 ];
 
 /**
@@ -132,10 +126,11 @@ export type OcrLadderRung = {
  *
  * 1. **indra** when the bridge is connected: the fastest engine there is
  *    (147 ms on this box);
- * 2. **tesseract** when the bridge is not there (278 ms): the engine the owner
- *    called the default, and the one that needs nothing but the browser;
- * 3. **paddle** only as the last resort (27,822 ms): it is the slowest by an
- *    order of magnitude and it needs the Python sidecar.
+ * 2. **tesseract** when the bridge is not there (278 ms): the engine that
+ *    needs nothing but the browser.
+ *
+ * (paddle was a third rung, the slowest by an order of magnitude, and it is
+ * not offered any more.)
  *
  * A teacher should never have to choose an engine - the machine chooses, and
  * says what it chose.
@@ -152,12 +147,6 @@ export const OCR_LADDER: readonly OcrLadderRung[] = [
     withBridge: "bridge",
     withoutBridge: "browser",
     needs: "an engine in the browser",
-  },
-  {
-    engine: "paddle",
-    withBridge: "bridge",
-    withoutBridge: "bridge",
-    needs: "the bridge, with the Python sidecar",
   },
 ];
 
@@ -186,20 +175,16 @@ export const ocrLadderFor = ({
   }));
 
 /**
- * The engines the **browser** can run by itself.
+ * The engines the **browser** can run by itself (D-288).
  *
- * The list is EMPTY, and that is the truth on this machine (D-59): the engine
- * is `tesseract.js` and it lives in the extension's Node process - a
- * multi-megabyte download is not what a classroom connection is for, and the
- * project rule is no new dependency without the owner's approval (D-11). So
- * the ladder's browser rung says it cannot run here, **with the reason**,
- * instead of pretending (D-75).
+ * tesseract.js is fetched the first time a read is asked for, from a pinned
+ * version, and runs in a worker: with no bridge a picture can still be read.
  */
-export const BROWSER_OCR_ENGINES: readonly OcrEngineName[] = [];
+export const BROWSER_OCR_ENGINES: readonly OcrEngineName[] = ["tesseract"];
 
 /** why the browser rung cannot run, when it cannot */
 export const BROWSER_ENGINE_REASON =
-  "tesseract needs an OCR engine in the browser, and none runs there: the engine lives in the extension's Node process (D-59). Start the Excalidraw Bridge extension in VS Code.";
+  "tesseract needs a browser that can run a web worker; this one cannot. Start the Excalidraw Bridge extension in VS Code.";
 
 /**
  * Why a rung that needs the bridge cannot run, when the bridge is not there.

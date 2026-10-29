@@ -176,6 +176,9 @@ export const reduceCodePanelState = (
     case "run:started":
       return {
         ...state,
+        // a new run starts on an empty output: the last run's lines are not this
+        // run's (the teacher changed the program and pressed Run again)
+        output: [],
         run: {
           runId: message.runId,
           command: message.command,

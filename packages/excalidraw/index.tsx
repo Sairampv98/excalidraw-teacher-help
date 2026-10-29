@@ -384,6 +384,7 @@ export {
 } from "@excalidraw/element";
 
 export { CaptureUpdateAction } from "@excalidraw/element";
+export { openPasteOverflowModal } from "./components/PasteOverflowDialog/PasteOverflowState";
 
 export { parseLibraryTokensFromUrl, useHandleLibrary } from "./data/library";
 
@@ -504,6 +505,11 @@ export {
   withPanelReadLanguage,
   withPanelView,
   withPanelZoom,
+  readPanelTheme,
+  isStandaloneCodePanel,
+  readPanelConsole,
+  withPanelTheme,
+  PANEL_EDITOR_THEMES,
 } from "./scene/panelContent";
 export type {
   CodePanelContent,

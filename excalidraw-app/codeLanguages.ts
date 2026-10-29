@@ -37,7 +37,6 @@ export const CODE_LANGUAGE_IDS = [
   "python",
   "c",
   "cpp",
-  "rust",
 ] as const;
 
 /**
@@ -86,10 +85,6 @@ export const registerCodeLanguages = () => {
 
   registerCodeMirrorLanguage("cpp", async () =>
     (await import("@codemirror/lang-cpp")).cpp(),
-  );
-
-  registerCodeMirrorLanguage("rust", async () =>
-    (await import("@codemirror/lang-rust")).rust(),
   );
 };
 

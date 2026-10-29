@@ -97,6 +97,7 @@ import {
   useAtomValue,
   useAtomWithInitialValue,
   appJotaiStore,
+  pdfPageReadRequestAtom,
 } from "./app-jotai";
 import {
   FIREBASE_STORAGE_PREFIXES,
@@ -170,8 +171,16 @@ import { AppSidebar } from "./components/AppSidebar";
 import { usePageAutoFit, useSidebarWidth } from "./sidebar/useSidebarLayout";
 import { handleCodePaste } from "./sidebar/insertIntoScene";
 import { panelCopyControls } from "./sidebar/panelCopy";
+import { OcrAreaDialog } from "./components/OcrAreaDialog";
+import { OcrPreview } from "./components/OcrPreview";
+import { OcrProgressBar } from "./components/OcrProgressBar";
 import { ReformatChooser } from "./sidebar/ReformatChooser";
+
 import { CropModal, posterNaturalSize } from "./components/cropModal";
+
+import type { OcrPicture } from "./components/OcrAreaDialog";
+import type { OcrPreviewData } from "./components/OcrPreview";
+import type { OcrRegion } from "../packages/vscode-bridge/bridge/src/ocr";
 
 import type { CollabAPI } from "./collab/Collab";
 
@@ -457,6 +466,7 @@ const ExcalidrawWrapper = () => {
     read: readOcr,
     imageOfPanel,
     message: ocrMessage,
+    lastMessage: lastOcrMessage,
     busy: ocrBusy,
     cancel: cancelOcr,
     rememberCrop: rememberPanelCrop,
@@ -495,6 +505,90 @@ const ExcalidrawWrapper = () => {
    */
 
   /**
+   * What the last read found, while the teacher decides what to do with it
+   * (D-277): the text is shown first, and put on the page only when they
+   * choose.
+   */
+  const [ocrPreview, setOcrPreview] = useState<OcrPreviewData | null>(null);
+
+  const showRead = useCallback(
+    (
+      result: {
+        lines: OcrPreviewData["lines"];
+        engine?: string;
+        durationMs?: number;
+      } | null,
+    ) => {
+      if (!result?.lines.length) {
+        // nothing came back: it is said, with the reason when there is one, and
+        // never left as a button that did nothing (D-288)
+        excalidrawAPI?.setToast({
+          message: result
+            ? "No text was found on that picture."
+            : `The text could not be read: ${
+                lastOcrMessage() ?? "the reader did not answer"
+              }`,
+          closable: true,
+        });
+
+        return;
+      }
+
+      if (result?.lines.length) {
+        setOcrPreview({
+          lines: result.lines,
+          ...(result.engine ? { engine: result.engine } : {}),
+          ...(result.durationMs ? { durationMs: result.durationMs } : {}),
+        });
+      }
+    },
+    [excalidrawAPI, lastOcrMessage],
+  );
+
+  /**
+   * A picture the teacher asked to read, waiting for them to choose what part
+   * of it is read (D-291): the whole picture is shown first, and only the area
+   * they drag out - or the whole page, when they say so - goes to the reader.
+   */
+  const [ocrArea, setOcrArea] = useState<{
+    picture: OcrPicture;
+    read: (region: OcrRegion | null) => void;
+  } | null>(null);
+
+  // a PDF page the teacher asked to read: the viewer sets the request, the app
+  // asks which part of the page, then reads it and shows what was found
+  // (D-279, D-291)
+  const pdfPageRequest = useAtomValue(pdfPageReadRequestAtom);
+
+  useEffect(() => {
+    if (!pdfPageRequest || !excalidrawAPI) {
+      return;
+    }
+
+    appJotaiStore.set(pdfPageReadRequestAtom, null);
+
+    setOcrArea({
+      picture: pdfPageRequest,
+      read: (region) => {
+        setOcrArea(null);
+
+        void readOcr({
+          place: false,
+          image: pdfPageRequest,
+          ...(region ? { region } : {}),
+          placement: {
+            x: 0,
+            y: 0,
+            width: pdfPageRequest.width,
+            height: pdfPageRequest.height,
+          },
+          pageId: excalidrawAPI.getAppState().currentPageId ?? "page-1",
+        }).then((result) => showRead(result));
+      },
+    });
+  }, [pdfPageRequest, excalidrawAPI, readOcr, showRead]);
+
+  /**
    * Reads an **ordinary image** element the teacher picked (D-105).
    *
    * The owner asked for the OCR of a screenshot to be offered for "regular
@@ -520,23 +614,35 @@ const ExcalidrawWrapper = () => {
       // them, and the element carries only its size on the canvas (D-59)
       const natural = await imageNaturalSize(file.dataURL);
 
-      await readOcr({
-        image: {
-          dataURL: file.dataURL,
-          width: natural.width || element.width,
-          height: natural.height || element.height,
+      const image = {
+        dataURL: file.dataURL,
+        width: natural.width || element.width,
+        height: natural.height || element.height,
+      };
+
+      // the teacher chooses what part of the picture is read (D-291)
+      setOcrArea({
+        picture: image,
+        read: (region) => {
+          setOcrArea(null);
+
+          void readOcr({
+            place: false,
+            image,
+            ...(region ? { region } : {}),
+            placement: {
+              x: element.x,
+              y: element.y,
+              width: element.width,
+              height: element.height,
+            },
+            pageId: element.pageId,
+            strokeColor: current.getAppState().currentItemStrokeColor,
+          }).then((result) => showRead(result));
         },
-        placement: {
-          x: element.x,
-          y: element.y,
-          width: element.width,
-          height: element.height,
-        },
-        pageId: element.pageId,
-        strokeColor: current.getAppState().currentItemStrokeColor,
       });
     },
-    [excalidrawAPI, readOcr],
+    [excalidrawAPI, readOcr, showRead],
   );
 
   /**
@@ -577,7 +683,8 @@ const ExcalidrawWrapper = () => {
        */
       const crop = cropFor(panelId);
 
-      await readOcr({
+      const result = await readOcr({
+        place: false,
         image,
         panelId,
         ...(crop
@@ -604,8 +711,10 @@ const ExcalidrawWrapper = () => {
           ? { engine: pickedEngineFor(panelId)! }
           : {}),
       });
+
+      showRead(result);
     },
-    [excalidrawAPI, cropFor, imageOfPanel, pickedEngineFor, readOcr],
+    [excalidrawAPI, cropFor, imageOfPanel, pickedEngineFor, readOcr, showRead],
   );
 
   /**
@@ -645,7 +754,8 @@ const ExcalidrawWrapper = () => {
         height: crop.height,
       });
 
-      await readOcr({
+      const result = await readOcr({
+        place: false,
         image: {
           dataURL: file.dataURL,
           width: natural.width,
@@ -666,8 +776,10 @@ const ExcalidrawWrapper = () => {
         pageId: panel.pageId,
         strokeColor: current.getAppState().currentItemStrokeColor,
       });
+
+      showRead(result);
     },
-    [excalidrawAPI, readOcr, rememberPanelCrop],
+    [excalidrawAPI, readOcr, rememberPanelCrop, showRead],
   );
 
   /**
@@ -1478,9 +1590,9 @@ const ExcalidrawWrapper = () => {
           theme={appTheme}
           setTheme={(theme) => setAppTheme(theme)}
           refresh={() => forceRefresh((prev) => !prev)}
-          onInsertCodePanel={() => {
+          onInsertCodePanel={(kind) => {
             if (excalidrawAPI) {
-              insertCodePanel(excalidrawAPI);
+              insertCodePanel(excalidrawAPI, kind);
             }
           }}
         />
@@ -1528,6 +1640,17 @@ const ExcalidrawWrapper = () => {
             onCloseRequest={() => setLatestShareableLink(null)}
             setErrorMessage={setErrorMessage}
           />
+        )}
+        <OcrProgressBar onCancel={cancelOcr} />
+        {ocrArea && (
+          <OcrAreaDialog
+            picture={ocrArea.picture}
+            onRead={ocrArea.read}
+            onClose={() => setOcrArea(null)}
+          />
+        )}
+        {ocrPreview && (
+          <OcrPreview data={ocrPreview} onClose={() => setOcrPreview(null)} />
         )}
         {reformatElements && (
           <ReformatChooser
