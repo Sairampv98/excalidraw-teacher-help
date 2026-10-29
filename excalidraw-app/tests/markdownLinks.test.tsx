@@ -366,7 +366,10 @@ describe("AC-347 a link in the viewer", () => {
         "Previous: 03-core.md · Index: README.md",
       ),
     );
-    expect(container.querySelector(".app-doc-selection")).not.toBeNull();
+    // the choices come a moment after the copy: waited for, not assumed
+    await waitFor(() =>
+      expect(container.querySelector(".app-doc-selection")).not.toBeNull(),
+    );
   });
 });
 
