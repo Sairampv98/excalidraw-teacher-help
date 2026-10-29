@@ -42,7 +42,11 @@ import type {
   ExcalidrawTextElement,
 } from "@excalidraw/element/types";
 
+import { layoutOcrLines } from "../ocr/ocrLayout";
+
 import { codeCardColumns, highlightCode, layoutCode } from "./codeCard";
+
+import type { OcrLine } from "../../packages/vscode-bridge/bridge/src/ocr";
 
 import type { LaidOutRun } from "./codeCard";
 
@@ -1252,6 +1256,65 @@ export const insertTextBlockIntoScene = (
   api: ExcalidrawImperativeAPI,
   text: string,
 ) => insertTextBoxIntoScene(api, text, { monospace: true });
+
+/**
+ * Puts the lines of an OCR read on the page **where they were** (D-293): one
+ * text element for each line, at the place it had in the picture, all in one
+ * group so the lot moves and scales together. It goes in the middle of the
+ * current page, and the view moves to it.
+ */
+export const insertOcrLinesIntoScene = (
+  api: ExcalidrawImperativeAPI,
+  lines: readonly OcrLine[],
+) => {
+  const fontFamily = FONT_FAMILY.Helvetica;
+  const lineHeight = getLineHeight(fontFamily);
+
+  const state = api.getAppState();
+  const pages = state.pages ?? [];
+  const pageWidth = pages.length
+    ? getPageRect(pages, state.currentPageId ?? pages[0].id).width
+    : 1000;
+
+  const layout = layoutOcrLines({
+    lines,
+    pageWidth,
+    measureWidth: (text, fontSize) =>
+      measureText(text, getFontString({ fontFamily, fontSize }), lineHeight)
+        .width,
+  });
+
+  if (!layout) {
+    return [];
+  }
+
+  const groupId = randomId();
+  const origin = pageCenterOrigin(api, layout);
+
+  const placed = layout.lines.map((line) =>
+    newTextElement({
+      text: line.text,
+      x: origin.x + line.x,
+      y: origin.y + line.y,
+      fontFamily,
+      fontSize: line.fontSize,
+      lineHeight,
+      autoResize: true,
+      textAlign: "left",
+      verticalAlign: "top",
+      groupIds: [groupId],
+    }),
+  );
+
+  appendElements(api, placed, {
+    selectedElementIds: Object.fromEntries(
+      placed.map((element) => [element.id, true]),
+    ),
+  });
+  showPlaced(api, placed);
+
+  return placed;
+};
 
 /**
  * Inserts a snippet as a syntax-highlighted code card.

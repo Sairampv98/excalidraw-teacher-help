@@ -24,9 +24,11 @@ import { TTDDialogInput } from "../components/TTDDialog/TTDDialogInput";
 import { UIAppStateContext } from "../context/ui-appState";
 import { getDefaultAppState } from "../appState";
 import {
+  DEFAULT_PANEL_CONSOLE_VIEW,
   codePanelContent,
   emptyCodePanelState,
   readCodePanelState,
+  readPanelConsole,
   readPanelDraft,
   readPanelTheme,
   readPanelReadLanguage,
@@ -1591,6 +1593,114 @@ describe("the code panel's view", () => {
     });
   });
 
+  it("AC-333 beside the editor the console is one column, and the input is part of it", async () => {
+    const overlay = await renderEditor();
+
+    fireEvent.click(
+      overlay.querySelector('[data-testid="code-panel-dock-right"]')!,
+    );
+
+    await waitFor(() =>
+      expect(
+        document
+          .querySelector('[data-testid="code-panel-body"]')!
+          .getAttribute("data-console-dock"),
+      ).toBe("right"),
+    );
+
+    const body = document.querySelector('[data-testid="code-panel-body"]')!;
+    const box = document.querySelector(
+      '[data-testid="code-panel-consolebox"]',
+    )!;
+    const input = document.querySelector('[data-testid="code-panel-input"]')!;
+
+    // the input is the console's own: as a child of the body it became a
+    // column of its own as wide as the panel, and the editor was squeezed out
+    // of sight
+    expect(input.parentElement).toBe(box);
+    expect(body.children).toHaveLength(3);
+  });
+
+  /** an editor whose console was already given a view, as an older panel is */
+  const renderEditorWithConsole = async (view: {
+    dock: "bottom" | "right";
+    size: number;
+  }) => {
+    const panel = codePanelInView(emptyCodePanelState(), "editor");
+
+    (
+      panel as unknown as { panel: { consoleView: unknown } }
+    ).panel.consoleView = { ...view, zoom: 1, input: "" };
+
+    await render(<Excalidraw />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    return document.querySelector('[data-testid="panel-overlay"]')!;
+  };
+
+  it("AC-333 docking the console gives it the size of a new dock, not the one dragged for the other", async () => {
+    const overlay = await renderEditorWithConsole({
+      dock: "bottom",
+      size: 0.7,
+    });
+
+    fireEvent.click(
+      overlay.querySelector('[data-testid="code-panel-dock-right"]')!,
+    );
+
+    expect(storedConsole()!.dock).toBe("right");
+    expect(storedConsole()!.size).toBe(DEFAULT_PANEL_CONSOLE_VIEW.size);
+  });
+
+  it("AC-333 beside the editor the console never takes more than 60% of the panel", async () => {
+    const stored = (dock: "bottom" | "right", size: number) =>
+      readPanelConsole({
+        ...codePanelContent(emptyCodePanelState(), "s"),
+        consoleView: { dock, size, zoom: 1, input: "" },
+      } as never);
+
+    // a size saved for a console under the editor is cut down beside it
+    expect(stored("right", 0.8).size).toBe(0.6);
+    expect(stored("bottom", 0.8).size).toBe(0.8);
+
+    const overlay = await renderEditorWithConsole({ dock: "right", size: 0.3 });
+
+    const body = overlay.querySelector(
+      '[data-testid="code-panel-body"]',
+    ) as HTMLElement;
+
+    body.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 1000,
+        width: 1000,
+        height: 1000,
+      } as DOMRect);
+
+    const divider = overlay.querySelector(
+      '[data-testid="code-panel-divider"]',
+    )!;
+
+    // dragged all the way to the left edge, the editor still has its share
+    divider.dispatchEvent(
+      new MouseEvent("pointerdown", {
+        bubbles: true,
+        clientX: 700,
+        clientY: 500,
+      }),
+    );
+    window.dispatchEvent(
+      new MouseEvent("pointermove", { clientX: 0, clientY: 500 }),
+    );
+    window.dispatchEvent(new MouseEvent("pointerup"));
+
+    expect(storedConsole()!.size).toBeCloseTo(0.6, 5);
+  });
+
   it("AC-311 the console has its own zoom, apart from the editor's", async () => {
     const overlay = await renderEditor();
 
@@ -1807,6 +1917,46 @@ describe("the code panel's view", () => {
     expect(option("go").textContent).toContain("download");
     expect(option("java").textContent).toContain("not available yet");
     expect(option("java").disabled).toBe(true);
+  });
+
+  it("AC-332 the picker says which languages VS Code runs, and they can be chosen", async () => {
+    const onLanguageChange = vi.fn();
+    const panel = codePanelInView(emptyCodePanelState(), "editor");
+
+    await render(
+      <Excalidraw
+        panelDraft={{ onLanguageChange }}
+        panelRun={{
+          languages: ["python", "java"],
+          browserLanguages: ["python", "javascript"],
+          // the way the app lists them: what VS Code has is ready
+          languagePacks: [
+            { id: "python", name: "Python", state: "ready" },
+            { id: "java", name: "Java", state: "ready" },
+            { id: "c", name: "C", state: "unavailable" },
+          ],
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    const picker = document.querySelector(
+      '[data-testid="code-panel-read-language"]',
+    ) as HTMLSelectElement;
+
+    const option = (value: string) =>
+      [...picker.options].find((entry) => entry.value === value)!;
+
+    expect(option("python").textContent).toBe("Python (runs here)");
+    expect(option("java").textContent).toBe("Java (runs in VS Code)");
+    expect(option("java").disabled).toBe(false);
+    expect(option("c").textContent).toContain("not available yet");
+
+    fireEvent.change(picker, { target: { value: "java" } });
+
+    expect(onLanguageChange).toHaveBeenCalledWith(expect.any(String), "java");
   });
 
   it("AC-327 choosing a language that is to be downloaded starts the download and keeps the language", async () => {

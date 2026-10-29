@@ -85,12 +85,6 @@ export const OCR_ENGINE_CHOICES: readonly OcrEngineChoice[] = [
     measuredMs: MEASURED_MS.tesseract,
     color: OCR_SPEED_COLORS.middle,
   },
-  {
-    id: "paddle",
-    label: "paddle",
-    measuredMs: MEASURED_MS.paddle,
-    color: OCR_SPEED_COLORS.slow,
-  },
 ];
 
 /**
@@ -132,10 +126,11 @@ export type OcrLadderRung = {
  *
  * 1. **indra** when the bridge is connected: the fastest engine there is
  *    (147 ms on this box);
- * 2. **tesseract** when the bridge is not there (278 ms): the engine the owner
- *    called the default, and the one that needs nothing but the browser;
- * 3. **paddle** only as the last resort (27,822 ms): it is the slowest by an
- *    order of magnitude and it needs the Python sidecar.
+ * 2. **tesseract** when the bridge is not there (278 ms): the engine that
+ *    needs nothing but the browser.
+ *
+ * (paddle was a third rung, the slowest by an order of magnitude, and it is
+ * not offered any more.)
  *
  * A teacher should never have to choose an engine - the machine chooses, and
  * says what it chose.
@@ -152,12 +147,6 @@ export const OCR_LADDER: readonly OcrLadderRung[] = [
     withBridge: "bridge",
     withoutBridge: "browser",
     needs: "an engine in the browser",
-  },
-  {
-    engine: "paddle",
-    withBridge: "bridge",
-    withoutBridge: "bridge",
-    needs: "the bridge, with the Python sidecar",
   },
 ];
 

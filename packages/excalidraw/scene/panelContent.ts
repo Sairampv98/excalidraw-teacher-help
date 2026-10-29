@@ -346,6 +346,17 @@ export const DEFAULT_PANEL_CONSOLE_VIEW: PanelConsoleView = {
 export const CONSOLE_SIZE_MIN = 0.1;
 export const CONSOLE_SIZE_MAX = 0.8;
 
+/**
+ * Beside the editor the console never takes more than this, so the editor
+ * keeps the larger part of the panel in view (D-295). Under the editor it may
+ * take up to `CONSOLE_SIZE_MAX`.
+ */
+export const CONSOLE_SIZE_MAX_RIGHT = 0.6;
+
+/** the most of the panel a console docked here may take */
+export const consoleSizeLimit = (dock: PanelConsoleView["dock"]) =>
+  dock === "right" ? CONSOLE_SIZE_MAX_RIGHT : CONSOLE_SIZE_MAX;
+
 /** the themes the editor of a code panel can wear (D-270) */
 export const PANEL_EDITOR_THEMES = ["dark", "light"] as const;
 
@@ -761,12 +772,16 @@ export const readPanelTheme = (content: PanelContent): PanelEditorTheme => {
 export const readPanelConsole = (content: PanelContent): PanelConsoleView => {
   const widened: Partial<CodePanelContent> = content;
   const view = widened.consoleView;
+  const dock = view?.dock === "right" ? "right" : "bottom";
 
   return {
-    dock: view?.dock === "right" ? "right" : "bottom",
+    dock,
     size:
       typeof view?.size === "number"
-        ? Math.min(CONSOLE_SIZE_MAX, Math.max(CONSOLE_SIZE_MIN, view.size))
+        ? Math.min(
+            consoleSizeLimit(dock),
+            Math.max(CONSOLE_SIZE_MIN, view.size),
+          )
         : DEFAULT_PANEL_CONSOLE_VIEW.size,
     zoom:
       typeof view?.zoom === "number" && view.zoom > 0

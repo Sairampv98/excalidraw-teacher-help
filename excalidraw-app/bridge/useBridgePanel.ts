@@ -173,6 +173,10 @@ export const useBridgePanel = (
    * picker never offers a language that cannot run here.
    */
   const [runtimes, setRuntimes] = useState<string[]>([]);
+  /** the runtimes, readable from a callback that was made earlier */
+  const runtimesRef = useRef<string[]>(runtimes);
+
+  runtimesRef.current = runtimes;
 
   const sessionRef = useRef<BridgeSession | null>(null);
   const panelStateRef = useRef<CodePanelState>(initialCodePanelState());
@@ -337,6 +341,11 @@ export const useBridgePanel = (
       onStateChange: (next) => {
         setState(next);
         sessionStateRef.current = next;
+
+        // the runtimes were found on a machine that is not there any more
+        if (next.connection !== "connected") {
+          setRuntimes([]);
+        }
 
         // The stream's URL is part of the CONNECTION's state (D-85): a new
         // connection gets a new capability, so the live view has to be
@@ -824,11 +833,20 @@ export const useBridgePanel = (
         found.mirror?.editor.language ||
         "";
 
-      // with no bridge, and in a code editor of its own, the program runs in
-      // the browser
+      const connected = sessionStateRef.current.connection === "connected";
+      const bridgeHasIt = connected && runtimesRef.current.includes(language);
+      const inBrowser = runsInBrowser(language);
+
+      // Python and JavaScript run in the browser in a code editor of its own,
+      // with the bridge or without it. Every other language is run natively by
+      // the bridge - python, node, java, go, ... as found on the teacher's
+      // machine - and the bridge says what is missing when it lacks the
+      // runtime; with no bridge the panel says that the bridge is needed
+      // (D-290). A mirrored editor prefers the bridge's own runtime when it has
+      // one.
       if (
-        found.standalone ||
-        sessionStateRef.current.connection !== "connected"
+        !connected ||
+        (found.standalone ? inBrowser : inBrowser && !bridgeHasIt)
       ) {
         return runInBrowser(text, language, found.input);
       }
@@ -879,6 +897,18 @@ export const useBridgePanel = (
     });
   }, []);
 
+  /** the packs, with the languages the bridge runs on the teacher's machine ready too */
+  const allPacks = useMemo(() => {
+    const named = packs.map((pack) =>
+      runtimes.includes(pack.id) ? { ...pack, state: "ready" as const } : pack,
+    );
+    const rest = runtimes
+      .filter((id) => !packs.some((pack) => pack.id === id))
+      .map((id) => ({ id, name: id, state: "ready" as const }));
+
+    return [...named, ...rest];
+  }, [packs, runtimes]);
+
   const panelRun: PanelRunControls = useMemo(
     () => ({
       languages: runtimes,
@@ -886,10 +916,10 @@ export const useBridgePanel = (
       onClear,
       canRunInBrowser: true,
       browserLanguages: BROWSER_LANGUAGES,
-      languagePacks: packs,
+      languagePacks: allPacks,
       onInstallPack,
     }),
-    [runtimes, onRun, onClear, packs, onInstallPack],
+    [runtimes, onRun, onClear, allPacks, onInstallPack],
   );
 
   /**

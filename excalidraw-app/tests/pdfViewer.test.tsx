@@ -6,6 +6,9 @@
  * nothing is fetched until a PDF is opened.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { render, waitFor, fireEvent } from "@testing-library/react";
 import { createRef } from "react";
 import { vi } from "vitest";
@@ -341,5 +344,71 @@ describe("AC-325 the PDF reader can be zoomed, panned and fitted", () => {
       "No text to select on this page",
     );
     expect(ref.current!.querySelectorAll(".app-doc-pdf-read")).toHaveLength(2);
+  });
+});
+
+describe("AC-334 the text of a PDF page can be selected", () => {
+  it("AC-334 a plain drag on the page is left to the browser, so the text under it is selected", async () => {
+    const { getByTestId, ref } = mount({ pages: 1 });
+    const viewer = getByTestId("pdf-viewer");
+
+    await waitFor(() =>
+      expect(
+        ref.current!.querySelectorAll(".app-doc-pdf-text span").length,
+      ).toBe(1),
+    );
+
+    const press = () => {
+      const event = new MouseEvent("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 200,
+        clientY: 200,
+      });
+
+      viewer.dispatchEvent(event);
+
+      return event;
+    };
+
+    // a drag that starts a selection must not be cancelled
+    expect(press().defaultPrevented).toBe(false);
+
+    // with the hand it is the page that is dragged, and the browser's own
+    // selection is cancelled
+    fireEvent.click(getByTestId("pdf-hand"));
+    expect(press().defaultPrevented).toBe(true);
+  });
+
+  it("AC-334 the style lifts the sidebar's rule against selecting on the page's text, and the hand puts it back", () => {
+    // `.excalidraw` sets `user-select: none` and the sidebar inherits it: the
+    // text layer of a page has to say that it can be selected, or the cursor
+    // changes over the words and nothing can be selected
+    const styles = readFileSync(
+      join(__dirname, "..", "sidebar", "sidebar.scss"),
+      "utf8",
+    );
+
+    const blockOf = (selector: string) => {
+      const start = styles.indexOf(`${selector} {`);
+
+      expect(start).toBeGreaterThan(-1);
+
+      return styles.slice(start, styles.indexOf("}", start));
+    };
+
+    expect(blockOf(".app-doc-pdf-text,\n.app-doc-pdf-text span")).toMatch(
+      /user-select:\s*text/,
+    );
+
+    // the end-of-content marker is what keeps a drag from jumping to the end
+    // of the page, and it is not itself selectable
+    expect(blockOf(".app-doc-pdf-text .endOfContent")).toMatch(
+      /user-select:\s*none/,
+    );
+
+    // dragging the page about is not selecting
+    expect(blockOf("  .app-doc-pdf-text")).toMatch(/user-select:\s*none/);
   });
 });

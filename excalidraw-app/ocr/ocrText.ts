@@ -9,6 +9,35 @@ const median = (values: readonly number[]) => {
 /** the deepest indent a line is given, in characters */
 const MAX_INDENT = 80;
 
+/** the lines that have text, from the top of the picture to the bottom */
+const rowsOf = (lines: readonly OcrLine[]) =>
+  lines
+    .filter((line) => line.text.trim().length > 0)
+    .sort((a, b) => a.y - b.y || a.x - b.x);
+
+/**
+ * The lines of a read with the corrections the teacher typed in the preview
+ * (D-293).
+ *
+ * The preview shows one row of text for each line that was read, with blank rows
+ * between paragraphs, so the typed rows with text stand for the lines in order.
+ * When the teacher added or removed a row the typed text no longer lines up with
+ * the boxes it was read from, and the lines are as they were read.
+ */
+export const correctedLines = (
+  lines: readonly OcrLine[],
+  text: string,
+): OcrLine[] => {
+  const rows = rowsOf(lines);
+  const typed = text.split("\n").filter((row) => row.trim().length > 0);
+
+  if (typed.length !== rows.length) {
+    return rows;
+  }
+
+  return rows.map((row, index) => ({ ...row, text: typed[index].trim() }));
+};
+
 /**
  * Puts the lines an engine read back into the shape they had on the picture
  * (D-277): in the order they were read from top to bottom, with the indent each
@@ -20,9 +49,7 @@ const MAX_INDENT = 80;
  * font that is not far from monospace - which is what code is read in.
  */
 export const ocrLinesToText = (lines: readonly OcrLine[]): string => {
-  const rows = lines
-    .filter((line) => line.text.trim().length > 0)
-    .sort((a, b) => a.y - b.y || a.x - b.x);
+  const rows = rowsOf(lines);
 
   if (!rows.length) {
     return "";

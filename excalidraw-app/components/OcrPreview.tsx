@@ -5,9 +5,10 @@ import { Dialog } from "@excalidraw/excalidraw/components/Dialog";
 import { FilledButton } from "@excalidraw/excalidraw/components/FilledButton";
 
 import { CODE_LANGUAGE_IDS } from "../codeLanguages";
-import { ocrLinesToText } from "../ocr/ocrText";
+import { correctedLines, ocrLinesToText } from "../ocr/ocrText";
 import {
   insertCodeIntoScene,
+  insertOcrLinesIntoScene,
   insertTextBlockIntoScene,
 } from "../sidebar/insertIntoScene";
 
@@ -25,7 +26,8 @@ export type OcrPreviewData = {
  * The text is shown the way the picture had it - in order, with the indent of
  * each line - and it can be corrected here. Then the teacher chooses: put it on
  * the page as a text block, put it on the page as a code card in the language
- * they pick, or copy it. Nothing is put on the page until they choose.
+ * they pick, put each line back where it was on the picture (D-293), or copy
+ * it. Nothing is put on the page until they choose.
  */
 export const OcrPreview = ({
   data,
@@ -86,6 +88,10 @@ export const OcrPreview = ({
             padding: 8,
           }}
         />
+        <div style={{ opacity: 0.7, fontSize: 12 }}>
+          Paste where it was puts each line back at the place it had on the
+          page.
+        </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <select
             data-testid="ocr-preview-language"
@@ -114,6 +120,17 @@ export const OcrPreview = ({
             onClick={() => run(() => insertTextBlockIntoScene(api!, text))}
           >
             Paste as text
+          </FilledButton>
+          <FilledButton
+            variant="outlined"
+            disabled={busy || !text.trim()}
+            onClick={() =>
+              run(() =>
+                insertOcrLinesIntoScene(api!, correctedLines(data.lines, text)),
+              )
+            }
+          >
+            Paste where it was
           </FilledButton>
           <FilledButton
             variant="outlined"

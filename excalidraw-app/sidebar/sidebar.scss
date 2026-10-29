@@ -882,9 +882,15 @@
   }
 }
 
+// pdf.js ships these rules in its own stylesheet, which the app does not load,
+// so the ones that selection depends on are kept here: the layer is a stacking
+// context, its text sits above the end-of-content marker, and the marker covers
+// the layer while a selection is being dragged (so a drag across the gaps
+// between words does not jump to the end of the page)
 .app-doc-pdf-text {
   position: absolute;
   inset: 0;
+  z-index: 0;
   overflow: hidden;
   line-height: 1;
   text-size-adjust: none;
@@ -897,8 +903,26 @@
     transform-origin: 0 0;
   }
 
+  > :not(.markedContent),
+  .markedContent span:not(.markedContent) {
+    z-index: 1;
+  }
+
+  span.markedContent {
+    top: 0;
+    height: 0;
+  }
+
   ::selection {
     background: rgba(0, 80, 255, 0.3);
+  }
+
+  br::selection {
+    background: transparent;
+  }
+
+  &.selecting .endOfContent {
+    top: 0;
   }
 }
 
@@ -945,4 +969,23 @@
 // a page with no text keeps its button in view: it is how it is read
 .app-doc-pdf-page--scan .app-doc-pdf-read {
   opacity: 1;
+}
+
+// the text of a PDF page can be selected: the sidebar's own rule against
+// selecting is lifted here, and pdf.js's end-of-content marker keeps a
+// selection from jumping to the end of the page
+.app-doc-pdf-text,
+.app-doc-pdf-text span {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.app-doc-pdf-text .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
 }

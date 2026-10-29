@@ -242,6 +242,7 @@
       "readLanguage": "The language to read the file as",
       "readLanguageNone": "choose a language",
       "runsHere": "runs here",
+      "runsInEditor": "runs in VS Code",
       "console": "Output",
       "clearConsole": "Clear the output",
       "programInput": "Input for the program",

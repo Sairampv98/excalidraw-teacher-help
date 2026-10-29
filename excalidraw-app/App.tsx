@@ -171,13 +171,16 @@ import { AppSidebar } from "./components/AppSidebar";
 import { usePageAutoFit, useSidebarWidth } from "./sidebar/useSidebarLayout";
 import { handleCodePaste } from "./sidebar/insertIntoScene";
 import { panelCopyControls } from "./sidebar/panelCopy";
+import { OcrAreaDialog } from "./components/OcrAreaDialog";
 import { OcrPreview } from "./components/OcrPreview";
 import { OcrProgressBar } from "./components/OcrProgressBar";
 import { ReformatChooser } from "./sidebar/ReformatChooser";
 
 import { CropModal, posterNaturalSize } from "./components/cropModal";
 
+import type { OcrPicture } from "./components/OcrAreaDialog";
 import type { OcrPreviewData } from "./components/OcrPreview";
+import type { OcrRegion } from "../packages/vscode-bridge/bridge/src/ocr";
 
 import type { CollabAPI } from "./collab/Collab";
 
@@ -542,8 +545,19 @@ const ExcalidrawWrapper = () => {
     [excalidrawAPI, lastOcrMessage],
   );
 
+  /**
+   * A picture the teacher asked to read, waiting for them to choose what part
+   * of it is read (D-291): the whole picture is shown first, and only the area
+   * they drag out - or the whole page, when they say so - goes to the reader.
+   */
+  const [ocrArea, setOcrArea] = useState<{
+    picture: OcrPicture;
+    read: (region: OcrRegion | null) => void;
+  } | null>(null);
+
   // a PDF page the teacher asked to read: the viewer sets the request, the app
-  // reads it and shows what was found (D-279)
+  // asks which part of the page, then reads it and shows what was found
+  // (D-279, D-291)
   const pdfPageRequest = useAtomValue(pdfPageReadRequestAtom);
 
   useEffect(() => {
@@ -553,17 +567,25 @@ const ExcalidrawWrapper = () => {
 
     appJotaiStore.set(pdfPageReadRequestAtom, null);
 
-    void readOcr({
-      place: false,
-      image: pdfPageRequest,
-      placement: {
-        x: 0,
-        y: 0,
-        width: pdfPageRequest.width,
-        height: pdfPageRequest.height,
+    setOcrArea({
+      picture: pdfPageRequest,
+      read: (region) => {
+        setOcrArea(null);
+
+        void readOcr({
+          place: false,
+          image: pdfPageRequest,
+          ...(region ? { region } : {}),
+          placement: {
+            x: 0,
+            y: 0,
+            width: pdfPageRequest.width,
+            height: pdfPageRequest.height,
+          },
+          pageId: excalidrawAPI.getAppState().currentPageId ?? "page-1",
+        }).then((result) => showRead(result));
       },
-      pageId: excalidrawAPI.getAppState().currentPageId ?? "page-1",
-    }).then((result) => showRead(result));
+    });
   }, [pdfPageRequest, excalidrawAPI, readOcr, showRead]);
 
   /**
@@ -592,24 +614,33 @@ const ExcalidrawWrapper = () => {
       // them, and the element carries only its size on the canvas (D-59)
       const natural = await imageNaturalSize(file.dataURL);
 
-      const result = await readOcr({
-        place: false,
-        image: {
-          dataURL: file.dataURL,
-          width: natural.width || element.width,
-          height: natural.height || element.height,
-        },
-        placement: {
-          x: element.x,
-          y: element.y,
-          width: element.width,
-          height: element.height,
-        },
-        pageId: element.pageId,
-        strokeColor: current.getAppState().currentItemStrokeColor,
-      });
+      const image = {
+        dataURL: file.dataURL,
+        width: natural.width || element.width,
+        height: natural.height || element.height,
+      };
 
-      showRead(result);
+      // the teacher chooses what part of the picture is read (D-291)
+      setOcrArea({
+        picture: image,
+        read: (region) => {
+          setOcrArea(null);
+
+          void readOcr({
+            place: false,
+            image,
+            ...(region ? { region } : {}),
+            placement: {
+              x: element.x,
+              y: element.y,
+              width: element.width,
+              height: element.height,
+            },
+            pageId: element.pageId,
+            strokeColor: current.getAppState().currentItemStrokeColor,
+          }).then((result) => showRead(result));
+        },
+      });
     },
     [excalidrawAPI, readOcr, showRead],
   );
@@ -1611,6 +1642,13 @@ const ExcalidrawWrapper = () => {
           />
         )}
         <OcrProgressBar onCancel={cancelOcr} />
+        {ocrArea && (
+          <OcrAreaDialog
+            picture={ocrArea.picture}
+            onRead={ocrArea.read}
+            onClose={() => setOcrArea(null)}
+          />
+        )}
         {ocrPreview && (
           <OcrPreview data={ocrPreview} onClose={() => setOcrPreview(null)} />
         )}

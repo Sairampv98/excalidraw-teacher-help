@@ -37,7 +37,8 @@ import {
   readPanelView,
   isStandaloneCodePanel,
   readPanelConsole,
-  CONSOLE_SIZE_MAX,
+  DEFAULT_PANEL_CONSOLE_VIEW,
+  consoleSizeLimit,
   CONSOLE_SIZE_MIN,
   readPanelTheme,
   readPanelZoom,
@@ -845,7 +846,10 @@ const CodePanelSurface = ({
           ? (rect.bottom - clientY) / rect.height
           : (rect.right - clientX) / rect.width;
 
-      return Math.min(CONSOLE_SIZE_MAX, Math.max(CONSOLE_SIZE_MIN, raw));
+      return Math.min(
+        consoleSizeLimit(consoleView.dock),
+        Math.max(CONSOLE_SIZE_MIN, raw),
+      );
     };
 
     let last = sizeAt(event.clientX, event.clientY);
@@ -1103,8 +1107,13 @@ const CodePanelSurface = ({
       return `${name}  (${t("labels.editor.notAvailableYet")})`;
     }
 
-    return run?.browserLanguages?.includes(language)
-      ? `${name} (${t("labels.editor.runsHere")})`
+    if (run?.browserLanguages?.includes(language)) {
+      return `${name} (${t("labels.editor.runsHere")})`;
+    }
+
+    // a language the teacher's own editor runs, through the bridge (D-290)
+    return run?.languages?.includes(language)
+      ? `${name} (${t("labels.editor.runsInEditor")})`
       : name;
   };
 
@@ -1895,7 +1904,10 @@ const CodePanelSurface = ({
                     ? "labels.editor.dockBottom"
                     : "labels.editor.dockRight",
                 )}
-                onClick={() => changeConsole({ dock })}
+                // a size that was dragged for the other side is not a size for this one
+                onClick={() =>
+                  changeConsole({ dock, size: DEFAULT_PANEL_CONSOLE_VIEW.size })
+                }
                 style={barButton({ active: consoleView.dock === dock })}
               >
                 <PanelIcon
@@ -1968,37 +1980,39 @@ const CodePanelSurface = ({
                 </div>
               ))}
           </div>
-        </div>
-        <textarea
-          className="excalidraw__panel-code-input"
-          data-testid="code-panel-input"
-          aria-label={t("labels.editor.programInput")}
-          placeholder={t("labels.editor.programInputHint")}
-          rows={2}
-          spellCheck={false}
-          value={inputDraft ?? consoleView.input}
-          onChange={(event) => setInputDraft(event.target.value)}
-          onBlur={() => {
-            if (inputDraft !== null && inputDraft !== consoleView.input) {
-              changeConsole({ input: inputDraft });
-            }
+          {/* the input belongs to the console's column: beside the editor it
+          must not become a column of its own as wide as the panel (D-295) */}
+          <textarea
+            className="excalidraw__panel-code-input"
+            data-testid="code-panel-input"
+            aria-label={t("labels.editor.programInput")}
+            placeholder={t("labels.editor.programInputHint")}
+            rows={2}
+            spellCheck={false}
+            value={inputDraft ?? consoleView.input}
+            onChange={(event) => setInputDraft(event.target.value)}
+            onBlur={() => {
+              if (inputDraft !== null && inputDraft !== consoleView.input) {
+                changeConsole({ input: inputDraft });
+              }
 
-            setInputDraft(null);
-          }}
-          style={{
-            flex: "0 0 auto",
-            resize: "none",
-            font: "inherit",
-            fontSize: "0.85em",
-            boxSizing: "border-box",
-            width: "100%",
-            background: palette.background,
-            color: palette.foreground,
-            border: "none",
-            borderTop: `1px solid ${palette.border}`,
-            padding: "2px 6px",
-          }}
-        />
+              setInputDraft(null);
+            }}
+            style={{
+              flex: "0 0 auto",
+              resize: "none",
+              font: "inherit",
+              fontSize: "0.85em",
+              boxSizing: "border-box",
+              width: "100%",
+              background: palette.background,
+              color: palette.foreground,
+              border: "none",
+              borderTop: `1px solid ${palette.border}`,
+              padding: "2px 6px",
+            }}
+          />
+        </div>
       </div>
     </div>
   );

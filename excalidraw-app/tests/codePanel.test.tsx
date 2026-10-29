@@ -42,6 +42,7 @@ import {
   reduceCodePanelState,
 } from "../bridge/codePanel";
 import { insertCodePanel } from "../bridge/insertCodePanel";
+import { pythonRunner } from "../bridge/pythonRunner";
 import { useBridgePanel } from "../bridge/useBridgePanel";
 import { CODE_LANGUAGE_IDS } from "../codeLanguages";
 import { handleCodePaste } from "../sidebar/insertIntoScene";
@@ -607,6 +608,49 @@ describe("the app's side of the bridge", () => {
     ).toBe(true);
   });
 
+  it("AC-331 a new run starts on an empty output, not on the last run's lines", () => {
+    const start = (runId: string) =>
+      ({
+        v: 1,
+        type: "run:started",
+        runId,
+        command: "python main.py",
+        cwd: "C:/work",
+      } as const);
+
+    const output = (runId: string, text: string) =>
+      ({ v: 1, type: "run:output", runId, stream: "stdout", text } as const);
+
+    // the first run prints a series, and ends
+    const afterFirst = [
+      start("run-1"),
+      output("run-1", "0 1 1 2 3 5 8 13 21 34"),
+      { v: 1, type: "run:exit", runId: "run-1", code: 0 } as const,
+    ].reduce(reduceCodePanelState, initialCodePanelState());
+
+    expect(afterFirst.output.map((line) => line.text)).toEqual([
+      "0 1 1 2 3 5 8 13 21 34",
+    ]);
+
+    // the teacher changes the program and runs it again: the console starts
+    // empty, and then shows what THIS run printed
+    const started = reduceCodePanelState(afterFirst, start("run-2"));
+
+    expect(started.output).toEqual([]);
+
+    const afterSecond = reduceCodePanelState(
+      started,
+      output("run-2", "0 1 1 2 3"),
+    );
+
+    expect(afterSecond.output.map((line) => line.text)).toEqual(["0 1 1 2 3"]);
+
+    // what the console says about the runs is a history, and stays
+    expect(
+      afterSecond.console.filter((line) => line.text.includes("Run started")),
+    ).toHaveLength(2);
+  });
+
   it("AC-83 an inserted code panel gets a fractional index, so the scene accepts it", () => {
     const state: { elements: ExcalidrawElement[] } = { elements: [] };
 
@@ -1115,6 +1159,143 @@ describe("the app's runnable editor", () => {
 
     expect(offered).toContain("python");
     expect(offered).toContain("javascript");
+  });
+
+  /** a panel with a draft in the given language */
+  const draftPanel = (language: string, text: string) => {
+    const element = pythonCodePanelElement();
+
+    return {
+      ...element,
+      panel: withPanelDraft(element.panel, { text, language, edited: true }),
+    } as unknown as ExcalidrawElement;
+  };
+
+  /**
+   * Turns the panel into a code editor of its own.
+   *
+   * The harness's scene is a stand-in that the hook reads at the moment Run is
+   * pressed, so the panel can be connected through its bridge field first (a
+   * code editor of its own has none) and made standalone afterwards - the way a
+   * teacher's second editor shares the bridge the first one connected.
+   */
+  const makeStandalone = (state: { elements: ExcalidrawElement[] }) => {
+    const element = state.elements[0] as unknown as {
+      panel: Record<string, unknown>;
+    };
+
+    state.elements = [
+      {
+        ...element,
+        panel: { ...element.panel, standalone: true },
+      } as unknown as ExcalidrawElement,
+    ];
+  };
+
+  /** the editor with the bridge connected, and the runtimes VS Code found */
+  const connectWithRuntimes = async (
+    panel: ExcalidrawElement,
+    languages: string[],
+  ) => {
+    mockClipboard(TEST_TOKEN);
+
+    const { api, state } = scene(panel);
+
+    await render(<Harness api={api} panel={panel} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    fireEvent.click(
+      document.querySelector('[data-testid="panel-bridge-paste"]')!,
+    );
+
+    await waitFor(() => expect(FakeSocket.instances.length).toBe(1));
+
+    const socket = lastSocket();
+
+    socket.open();
+
+    await waitFor(() => expect(socket.sent.length).toBe(1));
+
+    act(() => {
+      socket.receive({
+        v: 1,
+        type: "bridge:hello",
+        version: "1.0.0",
+        workspace: "demo",
+      });
+      socket.receive({ v: 1, type: "run:runtimes", languages });
+    });
+
+    const run = await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="code-panel-run"]',
+      ) as HTMLButtonElement | null;
+
+      expect(found).not.toBeNull();
+      expect(found!.disabled).toBe(false);
+
+      return found!;
+    });
+
+    return { socket, run, state };
+  };
+
+  const codeRuns = (socket: FakeSocket) =>
+    socket.sent
+      .map((frame) => JSON.parse(frame))
+      .filter((message) => message.type === "code:run");
+
+  it("AC-332 a language VS Code runs is run by VS Code, also from a code editor of its own", async () => {
+    const { socket, run, state } = await connectWithRuntimes(
+      draftPanel("java", "class Main {}"),
+      ["java", "python"],
+    );
+
+    // the picker says where each language runs
+    const picker = document.querySelector(
+      '[data-testid="code-panel-read-language"]',
+    ) as HTMLSelectElement;
+    const option = (value: string) =>
+      [...picker.options].find((entry) => entry.value === value)!;
+
+    expect(option("java").textContent).toBe("Java (runs in VS Code)");
+    expect(option("java").disabled).toBe(false);
+
+    makeStandalone(state);
+
+    act(() => {
+      fireEvent.click(run);
+    });
+
+    await waitFor(() => expect(codeRuns(socket)).toHaveLength(1));
+
+    expect(codeRuns(socket)[0].language).toBe("java");
+    expect(codeRuns(socket)[0].text).toBe("class Main {}");
+  });
+
+  it("AC-332 Python in a code editor of its own still runs in the browser, with VS Code connected", async () => {
+    const browser = vi
+      .spyOn(pythonRunner, "run")
+      .mockResolvedValue({ kind: "exit", code: 0 });
+
+    const { socket, run, state } = await connectWithRuntimes(
+      draftPanel("python", "print('mine')"),
+      ["java", "python"],
+    );
+
+    makeStandalone(state);
+
+    act(() => {
+      fireEvent.click(run);
+    });
+
+    await waitFor(() => expect(browser).toHaveBeenCalledTimes(1));
+
+    expect(browser.mock.calls[0][0]).toBe("print('mine')");
+    expect(codeRuns(socket)).toHaveLength(0);
+
+    browser.mockRestore();
   });
 
   it("AC-162 the output arrives in the panel's output region", async () => {

@@ -290,7 +290,7 @@ describe("the OCR engine picker (AC-156)", () => {
     return container;
   };
 
-  it("AC-156 the read button carries a picker with the three engines", async () => {
+  it("AC-156 the read button carries a picker with the two engines", async () => {
     const container = await renderWithPicker();
 
     // the read button is there, and the picker is beside it
@@ -317,12 +317,12 @@ describe("the OCR engine picker (AC-156)", () => {
       '[data-testid="panel-ocr-engine"]',
     );
 
-    expect(entries.length).toBe(3);
+    expect(entries.length).toBe(2);
 
-    // and they are the three engines
+    // and they are the two engines: paddle is not offered any more (D-294)
     expect(
       Array.from(entries).map((entry) => entry.getAttribute("data-engine")),
-    ).toEqual(["indra", "tesseract", "paddle"]);
+    ).toEqual(["indra", "tesseract"]);
   });
 
   it("AC-156 the picker marks each engine with its measured speed colour", async () => {
@@ -338,10 +338,10 @@ describe("the OCR engine picker (AC-156)", () => {
       container.querySelectorAll('[data-testid="panel-ocr-engine"]'),
     );
 
-    expect(entries.length).toBe(3);
+    expect(entries.length).toBe(2);
 
     // the traffic lights the owner asked for: green for the fastest, amber
-    // for the one in the middle, red for the slowest (D-118)
+    // for the one after it (D-118)
     const colours = entries.map((entry) => {
       const dot = entry.querySelector(
         '[data-testid="panel-ocr-engine-dot"]',
@@ -352,11 +352,7 @@ describe("the OCR engine picker (AC-156)", () => {
       return dot!.style.backgroundColor;
     });
 
-    expect(colours).toEqual([
-      OCR_SPEED_COLORS.fast,
-      OCR_SPEED_COLORS.middle,
-      OCR_SPEED_COLORS.slow,
-    ]);
+    expect(colours).toEqual([OCR_SPEED_COLORS.fast, OCR_SPEED_COLORS.middle]);
 
     // and the number beside the name is the project's own measurement
     expect(entries[0].textContent).toContain(
