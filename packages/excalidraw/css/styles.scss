@@ -13,6 +13,20 @@
   --zIndex-svgLayer: 3;
   --zIndex-wysiwyg: 3;
   --zIndex-canvasButtons: 3;
+  // the **flow animation** (D-44, D-166): drawn over the canvases it points at -
+  // above the static canvas that paints the chart and the interactive canvas
+  // that paints the selection. Without a layer of its own it was in the page's
+  // base plane, UNDER the canvas, and everything it drew was in the DOM and
+  // invisible - the same "visible and dead" mistake as the crop handles (D-139).
+  // The editor's own chrome (`layerUI`) is above it, so Stop stays reachable.
+  --zIndex-flowAnimation: 3;
+  // the **floating bar** of the flow animation (D-177): above the bars the app
+  // puts at the bottom of the window (the emoji bar and the page bar are fixed,
+  // at 70), because it follows the chart and a chart low in the window is
+  // exactly where those bars are - under them its controls were in the DOM and
+  // could not be pressed. It is a small, transient control, and it stays below
+  // the context menu, the popups, the menus and the dialogs.
+  --zIndex-flowBar: 80;
   // the **dimming** of the canvas behind a screenshot in focus (D-116): it is
   // BELOW the panels on purpose - a panel dims its own content (see
   // `__panel-focus-scrim`) and its own chrome - the three choices - stays
@@ -195,6 +209,23 @@ body.excalidraw-cursor-resize * {
       object-fit: contain;
       -webkit-user-drag: none;
       user-select: none;
+    }
+  }
+
+  // the video of a node fills the node, whole and cut to its shape (D-246): it
+  // covers the box and has no controls under it
+  &__panel[data-node-media] {
+    .excalidraw__panel-video-box {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .excalidraw__panel-video-box video {
+      object-fit: cover;
+    }
+
+    .excalidraw__panel-video-controls {
+      display: none;
     }
   }
 

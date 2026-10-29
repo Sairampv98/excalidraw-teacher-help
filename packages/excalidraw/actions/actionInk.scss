@@ -1,0 +1,40 @@
+.excalidraw {
+  .ink-look {
+    &__looks {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.25rem;
+    }
+
+    &__look {
+      border: 1px solid var(--default-border-color);
+      border-radius: var(--border-radius-md);
+      background: var(--island-bg-color);
+      color: var(--text-primary-color);
+      cursor: pointer;
+      font-size: 0.75rem;
+      padding: 0.25rem 0.5rem;
+
+      &.active {
+        background: var(--color-surface-primary-container);
+        border-color: var(--color-primary);
+      }
+    }
+
+    &__colors {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.25rem;
+      margin-top: 0.5rem;
+    }
+
+    &__color {
+      border: 1px solid var(--default-border-color);
+      border-radius: 50%;
+      cursor: pointer;
+      height: 1.25rem;
+      padding: 0;
+      width: 1.25rem;
+    }
+  }
+}

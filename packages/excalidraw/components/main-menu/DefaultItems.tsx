@@ -46,6 +46,7 @@ import {
   XBrandIcon,
   settingsIcon,
   emptyIcon,
+  frameToolIcon,
 } from "../icons";
 import {
   boltIcon,
@@ -373,6 +374,31 @@ export const ChangeCanvasBackground = () => {
   );
 };
 ChangeCanvasBackground.displayName = "ChangeCanvasBackground";
+
+/** opens the page and its paper (D-244): frame, number, size, paper and looks */
+export const PageLook = () => {
+  const { t } = useI18n();
+  const setAppState = useExcalidrawSetAppState();
+  const appProps = useAppProps();
+
+  if (!appProps.pagesEnabled) {
+    return null;
+  }
+
+  return (
+    <DropdownMenuItem
+      icon={frameToolIcon}
+      onSelect={() => {
+        setAppState({ openDialog: { name: "pageLook" } });
+      }}
+      data-testid="page-look-button"
+      aria-label={t("labels.pageLook")}
+    >
+      {t("labels.pageLook")}
+    </DropdownMenuItem>
+  );
+};
+PageLook.displayName = "PageLook";
 
 export const Export = () => {
   const { t } = useI18n();

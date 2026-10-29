@@ -66,6 +66,11 @@ import {
 } from "./typeChecks";
 import { getContainingFrame } from "./frame";
 import { getCornerRadius } from "./utils";
+import { inkOf, inkPadding } from "./ink";
+import { applyInkLook } from "./inkRender";
+import { mediaClip, mediaOf } from "./media";
+import { viewPlacement } from "./mediaFit";
+import { clipToMedia } from "./mediaRender";
 
 import { ShapeCache } from "./shape";
 
@@ -90,7 +95,10 @@ const isPendingImageElement = (
   isInitializedImageElement(element) &&
   !renderConfig.imageCache.has(element.fileId);
 
-const getCanvasPadding = (element: ExcalidrawElement) => {
+const getCanvasPadding = (element: ExcalidrawElement) =>
+  getBaseCanvasPadding(element) + inkPadding(inkOf(element));
+
+const getBaseCanvasPadding = (element: ExcalidrawElement) => {
   switch (element.type) {
     case "freedraw":
       return element.strokeWidth * 12;
@@ -132,7 +140,17 @@ export const getRenderOpacity = (
   return opacity;
 };
 
+/** what the ink look of an element was made from: when it changes, the canvas is made again */
+const inkKeyOf = (element: ExcalidrawElement) => {
+  const ink = inkOf(element);
+
+  return ink.look === "normal"
+    ? ""
+    : `${ink.look}/${ink.amount}/${element.strokeColor}/${element.seed}`;
+};
+
 export interface ExcalidrawElementWithCanvas {
+  inkKey?: string;
   element: ExcalidrawElement | ExcalidrawTextElement;
   canvas: HTMLCanvasElement;
   theme: AppState["theme"];
@@ -258,6 +276,21 @@ const generateElementCanvas = (
 
   context.restore();
 
+  // the ink look is painted over what was just drawn (D-241)
+  const ink = inkOf(element);
+
+  if (ink.look !== "normal") {
+    applyInkLook(
+      canvas,
+      ink,
+      renderConfig.theme === THEME.DARK
+        ? applyDarkModeFilter(element.strokeColor)
+        : element.strokeColor,
+      element.seed,
+      window.devicePixelRatio * scale,
+    );
+  }
+
   const boundTextElement = getBoundTextElement(element, elementsMap);
   const boundTextCanvas = document.createElement("canvas");
   const boundTextCanvasContext = boundTextCanvas.getContext("2d")!;
@@ -322,6 +355,7 @@ const generateElementCanvas = (
   }
 
   return {
+    inkKey: inkKeyOf(element),
     element,
     canvas,
     theme: appState.theme,
@@ -459,6 +493,18 @@ const drawElementOnCanvas = (
           context.clip();
         }
 
+        // the media of a node is cut to the node's shape (D-246)
+        const media = mediaOf(element);
+
+        if (media) {
+          clipToMedia(
+            context,
+            mediaClip(media, element.width, element.height),
+            element.width,
+            element.height,
+          );
+        }
+
         const { x, y, width, height } = element.crop
           ? element.crop
           : {
@@ -526,17 +572,44 @@ const drawElementOnCanvas = (
             context.filter = DARK_THEME_FILTER;
           }
 
-          context.drawImage(
-            img,
-            x,
-            y,
-            width,
-            height,
-            0 /* hardcoded for the selection box*/,
-            0,
-            element.width,
-            element.height,
-          );
+          // the media of a node shows the part of the picture that is its view,
+          // which may reach past the picture (D-247)
+          const placed = media?.view
+            ? viewPlacement(
+                media.view,
+                element,
+                media.natural ?? {
+                  width: img.naturalWidth,
+                  height: img.naturalHeight,
+                },
+              )
+            : null;
+
+          if (placed) {
+            context.drawImage(
+              img,
+              0,
+              0,
+              img.naturalWidth,
+              img.naturalHeight,
+              placed.x,
+              placed.y,
+              placed.width,
+              placed.height,
+            );
+          } else {
+            context.drawImage(
+              img,
+              x,
+              y,
+              width,
+              height,
+              0 /* hardcoded for the selection box*/,
+              0,
+              element.width,
+              element.height,
+            );
+          }
         }
       } else {
         drawImagePlaceholder(element, context, renderConfig.theme);
@@ -694,6 +767,7 @@ const generateElementWithCanvas = (
     !prevElementWithCanvas ||
     shouldRegenerateBecauseZoom ||
     prevElementWithCanvas.theme !== appState.theme ||
+    (prevElementWithCanvas.inkKey ?? "") !== inkKeyOf(element) ||
     prevElementWithCanvas.boundTextElementVersion !== boundTextElementVersion ||
     prevElementWithCanvas.imageCrop !== imageCrop ||
     prevElementWithCanvas.containingFrameOpacity !== containingFrameOpacity ||
@@ -839,6 +913,58 @@ export const renderSelectionElement = (
   context.restore();
 };
 
+/**
+ * Draws an element on an export's canvas, whose context has already been moved
+ * to the element's own coordinates. An element with an ink look is drawn on a
+ * canvas of its own, with room around it, the look is painted there, and that is
+ * drawn on the export (D-241).
+ */
+const drawElementOnExportCanvas = (
+  element: NonDeletedExcalidrawElement,
+  elementsMap: ElementsMap,
+  rc: RoughCanvas,
+  context: CanvasRenderingContext2D,
+  renderConfig: StaticCanvasRenderConfig,
+) => {
+  const ink = inkOf(element);
+
+  if (ink.look === "normal") {
+    drawElementOnCanvas(element, rc, context, renderConfig);
+    return;
+  }
+
+  const matrix = context.getTransform?.();
+  const px = matrix ? Math.hypot(matrix.a, matrix.b) || 1 : 1;
+  const room = inkPadding(ink) + 2;
+  const [x1, y1, x2, y2] = getElementAbsoluteCoords(element, elementsMap);
+  // the canvas starts this far from where the element is drawn from
+  const left = x1 - element.x - room;
+  const top = y1 - element.y - room;
+
+  const canvas = document.createElement("canvas");
+
+  canvas.width = Math.max(1, Math.ceil((x2 - x1 + room * 2) * px));
+  canvas.height = Math.max(1, Math.ceil((y2 - y1 + room * 2) * px));
+
+  const inkContext = canvas.getContext("2d")!;
+
+  inkContext.scale(px, px);
+  inkContext.translate(-left, -top);
+  drawElementOnCanvas(element, rough.canvas(canvas), inkContext, renderConfig);
+
+  applyInkLook(
+    canvas,
+    ink,
+    renderConfig.theme === THEME.DARK
+      ? applyDarkModeFilter(element.strokeColor)
+      : element.strokeColor,
+    element.seed,
+    px,
+  );
+
+  context.drawImage(canvas, left, top, canvas.width / px, canvas.height / px);
+};
+
 export const renderElement = (
   element: NonDeletedExcalidrawElement,
   elementsMap: RenderableElementsMap,
@@ -916,7 +1042,13 @@ export const renderElement = (
         context.translate(cx, cy);
         context.rotate(element.angle);
         context.translate(-shiftX, -shiftY);
-        drawElementOnCanvas(element, rc, context, renderConfig);
+        drawElementOnExportCanvas(
+          element,
+          elementsMap,
+          rc,
+          context,
+          renderConfig,
+        );
         context.restore();
       } else {
         const elementWithCanvas = generateElementWithCanvas(
@@ -1031,6 +1163,20 @@ export const renderElement = (
 
           drawElementOnCanvas(element, tempRc, tempCanvasContext, renderConfig);
 
+          const arrowInk = inkOf(element);
+
+          if (arrowInk.look !== "normal") {
+            applyInkLook(
+              tempCanvas,
+              arrowInk,
+              renderConfig.theme === THEME.DARK
+                ? applyDarkModeFilter(element.strokeColor)
+                : element.strokeColor,
+              element.seed,
+              appState.exportScale,
+            );
+          }
+
           tempCanvasContext.translate(shiftX, shiftY);
 
           tempCanvasContext.rotate(-element.angle);
@@ -1068,7 +1214,13 @@ export const renderElement = (
           }
 
           context.translate(-shiftX, -shiftY);
-          drawElementOnCanvas(element, rc, context, renderConfig);
+          drawElementOnExportCanvas(
+            element,
+            elementsMap,
+            rc,
+            context,
+            renderConfig,
+          );
         }
 
         context.restore();

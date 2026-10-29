@@ -23,6 +23,8 @@ import {
   PAGE_WIDTH,
 } from "../types";
 
+import { getPagePaperDraw } from "./paper";
+
 import type {
   ExcalidrawPage,
   NormalizedZoomValue,
@@ -272,7 +274,10 @@ export const getPageSizePresetForPage = (
  * contain imported content is (D-1, D-5).
  */
 export type PageProperties = Partial<
-  Pick<ExcalidrawPage, "frame" | "number" | "width" | "height" | "sizePreset">
+  Pick<
+    ExcalidrawPage,
+    "frame" | "number" | "width" | "height" | "sizePreset" | "paper"
+  >
 >;
 
 /**
@@ -339,8 +344,10 @@ export const getPageDecoration = ({
   }
 
   const pageRect = getPageRect(pages, pageId);
+  const paper = getPagePaperDraw(page, pageRect);
 
   return {
+    ...(paper ? { paper } : {}),
     frame: page.frame ? pageRect : null,
     number: page.number
       ? {

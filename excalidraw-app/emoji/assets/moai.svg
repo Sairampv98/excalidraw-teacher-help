@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 100 100" role="img" aria-label="Moai">
+  <polygon points="28,8 72,8 80,20 76,58 70,94 32,94 26,58 20,20" fill="#8A8F98"/>
+  <polygon points="28,8 38,8 36,94 32,94 26,58 20,20" fill="#D5D9DE"/>
+  <rect x="28" y="34" width="46" height="8" rx="3" fill="#5C626B"/>
+  <ellipse cx="41" cy="50" rx="6" ry="4" fill="#1A1A1A"/>
+  <ellipse cx="63" cy="50" rx="6" ry="4" fill="#1A1A1A"/>
+  <polygon points="52,44 43,68 60,68" fill="#5C626B"/>
+  <rect x="38" y="78" width="28" height="6" rx="2" fill="#5C626B"/>
+</svg>

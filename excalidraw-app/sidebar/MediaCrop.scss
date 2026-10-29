@@ -1,0 +1,128 @@
+// the crop screen (D-247): the picture, a crop box in the node's shape, and the bar
+.media-crop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  background: #1d1d21;
+  color: #f1f1f4;
+  user-select: none;
+
+  &__bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+    z-index: 1;
+    height: 64px;
+    padding: 0 16px;
+    background: #2b2b31;
+    border-bottom: 1px solid #3c3c44;
+
+    button {
+      padding: 6px 12px;
+      border: 1px solid #55555f;
+      border-radius: 6px;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+
+      &[aria-pressed="true"] {
+        background: #4c4cd6;
+        border-color: #4c4cd6;
+      }
+    }
+  }
+
+  &__fits {
+    display: flex;
+    gap: 6px;
+  }
+
+  &__words {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+
+    select {
+      padding: 4px 6px;
+      border: 1px solid #55555f;
+      border-radius: 6px;
+      background: #1d1d21;
+      color: inherit;
+      font: inherit;
+    }
+  }
+
+  &__spacer {
+    flex: 1;
+  }
+
+  &__apply {
+    background: #4c4cd6 !important;
+    border-color: #4c4cd6 !important;
+  }
+
+  // the stage is the whole screen, under the bar, so that a place on it is a
+  // place on the screen
+  &__stage {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+
+    img {
+      position: absolute;
+      max-width: none;
+      pointer-events: none;
+    }
+  }
+
+  &__note {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    margin: 0;
+    opacity: 0.7;
+  }
+
+  &__overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+  }
+
+  &__dim {
+    fill: rgba(0, 0, 0, 0.6);
+    pointer-events: none;
+  }
+
+  &__outline {
+    fill: none;
+    stroke: #fff;
+    stroke-width: 1.5;
+    pointer-events: none;
+  }
+
+  &__grid line {
+    stroke: rgba(255, 255, 255, 0.55);
+    stroke-width: 1;
+    pointer-events: none;
+  }
+
+  &__box {
+    fill: transparent;
+    stroke: rgba(255, 255, 255, 0.4);
+    stroke-width: 1;
+    cursor: move;
+  }
+
+  &__handle {
+    fill: #fff;
+    stroke: #1d1d21;
+    stroke-width: 1;
+  }
+}

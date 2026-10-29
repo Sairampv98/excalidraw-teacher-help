@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 100 100" role="img" aria-label="Nerd">
+  <circle cx="50" cy="50" r="44" fill="#E0A21B"/>
+  <circle cx="50" cy="50" r="40" fill="#FFCB3D"/>
+  <circle cx="34" cy="42" r="5" fill="#1A1A1A"/>
+  <circle cx="66" cy="42" r="5" fill="#1A1A1A"/>
+  <polyline points="47,42 46.36,46.02 44.52,49.64 41.64,52.52 38.02,54.36 34,55 29.98,54.36 26.36,52.52 23.48,49.64 21.64,46.02 21,42 21.64,37.98 23.48,34.36 26.36,31.48 29.98,29.64 34,29 38.02,29.64 41.64,31.48 44.52,34.36 46.36,37.98 47,42" fill="none" stroke="#1A1A1A" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="79,42 78.36,46.02 76.52,49.64 73.64,52.52 70.02,54.36 66,55 61.98,54.36 58.36,52.52 55.48,49.64 53.64,46.02 53,42 53.64,37.98 55.48,34.36 58.36,31.48 61.98,29.64 66,29 70.02,29.64 73.64,31.48 76.52,34.36 78.36,37.98 79,42" fill="none" stroke="#1A1A1A" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="47,42 53,42" fill="none" stroke="#1A1A1A" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="68.13,66.45 66.75,68.93 65.04,71.19 63.02,73.18 60.75,74.87 58.25,76.22 55.6,77.2 52.83,77.8 50,78 47.17,77.8 44.4,77.2 41.75,76.22 39.25,74.87 36.98,73.18 34.96,71.19 33.25,68.93 31.87,66.45" fill="none" stroke="#1A1A1A" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="42" y="70" width="7" height="8" rx="1" fill="#FFFFFF"/>
+  <rect x="51" y="70" width="7" height="8" rx="1" fill="#FFFFFF"/>
+</svg>

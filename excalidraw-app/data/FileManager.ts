@@ -17,6 +17,8 @@ import type {
   BinaryFiles,
 } from "@excalidraw/excalidraw/types";
 
+import { fileIdsOf } from "./fileIds";
+
 type FileVersion = Required<BinaryFileData>["version"];
 
 export class FileManager {
@@ -98,17 +100,19 @@ export class FileManager {
   }) => {
     const addedFiles: Map<FileId, BinaryFileData> = new Map();
 
+    // the files of the images, and of the panels that are made of a file (D-250)
     for (const element of elements) {
-      const fileData =
-        isInitializedImageElement(element) && files[element.fileId];
+      for (const fileId of fileIdsOf(element)) {
+        const fileData = files[fileId];
 
-      if (
-        fileData &&
-        // NOTE if errored during save, won't retry due to this check
-        !this.isFileSavedOrBeingSaved(fileData)
-      ) {
-        addedFiles.set(element.fileId, files[element.fileId]);
-        this.savingFiles.set(element.fileId, this.getFileVersion(fileData));
+        if (
+          fileData &&
+          // NOTE if errored during save, won't retry due to this check
+          !this.isFileSavedOrBeingSaved(fileData)
+        ) {
+          addedFiles.set(fileId, fileData);
+          this.savingFiles.set(fileId, this.getFileVersion(fileData));
+        }
       }
     }
 
@@ -189,9 +193,8 @@ export class FileManager {
   shouldPreventUnload = (elements: readonly ExcalidrawElement[]) => {
     return elements.some((element) => {
       return (
-        isInitializedImageElement(element) &&
         !element.isDeleted &&
-        this.savingFiles.has(element.fileId)
+        fileIdsOf(element).some((fileId) => this.savingFiles.has(fileId))
       );
     });
   };

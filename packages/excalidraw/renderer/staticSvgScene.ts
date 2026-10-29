@@ -31,6 +31,7 @@ import {
 import { getContainingFrame } from "@excalidraw/element";
 
 import { getCornerRadius, isPathALoop } from "@excalidraw/element";
+import { mediaClip, mediaOf, viewPlacement } from "@excalidraw/element";
 
 import { ShapeCache } from "@excalidraw/element";
 
@@ -41,6 +42,8 @@ import type {
   ExcalidrawTextElementWithContainer,
   NonDeletedExcalidrawElement,
 } from "@excalidraw/element/types";
+
+import { renderWithInk } from "./inkSvg";
 
 import type { RenderableElementsMap, SVGRenderConfig } from "../scene/types";
 import type { AppState, BinaryFiles } from "../types";
@@ -439,6 +442,91 @@ const renderElementToSvg = (
       const height = Math.round(element.height);
       const fileData =
         isInitializedImageElement(element) && files[element.fileId];
+      const placedMedia = mediaOf(element);
+
+      if (fileData && placedMedia?.view) {
+        // the media of a node shows the part of the picture that is its view,
+        // which may reach past the picture (D-247): the picture is placed on the
+        // box and the node's shape cuts it
+        const doc = svgRoot.ownerDocument;
+        const placed = viewPlacement(
+          placedMedia.view,
+          element,
+          placedMedia.natural ?? {
+            width: element.width,
+            height: element.height,
+          },
+        );
+        const picture = doc.createElementNS(SVG_NS, "image");
+
+        picture.setAttribute("href", fileData.dataURL);
+        picture.setAttribute("preserveAspectRatio", "none");
+        picture.setAttribute("x", `${placed.x}`);
+        picture.setAttribute("y", `${placed.y}`);
+        picture.setAttribute("width", `${placed.width}`);
+        picture.setAttribute("height", `${placed.height}`);
+
+        const g = doc.createElementNS(SVG_NS, "g");
+
+        g.setAttribute(
+          "transform",
+          `translate(${offsetX || 0} ${
+            offsetY || 0
+          }) rotate(${degree} ${cx} ${cy})`,
+        );
+        g.setAttribute("opacity", `${opacity}`);
+
+        // the picture is cut to the box, and to the shape of the node
+        const clipPath = doc.createElementNS(SVG_NS, "clipPath");
+
+        clipPath.id = `image-media-clipPath-${element.id}`;
+        clipPath.setAttribute("clipPathUnits", "userSpaceOnUse");
+
+        const cut = mediaClip(placedMedia, element.width, element.height);
+        let shape: Element;
+
+        if (cut.kind === "ellipse") {
+          shape = doc.createElementNS(SVG_NS, "ellipse");
+          shape.setAttribute("cx", `${element.width / 2}`);
+          shape.setAttribute("cy", `${element.height / 2}`);
+          shape.setAttribute("rx", `${element.width / 2}`);
+          shape.setAttribute("ry", `${element.height / 2}`);
+        } else if (cut.kind === "polygon") {
+          shape = doc.createElementNS(SVG_NS, "polygon");
+          shape.setAttribute(
+            "points",
+            cut.points.map(([px, py]) => `${px},${py}`).join(" "),
+          );
+        } else {
+          shape = doc.createElementNS(SVG_NS, "rect");
+          shape.setAttribute("x", "0");
+          shape.setAttribute("y", "0");
+          shape.setAttribute("width", `${element.width}`);
+          shape.setAttribute("height", `${element.height}`);
+
+          if (cut.kind === "roundRect") {
+            shape.setAttribute("rx", `${cut.radius}`);
+            shape.setAttribute("ry", `${cut.radius}`);
+          }
+        }
+
+        clipPath.appendChild(shape);
+        addToRoot(clipPath, element);
+        g.setAttribute("clip-path", `url(#${clipPath.id})`);
+        g.appendChild(picture);
+
+        const wrapped = maybeWrapNodesInFrameClipPath(
+          element,
+          root,
+          [g],
+          renderConfig.frameRendering,
+          elementsMap,
+        );
+
+        addToRoot(wrapped || g, element);
+        break;
+      }
+
       if (fileData) {
         const { reuseImages = true } = renderConfig;
 
@@ -582,6 +670,50 @@ const renderElementToSvg = (
           clipPath.appendChild(clipRect);
           addToRoot(clipPath, element);
 
+          g.setAttributeNS(SVG_NS, "clip-path", `url(#${clipPath.id})`);
+        }
+
+        // the media of a node is cut to the node's shape (D-246)
+        const media = mediaOf(element);
+        const cut = media
+          ? mediaClip(media, element.width, element.height)
+          : null;
+
+        if (cut && cut.kind !== "none") {
+          const doc = svgRoot.ownerDocument;
+          const clipPath = doc.createElementNS(SVG_NS, "clipPath");
+
+          clipPath.id = `image-media-clipPath-${element.id}`;
+          clipPath.setAttribute("clipPathUnits", "userSpaceOnUse");
+
+          const ox = element.crop ? normalizedCropX : 0;
+          const oy = element.crop ? normalizedCropY : 0;
+          let shape: Element;
+
+          if (cut.kind === "ellipse") {
+            shape = doc.createElementNS(SVG_NS, "ellipse");
+            shape.setAttribute("cx", `${ox + element.width / 2}`);
+            shape.setAttribute("cy", `${oy + element.height / 2}`);
+            shape.setAttribute("rx", `${element.width / 2}`);
+            shape.setAttribute("ry", `${element.height / 2}`);
+          } else if (cut.kind === "polygon") {
+            shape = doc.createElementNS(SVG_NS, "polygon");
+            shape.setAttribute(
+              "points",
+              cut.points.map(([px, py]) => `${ox + px},${oy + py}`).join(" "),
+            );
+          } else {
+            shape = doc.createElementNS(SVG_NS, "rect");
+            shape.setAttribute("x", `${ox}`);
+            shape.setAttribute("y", `${oy}`);
+            shape.setAttribute("width", `${element.width}`);
+            shape.setAttribute("height", `${element.height}`);
+            shape.setAttribute("rx", `${cut.radius}`);
+            shape.setAttribute("ry", `${cut.radius}`);
+          }
+
+          clipPath.appendChild(shape);
+          addToRoot(clipPath, element);
           g.setAttributeNS(SVG_NS, "clip-path", `url(#${clipPath.id})`);
         }
 
@@ -776,28 +908,38 @@ export const renderSceneToSvg = (
         }
 
         try {
-          renderElementToSvg(
-            element,
-            elementsMap,
-            rsvg,
-            svgRoot,
-            files,
-            element.x + renderConfig.offsetX,
-            element.y + renderConfig.offsetY,
-            renderConfig,
-          );
-
-          const boundTextElement = getBoundTextElement(element, elementsMap);
-          if (boundTextElement) {
+          // an element with an ink look is drawn inside its filter (D-241)
+          renderWithInk(element, elementsMap, svgRoot, renderConfig, () =>
             renderElementToSvg(
-              boundTextElement,
+              element,
               elementsMap,
               rsvg,
               svgRoot,
               files,
-              boundTextElement.x + renderConfig.offsetX,
-              boundTextElement.y + renderConfig.offsetY,
+              element.x + renderConfig.offsetX,
+              element.y + renderConfig.offsetY,
               renderConfig,
+            ),
+          );
+
+          const boundTextElement = getBoundTextElement(element, elementsMap);
+          if (boundTextElement) {
+            renderWithInk(
+              boundTextElement,
+              elementsMap,
+              svgRoot,
+              renderConfig,
+              () =>
+                renderElementToSvg(
+                  boundTextElement,
+                  elementsMap,
+                  rsvg,
+                  svgRoot,
+                  files,
+                  boundTextElement.x + renderConfig.offsetX,
+                  boundTextElement.y + renderConfig.offsetY,
+                  renderConfig,
+                ),
             );
           }
         } catch (error: any) {

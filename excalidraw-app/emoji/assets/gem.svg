@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 100 100" role="img" aria-label="Gem">
+  <polygon points="26,14 74,14 94,38 50,92 6,38" fill="#3B8CF0"/>
+  <polygon points="26,14 74,14 62,38 38,38" fill="#9ACFFF"/>
+  <polygon points="6,38 38,38 50,92" fill="#19B8B8"/>
+  <polygon points="94,38 62,38 50,92" fill="#8B5CF6"/>
+</svg>

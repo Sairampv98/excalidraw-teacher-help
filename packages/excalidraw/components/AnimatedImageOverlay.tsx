@@ -4,6 +4,9 @@ import {
   getContainingFrame,
   getCornerRadius,
   getRenderOpacity,
+  mediaCssClip,
+  mediaOf,
+  viewPlacement,
 } from "@excalidraw/element";
 
 import type {
@@ -93,6 +96,7 @@ const AnimatedImage = ({
   }
 
   const { crop } = image;
+  const nodeMedia = mediaOf(image);
 
   // `drawImage(img, cropX, cropY, cropW, cropH, 0, 0, width, height)` in CSS:
   // scale the whole source by the ratio between the cropped region and the
@@ -116,6 +120,22 @@ const AnimatedImage = ({
     };
   }
 
+  // the media of a node shows the part of the picture that is its view, which
+  // may reach past the picture (D-247)
+  const placedNatural = nodeMedia?.natural ?? naturalSize;
+
+  if (nodeMedia?.view && placedNatural) {
+    const placed = viewPlacement(nodeMedia.view, image, placedNatural);
+
+    imageStyle = {
+      position: "absolute",
+      left: placed.x,
+      top: placed.y,
+      width: placed.width,
+      height: placed.height,
+    };
+  }
+
   return (
     <div
       className="excalidraw__animated-image-clip"
@@ -133,6 +153,8 @@ const AnimatedImage = ({
           borderRadius: image.roundness
             ? getCornerRadius(Math.min(image.width, image.height), image)
             : undefined,
+          // the media of a node is cut to the node's shape (D-246)
+          clipPath: nodeMedia ? mediaCssClip(nodeMedia) : undefined,
           // the crop modal draws its own handles over the image; hide this copy
           // so it cannot sit on top of them
           visibility: croppingElementId === image.id ? "hidden" : undefined,

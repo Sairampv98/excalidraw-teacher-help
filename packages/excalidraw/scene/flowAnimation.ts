@@ -31,8 +31,18 @@ export type FlowAnimationCamera = {
   offsetTop: number;
 };
 
-/** how much the focused step grows, about the centre of its own bounds */
-export const FLOW_FOCUS_SCALE = 1.12;
+/**
+ * How far the focused step stands out from its box, on every side, in scene
+ * units (D-220): a margin, not a share of the size, so a wide node does not get
+ * a wide gap.
+ */
+export const FLOW_FOCUS_MARGIN = 5;
+
+/** the scale that puts the focus `margin` out from a box, on each axis */
+export const flowFocusScale = (box: FlowBox, margin = FLOW_FOCUS_MARGIN) => ({
+  x: 1 + (2 * margin) / Math.max(box.width, 1),
+  y: 1 + (2 * margin) / Math.max(box.height, 1),
+});
 
 /**
  * The CSS transform that puts a scene-space box exactly where the canvas would
@@ -69,14 +79,16 @@ export const flowBoundsTransform = (
 export const flowFocusTransform = (
   stepBox: FlowBox,
   elementBox: FlowBox,
-  scale: number = FLOW_FOCUS_SCALE,
+  scale?: number,
 ): string => {
   const dx = stepBox.x + stepBox.width / 2 - elementBox.x;
   const dy = stepBox.y + stepBox.height / 2 - elementBox.y;
+  // a given scale is uniform; without one the focus is a margin round the box
+  const factor = scale === undefined ? flowFocusScale(elementBox) : null;
 
   return [
     `translate(${dx}px, ${dy}px)`,
-    `scale(${scale})`,
+    factor ? `scale(${factor.x}, ${factor.y})` : `scale(${scale})`,
     `translate(${-dx}px, ${-dy}px)`,
   ].join(" ");
 };

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 100 100" role="img" aria-label="Bomb">
+  <circle cx="46" cy="58" r="34" fill="#1A1A1A"/>
+  <circle cx="36" cy="46" r="8" fill="#5C626B"/>
+  <rect x="58" y="22" width="10" height="12" rx="2" fill="#8A8F98"/>
+  <polyline points="66,22 74,10 84,12" fill="none" stroke="#8A5A2B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <polygon points="86,2 88,8.54 94.66,7 90,12 94.66,17 88,15.46 86,22 84,15.46 77.34,17 82,12 77.34,7 84,8.54" fill="#FFD84D"/>
+</svg>

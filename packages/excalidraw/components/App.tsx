@@ -420,6 +420,7 @@ import {
 
 import { Fonts } from "../fonts";
 import { editorJotaiStore, type WritableAtom } from "../editor-jotai";
+import { newElementInkProps } from "../inkDefault";
 import { ImageSceneDataError } from "../errors";
 import {
   getSnapLinesAtPointer,
@@ -505,7 +506,14 @@ import { PanelScreenshotWireframe } from "./PanelScreenshotWireframe";
 import { PanelMirrorPicker } from "./PanelMirrorPicker";
 
 import { FlowAnimationOverlay } from "./FlowAnimationOverlay";
-import { isFlowAnimationActive, stopFlowAnimation } from "./FlowAnimationState";
+import { FlowAnimationBar } from "./FlowAnimationBar";
+import { FlowScriptEditor } from "./FlowScriptEditor";
+import {
+  getFlowArrowLooks,
+  subscribeToFlowArrowLooks,
+} from "./FlowArrowLooksState";
+import { FlowClassOverlay } from "./FlowClassOverlay";
+import { isFlowRunning, stopFlowEverything } from "./FlowAnimationState";
 import BraveMeasureTextError from "./BraveMeasureTextError";
 import { ContextMenu, CONTEXT_MENU_SEPARATOR } from "./ContextMenu";
 import { activeEyeDropperAtom } from "./EyeDropper";
@@ -573,6 +581,7 @@ import type {
   ExcalidrawImperativeAPIEventMap,
   GenerateDiagramToCode,
   NullableGridSize,
+  NormalizedZoomValue,
   Offsets,
   PageDecoration,
   PageRect,
@@ -2275,6 +2284,7 @@ class App extends React.Component<AppProps, AppState> {
        * (e.g. when its zIndex isn't on top) */
       newElementCanvasElement,
     } = this.renderer.getRenderableElements({
+      arrowLooks: getFlowArrowLooks(),
       zoom: this.state.zoom,
       offsetLeft: this.state.offsetLeft,
       offsetTop: this.state.offsetTop,
@@ -2664,8 +2674,96 @@ class App extends React.Component<AppProps, AppState> {
                             }}
                             onChoose={this.choosePanelMirror}
                           />
+                          {/*
+                            The class loop (D-184): the flows marked for class
+                            animate by themselves in the class view - view mode,
+                            or a window that is only displayed (D-182, D-187).
+                          */}
+                          <FlowClassOverlay
+                            elements={this.scene.getNonDeletedElements()}
+                            elementsMap={allElementsMap}
+                            pageId={
+                              this.pagesEnabled
+                                ? this.state.currentPageId
+                                : undefined
+                            }
+                            active={
+                              this.state.viewModeEnabled ||
+                              !!this.props.flowDisplayOnly
+                            }
+                            displayOnly={!!this.props.flowDisplayOnly}
+                            camera={{
+                              zoom: this.state.zoom,
+                              scrollX: this.state.scrollX,
+                              scrollY: this.state.scrollY,
+                              offsetLeft: this.state.offsetLeft,
+                              offsetTop: this.state.offsetTop,
+                            }}
+                          />
                           <FlowAnimationOverlay
                             elementsMap={allElementsMap}
+                            viewport={{
+                              width: this.state.width,
+                              height: this.state.height,
+                            }}
+                            pageRect={
+                              this.state.pages
+                                ? getPageRect(
+                                    this.state.pages,
+                                    this.state.currentPageId,
+                                  )
+                                : undefined
+                            }
+                            // the camera flight (D-170) moves only the view
+                            onCamera={(view) =>
+                              this.setState({
+                                scrollX: view.scrollX,
+                                scrollY: view.scrollY,
+                                zoom: {
+                                  value: view.zoom as NormalizedZoomValue,
+                                },
+                              })
+                            }
+                            camera={{
+                              zoom: this.state.zoom,
+                              scrollX: this.state.scrollX,
+                              scrollY: this.state.scrollY,
+                              offsetLeft: this.state.offsetLeft,
+                              offsetTop: this.state.offsetTop,
+                            }}
+                          />
+                          {/*
+                            The bar that drives the flow animation (D-177): it
+                            follows the chart it controls, and it comes after the
+                            overlay so it is painted above it.
+                          */}
+                          <FlowAnimationBar
+                            app={this}
+                            elements={this.scene.getNonDeletedElements()}
+                            elementsMap={allElementsMap}
+                            selectedElementIds={this.state.selectedElementIds}
+                            hidden={this.state.viewModeEnabled}
+                            viewport={{
+                              width: this.state.width,
+                              height: this.state.height,
+                            }}
+                            camera={{
+                              zoom: this.state.zoom,
+                              scrollX: this.state.scrollX,
+                              scrollY: this.state.scrollY,
+                              offsetLeft: this.state.offsetLeft,
+                              offsetTop: this.state.offsetTop,
+                            }}
+                          />
+                          <FlowScriptEditor
+                            app={this}
+                            elements={this.scene.getNonDeletedElements()}
+                            elementsMap={allElementsMap}
+                            hidden={this.state.viewModeEnabled}
+                            viewport={{
+                              width: this.state.width,
+                              height: this.state.height,
+                            }}
                             camera={{
                               zoom: this.state.zoom,
                               scrollX: this.state.scrollX,
@@ -3411,8 +3509,19 @@ class App extends React.Component<AppProps, AppState> {
     });
   }
 
+  /** stops listening for what an animated flow does to its arrows (D-204) */
+  private flowArrowLooksUnsubscribe?: () => void;
+
   public async componentDidMount() {
     this.unmounted = false;
+
+    // the canvas is drawn again when an animated flow hides or recolours its
+    // arrows, and when it stops (D-204)
+    this.flowArrowLooksUnsubscribe = subscribeToFlowArrowLooks(() => {
+      if (!this.unmounted) {
+        this.forceUpdate();
+      }
+    });
     this.api = this.createExcalidrawAPI();
 
     this.excalidrawContainerValue.container =
@@ -4086,6 +4195,7 @@ class App extends React.Component<AppProps, AppState> {
     // we're recreating the api object reference so that the
     // <ExcalidrawAPIContext.Provider/> picks up on it
     this.api = { ...this.api, isDestroyed: true };
+    this.flowArrowLooksUnsubscribe?.();
 
     for (const key of Object.keys(this.api) as (keyof typeof this.api)[]) {
       if (
@@ -5155,6 +5265,7 @@ class App extends React.Component<AppProps, AppState> {
     );
 
     const textElementProps = {
+      ...newElementInkProps("text"),
       x,
       y,
       strokeColor: this.state.currentItemStrokeColor,
@@ -6119,8 +6230,8 @@ class App extends React.Component<AppProps, AppState> {
       if (!isInputLike(event.target)) {
         // the flow animation takes the canvas over while it plays; Escape ends
         // it and gives the canvas back
-        if (event.key === KEYS.ESCAPE && isFlowAnimationActive()) {
-          stopFlowAnimation();
+        if (event.key === KEYS.ESCAPE && isFlowRunning()) {
+          stopFlowEverything();
           return;
         }
 
@@ -7654,6 +7765,7 @@ class App extends React.Component<AppProps, AppState> {
     const element =
       existingTextElement ||
       newTextElement({
+        ...newElementInkProps("text"),
         x: newTextElementPosition.x,
         y: newTextElementPosition.y,
         strokeColor: this.state.currentItemStrokeColor,
@@ -10440,6 +10552,7 @@ class App extends React.Component<AppProps, AppState> {
     const simulatePressure = event.pressure === 0.5;
 
     const element = newFreeDrawElement({
+      ...newElementInkProps("freedraw"),
       type: elementType,
       x: gridX,
       y: gridY,
@@ -10751,6 +10864,7 @@ class App extends React.Component<AppProps, AppState> {
       const element =
         elementType === "arrow"
           ? newArrowElement({
+              ...newElementInkProps("arrow"),
               type: elementType,
               x: gridX,
               y: gridY,
@@ -10778,6 +10892,7 @@ class App extends React.Component<AppProps, AppState> {
                   : null,
             })
           : newLinearElement({
+              ...newElementInkProps("line"),
               type: elementType,
               x: gridX,
               y: gridY,
@@ -10939,6 +11054,7 @@ class App extends React.Component<AppProps, AppState> {
     });
 
     const baseElementAttributes = {
+      ...newElementInkProps(elementType),
       x: gridX,
       y: gridY,
       strokeColor: this.state.currentItemStrokeColor,

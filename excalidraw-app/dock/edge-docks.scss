@@ -154,10 +154,26 @@
   }
 }
 
+// the emoji bar's collapsed form: a round button with a smile (D-245)
+.excalidraw-dock-pill--round {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+  color: var(--text-primary-color, var(--icon-fill-color));
+}
+
 .theme--dark {
   .excalidraw-dock-move,
   .excalidraw-dock-collapse,
   .excalidraw-dock-pill {
     background-color: var(--color-gray-30);
   }
+}
+
+// the emoji bar centres itself with a transform and sits on the bottom edge;
+// once it is a dock the dock places it by left and top (D-216)
+.excalidraw-sticker-bar.excalidraw-dock-target {
+  bottom: auto;
+  transform: none;
 }

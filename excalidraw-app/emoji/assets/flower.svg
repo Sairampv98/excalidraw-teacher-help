@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 100 100" role="img" aria-label="Flower">
+  <circle cx="50" cy="26" r="17" fill="#FF7AA8"/>
+  <circle cx="72.83" cy="42.58" r="17" fill="#FF7AA8"/>
+  <circle cx="64.11" cy="69.42" r="17" fill="#FF7AA8"/>
+  <circle cx="35.89" cy="69.42" r="17" fill="#FF7AA8"/>
+  <circle cx="27.17" cy="42.58" r="17" fill="#FF7AA8"/>
+  <circle cx="50" cy="50" r="14" fill="#FFD84D"/>
+</svg>

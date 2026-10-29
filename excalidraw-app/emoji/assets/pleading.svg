@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 100 100" role="img" aria-label="Pleading face">
+  <circle cx="50" cy="50" r="44" fill="#E0A21B"/>
+  <circle cx="50" cy="50" r="40" fill="#FFCB3D"/>
+  <polyline points="22,28 38,24" fill="none" stroke="#E0A21B" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="78,28 62,24" fill="none" stroke="#E0A21B" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="35" cy="46" r="11" fill="#1A1A1A"/>
+  <circle cx="65" cy="46" r="11" fill="#1A1A1A"/>
+  <circle cx="31" cy="41" r="4.5" fill="#FFFFFF"/>
+  <circle cx="61" cy="41" r="4.5" fill="#FFFFFF"/>
+  <circle cx="38" cy="52" r="2.2" fill="#FFFFFF"/>
+  <circle cx="68" cy="52" r="2.2" fill="#FFFFFF"/>
+  <polyline points="41.54,74.92 42.86,72.52 44.84,70.63 47.29,69.42 50,69 52.71,69.42 55.16,70.63 57.14,72.52 58.46,74.92" fill="none" stroke="#1A1A1A" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

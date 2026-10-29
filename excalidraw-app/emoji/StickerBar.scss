@@ -1,0 +1,179 @@
+/**
+ * The emoji and GIF bar (D-159) - the page bar's visual language, one row
+ * above it. Same centring rule (D-121): in the space the sidebar leaves.
+ */
+.excalidraw-sticker-bar {
+  position: fixed;
+  left: calc(50% - var(--canvas-reserved-width, 0px) / 2);
+  bottom: 64px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(720px, calc(100vw - var(--canvas-reserved-width, 0px) - 32px));
+  padding: 6px;
+  pointer-events: auto;
+  z-index: 70;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background-color: var(--island-bg-color);
+  box-shadow: var(--shadow-island);
+  color: var(--text-primary-color, var(--icon-fill-color));
+}
+
+// folded into its round button (D-245): the bar is not there to be clicked, and
+// its own `pointer-events: auto` must not win over the dock's
+.excalidraw-sticker-bar.excalidraw-dock-target--pill {
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.excalidraw-sticker-bar__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+
+  &:hover {
+    background-color: var(--button-hover-bg, rgba(127, 127, 127, 0.18));
+  }
+}
+
+.excalidraw-sticker-bar__tabs {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background-color: var(--button-gray-1, rgba(127, 127, 127, 0.14));
+}
+
+.excalidraw-sticker-bar__tab {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+
+  &[aria-selected="true"] {
+    background-color: var(--color-primary, #6965db);
+    color: var(--color-surface-lowest, #fff);
+  }
+}
+
+.excalidraw-sticker-bar__search {
+  flex: 0 1 170px;
+  min-width: 130px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background-color: var(--input-bg-color, transparent);
+  color: inherit;
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+.excalidraw-sticker-bar__row {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+}
+
+.excalidraw-sticker-bar__item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  padding: 2px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: grab;
+
+  &:hover,
+  &:focus-visible {
+    background-color: var(--button-hover-bg, rgba(127, 127, 127, 0.18));
+  }
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+}
+
+.excalidraw-sticker-bar__item {
+  position: relative;
+
+  &:hover::after,
+  &:focus-visible::after {
+    content: attr(data-label);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 2px 8px;
+    border-radius: 6px;
+    background-color: var(--popup-bg-color, #1b1b1f);
+    color: var(--popup-text-color, #fff);
+    font-size: 0.75rem;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 1;
+  }
+}
+
+.excalidraw-sticker-bar__empty {
+  padding: 0 8px;
+  font-size: 0.8125rem;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+.excalidraw-sticker-bar__error {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  color: var(--color-danger, #db6965);
+}
+
+.excalidraw-sticker-bar-hidden {
+  position: fixed;
+  left: calc(50% - var(--canvas-reserved-width, 0px) / 2 + 80px);
+  bottom: 0;
+  transform: translateX(-50%);
+  z-index: 70;
+}
+
+.excalidraw-sticker-bar-hidden__handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  background-color: var(--island-bg-color);
+  color: var(--text-primary-color, var(--icon-fill-color));
+  cursor: pointer;
+}

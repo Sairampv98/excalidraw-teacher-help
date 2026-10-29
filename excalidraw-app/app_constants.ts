@@ -41,6 +41,8 @@ export const STORAGE_KEYS = {
   LOCAL_STORAGE_APP_STATE: "excalidraw-state",
   /** whether the user has collapsed the page bar into the bottom edge */
   LOCAL_STORAGE_PAGE_BAR_HIDDEN: "excalidraw-page-bar-hidden",
+  /** whether the user has tucked the emoji and GIF bar away */
+  LOCAL_STORAGE_STICKER_BAR_HIDDEN: "excalidraw-sticker-bar-hidden",
   /** user-dragged sidebar width, in css px */
   LOCAL_STORAGE_SIDEBAR_WIDTH: "excalidraw-sidebar-width",
   /** whether resizing the canvas space re-frames the current page */
