@@ -813,6 +813,8 @@ const CodePanelSurface = ({
   const bodyRef = useRef<HTMLDivElement | null>(null);
   /** what is typed in the input box, kept here until the box is left (D-283) */
   const [inputDraft, setInputDraft] = useState<string | null>(null);
+  /** the answer being typed to the question the program asked (D-298) */
+  const [answerDraft, setAnswerDraft] = useState("");
   const consoleSize = dragSize ?? consoleView.size;
 
   const changeConsole = (next: Partial<PanelConsoleView>) =>
@@ -1112,8 +1114,14 @@ const CodePanelSurface = ({
     }
 
     // a language the teacher's own editor runs, through the bridge (D-290)
-    return run?.languages?.includes(language)
-      ? `${name} (${t("labels.editor.runsInEditor")})`
+    if (run?.languages?.includes(language)) {
+      return `${name} (${t("labels.editor.runsInEditor")})`;
+    }
+
+    // a language nothing here can run is only given its colours: the picker
+    // says so, rather than let Run fail on it (D-304)
+    return run && pack?.state !== "ready"
+      ? `${name} (${t("labels.editor.coloursOnly")})`
       : name;
   };
 
@@ -1958,6 +1966,42 @@ const CodePanelSurface = ({
                 {line.text}
               </div>
             ))}
+            {state?.run.state === "waiting-input" && run?.onAnswer ? (
+              // the program asked a question: the answer is typed where the
+              // question is, and the program goes on from there (D-298)
+              <form
+                className="excalidraw__panel-code-answer"
+                data-testid="code-panel-answer-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  run.onAnswer?.(panel.id, answerDraft);
+                  setAnswerDraft("");
+                }}
+                style={{ display: "flex", gap: 4, alignItems: "center" }}
+              >
+                <span aria-hidden="true" style={{ color: palette.muted }}>
+                  &gt;
+                </span>
+                <input
+                  autoFocus
+                  data-testid="code-panel-answer"
+                  aria-label={t("labels.editor.answerLabel")}
+                  placeholder={t("labels.editor.answerHint")}
+                  spellCheck={false}
+                  value={answerDraft}
+                  onChange={(event) => setAnswerDraft(event.target.value)}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    font: "inherit",
+                    background: palette.background,
+                    color: palette.foreground,
+                    border: `1px solid ${palette.accent}`,
+                    padding: "1px 4px",
+                  }}
+                />
+              </form>
+            ) : null}
           </div>
           <div
             className="excalidraw__panel-code-console"

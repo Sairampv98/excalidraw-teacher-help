@@ -3,6 +3,8 @@ import { useRef, useState } from "react";
 import { Dialog } from "@excalidraw/excalidraw/components/Dialog";
 import { FilledButton } from "@excalidraw/excalidraw/components/FilledButton";
 
+import { OcrEnginePicker } from "./OcrEnginePicker";
+
 import type { OcrRegion } from "../../packages/vscode-bridge/bridge/src/ocr";
 
 export type OcrPicture = { dataURL: string; width: number; height: number };
@@ -135,6 +137,8 @@ export const OcrAreaDialog = ({
           ) : null}
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {/* the engine is chosen here too, wherever a page is read (D-300) */}
+          <OcrEnginePicker />
           <FilledButton
             variant="filled"
             disabled={!area}

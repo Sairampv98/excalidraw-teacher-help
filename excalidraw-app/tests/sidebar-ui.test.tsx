@@ -962,7 +962,7 @@ describe("FilesTab list and reader", () => {
     expect(labels).toContain("Copy code");
   });
 
-  it("always offers both load actions", () => {
+  it("AC-341 always offers both load actions, and the YouTube link as a button beside them", () => {
     mockObjectUrls();
 
     const { container } = render(<FilesTab />);
@@ -971,7 +971,38 @@ describe("FilesTab list and reader", () => {
       container.querySelectorAll(".app-sidebar-actions > button"),
     ).map((button) => button.textContent);
 
-    expect(actions).toEqual(["Open files", "Open folder"]);
+    expect(actions).toEqual(["Open files", "Open folder", "YouTube link"]);
+  });
+
+  it("AC-341 the field for the link opens with its button and closes with Escape", () => {
+    mockObjectUrls();
+
+    const { container } = render(<FilesTab />);
+
+    const button = container.querySelector<HTMLButtonElement>(
+      '[data-testid="files-youtube-button"]',
+    )!;
+
+    // the field is not in the way until it is asked for
+    expect(
+      container.querySelector('[data-testid="files-youtube-field"]'),
+    ).toBeNull();
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(button);
+
+    const field = container.querySelector<HTMLInputElement>(
+      '[data-testid="files-youtube-field"] input',
+    );
+
+    expect(field).not.toBeNull();
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.keyDown(field!, { key: "Escape" });
+
+    expect(
+      container.querySelector('[data-testid="files-youtube-field"]'),
+    ).toBeNull();
   });
 
   it("renders a markdown document as a document, with a zoom control", async () => {

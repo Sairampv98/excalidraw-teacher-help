@@ -941,18 +941,11 @@
 
 .app-doc-pdf-tools {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 0.3rem;
   flex: 0 0 auto;
   padding-bottom: 0.3rem;
-}
-
-.app-doc-pdf-viewer--hand {
-  cursor: grab;
-
-  .app-doc-pdf-text {
-    user-select: none;
-    pointer-events: none;
-  }
 }
 
 .app-doc-pdf-scan {

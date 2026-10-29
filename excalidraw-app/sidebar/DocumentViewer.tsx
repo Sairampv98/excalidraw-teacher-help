@@ -17,10 +17,13 @@ import {
   PDF_ZOOM_MIN,
   clampPdfZoom,
 } from "./PdfViewer";
+import { mergeRuns, pdfSelectionRuns } from "./pdfSelection";
 import { SelectionBar } from "./SelectionBar";
 import { escapeHtml, kindLabel, renderMarkdown } from "./sidebarFiles";
 
 import "./sidebar.scss";
+
+import type { OcrLine } from "../../packages/vscode-bridge/bridge/src/ocr";
 
 import type { ScannedFile } from "./sidebarFiles";
 
@@ -89,6 +92,8 @@ export const DocumentViewer = ({
   const [zoom, setZoom] = useState(1);
   /** the text the teacher has just selected in the document, if any */
   const [picked, setPicked] = useState<string | null>(null);
+  /** where that text was on its page, for a PDF (D-301) */
+  const [pickedLines, setPickedLines] = useState<OcrLine[] | undefined>();
 
   const isMarkdown = entry.kind === "markdown";
 
@@ -174,7 +179,13 @@ export const DocumentViewer = ({
         api?.setToast({ message: "Clipboard was blocked", closable: true });
       }
 
-      // the bar is offered whether or not the copy went through
+      // the bar is offered whether or not the copy went through; for a PDF it
+      // also knows where the text was on the page (D-301)
+      setPickedLines(
+        entry.kind === "pdf"
+          ? mergeRuns(pdfSelectionRuns(range, body))
+          : undefined,
+      );
       setPicked(text);
     };
 
@@ -473,6 +484,7 @@ export const DocumentViewer = ({
             <SelectionBar
               api={api}
               text={picked}
+              lines={pickedLines}
               onDone={() => setPicked(null)}
             />
           )}

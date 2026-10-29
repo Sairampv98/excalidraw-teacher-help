@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { OcrEnginePicker } from "../components/OcrEnginePicker";
+
 /**
  * The PDF viewer (D-279).
  *
@@ -130,7 +132,6 @@ export const PdfViewer = ({
   onReadPage?: (picture: PdfPagePicture) => void;
 }) => {
   const [status, setStatus] = useState<Status>({ state: "loading" });
-  const [hand, setHand] = useState(false);
   const documentRef = useRef<PdfDocumentProxy | null>(null);
   const jsRef = useRef<PdfJs | null>(null);
   const viewerRef = useRef<HTMLDivElement | null>(null);
@@ -257,7 +258,8 @@ export const PdfViewer = ({
     return () => viewer.removeEventListener("wheel", onWheel);
   }, [onZoomChange]);
 
-  // the hand tool, and the middle button, drag the page about
+  // the middle button drags the page about; a plain drag is left to the
+  // browser, so the text under it is selected (D-296, D-302)
   const panRef = useRef<{
     x: number;
     y: number;
@@ -268,7 +270,7 @@ export const PdfViewer = ({
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const viewer = viewerRef.current;
 
-    if (!viewer || !(hand || event.button === 1)) {
+    if (!viewer || event.button !== 1) {
       return;
     }
 
@@ -306,6 +308,50 @@ export const PdfViewer = ({
     if (next) {
       onZoomChange?.(next);
     }
+  };
+
+  /**
+   * Reads the page the teacher is on (D-302): the one that most of the viewer
+   * shows, or the first when nothing says (a viewer with no layout).
+   */
+  const readCurrentPage = () => {
+    const viewer = viewerRef.current;
+    const pages = containerRef.current;
+
+    if (!viewer || !pages || !onReadPage) {
+      return;
+    }
+
+    const view = viewer.getBoundingClientRect();
+    let best: HTMLElement | null = null;
+    let most = 0;
+
+    for (const sheet of pages.querySelectorAll<HTMLElement>(
+      ".app-doc-pdf-page",
+    )) {
+      const rect = sheet.getBoundingClientRect();
+      const shown =
+        Math.min(rect.bottom, view.bottom) - Math.max(rect.top, view.top);
+
+      if (shown > most) {
+        best = sheet;
+        most = shown;
+      }
+    }
+
+    const canvas = (
+      best ?? pages.querySelector<HTMLElement>(".app-doc-pdf-page")
+    )?.querySelector("canvas");
+
+    if (!canvas) {
+      return;
+    }
+
+    onReadPage({
+      dataURL: canvas.toDataURL("image/png"),
+      width: canvas.width,
+      height: canvas.height,
+    });
   };
 
   // the pages are drawn, and drawn again when the zoom changes
@@ -421,7 +467,7 @@ export const PdfViewer = ({
   return (
     <div
       ref={viewerRef}
-      className={`app-doc-pdf-viewer${hand ? " app-doc-pdf-viewer--hand" : ""}`}
+      className="app-doc-pdf-viewer"
       data-testid="pdf-viewer"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -446,16 +492,20 @@ export const PdfViewer = ({
         >
           Fit page
         </button>
-        <button
-          type="button"
-          className="app-sidebar-secondary"
-          data-testid="pdf-hand"
-          aria-pressed={hand}
-          title="Drag the page about (or hold the middle button)"
-          onClick={() => setHand((value) => !value)}
-        >
-          Hand
-        </button>
+        {onReadPage ? (
+          <>
+            <button
+              type="button"
+              className="app-sidebar-secondary"
+              data-testid="pdf-read-page"
+              title="Read the text of the page you are on with OCR"
+              onClick={readCurrentPage}
+            >
+              Read this page
+            </button>
+            <OcrEnginePicker />
+          </>
+        ) : null}
       </div>
       {status.state === "loading" ? (
         <div className="app-doc-fallback" data-testid="pdf-loading">

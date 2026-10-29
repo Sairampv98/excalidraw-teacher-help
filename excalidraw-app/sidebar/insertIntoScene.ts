@@ -261,7 +261,7 @@ const readFrame = (
  * This is the *default* placement only. An explicit drop or click point is
  * user-authoritative and is passed straight through by `insertImageIntoScene`.
  */
-const viewportCenter = (
+export const viewportCenter = (
   api: ExcalidrawImperativeAPI,
   width: number,
   height: number,

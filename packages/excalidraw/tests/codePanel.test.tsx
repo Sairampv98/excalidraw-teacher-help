@@ -1959,6 +1959,85 @@ describe("the code panel's view", () => {
     expect(onLanguageChange).toHaveBeenCalledWith(expect.any(String), "java");
   });
 
+  const panelRunning = (state: "waiting-input" | "running") =>
+    codePanelInView(
+      {
+        ...emptyCodePanelState(),
+        run: { runId: "r1", command: "python", state, exitCode: null },
+      },
+      "editor",
+    );
+
+  it("AC-337 a program that waits for an answer shows the field, and the answer goes to the host", async () => {
+    const onAnswer = vi.fn();
+
+    await render(<Excalidraw panelRun={{ onAnswer }} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panelRunning("waiting-input"))]);
+
+    const field = document.querySelector(
+      '[data-testid="code-panel-answer"]',
+    ) as HTMLInputElement;
+
+    expect(field).not.toBeNull();
+
+    fireEvent.change(field, { target: { value: "21" } });
+    fireEvent.submit(
+      document.querySelector('[data-testid="code-panel-answer-form"]')!,
+    );
+
+    expect(onAnswer).toHaveBeenCalledWith(expect.any(String), "21");
+
+    // ready for the next question
+    expect(field.value).toBe("");
+  });
+
+  it("AC-339 a language nothing can run says that it is only given its colours", async () => {
+    const empty = emptyCodePanelState();
+    const panel = codePanelInView(
+      { ...empty, editor: { ...empty.editor, language: "typescript" } },
+      "editor",
+    );
+
+    await render(
+      <Excalidraw
+        panelRun={{
+          languages: ["java"],
+          browserLanguages: ["python", "javascript"],
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    const picker = document.querySelector(
+      '[data-testid="code-panel-read-language"]',
+    ) as HTMLSelectElement;
+
+    const option = (value: string) =>
+      [...picker.options].find((entry) => entry.value === value)!;
+
+    expect(option("typescript").textContent).toBe(
+      "typescript (colours only, cannot run)",
+    );
+    // the languages that run say where
+    expect(option("python").textContent).toBe("python (runs here)");
+    expect(option("java").textContent).toBe("java (runs in VS Code)");
+  });
+
+  it("AC-337 a program that is not waiting shows no answer field", async () => {
+    await render(<Excalidraw panelRun={{ onAnswer: vi.fn() }} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panelRunning("running"))]);
+
+    expect(
+      document.querySelector('[data-testid="code-panel-answer"]'),
+    ).toBeNull();
+  });
+
   it("AC-327 choosing a language that is to be downloaded starts the download and keeps the language", async () => {
     const onInstallPack = vi.fn();
     const onLanguageChange = vi.fn();

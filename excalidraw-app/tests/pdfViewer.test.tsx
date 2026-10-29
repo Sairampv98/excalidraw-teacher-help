@@ -13,7 +13,10 @@ import { render, waitFor, fireEvent } from "@testing-library/react";
 import { createRef } from "react";
 import { vi } from "vitest";
 
+import { Provider, appJotaiStore, ocrEngineChoiceAtom } from "../app-jotai";
 import { PDF_MAX_PAGES, PdfViewer } from "../sidebar/PdfViewer";
+
+import type { ReactNode } from "react";
 
 import type { PdfJs, PdfPageProxy } from "../sidebar/PdfViewer";
 
@@ -283,14 +286,14 @@ describe("AC-325 the PDF reader can be zoomed, panned and fitted", () => {
     expect(onZoomChange.mock.calls.at(-1)![0]).toBeCloseTo(1 / 1.12, 5);
   });
 
-  it("AC-325 the hand tool drags the page about", async () => {
+  it("AC-325 the middle button drags the page about", async () => {
     const { getByTestId } = mount({ pages: 1 });
     const viewer = getByTestId("pdf-viewer");
 
     viewer.scrollLeft = 100;
     viewer.scrollTop = 100;
 
-    // without the hand a drag is a selection: nothing scrolls
+    // a plain drag is a selection: nothing scrolls
     viewer.dispatchEvent(
       new MouseEvent("pointerdown", {
         bubbles: true,
@@ -307,11 +310,10 @@ describe("AC-325 the PDF reader can be zoomed, panned and fitted", () => {
     );
     expect(viewer.scrollLeft).toBe(100);
 
-    fireEvent.click(getByTestId("pdf-hand"));
-
     viewer.dispatchEvent(
       new MouseEvent("pointerdown", {
         bubbles: true,
+        button: 1,
         clientX: 200,
         clientY: 200,
       }),
@@ -325,7 +327,7 @@ describe("AC-325 the PDF reader can be zoomed, panned and fitted", () => {
     );
     viewer.dispatchEvent(new MouseEvent("pointerup", { bubbles: true }));
 
-    // the page follows the hand
+    // the page follows the pointer
     expect(viewer.scrollLeft).toBe(150);
     expect(viewer.scrollTop).toBe(130);
   });
@@ -375,13 +377,21 @@ describe("AC-334 the text of a PDF page can be selected", () => {
     // a drag that starts a selection must not be cancelled
     expect(press().defaultPrevented).toBe(false);
 
-    // with the hand it is the page that is dragged, and the browser's own
-    // selection is cancelled
-    fireEvent.click(getByTestId("pdf-hand"));
-    expect(press().defaultPrevented).toBe(true);
+    // with the middle button it is the page that is dragged, and the browser's
+    // own selection is cancelled
+    const middle = new MouseEvent("pointerdown", {
+      bubbles: true,
+      cancelable: true,
+      button: 1,
+      clientX: 200,
+      clientY: 200,
+    });
+
+    viewer.dispatchEvent(middle);
+    expect(middle.defaultPrevented).toBe(true);
   });
 
-  it("AC-334 the style lifts the sidebar's rule against selecting on the page's text, and the hand puts it back", () => {
+  it("AC-334 the style lifts the sidebar's rule against selecting on the page's text", () => {
     // `.excalidraw` sets `user-select: none` and the sidebar inherits it: the
     // text layer of a page has to say that it can be selected, or the cursor
     // changes over the words and nothing can be selected
@@ -407,8 +417,106 @@ describe("AC-334 the text of a PDF page can be selected", () => {
     expect(blockOf(".app-doc-pdf-text .endOfContent")).toMatch(
       /user-select:\s*none/,
     );
+  });
+});
 
-    // dragging the page about is not selecting
-    expect(blockOf("  .app-doc-pdf-text")).toMatch(/user-select:\s*none/);
+describe("AC-342 the PDF toolbar reads the page you are on", () => {
+  const Provided = ({ children }: { children: ReactNode }) => (
+    <Provider store={appJotaiStore}>{children}</Provider>
+  );
+
+  it("AC-342 the toolbar has Read this page, and no Hand", async () => {
+    const { queryByTestId } = mount({ pages: 1, onReadPage: vi.fn() });
+
+    expect(queryByTestId("pdf-read-page")).not.toBeNull();
+    expect(queryByTestId("pdf-hand")).toBeNull();
+  });
+
+  it("AC-342 a viewer that cannot read a page offers no read button", async () => {
+    const { queryByTestId } = mount({ pages: 1 });
+
+    expect(queryByTestId("pdf-read-page")).toBeNull();
+    expect(queryByTestId("ocr-engine-picker")).toBeNull();
+  });
+
+  it("AC-342 Read this page reads the page that most of the viewer shows", async () => {
+    const onReadPage = vi.fn();
+    const { getByTestId, ref } = mount({ pages: 3, onReadPage });
+
+    await waitFor(() =>
+      expect(ref.current!.querySelectorAll(".app-doc-pdf-page")).toHaveLength(
+        3,
+      ),
+    );
+
+    const rects = [
+      // the first page has scrolled almost out of the viewer
+      { top: -250, bottom: 50 },
+      // the second fills most of it
+      { top: 60, bottom: 360 },
+      { top: 370, bottom: 670 },
+    ];
+
+    const original = HTMLElement.prototype.getBoundingClientRect;
+
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        if (this.dataset.testid === "pdf-viewer") {
+          return { top: 0, bottom: 300 } as DOMRect;
+        }
+
+        if (this.dataset.page) {
+          return rects[Number(this.dataset.page) - 1] as DOMRect;
+        }
+
+        return original.call(this);
+      },
+    );
+
+    // each page's picture says which page it is
+    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockImplementation(
+      function (this: HTMLCanvasElement) {
+        return `data:page-${(this.parentElement as HTMLElement).dataset.page}`;
+      },
+    );
+
+    fireEvent.click(getByTestId("pdf-read-page"));
+
+    expect(onReadPage).toHaveBeenCalledTimes(1);
+    expect(onReadPage.mock.calls[0][0].dataURL).toBe("data:page-2");
+
+    vi.restoreAllMocks();
+  });
+
+  it("AC-342 the engine picker sits beside it, and the choice is kept for every read", async () => {
+    appJotaiStore.set(ocrEngineChoiceAtom, null);
+
+    const { getByTestId } = render(
+      <Provided>
+        <PdfViewer
+          file={file()}
+          zoom={1}
+          containerRef={createRef<HTMLDivElement>()}
+          loader={async () => fakePdfjs(1)}
+          onReadPage={vi.fn()}
+        />
+      </Provided>,
+    );
+
+    const select = getByTestId("ocr-engine-select") as HTMLSelectElement;
+
+    // the engines that are offered, and the fastest one first
+    expect([...select.options].map((option) => option.value)).toEqual([
+      "indra",
+      "tesseract",
+    ]);
+    expect(select.value).toBe("indra");
+
+    // indra needs the bridge, and it says so when there is none
+    expect(select.options[0].textContent).toContain("needs the bridge");
+
+    fireEvent.change(select, { target: { value: "tesseract" } });
+
+    expect(appJotaiStore.get(ocrEngineChoiceAtom)).toBe("tesseract");
   });
 });

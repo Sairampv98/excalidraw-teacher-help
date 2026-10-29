@@ -225,6 +225,8 @@ export const FilesTab = () => {
    * fetched and no markup is parsed.
    */
   const [youtubeLink, setYoutubeLink] = useState("");
+  /** the field for the link is shown after a click on its button (D-303) */
+  const [showYoutube, setShowYoutube] = useState(false);
 
   // a stash armed here must not survive the tab going away, or a later click
   // on the canvas would paste an image nobody asked for
@@ -346,6 +348,7 @@ export const FilesTab = () => {
 
     insertYoutubePanel(api, { videoId });
     setYoutubeLink("");
+    setShowYoutube(false);
     setNotice(null);
   }, [api, youtubeLink]);
 
@@ -787,32 +790,50 @@ export const FilesTab = () => {
         >
           Open folder
         </button>
-      </div>
-
-      {/* The YouTube video: a link, and a panel that plays it (D-128). */}
-      <div className="app-sidebar-youtube">
-        <input
-          type="text"
-          className="app-sidebar-input"
-          placeholder={t("labels.panel.youtube.linkPlaceholder")}
-          aria-label={t("labels.panel.youtube.linkPlaceholder")}
-          value={youtubeLink}
-          onChange={(event) => setYoutubeLink(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              onAddYoutube();
-            }
-          }}
-        />
+        {/* A YouTube video is added like a file: a button of its own beside
+        the others (D-303). */}
         <button
           type="button"
           className="app-sidebar-secondary"
-          onClick={onAddYoutube}
+          data-testid="files-youtube-button"
+          aria-expanded={showYoutube}
+          onClick={() => setShowYoutube((shown) => !shown)}
         >
-          {t("labels.panel.youtube.add")}
+          {t("labels.panel.youtube.button")}
         </button>
       </div>
+
+      {/* The YouTube video: a link, and a panel that plays it (D-128). */}
+      {showYoutube && (
+        <div className="app-sidebar-youtube" data-testid="files-youtube-field">
+          <input
+            type="text"
+            className="app-sidebar-input"
+            autoFocus
+            placeholder={t("labels.panel.youtube.linkPlaceholder")}
+            aria-label={t("labels.panel.youtube.linkPlaceholder")}
+            value={youtubeLink}
+            onChange={(event) => setYoutubeLink(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                onAddYoutube();
+              }
+
+              if (event.key === "Escape") {
+                setShowYoutube(false);
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="app-sidebar-secondary"
+            onClick={onAddYoutube}
+          >
+            {t("labels.panel.youtube.add")}
+          </button>
+        </div>
+      )}
 
       {scan.rootName && (
         <div className="app-sidebar-note">
