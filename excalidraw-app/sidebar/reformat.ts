@@ -8,6 +8,7 @@ import type {
 } from "@excalidraw/element/types";
 
 import { insertCodeIntoScene } from "./insertIntoScene";
+import { loadTableFont } from "./table";
 import {
   insertTableIntoScene,
   normaliseRows,
@@ -158,7 +159,7 @@ export const insertTextAsCodeCard = async (
  * Puts a text on the canvas as a table, near the top-left of the view.
  * Returns `false` when the text holds no cells.
  */
-export const insertTextAsTable = (
+export const insertTextAsTable = async (
   api: ExcalidrawImperativeAPI,
   text: string,
 ) => {
@@ -170,6 +171,10 @@ export const insertTextAsTable = (
   }
 
   const { scrollX, scrollY, zoom } = api.getAppState();
+
+  // the columns are measured with the table's own font: measured before it has
+  // loaded they come out too narrow and the text spills over the cell (D-286)
+  await loadTableFont();
 
   return !!insertTableIntoScene(api, normaliseRows(rows, columns), {
     x: -scrollX + 80 / zoom.value,

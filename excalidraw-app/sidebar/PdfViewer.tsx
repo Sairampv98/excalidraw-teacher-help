@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
  * The PDF viewer (D-279).
@@ -25,6 +25,19 @@ export const PDF_MAX_PAGES = 300;
 
 /** how big a page is drawn at a zoom of 100%, in css pixels per PDF point */
 const BASE_SCALE = 1.4;
+
+/** the zoom a PDF may have: from a whole page in a narrow panel to a close look */
+export const PDF_ZOOM_MIN = 0.2;
+export const PDF_ZOOM_MAX = 4;
+
+/** the room left round a page that is fitted, in css pixels */
+const FIT_MARGIN = 12;
+
+/** one wheel notch of ctrl + wheel changes the zoom by this factor */
+const WHEEL_ZOOM_FACTOR = 1.12;
+
+export const clampPdfZoom = (zoom: number) =>
+  Math.min(PDF_ZOOM_MAX, Math.max(PDF_ZOOM_MIN, zoom));
 
 /** the part of pdf.js's API this viewer uses */
 export type PdfPageProxy = {
@@ -99,6 +112,7 @@ export type PdfPagePicture = {
 export const PdfViewer = ({
   file,
   zoom,
+  onZoomChange,
   containerRef,
   loader = loadPdfJs,
   onReadPage,
@@ -106,6 +120,8 @@ export const PdfViewer = ({
   file: File;
   /** 1 is 100% */
   zoom: number;
+  /** the viewer asks for a zoom: the wheel, the pinch and the fit buttons */
+  onZoomChange?: (zoom: number) => void;
   /** the element a selection has to lie in, for the selection bar */
   containerRef: React.RefObject<HTMLDivElement | null>;
   /** how pdf.js is fetched; a test hands in its own */
@@ -114,14 +130,24 @@ export const PdfViewer = ({
   onReadPage?: (picture: PdfPagePicture) => void;
 }) => {
   const [status, setStatus] = useState<Status>({ state: "loading" });
+  const [hand, setHand] = useState(false);
   const documentRef = useRef<PdfDocumentProxy | null>(null);
   const jsRef = useRef<PdfJs | null>(null);
+  const viewerRef = useRef<HTMLDivElement | null>(null);
+  /** the first page at a zoom of 100%, for the fit buttons */
+  const firstPageRef = useRef<{ width: number; height: number } | null>(null);
+  /** the viewer starts fitted; once the teacher has zoomed it stays theirs */
+  const fittedRef = useRef(false);
+  const zoomRef = useRef(zoom);
+
+  zoomRef.current = zoom;
 
   // the file is read and opened once
   useEffect(() => {
     let cancelled = false;
 
     setStatus({ state: "loading" });
+    fittedRef.current = false;
 
     (async () => {
       try {
@@ -139,6 +165,13 @@ export const PdfViewer = ({
 
         jsRef.current = pdfjs;
         documentRef.current = doc;
+
+        // the first page's size says how much room the document needs
+        const first = await doc.getPage(1);
+        const size = first.getViewport({ scale: BASE_SCALE });
+
+        firstPageRef.current = { width: size.width, height: size.height };
+
         setStatus({
           state: "ready",
           pages: doc.numPages,
@@ -160,6 +193,120 @@ export const PdfViewer = ({
       documentRef.current = null;
     };
   }, [file, loader]);
+
+  /** the zoom at which the first page fills the viewer's width, or all of it */
+  const fitZoom = useCallback((mode: "width" | "page") => {
+    const viewer = viewerRef.current;
+    const page = firstPageRef.current;
+
+    if (!viewer || !page) {
+      return null;
+    }
+
+    const byWidth = (viewer.clientWidth - FIT_MARGIN) / page.width;
+    const byHeight = (viewer.clientHeight - FIT_MARGIN) / page.height;
+
+    // a viewer with no size (not laid out yet) says nothing
+    const fit = mode === "width" ? byWidth : Math.min(byWidth, byHeight);
+
+    return fit > 0 ? clampPdfZoom(fit) : null;
+  }, []);
+
+  // the document opens fitted to the sidebar, so a page is whole at first sight
+  useEffect(() => {
+    if (status.state !== "ready" || fittedRef.current) {
+      return;
+    }
+
+    fittedRef.current = true;
+
+    const fit = fitZoom("width");
+
+    if (fit) {
+      onZoomChange?.(fit);
+    }
+  }, [status, fitZoom, onZoomChange]);
+
+  // ctrl + wheel (and a pinch, which arrives as the same) zooms; a plain wheel
+  // scrolls, as it does everywhere
+  useEffect(() => {
+    const viewer = viewerRef.current;
+
+    if (!viewer) {
+      return;
+    }
+
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) {
+        return;
+      }
+
+      event.preventDefault();
+      fittedRef.current = true;
+      onZoomChange?.(
+        clampPdfZoom(
+          zoomRef.current *
+            (event.deltaY < 0 ? WHEEL_ZOOM_FACTOR : 1 / WHEEL_ZOOM_FACTOR),
+        ),
+      );
+    };
+
+    // not passive: a zoom must stop the page from zooming as well
+    viewer.addEventListener("wheel", onWheel, { passive: false });
+
+    return () => viewer.removeEventListener("wheel", onWheel);
+  }, [onZoomChange]);
+
+  // the hand tool, and the middle button, drag the page about
+  const panRef = useRef<{
+    x: number;
+    y: number;
+    left: number;
+    top: number;
+  } | null>(null);
+
+  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    const viewer = viewerRef.current;
+
+    if (!viewer || !(hand || event.button === 1)) {
+      return;
+    }
+
+    event.preventDefault();
+    panRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      left: viewer.scrollLeft,
+      top: viewer.scrollTop,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
+  const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const viewer = viewerRef.current;
+    const start = panRef.current;
+
+    if (!viewer || !start) {
+      return;
+    }
+
+    viewer.scrollLeft = start.left - (event.clientX - start.x);
+    viewer.scrollTop = start.top - (event.clientY - start.y);
+  };
+
+  const onPointerUp = () => {
+    panRef.current = null;
+  };
+
+  const fit = (mode: "width" | "page") => {
+    const next = fitZoom(mode);
+
+    fittedRef.current = true;
+
+    if (next) {
+      onZoomChange?.(next);
+    }
+  };
 
   // the pages are drawn, and drawn again when the zoom changes
   useEffect(() => {
@@ -224,6 +371,22 @@ export const PdfViewer = ({
           viewport,
         }).render();
 
+        // a page with no text on it (a scan) cannot be selected from: it says
+        // so, and the way to read it is not hidden (D-287)
+        const scanned = !text.querySelector("span");
+
+        if (scanned) {
+          sheet.classList.add("app-doc-pdf-page--scan");
+
+          const note = document.createElement("div");
+
+          note.className = "app-doc-pdf-scan";
+          note.dataset.testid = "pdf-scan-note";
+          note.textContent =
+            "No text to select on this page - it looks scanned.";
+          sheet.append(note);
+        }
+
         if (onReadPage) {
           const read = document.createElement("button");
 
@@ -256,7 +419,44 @@ export const PdfViewer = ({
   }, [status, zoom, containerRef, onReadPage]);
 
   return (
-    <div className="app-doc-pdf-viewer" data-testid="pdf-viewer">
+    <div
+      ref={viewerRef}
+      className={`app-doc-pdf-viewer${hand ? " app-doc-pdf-viewer--hand" : ""}`}
+      data-testid="pdf-viewer"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+    >
+      <div className="app-doc-pdf-tools" data-testid="pdf-tools">
+        <button
+          type="button"
+          className="app-sidebar-secondary"
+          data-testid="pdf-fit-width"
+          title="Fit the page to the width of the panel"
+          onClick={() => fit("width")}
+        >
+          Fit width
+        </button>
+        <button
+          type="button"
+          className="app-sidebar-secondary"
+          data-testid="pdf-fit-page"
+          title="Fit a whole page in the panel"
+          onClick={() => fit("page")}
+        >
+          Fit page
+        </button>
+        <button
+          type="button"
+          className="app-sidebar-secondary"
+          data-testid="pdf-hand"
+          aria-pressed={hand}
+          title="Drag the page about (or hold the middle button)"
+          onClick={() => setHand((value) => !value)}
+        >
+          Hand
+        </button>
+      </div>
       {status.state === "loading" ? (
         <div className="app-doc-fallback" data-testid="pdf-loading">
           Opening the PDF…

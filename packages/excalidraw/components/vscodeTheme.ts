@@ -113,3 +113,40 @@ export const VS_CODE_DARK_TOKEN_COLORS = {
   tag: VS_CODE_DARK.tag,
   storage: VS_CODE_DARK.storage,
 } as const;
+
+/** the colours of a code panel's surface and chrome, in either theme (D-282) */
+export type PanelPalette = { [K in keyof typeof VS_CODE_DARK]: string };
+
+/** the light theme: the same keys, drawn for a white page */
+export const LIGHT_PANEL_PALETTE: PanelPalette = {
+  background: "#ffffff",
+  foreground: "#24292f",
+  gutterBackground: "#ffffff",
+  gutterForeground: "#8c959f",
+  activeLineGutterForeground: "#24292f",
+  activeLineBorder: "#eaeef2",
+  cursor: "#24292f",
+  selection: "#b6d6fd",
+  border: "#d0d7de",
+  accent: "#0969da",
+  muted: "#656d76",
+  keyword: "#cf222e",
+  controlFlow: "#cf222e",
+  function: "#8250df",
+  type: "#953800",
+  string: "#0a3069",
+  comment: "#6e7781",
+  variable: "#0550ae",
+  number: "#0550ae",
+  operator: "#24292f",
+  regexp: "#116329",
+  constant: "#0550ae",
+  tag: "#116329",
+  storage: "#cf222e",
+};
+
+/** the palette each theme paints the panel with */
+export const PANEL_PALETTES: Record<"dark" | "light", PanelPalette> = {
+  dark: VS_CODE_DARK,
+  light: LIGHT_PANEL_PALETTE,
+};

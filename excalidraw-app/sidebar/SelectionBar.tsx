@@ -1,5 +1,6 @@
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
+import { insertTextBoxIntoScene } from "./insertIntoScene";
 import { insertTextAsCodeCard, insertTextAsTable } from "./reformat";
 
 /**
@@ -16,7 +17,7 @@ export const SelectionBar = ({
   text: string;
   onDone: () => void;
 }) => {
-  const run = async (as: "codeCard" | "table") => {
+  const run = async (as: "codeCard" | "table" | "textBox") => {
     if (!api) {
       return;
     }
@@ -24,7 +25,9 @@ export const SelectionBar = ({
     try {
       const placed =
         as === "table"
-          ? insertTextAsTable(api, text)
+          ? await insertTextAsTable(api, text)
+          : as === "textBox"
+          ? !!insertTextBoxIntoScene(api, text)
           : await insertTextAsCodeCard(api, text);
 
       if (!placed) {
@@ -51,6 +54,13 @@ export const SelectionBar = ({
         onClick={() => run("codeCard")}
       >
         As a code card
+      </button>
+      <button
+        type="button"
+        className="app-sidebar-secondary"
+        onClick={() => run("textBox")}
+      >
+        As a text box
       </button>
       <button
         type="button"

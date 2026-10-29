@@ -28,11 +28,13 @@ import {
   emptyCodePanelState,
   readCodePanelState,
   readPanelDraft,
+  readPanelTheme,
   readPanelReadLanguage,
   readPanelView,
   readPanelZoom,
   withCodePanelState,
   withPanelDraft,
+  withPanelTheme,
   withPanelMirror,
   withPanelView,
 } from "../scene/panelContent";
@@ -1711,7 +1713,155 @@ describe("the code panel's view", () => {
     expect(storedConsole()!.size).toBeCloseTo(0.1, 5);
   });
 
-  it("AC-308 the theme picker offers three themes and keeps the choice in the panel", async () => {
+  it("AC-322 the light theme paints the bars, the console and the borders too", async () => {
+    const overlay = await renderEditor();
+
+    const colorOf = (selector: string) =>
+      (document.querySelector(selector) as HTMLElement).style.color;
+
+    // dark to begin with
+    expect(colorOf('[data-testid="code-panel-output"]')).toBe(
+      "rgb(212, 212, 212)",
+    );
+
+    fireEvent.change(
+      overlay.querySelector('[data-testid="code-panel-theme"]')!,
+      { target: { value: "light" } },
+    );
+
+    await waitFor(() =>
+      expect(colorOf('[data-testid="code-panel-output"]')).toBe(
+        "rgb(36, 41, 47)",
+      ),
+    );
+
+    // the panel's own surface and the bar's controls follow it
+    expect(
+      (document.querySelector('[data-testid="code-panel"]') as HTMLElement)
+        .style.background,
+    ).toBe("rgb(255, 255, 255)");
+    expect(
+      (
+        document.querySelector(
+          '[data-testid="code-panel-clear"]',
+        ) as HTMLElement
+      ).style.borderColor,
+    ).not.toBe("");
+  });
+
+  it("AC-322 a panel saved with the old VS Code theme reads as dark", () => {
+    const content = withPanelTheme(
+      codePanelContent(emptyCodePanelState(), "s"),
+      "vscode" as never,
+    );
+
+    expect(readPanelTheme(content)).toBe("dark");
+  });
+
+  it("AC-328 the input box keeps what is typed in the panel", async () => {
+    const overlay = await renderEditor();
+
+    const box = overlay.querySelector(
+      '[data-testid="code-panel-input"]',
+    ) as HTMLTextAreaElement;
+
+    fireEvent.change(box, { target: { value: "Ada\n7" } });
+    fireEvent.blur(box);
+
+    const stored = (
+      window.h.elements[0] as unknown as {
+        panel: { consoleView?: { input: string } };
+      }
+    ).panel.consoleView;
+
+    expect(stored!.input).toBe("Ada\n7");
+  });
+
+  const PACKS = [
+    { id: "python", name: "Python", state: "ready" as const },
+    { id: "go", name: "Go", state: "download" as const },
+    { id: "java", name: "Java", state: "unavailable" as const },
+  ];
+
+  it("AC-327 the picker lists the languages with a download icon on those that are not here", async () => {
+    const panel = codePanelInView(emptyCodePanelState(), "editor");
+
+    await render(
+      <Excalidraw
+        panelRun={{ languagePacks: PACKS, browserLanguages: ["python"] }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    const picker = document.querySelector(
+      '[data-testid="code-panel-read-language"]',
+    ) as HTMLSelectElement;
+
+    const option = (value: string) =>
+      [...picker.options].find((entry) => entry.value === value)!;
+
+    expect(option("python").textContent).toBe("Python (runs here)");
+    expect(option("go").textContent).toContain("⬇");
+    expect(option("go").textContent).toContain("download");
+    expect(option("java").textContent).toContain("not available yet");
+    expect(option("java").disabled).toBe(true);
+  });
+
+  it("AC-327 choosing a language that is to be downloaded starts the download and keeps the language", async () => {
+    const onInstallPack = vi.fn();
+    const onLanguageChange = vi.fn();
+    const panel = codePanelInView(emptyCodePanelState(), "editor");
+
+    await render(
+      <Excalidraw
+        panelDraft={{ onLanguageChange }}
+        panelRun={{ languagePacks: PACKS, onInstallPack }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    const picker = document.querySelector(
+      '[data-testid="code-panel-read-language"]',
+    ) as HTMLSelectElement;
+
+    fireEvent.change(picker, { target: { value: "go" } });
+
+    expect(onInstallPack).toHaveBeenCalledWith("go");
+    // the language that is run did not change: Go is not here yet
+    expect(onLanguageChange).not.toHaveBeenCalled();
+    expect(picker.value).toBe("python");
+  });
+
+  it("AC-327 a download shows a bar with its name and how far it is", async () => {
+    const panel = codePanelInView(emptyCodePanelState(), "editor");
+
+    await render(
+      <Excalidraw
+        panelRun={{
+          languagePacks: [
+            ...PACKS.slice(0, 1),
+            { id: "go", name: "Go", state: "downloading", progress: 0.25 },
+          ],
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    const bar = document.querySelector(
+      '[data-testid="code-panel-pack-progress"]',
+    )!;
+
+    expect(bar.textContent).toContain("Go");
+    expect(bar.querySelector("progress")!.getAttribute("value")).toBe("25");
+  });
+
+  it("AC-308 the theme picker offers dark and light and keeps the choice in the panel", async () => {
     const overlay = await renderEditor();
 
     const picker = overlay.querySelector(
@@ -1719,11 +1869,10 @@ describe("the code panel's view", () => {
     ) as HTMLSelectElement;
 
     expect([...picker.options].map((option) => option.value)).toEqual([
-      "vscode",
       "dark",
       "light",
     ]);
-    expect(picker.value).toBe("vscode");
+    expect(picker.value).toBe("dark");
 
     fireEvent.change(picker, { target: { value: "light" } });
 

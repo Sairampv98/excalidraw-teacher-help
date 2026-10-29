@@ -11,7 +11,12 @@ import {
   insertCodeIntoScene,
 } from "./insertIntoScene";
 
-import { PdfViewer } from "./PdfViewer";
+import {
+  PdfViewer,
+  PDF_ZOOM_MAX,
+  PDF_ZOOM_MIN,
+  clampPdfZoom,
+} from "./PdfViewer";
 import { SelectionBar } from "./SelectionBar";
 import { escapeHtml, kindLabel, renderMarkdown } from "./sidebarFiles";
 
@@ -93,9 +98,20 @@ export const DocumentViewer = ({
     setPicked(null);
   }, [entry]);
 
-  const changeZoom = useCallback((delta: number) => {
-    setZoom((prev) => clampZoom(Math.round((prev + delta) * 10) / 10));
-  }, []);
+  const isPdf = entry.kind === "pdf";
+  const zoomMin = isPdf ? PDF_ZOOM_MIN : ZOOM_MIN;
+  const zoomMax = isPdf ? PDF_ZOOM_MAX : ZOOM_MAX;
+
+  const changeZoom = useCallback(
+    (delta: number) => {
+      setZoom((prev) =>
+        isPdf
+          ? clampPdfZoom(Math.round((prev + delta) * 100) / 100)
+          : clampZoom(Math.round((prev + delta) * 10) / 10),
+      );
+    },
+    [isPdf],
+  );
 
   // An armed code paste must not outlive the document, or a later paste
   // anywhere in the app would insert a code card nobody asked for. It is also
@@ -368,7 +384,7 @@ export const DocumentViewer = ({
         type="button"
         className="app-doc-step__btn"
         onClick={() => changeZoom(-ZOOM_STEP)}
-        disabled={zoom <= ZOOM_MIN}
+        disabled={zoom <= zoomMin}
         aria-label="Zoom out"
       >
         −
@@ -386,7 +402,7 @@ export const DocumentViewer = ({
         type="button"
         className="app-doc-step__btn"
         onClick={() => changeZoom(ZOOM_STEP)}
-        disabled={zoom >= ZOOM_MAX}
+        disabled={zoom >= zoomMax}
         aria-label="Zoom in"
       >
         +
@@ -463,6 +479,7 @@ export const DocumentViewer = ({
           <PdfViewer
             file={entry.file}
             zoom={zoom}
+            onZoomChange={setZoom}
             containerRef={bodyRef}
             onReadPage={(picture) =>
               appJotaiStore.set(pdfPageReadRequestAtom, picture)

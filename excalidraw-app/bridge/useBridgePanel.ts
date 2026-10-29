@@ -6,6 +6,7 @@ import { clearAllPanelCaptures, setPanelCapture } from "@excalidraw/excalidraw";
 import {
   isStandaloneCodePanel,
   readCodePanelState,
+  readPanelConsole,
   readPanelDraft,
   readPanelReadLanguage,
 } from "@excalidraw/excalidraw";
@@ -42,6 +43,7 @@ import {
   createBridgeSession,
   INITIAL_BRIDGE_SESSION_STATE,
 } from "./bridgeSession";
+import { languagePacks } from "./languagePacks";
 import { applyYoutubeCaptions, isVideoCaptionMessage } from "./videoCaptions";
 import {
   BROWSER_LANGUAGES,
@@ -598,6 +600,8 @@ export const useBridgePanel = (
       elements,
       draft: readPanelDraft(element.panel),
       mirror: readCodePanelState(element.panel),
+      /** the lines the program reads with input() (D-283) */
+      input: readPanelConsole(element.panel).input,
       /** a code editor of its own always runs in the browser (D-269) */
       standalone: isStandaloneCodePanel(element),
       /** the language the panel is read as (D-270) */
@@ -683,7 +687,7 @@ export const useBridgePanel = (
    * the same way.
    */
   const runInBrowser = useCallback(
-    (text: string, language: string) => {
+    (text: string, language: string, input = "") => {
       const runId = `browser-run-${++runCounter}`;
       const say = (message: BridgeMessage) =>
         publish(reduceCodePanelState(panelStateRef.current, message));
@@ -737,17 +741,32 @@ export const useBridgePanel = (
       };
 
       void (isJavascript(language) ? javascriptRunner : pythonRunner)
-        .run(text, {
-          onLoading: () =>
-            gather("stdout", "Loading Python (the first run only)...\n"),
-          onOutput: gather,
-          onNotice: (kind, notice) => {
-            flush();
-            say({ v: 1, type: "run:notice", runId, kind, text: notice });
+        .run(
+          text,
+          {
+            onLoading: () =>
+              gather("stdout", "Loading Python (the first run only)...\n"),
+            onOutput: gather,
+            onNotice: (kind, notice) => {
+              flush();
+              say({ v: 1, type: "run:notice", runId, kind, text: notice });
+            },
           },
-        })
+          // the lines the program reads with input() (D-283)
+          { stdin: input === "" ? [] : input.split("\n") },
+        )
         .then((result) => {
           flush();
+
+          if (result.kind === "crashed") {
+            say({
+              v: 1,
+              type: "run:output",
+              runId,
+              stream: "stderr",
+              text: `The program stopped: it used more memory than the browser allows, or it crashed (${result.reason}).\n`,
+            });
+          }
 
           if (result.kind === "load-failed") {
             say({
@@ -794,6 +813,7 @@ export const useBridgePanel = (
             found.readAs ||
             found.mirror?.editor.language ||
             "",
+          found.input,
         );
       }
 
@@ -810,7 +830,7 @@ export const useBridgePanel = (
         found.standalone ||
         sessionStateRef.current.connection !== "connected"
       ) {
-        return runInBrowser(text, language);
+        return runInBrowser(text, language, found.input);
       }
 
       return session.runSnippet({
@@ -842,6 +862,23 @@ export const useBridgePanel = (
     });
   }, [publish]);
 
+  /** where each language stands: here, to be downloaded, or on its way (D-289) */
+  const [packs, setPacks] = useState(() => languagePacks.list());
+
+  useEffect(
+    () => languagePacks.subscribe(() => setPacks(languagePacks.list())),
+    [],
+  );
+
+  const onInstallPack = useCallback((id: string) => {
+    languagePacks.install(id).catch((error: Error) => {
+      apiRef.current?.setToast({
+        message: `Could not download ${id}: ${error.message}`,
+        closable: true,
+      });
+    });
+  }, []);
+
   const panelRun: PanelRunControls = useMemo(
     () => ({
       languages: runtimes,
@@ -849,8 +886,10 @@ export const useBridgePanel = (
       onClear,
       canRunInBrowser: true,
       browserLanguages: BROWSER_LANGUAGES,
+      languagePacks: packs,
+      onInstallPack,
     }),
-    [runtimes, onRun, onClear],
+    [runtimes, onRun, onClear, packs, onInstallPack],
   );
 
   /**

@@ -186,20 +186,16 @@ export const ocrLadderFor = ({
   }));
 
 /**
- * The engines the **browser** can run by itself.
+ * The engines the **browser** can run by itself (D-288).
  *
- * The list is EMPTY, and that is the truth on this machine (D-59): the engine
- * is `tesseract.js` and it lives in the extension's Node process - a
- * multi-megabyte download is not what a classroom connection is for, and the
- * project rule is no new dependency without the owner's approval (D-11). So
- * the ladder's browser rung says it cannot run here, **with the reason**,
- * instead of pretending (D-75).
+ * tesseract.js is fetched the first time a read is asked for, from a pinned
+ * version, and runs in a worker: with no bridge a picture can still be read.
  */
-export const BROWSER_OCR_ENGINES: readonly OcrEngineName[] = [];
+export const BROWSER_OCR_ENGINES: readonly OcrEngineName[] = ["tesseract"];
 
 /** why the browser rung cannot run, when it cannot */
 export const BROWSER_ENGINE_REASON =
-  "tesseract needs an OCR engine in the browser, and none runs there: the engine lives in the extension's Node process (D-59). Start the Excalidraw Bridge extension in VS Code.";
+  "tesseract needs a browser that can run a web worker; this one cannot. Start the Excalidraw Bridge extension in VS Code.";
 
 /**
  * Why a rung that needs the bridge cannot run, when the bridge is not there.

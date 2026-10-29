@@ -5232,7 +5232,9 @@ class App extends React.Component<AppProps, AppState> {
             text,
             originalText,
             lineHeight,
-            autoResize: !isTextUnwrapped,
+            // a text that went on the page as one box is a wrapping box (D-286):
+            // its sides can be dragged and the text flows in the new width
+            autoResize: pastedAsOneBox ? false : !isTextUnwrapped,
             frameId: topLayerFrame ? topLayerFrame.id : null,
           });
           acc.push(element);

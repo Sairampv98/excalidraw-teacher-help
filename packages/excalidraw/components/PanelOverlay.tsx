@@ -79,7 +79,7 @@ import { t } from "../i18n";
 
 import "./PanelFullscreen.scss";
 
-import { VS_CODE_DARK } from "./vscodeTheme";
+import { PANEL_PALETTES, VS_CODE_DARK } from "./vscodeTheme";
 
 import { captionCueAt, DEFAULT_CAPTION_LANGUAGE } from "./panelCaptions";
 import { codeMirrorLanguageIds } from "./codeLanguages";
@@ -87,6 +87,8 @@ import {
   registerVideoSurface,
   unregisterVideoSurface,
 } from "./videoPanelSurface";
+
+import type { PanelPalette } from "./vscodeTheme";
 
 import type { PanelConsoleView, PanelEditorTheme } from "../scene/panelContent";
 
@@ -331,13 +333,16 @@ const CodePanelEditor = ({
   readOnly = true,
   focusOnMount = false,
   zoom = 1,
-  theme = "vscode",
+  theme = "dark",
+  palette = VS_CODE_DARK,
   onCopy,
   onSelectionChange,
 }: {
   value: string;
   /** the colours of the editor (D-270) */
   theme?: PanelEditorTheme;
+  /** the colours of the text shown before the editor has loaded */
+  palette?: PanelPalette;
   language?: string;
   /** the teacher typed. The panel reports it; the host writes it (D-123). */
   onChange?: (value: string) => void;
@@ -389,8 +394,8 @@ const CodePanelEditor = ({
         className="excalidraw__panel-code-text"
         data-testid="code-panel-text"
         style={{
-          background: VS_CODE_DARK.background,
-          color: VS_CODE_DARK.foreground,
+          background: palette.background,
+          color: palette.foreground,
         }}
       >
         {value}
@@ -403,7 +408,7 @@ const CodePanelEditor = ({
       value={value}
       onChange={onChange ?? (() => {})}
       readOnly={readOnly}
-      theme={theme}
+      theme={theme === "light" ? "light" : "vscode"}
       placeholder={t("labels.panel.code.noFile")}
       // the file's own language, so the editor wears the file's grammar and
       // not the mermaid one (D-84)
@@ -471,11 +476,11 @@ const PanelIcon = ({ name, size }: { name: string; size: number | string }) => (
 /**
  * The hairline between a code panel's regions - VS Code's own.
  */
-const VS_CODE_HAIRLINE: React.CSSProperties = {
+const hairlineOf = (palette: PanelPalette): React.CSSProperties => ({
   borderTopWidth: 1,
   borderTopStyle: "solid",
-  borderTopColor: VS_CODE_DARK.border,
-};
+  borderTopColor: palette.border,
+});
 
 /**
  * The **zoom levels** the editor's own zoom steps through (D-142).
@@ -510,7 +515,6 @@ const DEFAULT_CODE_LANGUAGE = "python";
 
 /** the names the themes are offered under (D-270) */
 const THEME_LABELS: Record<PanelEditorTheme, string> = {
-  vscode: "VS Code Dark",
   dark: "Dark",
   light: "Light",
 };
@@ -743,6 +747,10 @@ const CodePanelSurface = ({
   /** the colours the editor wears (D-270) */
   const theme = readPanelTheme(panel.panel);
 
+  /** the colours of the whole panel: the editor, the bars, the console (D-282) */
+  const palette = PANEL_PALETTES[theme];
+  const hairline = hairlineOf(palette);
+
   /**
    * The bars' controls are sized for the SCREEN (D-92), so they are as easy to
    * press at any canvas zoom: an icon button is `buttonSize` square.
@@ -764,11 +772,11 @@ const CodePanelSurface = ({
     background: options.primary
       ? "#238636"
       : options.active
-      ? VS_CODE_DARK.accent
+      ? palette.accent
       : "transparent",
-    border: `1px solid ${VS_CODE_DARK.border}`,
+    border: `1px solid ${palette.border}`,
     borderRadius: 4,
-    color: VS_CODE_DARK.foreground,
+    color: palette.foreground,
     cursor: options.disabled ? "not-allowed" : "pointer",
     opacity: options.disabled ? 0.5 : 1,
   });
@@ -776,9 +784,9 @@ const CodePanelSurface = ({
   const barSelect: React.CSSProperties = {
     height: barSize,
     fontSize: chrome.headerFontSize,
-    background: VS_CODE_DARK.background,
-    color: VS_CODE_DARK.foreground,
-    border: `1px solid ${VS_CODE_DARK.border}`,
+    background: palette.background,
+    color: palette.foreground,
+    border: `1px solid ${palette.border}`,
     borderRadius: 4,
     // the list that drops down is drawn dark too, so its entries can be read
     colorScheme: "dark",
@@ -802,6 +810,8 @@ const CodePanelSurface = ({
   const consoleView = readPanelConsole(panel.panel);
   const [dragSize, setDragSize] = useState<number | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
+  /** what is typed in the input box, kept here until the box is left (D-283) */
+  const [inputDraft, setInputDraft] = useState<string | null>(null);
   const consoleSize = dragSize ?? consoleView.size;
 
   const changeConsole = (next: Partial<PanelConsoleView>) =>
@@ -1070,6 +1080,34 @@ const CodePanelSurface = ({
   /** Run works with the bridge, and without it when the host runs Python */
   const canRun = connected || Boolean(run?.canRunInBrowser);
 
+  /** where a language stands, when the host says (D-289) */
+  const packOf = (language: string) =>
+    run?.languagePacks?.find((pack) => pack.id === language);
+
+  /** a language in the picker: its name, and what it needs, as an icon (D-289) */
+  const optionLabel = (language: string) => {
+    const pack = packOf(language);
+    const name = pack?.name ?? language;
+
+    if (pack?.state === "download") {
+      return `${name}  \u2B07 ${t("labels.editor.download")}`;
+    }
+
+    if (pack?.state === "downloading") {
+      return `${name}  \u2B07 ${
+        pack.progress == null ? "..." : `${Math.round(pack.progress * 100)}%`
+      }`;
+    }
+
+    if (pack?.state === "unavailable") {
+      return `${name}  (${t("labels.editor.notAvailableYet")})`;
+    }
+
+    return run?.browserLanguages?.includes(language)
+      ? `${name} (${t("labels.editor.runsHere")})`
+      : name;
+  };
+
   const hasFile = Boolean(state?.editor.uri);
   const fileName = codePanelFileName(state?.editor.uri ?? "");
 
@@ -1093,6 +1131,7 @@ const CodePanelSurface = ({
       readLanguage,
       ...(run?.browserLanguages ?? []),
       ...(run?.languages ?? []),
+      ...(run?.languagePacks ?? []).map((pack) => pack.id),
     ]) {
       if (language && language !== "mermaid" && !options.includes(language)) {
         options.push(language);
@@ -1106,7 +1145,13 @@ const CodePanelSurface = ({
     }
 
     return options;
-  }, [editor.language, readLanguage, run?.browserLanguages, run?.languages]);
+  }, [
+    editor.language,
+    readLanguage,
+    run?.browserLanguages,
+    run?.languages,
+    run?.languagePacks,
+  ]);
 
   /**
    * The teacher copies the code (D-142).
@@ -1209,7 +1254,7 @@ const CodePanelSurface = ({
         className="excalidraw__panel-code-editor-source"
         data-testid="code-panel-editor-source"
         data-source={editor.source}
-        style={{ color: VS_CODE_DARK.muted }}
+        style={{ color: palette.muted }}
       >
         {editor.source === "draft"
           ? t("labels.panel.code.yourDraft")
@@ -1221,7 +1266,7 @@ const CodePanelSurface = ({
         <span
           className="excalidraw__panel-code-run-note"
           data-testid="code-panel-run-needs-bridge"
-          style={{ color: VS_CODE_DARK.muted }}
+          style={{ color: palette.muted }}
         >
           {run?.canRunInBrowser
             ? t("labels.panel.code.runInBrowser")
@@ -1256,19 +1301,37 @@ const CodePanelSurface = ({
         aria-label={t("labels.editor.readLanguage")}
         value={readLanguage}
         onChange={(event) => {
-          onReadLanguageChange?.(panel.id, event.target.value);
+          const chosen = event.target.value;
+          const pack = packOf(chosen);
+
+          // a language that is not here yet is downloaded, and the language
+          // stays what it was until it is (D-289)
+          if (pack?.state === "download") {
+            run?.onInstallPack?.(chosen);
+            event.target.value = readLanguage;
+
+            return;
+          }
+
+          onReadLanguageChange?.(panel.id, chosen);
           // the language that is run follows the one that is read (D-270)
-          draft?.onLanguageChange?.(panel.id, event.target.value);
+          draft?.onLanguageChange?.(panel.id, chosen);
         }}
         style={barSelect}
       >
-        {readLanguageOptions.map((language) => (
-          <option key={language} value={language}>
-            {run?.browserLanguages?.includes(language)
-              ? `${language} (${t("labels.editor.runsHere")})`
-              : language}
-          </option>
-        ))}
+        {readLanguageOptions.map((language) => {
+          const pack = packOf(language);
+
+          return (
+            <option
+              key={language}
+              value={language}
+              disabled={pack?.state === "unavailable"}
+            >
+              {optionLabel(language)}
+            </option>
+          );
+        })}
       </select>
       <select
         className="excalidraw__panel-code-theme-picker"
@@ -1286,6 +1349,37 @@ const CodePanelSurface = ({
           </option>
         ))}
       </select>
+      {run?.languagePacks?.some((pack) => pack.state === "downloading") ? (
+        <div
+          data-testid="code-panel-pack-progress"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flex: "1 1 100%",
+          }}
+        >
+          <span>
+            {t("labels.editor.downloading")}{" "}
+            {
+              run.languagePacks.find((pack) => pack.state === "downloading")
+                ?.name
+            }
+          </span>
+          <progress
+            style={{ flex: 1 }}
+            {...(() => {
+              const progress = run.languagePacks.find(
+                (pack) => pack.state === "downloading",
+              )?.progress;
+
+              return progress == null
+                ? {}
+                : { value: Math.round(progress * 100), max: 100 };
+            })()}
+          />
+        </div>
+      ) : null}
       <button
         type="button"
         className="excalidraw__panel-code-copy"
@@ -1312,7 +1406,7 @@ const CodePanelSurface = ({
       <span
         className="excalidraw__panel-code-zoom-level"
         data-testid="code-panel-zoom-level"
-        style={{ color: VS_CODE_DARK.muted }}
+        style={{ color: palette.muted }}
       >
         {`${Math.round(zoom * 100)}%`}
       </span>
@@ -1436,6 +1530,7 @@ const CodePanelSurface = ({
             // the editor's own zoom (D-142)
             zoom={zoom}
             theme={theme}
+            palette={palette}
             // the teacher copied in the editor: the panel reports it, and the
             // host turns the next paste on the canvas into a code card.
             // A **mirror** does not: the presenter shows the host's panel, it
@@ -1458,7 +1553,7 @@ const CodePanelSurface = ({
         <div
           className="excalidraw__panel-code-status"
           data-testid="code-panel-empty-file"
-          style={{ color: VS_CODE_DARK.foreground }}
+          style={{ color: palette.foreground }}
         >
           {t("labels.panel.code.emptyFile")}
         </div>
@@ -1472,7 +1567,7 @@ const CodePanelSurface = ({
         <div
           className="excalidraw__panel-code-status"
           data-testid="code-panel-no-editor"
-          style={{ color: VS_CODE_DARK.foreground }}
+          style={{ color: palette.foreground }}
         >
           {t("labels.panel.code.noFile")}
         </div>
@@ -1494,7 +1589,7 @@ const CodePanelSurface = ({
         <div
           className="excalidraw__panel-code-status excalidraw__panel-code-notice"
           data-testid="code-panel-live-status"
-          style={{ color: VS_CODE_DARK.muted }}
+          style={{ color: palette.muted }}
         >
           {capture?.status === "unavailable"
             ? capture.reason
@@ -1510,8 +1605,8 @@ const CodePanelSurface = ({
       data-testid="code-panel"
       style={{
         position: "relative",
-        background: VS_CODE_DARK.background,
-        color: VS_CODE_DARK.foreground,
+        background: palette.background,
+        color: palette.foreground,
       }}
     >
       <button
@@ -1567,7 +1662,7 @@ const CodePanelSurface = ({
                 style={{
                   borderBottomWidth: 1,
                   borderBottomStyle: "solid",
-                  borderBottomColor: VS_CODE_DARK.accent,
+                  borderBottomColor: palette.accent,
                   // The chrome is sized for the SCREEN and the content for the
                   // PANEL (D-92): the header keeps its size on screen at any zoom,
                   // and it is tall enough for its own text.
@@ -1592,7 +1687,7 @@ const CodePanelSurface = ({
                         className="excalidraw__panel-code-language"
                         data-testid="code-panel-language"
                         style={{
-                          color: VS_CODE_DARK.muted,
+                          color: palette.muted,
                           fontSize: chrome.languageFontSize,
                         }}
                       >
@@ -1630,9 +1725,9 @@ const CodePanelSurface = ({
                     }
                     style={{
                       background: "transparent",
-                      border: `1px solid ${VS_CODE_DARK.border}`,
+                      border: `1px solid ${palette.border}`,
                       borderRadius: 2,
-                      color: VS_CODE_DARK.foreground,
+                      color: palette.foreground,
                       cursor: "pointer",
                       font: "inherit",
                     }}
@@ -1657,9 +1752,9 @@ const CodePanelSurface = ({
                       aria-label={t("labels.mirror.change")}
                       style={{
                         background: "transparent",
-                        border: `1px solid ${VS_CODE_DARK.border}`,
+                        border: `1px solid ${palette.border}`,
                         borderRadius: 2,
-                        color: VS_CODE_DARK.foreground,
+                        color: palette.foreground,
                         cursor: "pointer",
                         font: "inherit",
                       }}
@@ -1688,11 +1783,11 @@ const CodePanelSurface = ({
                         }
                         style={{
                           background: panelMirror.follow
-                            ? VS_CODE_DARK.accent
+                            ? palette.accent
                             : "transparent",
-                          border: `1px solid ${VS_CODE_DARK.border}`,
+                          border: `1px solid ${palette.border}`,
                           borderRadius: 2,
-                          color: VS_CODE_DARK.foreground,
+                          color: palette.foreground,
                           cursor: "pointer",
                           font: "inherit",
                         }}
@@ -1708,7 +1803,7 @@ const CodePanelSurface = ({
                     className="excalidraw__panel-code-mirror-notice"
                     data-testid="code-panel-mirror-notice"
                     style={{
-                      color: VS_CODE_DARK.muted,
+                      color: palette.muted,
                       fontSize: chrome.languageFontSize,
                     }}
                   >
@@ -1730,8 +1825,8 @@ const CodePanelSurface = ({
                   data-testid="code-panel-status"
                   data-bridge-state={state?.connection ?? "not-connected"}
                   style={{
-                    background: VS_CODE_DARK.background,
-                    color: VS_CODE_DARK.foreground,
+                    background: palette.background,
+                    color: palette.foreground,
                   }}
                 >
                   {state?.statusMessage || t("labels.panel.code.notConnected")}
@@ -1751,7 +1846,7 @@ const CodePanelSurface = ({
           onPointerDown={startDivider}
           style={{
             flex: "0 0 auto",
-            background: VS_CODE_DARK.border,
+            background: palette.border,
             cursor: consoleView.dock === "bottom" ? "row-resize" : "col-resize",
             ...(consoleView.dock === "bottom" ? { height: 4 } : { width: 4 }),
           }}
@@ -1774,8 +1869,8 @@ const CodePanelSurface = ({
               ...barRow,
               flexWrap: "nowrap",
               flex: "0 0 auto",
-              color: VS_CODE_DARK.muted,
-              ...VS_CODE_HAIRLINE,
+              color: palette.muted,
+              ...hairline,
             }}
           >
             <span style={{ flex: 1 }}>{t("labels.editor.console")}</span>
@@ -1838,8 +1933,8 @@ const CodePanelSurface = ({
             data-testid="code-panel-output"
             style={{
               ...CODE_PANEL_REGION_STYLE.output,
-              ...VS_CODE_HAIRLINE,
-              color: VS_CODE_DARK.foreground,
+              ...hairline,
+              color: palette.foreground,
             }}
           >
             {(state?.output ?? []).map((line, index) => (
@@ -1857,8 +1952,8 @@ const CodePanelSurface = ({
             data-testid="code-panel-console"
             style={{
               ...CODE_PANEL_REGION_STYLE.console,
-              ...VS_CODE_HAIRLINE,
-              color: VS_CODE_DARK.foreground,
+              ...hairline,
+              color: palette.foreground,
             }}
           >
             {(state?.console ?? [])
@@ -1874,6 +1969,36 @@ const CodePanelSurface = ({
               ))}
           </div>
         </div>
+        <textarea
+          className="excalidraw__panel-code-input"
+          data-testid="code-panel-input"
+          aria-label={t("labels.editor.programInput")}
+          placeholder={t("labels.editor.programInputHint")}
+          rows={2}
+          spellCheck={false}
+          value={inputDraft ?? consoleView.input}
+          onChange={(event) => setInputDraft(event.target.value)}
+          onBlur={() => {
+            if (inputDraft !== null && inputDraft !== consoleView.input) {
+              changeConsole({ input: inputDraft });
+            }
+
+            setInputDraft(null);
+          }}
+          style={{
+            flex: "0 0 auto",
+            resize: "none",
+            font: "inherit",
+            fontSize: "0.85em",
+            boxSizing: "border-box",
+            width: "100%",
+            background: palette.background,
+            color: palette.foreground,
+            border: "none",
+            borderTop: `1px solid ${palette.border}`,
+            padding: "2px 6px",
+          }}
+        />
       </div>
     </div>
   );

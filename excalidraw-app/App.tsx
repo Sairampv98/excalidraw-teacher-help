@@ -172,6 +172,7 @@ import { usePageAutoFit, useSidebarWidth } from "./sidebar/useSidebarLayout";
 import { handleCodePaste } from "./sidebar/insertIntoScene";
 import { panelCopyControls } from "./sidebar/panelCopy";
 import { OcrPreview } from "./components/OcrPreview";
+import { OcrProgressBar } from "./components/OcrProgressBar";
 import { ReformatChooser } from "./sidebar/ReformatChooser";
 
 import { CropModal, posterNaturalSize } from "./components/cropModal";
@@ -462,6 +463,7 @@ const ExcalidrawWrapper = () => {
     read: readOcr,
     imageOfPanel,
     message: ocrMessage,
+    lastMessage: lastOcrMessage,
     busy: ocrBusy,
     cancel: cancelOcr,
     rememberCrop: rememberPanelCrop,
@@ -514,6 +516,21 @@ const ExcalidrawWrapper = () => {
         durationMs?: number;
       } | null,
     ) => {
+      if (!result?.lines.length) {
+        // nothing came back: it is said, with the reason when there is one, and
+        // never left as a button that did nothing (D-288)
+        excalidrawAPI?.setToast({
+          message: result
+            ? "No text was found on that picture."
+            : `The text could not be read: ${
+                lastOcrMessage() ?? "the reader did not answer"
+              }`,
+          closable: true,
+        });
+
+        return;
+      }
+
       if (result?.lines.length) {
         setOcrPreview({
           lines: result.lines,
@@ -522,7 +539,7 @@ const ExcalidrawWrapper = () => {
         });
       }
     },
-    [],
+    [excalidrawAPI, lastOcrMessage],
   );
 
   // a PDF page the teacher asked to read: the viewer sets the request, the app
@@ -1593,6 +1610,7 @@ const ExcalidrawWrapper = () => {
             setErrorMessage={setErrorMessage}
           />
         )}
+        <OcrProgressBar onCancel={cancelOcr} />
         {ocrPreview && (
           <OcrPreview data={ocrPreview} onClose={() => setOcrPreview(null)} />
         )}

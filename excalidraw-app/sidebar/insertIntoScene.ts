@@ -1,13 +1,17 @@
 import {
+  DEFAULT_FONT_FAMILY,
+  DEFAULT_FONT_SIZE,
   FONT_FAMILY,
   getFontString,
   getLineHeight,
   randomId,
 } from "@excalidraw/common";
 import {
+  measureText,
   newElement,
   newImageElement,
   newTextElement,
+  wrapText,
 } from "@excalidraw/element";
 import {
   openPasteOverflowModal,
@@ -1188,29 +1192,53 @@ const insertLongCode = async (
 };
 
 /**
- * Puts a text on the page as one text block in a monospace face, so indents
- * survive, in the middle of the current page, and moves the view to it
- * (D-277).
+ * Puts a text on the page as one **flexible text box** (D-286): a box with a
+ * width of its own that wraps the text, so a side can be dragged and the text
+ * flows into the new width. It goes in the middle of the current page, and the
+ * view moves to it.
+ *
+ * A monospace box keeps the indents of the text (code, read text); the other
+ * is the ordinary hand-written face.
  */
-export const insertTextBlockIntoScene = (
+export const insertTextBoxIntoScene = (
   api: ExcalidrawImperativeAPI,
   text: string,
+  { monospace = false }: { monospace?: boolean } = {},
 ) => {
+  const fontFamily = monospace ? FONT_FAMILY.Cascadia : DEFAULT_FONT_FAMILY;
+  const fontSize = monospace ? CODE_FONT_SIZE + 4 : DEFAULT_FONT_SIZE;
+  const font = getFontString({ fontFamily, fontSize });
+  const lineHeight = getLineHeight(fontFamily);
+
+  // a box about half the page wide: wide enough to read, narrow enough to drag
+  const state = api.getAppState();
+  const pages = state.pages ?? [];
+  const pageWidth = pages.length
+    ? getPageRect(pages, state.currentPageId ?? pages[0].id).width
+    : 1000;
+  const maxWidth = Math.min(640, Math.round(pageWidth * 0.5));
+
+  const wrapped = wrapText(text, font, maxWidth);
+  const metrics = measureText(wrapped, font, lineHeight);
+
   const block = newTextElement({
-    text,
-    fontFamily: FONT_FAMILY.Cascadia,
-    fontSize: CODE_FONT_SIZE + 4,
-    autoResize: true,
+    text: wrapped,
+    originalText: text,
+    fontFamily,
+    fontSize,
+    lineHeight,
+    autoResize: false,
     textAlign: "left",
     verticalAlign: "top",
     x: 0,
     y: 0,
   });
 
-  const origin = pageCenterOrigin(api, {
-    width: block.width,
-    height: block.height,
-  });
+  const size = {
+    width: Math.min(metrics.width, maxWidth),
+    height: metrics.height,
+  };
+  const origin = pageCenterOrigin(api, size);
   const placed = { ...block, x: origin.x, y: origin.y };
 
   appendElements(api, [placed], { selectedElementIds: { [placed.id]: true } });
@@ -1218,6 +1246,12 @@ export const insertTextBlockIntoScene = (
 
   return placed;
 };
+
+/** the text of an OCR read as a flexible box in a monospace face (D-277) */
+export const insertTextBlockIntoScene = (
+  api: ExcalidrawImperativeAPI,
+  text: string,
+) => insertTextBoxIntoScene(api, text, { monospace: true });
 
 /**
  * Inserts a snippet as a syntax-highlighted code card.

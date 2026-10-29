@@ -173,6 +173,27 @@ describe("AC-302 the selection bar", () => {
     expect(texts).toEqual(expect.arrayContaining(["Ada", "36", "Alan", "41"]));
   });
 
+  it("AC-324 the selection bar offers a flexible text box too", async () => {
+    const { body, updates, getByText } = await open();
+
+    select(body.querySelector("p")!);
+    fireEvent.mouseUp(document);
+
+    fireEvent.click(
+      await waitFor(() => getByText("As a text box"), { timeout: WAIT_MS }),
+    );
+
+    await waitFor(() => expect(updates.length).toBeGreaterThan(0), {
+      timeout: WAIT_MS,
+    });
+
+    const texts = updates[0].elements!.filter((el) => el.type === "text");
+
+    // one text box, with a width of its own
+    expect(texts).toHaveLength(1);
+    expect(texts[0].autoResize).toBe(false);
+  });
+
   it("AC-302 no selection no bar", async () => {
     const { queryByText } = await open();
 

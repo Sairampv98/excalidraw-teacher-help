@@ -332,24 +332,27 @@ export type PanelConsoleView = {
   size: number;
   /** the console's own text zoom, on the editor's ladder */
   zoom: number;
+  /** the lines the program reads with input(), typed in advance (D-283) */
+  input: string;
 };
 
 export const DEFAULT_PANEL_CONSOLE_VIEW: PanelConsoleView = {
   dock: "bottom",
   size: 0.3,
   zoom: 1,
+  input: "",
 };
 
 export const CONSOLE_SIZE_MIN = 0.1;
 export const CONSOLE_SIZE_MAX = 0.8;
 
 /** the themes the editor of a code panel can wear (D-270) */
-export const PANEL_EDITOR_THEMES = ["vscode", "dark", "light"] as const;
+export const PANEL_EDITOR_THEMES = ["dark", "light"] as const;
 
 export type PanelEditorTheme = typeof PANEL_EDITOR_THEMES[number];
 
 /** the theme of a panel that has none of its own */
-export const DEFAULT_PANEL_EDITOR_THEME: PanelEditorTheme = "vscode";
+export const DEFAULT_PANEL_EDITOR_THEME: PanelEditorTheme = "dark";
 
 export type CodePanelContent = PanelContent & {
   /** the code panel's live state, or null when the panel has none yet */
@@ -769,6 +772,7 @@ export const readPanelConsole = (content: PanelContent): PanelConsoleView => {
       typeof view?.zoom === "number" && view.zoom > 0
         ? view.zoom
         : DEFAULT_PANEL_CONSOLE_VIEW.zoom,
+    input: typeof view?.input === "string" ? view.input : "",
   };
 };
 

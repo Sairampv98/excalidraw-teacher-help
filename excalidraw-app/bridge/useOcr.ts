@@ -17,6 +17,9 @@ import {
   ocrLadderFor,
 } from "../ocr/engines";
 
+import { appJotaiStore, ocrProgressAtom } from "../app-jotai";
+import { browserOcr } from "../ocr/browserOcr";
+
 import { dataUrlToBase64, ocrTextElements } from "./ocrPlacement";
 
 import type { OcrRegion } from "../../packages/vscode-bridge/bridge/src/ocr";
@@ -319,7 +322,14 @@ export const useOcr = ({
    */
   bridgeConnected?: boolean;
 }) => {
-  const [readMessage, setReadMessage] = useState<string | null>(null);
+  const [readMessage, setReadMessageState] = useState<string | null>(null);
+  /** the last thing a read said, readable before the state has re-rendered */
+  const lastMessageRef = useRef<string | null>(null);
+  const lastMessage = useCallback(() => lastMessageRef.current, []);
+  const setReadMessage = useCallback((text: string | null) => {
+    lastMessageRef.current = text;
+    setReadMessageState(text);
+  }, []);
   const [busy, setBusy] = useState(false);
 
   /**
@@ -530,6 +540,11 @@ export const useOcr = ({
       setBusy(true);
       setReadMessage(null);
       cancelledRef.current = false;
+      // a read says that it is reading, whichever engine it ends up with (D-288)
+      appJotaiStore.set(ocrProgressAtom, {
+        label: "Reading the text",
+        fraction: null,
+      });
 
       /**
        * The region the read takes.
@@ -561,9 +576,17 @@ export const useOcr = ({
           bridgeConnected,
           read: async (step) => {
             if (step.route === "browser") {
-              // no engine runs in the browser (D-59): the rung says so rather
-              // than pretending it read something
-              throw new Error(BROWSER_ENGINE_REASON);
+              // the engine runs in the page, in a worker (D-288), and says how
+              // far it is
+              if (typeof Worker === "undefined") {
+                throw new Error(BROWSER_ENGINE_REASON);
+              }
+
+              return browserOcr.read(image.dataURL, {
+                ...(readRegion ? { region: readRegion } : {}),
+                onProgress: (progress) =>
+                  appJotaiStore.set(ocrProgressAtom, progress),
+              });
             }
 
             return requestOcr({
@@ -630,10 +653,11 @@ export const useOcr = ({
 
         return null;
       } finally {
+        appJotaiStore.set(ocrProgressAtom, null);
         setBusy(false);
       }
     },
-    [api, bridgeConnected, requestOcr],
+    [api, bridgeConnected, requestOcr, setReadMessage],
   );
 
   /**
@@ -646,8 +670,9 @@ export const useOcr = ({
   const cancel = useCallback(() => {
     cancelledRef.current = true;
     setBusy(false);
+    appJotaiStore.set(ocrProgressAtom, null);
     setReadMessage(t("labels.ocrLadder.cancelled"));
-  }, []);
+  }, [setReadMessage]);
 
   /**
    * The picture of a panel: its **poster**, or the frame the video is showing
@@ -702,6 +727,8 @@ export const useOcr = ({
     read,
     imageOfPanel,
     message,
+    /** the last thing a read said, at once (D-288) */
+    lastMessage,
     busy,
     /** stops the read that is running (D-138) */
     cancel,

@@ -44,10 +44,12 @@ export type PythonRunResult =
   /** the program was stopped because its output reached the limit */
   | { kind: "stopped" }
   /** the runtime could not be downloaded */
-  | { kind: "load-failed"; reason: string };
+  | { kind: "load-failed"; reason: string }
+  /** the program's worker died while it ran: it used more memory than it may */
+  | { kind: "crashed"; reason: string };
 
 /** the worker's own source, as a string: it is built into a blob at run time */
-const workerSource = (indexUrl: string) => `
+export const workerSource = (indexUrl: string) => `
 importScripts(${JSON.stringify(`${indexUrl}pyodide.js`)});
 let pyodide = null;
 // a program that prints for ever must not flood the page: past the cap nothing
@@ -58,8 +60,10 @@ const send = (stream, text) => {
   sent += text.length;
   self.postMessage({ type: "output", stream, text });
 };
+const decoders = { stdout: new TextDecoder(), stderr: new TextDecoder() };
 self.onmessage = async (event) => {
   const code = event.data.code;
+  const input = (event.data.stdin || []).slice();
   sent = 0;
   if (!pyodide) {
     self.postMessage({ type: "loading" });
@@ -71,8 +75,13 @@ self.onmessage = async (event) => {
     }
     self.postMessage({ type: "ready" });
   }
-  pyodide.setStdout({ batched: (text) => send("stdout", text) });
-  pyodide.setStderr({ batched: (text) => send("stderr", text) });
+  // the output is taken as bytes, so a newline, or its absence (end=""), comes
+  // out exactly as the program wrote it
+  pyodide.setStdout({ write: (bytes) => { send("stdout", decoders.stdout.decode(bytes, { stream: true })); return bytes.length; } });
+  pyodide.setStderr({ write: (bytes) => { send("stderr", decoders.stderr.decode(bytes, { stream: true })); return bytes.length; } });
+  // input() reads the lines the teacher typed in advance; with none left the
+  // program meets the end of its input
+  pyodide.setStdin({ stdin: () => (input.length ? input.shift() : null) });
   try {
     await pyodide.runPythonAsync(code);
     self.postMessage({ type: "done" });
@@ -84,7 +93,7 @@ self.onmessage = async (event) => {
 
 /** the worker that runs the program; a fake one stands in for it in tests */
 export type PythonWorker = {
-  postMessage: (message: { code: string }) => void;
+  postMessage: (message: { code: string; stdin?: string[] }) => void;
   terminate: () => void;
   onmessage: ((event: { data: WorkerMessage }) => void) | null;
   onerror: ((event: { message?: string }) => void) | null;
@@ -96,6 +105,26 @@ const createBlobWorker = (): PythonWorker => {
   );
 
   return new Worker(url) as unknown as PythonWorker;
+};
+
+/**
+ * A sentence that says what an error of a program means, for the errors that
+ * a teacher meets and cannot read (D-285), or null when there is nothing to add.
+ */
+export const explainError = (text: string): string | null => {
+  if (/RecursionError|Maximum call stack size exceeded/.test(text)) {
+    return "Hint: a function calls itself too deeply. Check that it has a case where it stops.";
+  }
+
+  if (/MemoryError|Invalid array length|out of memory/i.test(text)) {
+    return "Hint: the program asked for more memory than the browser allows.";
+  }
+
+  if (/EOFError/.test(text)) {
+    return "Hint: the program asked for more input than was given. Type the lines it needs in the Input box.";
+  }
+
+  return null;
 };
 
 export const createPythonRunner = ({
@@ -121,7 +150,11 @@ export const createPythonRunner = ({
     ready = false;
   };
 
-  const run = (code: string, events: PythonRunEvents) =>
+  const run = (
+    code: string,
+    events: PythonRunEvents,
+    options: { stdin?: string[] } = {},
+  ) =>
     new Promise<PythonRunResult>((resolve) => {
       worker ??= createWorker();
 
@@ -152,7 +185,7 @@ export const createPythonRunner = ({
             "timed-out",
             `The program was stopped after ${Math.round(
               timeoutMs / 1000,
-            )} seconds.`,
+            )} seconds. It may be stuck in an infinite loop, or it needs longer than this.`,
           );
           finish({ kind: "timed-out" });
         }, timeoutMs);
@@ -208,19 +241,31 @@ export const createPythonRunner = ({
           case "done":
             finish({ kind: "exit", code: 0 });
             break;
-          case "error":
-            emit("stderr", data.text);
+          case "error": {
+            const hint = explainError(data.text);
+
+            emit("stderr", hint ? `${data.text}\n${hint}\n` : data.text);
             finish({ kind: "exit", code: 1 });
             break;
+          }
         }
       };
 
       current.onerror = (event) => {
+        const started = ready;
+
         stop();
-        finish({
-          kind: "load-failed",
-          reason: event.message || "the Python runtime did not start",
-        });
+        finish(
+          started
+            ? {
+                kind: "crashed",
+                reason: event.message || "the program's worker stopped",
+              }
+            : {
+                kind: "load-failed",
+                reason: event.message || "the Python runtime did not start",
+              },
+        );
       };
 
       // a worker that has loaded before is ready already: the clock starts now
@@ -228,7 +273,7 @@ export const createPythonRunner = ({
         startClock();
       }
 
-      current.postMessage({ code });
+      current.postMessage({ code, stdin: options.stdin ?? [] });
     });
 
   return { run, stop };

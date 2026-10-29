@@ -31,6 +31,15 @@ const FONT = getFontString({
 
 const LINE_HEIGHT = getLineHeight(DEFAULT_FONT_FAMILY);
 
+/** waits for the table's font, so that what is measured is what is drawn */
+export const loadTableFont = async () => {
+  try {
+    await document.fonts?.load(FONT, "Ag");
+  } catch {
+    // a font that cannot be loaded is measured as the browser has it
+  }
+};
+
 export type TableCells = {
   /** the rows of the table, each row a list of cells */
   rows: string[][];

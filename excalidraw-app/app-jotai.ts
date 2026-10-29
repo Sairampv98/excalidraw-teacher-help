@@ -46,3 +46,12 @@ export const pdfPageReadRequestAtom = atom<{
   width: number;
   height: number;
 } | null>(null);
+
+/**
+ * What an OCR read is doing and how far it is (D-288), or null when none runs.
+ * The hook sets it; a bar on the screen shows it.
+ */
+export const ocrProgressAtom = atom<{
+  label: string;
+  fraction: number | null;
+} | null>(null);

@@ -914,3 +914,35 @@
 .app-doc-pdf-read:focus {
   opacity: 1;
 }
+
+.app-doc-pdf-tools {
+  display: flex;
+  gap: 0.3rem;
+  flex: 0 0 auto;
+  padding-bottom: 0.3rem;
+}
+
+.app-doc-pdf-viewer--hand {
+  cursor: grab;
+
+  .app-doc-pdf-text {
+    user-select: none;
+    pointer-events: none;
+  }
+}
+
+.app-doc-pdf-scan {
+  position: absolute;
+  left: 0.4rem;
+  bottom: 0.4rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  background: rgba(255, 244, 204, 0.95);
+  color: #5c4400;
+  font-size: 0.8rem;
+}
+
+// a page with no text keeps its button in view: it is how it is read
+.app-doc-pdf-page--scan .app-doc-pdf-read {
+  opacity: 1;
+}

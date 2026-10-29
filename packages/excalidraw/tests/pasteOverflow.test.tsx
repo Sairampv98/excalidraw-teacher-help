@@ -181,6 +181,11 @@ describe("the paste that does not fit", () => {
     // all three lines are in the one box, which is as tall as three lines
     expect(box.text.split("\n")).toEqual(["alpha", "beta", "gamma"]);
     expect(box.height).toBeGreaterThan(box.fontSize * 3);
+
+    // a wrapping box, so that a side can be dragged and the text flows (D-286)
+    expect(
+      (pastedText()[0] as unknown as { autoResize: boolean }).autoResize,
+    ).toBe(false);
   });
 
   it("AC-30 a paste that does not fit raises the offer", async () => {
