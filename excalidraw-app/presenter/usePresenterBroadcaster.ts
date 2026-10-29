@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef } from "react";
 
 import { useExcalidrawAPI } from "@excalidraw/excalidraw";
+import {
+  getFlowAnimationSnapshot,
+  subscribeToFlowAnimation,
+} from "@excalidraw/excalidraw/components/FlowAnimationState";
 
 import type {
   AppState,
@@ -12,16 +16,19 @@ import type {
   OrderedExcalidrawElement,
 } from "@excalidraw/element/types";
 
+import type { FlowAnimationSnapshot } from "@excalidraw/excalidraw/components/FlowAnimationState";
+
 import {
   createPresenterChannel,
   getPresenterCamera,
   isPresenterFileWithinLimit,
+  isViewOnlyChange,
   isPresenterSupported,
   presenterFileTooLargeMessage,
   PRESENTER_STALE_MS,
 } from "./presenterChannel";
 
-import type { PresenterPointer } from "./presenterChannel";
+import type { PresenterPointer, PresenterScene } from "./presenterChannel";
 
 /**
  * ~25fps. Drawing updates are coalesced down to this rate so that the editor's
@@ -29,6 +36,13 @@ import type { PresenterPointer } from "./presenterChannel";
  * projector still feels live while we sketch.
  */
 export const PRESENTER_PUBLISH_INTERVAL_MS = 40;
+
+/**
+ * A view that moves alone - a camera flight, a scroll, a zoom - goes at the
+ * screen's own rate, about 60 a second (D-219): it is a few numbers, and a
+ * presenter that gets it at 25 a second steps and trails the editor.
+ */
+export const PRESENTER_CAMERA_INTERVAL_MS = 16;
 
 /**
  * Idle keep-alive. The editor deliberately stops publishing while nothing
@@ -74,6 +88,8 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
   } | null>(null);
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSentAtRef = useRef(0);
+  // what the presenter has been given of the scene, to tell a view-only move (D-212)
+  const lastSceneSentRef = useRef<PresenterScene | null>(null);
   const pointerRef = useRef<PresenterPointer | null>(null);
   const pointerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPointerSentAtRef = useRef(0);
@@ -85,7 +101,7 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
 
   const hasPresenters = () => presentersRef.current.size > 0;
 
-  const sendScene = useCallback(() => {
+  const sendScene = useCallback((force = false) => {
     const channel = channelRef.current;
     const api = apiRef.current;
 
@@ -100,14 +116,20 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
       appState: api.getAppState(),
     };
 
+    const next: PresenterScene = {
+      elements: scene.elements,
+      camera: getPresenterCamera(scene.appState, pagesEnabledRef.current),
+    };
+
     try {
-      channel.postMessage({
-        type: "presenter:scene",
-        scene: {
-          elements: scene.elements,
-          camera: getPresenterCamera(scene.appState, pagesEnabledRef.current),
-        },
-      });
+      if (!force && isViewOnlyChange(lastSceneSentRef.current, next)) {
+        // only the view moved: just the view crosses (D-212)
+        channel.postMessage({ type: "presenter:camera", camera: next.camera });
+      } else {
+        channel.postMessage({ type: "presenter:scene", scene: next });
+      }
+
+      lastSceneSentRef.current = next;
       lastSentAtRef.current = Date.now();
     } catch (error) {
       // structured clone can throw on unexpectedly exotic elements — dropping a
@@ -116,13 +138,33 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
     }
   }, []);
 
+  /** whether what is waiting to be sent is a move of the view alone (D-219) */
+  const isViewOnly = useCallback(() => {
+    const scene = sceneRef.current;
+    const last = lastSceneSentRef.current;
+
+    return (
+      !!scene &&
+      !!last &&
+      isViewOnlyChange(last, {
+        elements: scene.elements,
+        camera: getPresenterCamera(scene.appState, pagesEnabledRef.current),
+      })
+    );
+  }, []);
+
   // leading edge when idle (instant mirror), trailing edge while drawing
   const scheduleSend = useCallback(() => {
     if (flushTimerRef.current !== null) {
       return;
     }
 
-    if (Date.now() - lastSentAtRef.current >= PRESENTER_PUBLISH_INTERVAL_MS) {
+    // a view that moves alone is sent at the screen's rate (D-219)
+    const interval = isViewOnly()
+      ? PRESENTER_CAMERA_INTERVAL_MS
+      : PRESENTER_PUBLISH_INTERVAL_MS;
+
+    if (Date.now() - lastSentAtRef.current >= interval) {
       sendScene();
       return;
     }
@@ -130,8 +172,8 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
     flushTimerRef.current = setTimeout(() => {
       flushTimerRef.current = null;
       sendScene();
-    }, PRESENTER_PUBLISH_INTERVAL_MS);
-  }, [sendScene]);
+    }, interval);
+  }, [isViewOnly, sendScene]);
 
   const sendPointer = useCallback(() => {
     const channel = channelRef.current;
@@ -266,6 +308,38 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
     }
   }, []);
 
+  /**
+   * Hands the flow animation to the presenter (D-181): what plays, which step
+   * is current and how it is drawn. The picture is drawn by the presenter's own
+   * overlay over its own copy of the scene, so only this plain description
+   * crosses.
+   */
+  const sendFlow = useCallback((flow: FlowAnimationSnapshot | null) => {
+    const channel = channelRef.current;
+
+    if (!channel) {
+      return;
+    }
+
+    try {
+      channel.postMessage({ type: "presenter:flow", flow });
+    } catch (error) {
+      // a missed animation frame must not break the editor
+      console.error("presenter: failed to publish the flow animation", error);
+    }
+  }, []);
+
+  // sent when it changes - and nothing is sent while nobody is listening
+  useEffect(
+    () =>
+      subscribeToFlowAnimation((flow) => {
+        if (presentersRef.current.size > 0) {
+          sendFlow(flow);
+        }
+      }),
+    [sendFlow],
+  );
+
   useEffect(() => {
     if (!isPresenterSupported()) {
       return;
@@ -285,8 +359,9 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
           }
 
           // answer immediately so a freshly opened (or reloaded) presenter
-          // window does not have to wait for the next edit
-          sendScene();
+          // window does not have to wait for the next edit - with the whole
+          // scene, whatever was sent before
+          sendScene(true);
 
           // and the live view's descriptor goes with it: a presenter that
           // connects after the bridge is already streaming would otherwise
@@ -299,6 +374,9 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
           if (document.fullscreenElement) {
             sendFocus();
           }
+
+          // and so does the animation that is playing, if one is
+          sendFlow(getFlowAnimationSnapshot());
           break;
         }
         case "presenter:bye": {
@@ -340,11 +418,12 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
       // in-flight publish can't resurrect a disconnected presenter
       presentersRef.current = new Map();
       sceneRef.current = null;
+      lastSceneSentRef.current = null;
       liveViewsRef.current = new Map();
       channelRef.current = null;
       channel?.close();
     };
-  }, [sendFiles, sendFocus, sendLiveView, sendScene]);
+  }, [sendFiles, sendFlow, sendFocus, sendLiveView, sendScene]);
 
   const publishScene = useCallback(
     (elements: readonly OrderedExcalidrawElement[], appState: AppState) => {

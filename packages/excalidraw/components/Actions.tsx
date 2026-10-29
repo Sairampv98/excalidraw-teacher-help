@@ -22,6 +22,7 @@ import {
   isArrowElement,
   hasStrokeColor,
   toolIsArrow,
+  canHaveInk,
 } from "@excalidraw/element";
 
 import type {
@@ -87,7 +88,6 @@ import {
 } from "./icons";
 
 import { Island } from "./Island";
-import { FlowAnimationSection } from "./FlowAnimationSection";
 
 import type {
   AppClassProperties,
@@ -136,6 +136,17 @@ export const canChangeBackgroundColor = (
     targetElements.some((element) => hasBackground(element.type))
   );
 };
+
+/** the tools that draw with ink, for the look chosen before drawing */
+const inkTools = new Set<string>([
+  "text",
+  "freedraw",
+  "rectangle",
+  "diamond",
+  "ellipse",
+  "line",
+  "arrow",
+]);
 
 export const SelectedShapeActions = ({
   appState,
@@ -238,6 +249,7 @@ export const SelectedShapeActions = ({
         targetElements.some(isTextElement)) && (
         <>
           <fieldset>{renderAction("changeFontFamily")}</fieldset>
+          {renderAction("changeFontStyle")}
           {renderAction("changeFontSize")}
           {(appState.activeTool.type === "text" ||
             suppportsHorizontalAlign(targetElements, elementsMap)) &&
@@ -253,6 +265,11 @@ export const SelectedShapeActions = ({
       )}
 
       {showPanelActions && renderAction("changePanel")}
+
+      {/* how the ink is painted (D-241) */}
+      {(inkTools.has(appState.activeTool.type) ||
+        targetElements.some(canHaveInk)) &&
+        renderAction("changeInkLook")}
 
       {renderAction("changeOpacity")}
 
@@ -308,13 +325,6 @@ export const SelectedShapeActions = ({
           </div>
         </fieldset>
       )}
-      {!isEditingTextOrNewElement && (
-        <FlowAnimationSection
-          targetElements={targetElements}
-          elementsMap={elementsMap}
-          app={app}
-        />
-      )}
       {!isEditingTextOrNewElement && targetElements.length > 0 && (
         <fieldset>
           <legend>{t("labels.actions")}</legend>
@@ -331,12 +341,6 @@ export const SelectedShapeActions = ({
           </div>
         </fieldset>
       )}
-      {/*
-       * the page's own properties (D-144) - the frame, the number and the
-       * size. They belong to the page and not to the selection, so they sit
-       * at the end of the panel, under their own heading.
-       */}
-      {renderAction("changePage")}
     </div>
   );
 };
@@ -434,6 +438,9 @@ const CombinedShapeProperties = ({
                   canChangeRoundness(element.type),
                 )) &&
                 renderAction("changeRoundness")}
+              {(inkTools.has(appState.activeTool.type) ||
+                targetElements.some(canHaveInk)) &&
+                renderAction("changeInkLook")}
               {renderAction("changeOpacity")}
             </div>
           </PropertiesPopover>
@@ -616,8 +623,12 @@ const CombinedTextProperties = ({
           >
             <div className="selected-shape-actions">
               {(appState.activeTool.type === "text" ||
-                targetElements.some(isTextElement)) &&
-                renderAction("changeFontSize")}
+                targetElements.some(isTextElement)) && (
+                <>
+                  {renderAction("changeFontStyle")}
+                  {renderAction("changeFontSize")}
+                </>
+              )}
               {(appState.activeTool.type === "text" ||
                 suppportsHorizontalAlign(targetElements, elementsMap)) &&
                 renderAction("changeTextAlign")}

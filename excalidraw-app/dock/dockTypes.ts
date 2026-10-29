@@ -9,7 +9,7 @@ import { useCallback, useState } from "react";
  * auto-hidden while you draw — Android edge-panel behaviour.
  */
 
-export type DockId = "toolbar" | "properties";
+export type DockId = "toolbar" | "properties" | "stickers";
 
 export type DockEdge = "left" | "right" | "top" | "bottom";
 
@@ -46,6 +46,13 @@ export const DOCK_DEFINITIONS: readonly DockDefinition[] = [
     selector: ".selected-shape-actions-container",
     label: "Properties",
     fallbackEdge: "left",
+  },
+  {
+    // the emoji and GIF bar (D-216): moved and closed like the other two
+    id: "stickers",
+    selector: ".excalidraw-sticker-bar",
+    label: "Emoji",
+    fallbackEdge: "bottom",
   },
 ];
 

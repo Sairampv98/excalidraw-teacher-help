@@ -9,9 +9,12 @@ import {
   useExcalidrawAPI,
 } from "@excalidraw/excalidraw";
 
+import { applyFlowAnimationSnapshot } from "@excalidraw/excalidraw/components/FlowAnimationState";
+
 import { EVENT, THEME } from "@excalidraw/common";
 import { isInitializedImageElement, isPanelElement } from "@excalidraw/element";
 
+import type { FlowAnimationSnapshot } from "@excalidraw/excalidraw/components/FlowAnimationState";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import type {
   FileId,
@@ -131,6 +134,8 @@ export const PresenterView = () => {
   const pendingSceneRef = useRef<PresenterScene | null>(null);
   const lastSceneRef = useRef<PresenterScene | null>(null);
   const lastMessageAtRef = useRef(0);
+  // the editor's flow animation, as last announced (D-181)
+  const flowRef = useRef<FlowAnimationSnapshot | null>(null);
 
   /**
    * This window's *measured* canvas size, in css px.
@@ -272,12 +277,18 @@ export const PresenterView = () => {
    * the page.
    */
   const applyCamera = useCallback(
-    (camera: PresenterCamera) => {
+    (camera: PresenterCamera, { unmeasured = false } = {}) => {
       const api = apiRef.current;
 
       measureViewport();
 
-      if (!api || api.isDestroyed || !viewportRef.current.width) {
+      // a resize has nothing to do until the window is measured; a view that
+      // moved is applied as the scene's own camera is, measured or not (D-212)
+      if (
+        !api ||
+        api.isDestroyed ||
+        (!unmeasured && !viewportRef.current.width)
+      ) {
         return;
       }
 
@@ -319,6 +330,27 @@ export const PresenterView = () => {
       collaborators: pointerCollaborators(pointer),
       captureUpdate: CaptureUpdateAction.NEVER,
     });
+  }, []);
+
+  /**
+   * Puts the editor's flow animation on this window's overlay (D-181). It is
+   * drawn over this window's own copy of the scene, and it is a mirror: this
+   * window moves no step and writes nothing back.
+   */
+  const applyFlow = useCallback(() => {
+    const api = apiRef.current;
+
+    if (!api || api.isDestroyed) {
+      return;
+    }
+
+    const elements = api.getSceneElements();
+
+    applyFlowAnimationSnapshot(
+      flowRef.current,
+      elements,
+      new Map(elements.map((element) => [element.id, element])),
+    );
   }, []);
 
   const requestMissingFiles = useCallback(
@@ -383,6 +415,24 @@ export const PresenterView = () => {
         case "presenter:scene": {
           applyScene(message.scene);
           requestMissingFiles(message.scene.elements);
+
+          // a shape that moved, or a scene that arrived after the animation
+          // did, has to be found again among the elements
+          if (flowRef.current) {
+            applyFlow();
+          }
+          break;
+        }
+        case "presenter:camera": {
+          // only the view moved (D-212): move this window's view, nothing else
+          if (lastSceneRef.current) {
+            lastSceneRef.current = {
+              ...lastSceneRef.current,
+              camera: message.camera,
+            };
+          }
+
+          applyCamera(message.camera, { unmeasured: true });
           break;
         }
         case "presenter:pointer": {
@@ -398,6 +448,12 @@ export const PresenterView = () => {
           } else if (lastSceneRef.current) {
             applyScene(lastSceneRef.current);
           }
+          break;
+        }
+        case "presenter:flow": {
+          // the editor's flow animation (D-181), drawn here as a mirror
+          flowRef.current = message.flow;
+          applyFlow();
           break;
         }
         case "presenter:live-view": {
@@ -441,7 +497,14 @@ export const PresenterView = () => {
           break;
       }
     },
-    [applyFocus, applyPointer, applyScene, requestMissingFiles],
+    [
+      applyCamera,
+      applyFlow,
+      applyFocus,
+      applyPointer,
+      applyScene,
+      requestMissingFiles,
+    ],
   );
 
   // ---------------------------------------------------------------------------
@@ -678,6 +741,7 @@ export const PresenterView = () => {
       <div className="excalidraw-app__presenter-canvas" ref={hostRef}>
         <Excalidraw
           viewModeEnabled
+          flowDisplayOnly
           handleKeyboardGlobally
           detectScroll={false}
           autoFocus

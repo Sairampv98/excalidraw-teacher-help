@@ -4,6 +4,10 @@ import { newImageElement } from "@excalidraw/element";
 
 import type { ExcalidrawPanelElement } from "@excalidraw/element/types";
 
+import { OcrEnginePickerView } from "./OcrEnginePicker";
+
+import type { OcrEngineName } from "../../packages/vscode-bridge/bridge/src/ocr";
+
 /**
  * The crop of a **poster panel** — app-level new UI (D-68).
  *
@@ -119,6 +123,14 @@ export type CropModalProps = {
   ocrMessage?: string;
   /** whether a read is running right now */
   ocrBusy?: boolean;
+  /**
+   * The engine chosen for this panel (D-300): with `onOcrEngine` the dialog
+   * offers the same picker as the panel's properties, beside the read.
+   */
+  ocrEngine?: OcrEngineName | null;
+  onOcrEngine?: (engine: OcrEngineName) => void;
+  /** whether the bridge is there, for what an engine needs */
+  ocrBridgeConnected?: boolean;
 };
 
 /**
@@ -136,6 +148,9 @@ export const CropModal = ({
   onOcr,
   ocrMessage,
   ocrBusy,
+  ocrEngine = null,
+  onOcrEngine,
+  ocrBridgeConnected = false,
 }: CropModalProps) => {
   const natural = posterNaturalSize(panel);
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -298,6 +313,13 @@ export const CropModal = ({
               >
                 Read the text
               </button>
+              {onOcrEngine ? (
+                <OcrEnginePickerView
+                  value={ocrEngine}
+                  onChange={onOcrEngine}
+                  bridgeConnected={ocrBridgeConnected}
+                />
+              ) : null}
               <span data-testid="panel-crop-ocr-message">
                 {ocrMessage ?? ""}
               </span>

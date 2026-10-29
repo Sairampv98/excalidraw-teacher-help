@@ -1,15 +1,19 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { DefaultSidebar, Sidebar } from "@excalidraw/excalidraw";
 import { useExcalidrawSetAppState } from "@excalidraw/excalidraw/components/App";
 import { useUIAppState } from "@excalidraw/excalidraw/context/ui-appState";
 
 import { FilesTab } from "../sidebar/FilesTab";
+import { FlowTab } from "../sidebar/FlowTab";
+import { SidebarHeaderSlotContext } from "../sidebar/headerSlot";
 import { installSidebarRelease } from "../sidebar/sidebarRelease";
 import { useAutoFitPageOnResize } from "../sidebar/useSidebarLayout";
 
 /** the one tab: it picks files *and* folders */
 const FILES_TAB = "files";
+/** the flow studio: presets for a chart, filled from a script (D-161) */
+const FLOW_TAB = "flow";
 /** the one sidebar in this build; matches `DEFAULT_SIDEBAR.name` */
 const SIDEBAR_NAME = "default";
 
@@ -30,6 +34,50 @@ const FilesIcon = () => (
     />
     <path
       d="m4 12 8 4.5 8-4.5M4 16.5l8 4.5 8-4.5"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+/** three boxes joined by arrows - "a flow" */
+const FlowIcon = () => (
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    aria-hidden="true"
+  >
+    <rect
+      x="3"
+      y="3.5"
+      width="7"
+      height="5"
+      rx="1.2"
+      stroke="currentColor"
+      strokeWidth="1.6"
+    />
+    <rect
+      x="14"
+      y="15.5"
+      width="7"
+      height="5"
+      rx="1.2"
+      stroke="currentColor"
+      strokeWidth="1.6"
+    />
+    <path
+      d="M6.5 8.5v4.5a2 2 0 0 0 2 2H14"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="m12.5 13 1.8 2-1.8 2"
       stroke="currentColor"
       strokeWidth="1.6"
       strokeLinecap="round"
@@ -105,6 +153,10 @@ export const AppSidebar = ({
   // closing the sidebar afterwards is a choice we don't argue with.
   const pinnedOnLoad = useRef(false);
 
+  // the place in the header where the Files tab draws the buttons that open
+  // files (D-312): null until the header is there
+  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
+
   useEffect(() => {
     if (pinnedOnLoad.current) {
       return;
@@ -117,10 +169,14 @@ export const AppSidebar = ({
   }, [openSidebar, setAppState]);
 
   // the stock library / search / comments / presentation tabs are gone, and the
-  // folder + documents tabs are one tab now, so any other tab name falls back
-  // to it
+  // folder + documents tabs are one tab now, so any tab name that is not one of
+  // ours falls back to it
   useEffect(() => {
-    if (openSidebar?.name === SIDEBAR_NAME && openSidebar.tab !== FILES_TAB) {
+    if (
+      openSidebar?.name === SIDEBAR_NAME &&
+      openSidebar.tab !== FILES_TAB &&
+      openSidebar.tab !== FLOW_TAB
+    ) {
       setAppState({ openSidebar: { name: SIDEBAR_NAME, tab: FILES_TAB } });
     }
   }, [openSidebar, setAppState]);
@@ -146,6 +202,9 @@ export const AppSidebar = ({
           <Sidebar.TabTrigger tab={FILES_TAB} title="Files">
             <FilesIcon />
           </Sidebar.TabTrigger>
+          <Sidebar.TabTrigger tab={FLOW_TAB} title="Flow">
+            <FlowIcon />
+          </Sidebar.TabTrigger>
 
           {/* not a tab — a switch for how the canvas reacts to resizing */}
           <button
@@ -163,9 +222,22 @@ export const AppSidebar = ({
           >
             <FitPageIcon active={autoFitEnabled} />
           </button>
+
+          {/* the buttons that open files and folders are drawn here by the
+          Files tab (D-312) */}
+          <span
+            ref={setHeaderSlot}
+            className="app-sidebar-header-tools"
+            data-testid="sidebar-header-tools"
+          />
         </DefaultSidebar.TabTriggers>
         <Sidebar.Tab tab={FILES_TAB}>
-          <FilesTab />
+          <SidebarHeaderSlotContext.Provider value={headerSlot}>
+            <FilesTab />
+          </SidebarHeaderSlotContext.Provider>
+        </Sidebar.Tab>
+        <Sidebar.Tab tab={FLOW_TAB}>
+          <FlowTab />
         </Sidebar.Tab>
       </DefaultSidebar>
 

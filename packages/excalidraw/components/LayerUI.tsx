@@ -46,6 +46,7 @@ import MainMenu from "./main-menu/MainMenu";
 import { ActiveConfirmDialog } from "./ActiveConfirmDialog";
 import { useEditorInterface, useStylesPanelMode } from "./App";
 import { OverwriteConfirmDialog } from "./OverwriteConfirm/OverwriteConfirm";
+import { PageLookDialog } from "./PageLookDialog";
 import { PageSplitDialog } from "./PageSplitDialog/PageSplitDialog";
 import { PasteOverflowDialog } from "./PasteOverflowDialog/PasteOverflowDialog";
 import { sidebarRightIcon } from "./icons";
@@ -553,6 +554,13 @@ const LayerUI = ({
       )}
       {appState.openDialog?.name === "help" && (
         <HelpDialog
+          onClose={() => {
+            setAppState({ openDialog: null });
+          }}
+        />
+      )}
+      {appState.openDialog?.name === "pageLook" && (
+        <PageLookDialog
           onClose={() => {
             setAppState({ openDialog: null });
           }}

@@ -15,8 +15,13 @@ import {
   waitFor,
 } from "@excalidraw/excalidraw/tests/test-utils";
 
-import ExcalidrawApp from "../App";
-import { appJotaiStore, pdfPageReadRequestAtom } from "../app-jotai";
+import ExcalidrawApp, { chosenReadEngine } from "../App";
+import {
+  Provider,
+  appJotaiStore,
+  ocrEngineChoiceAtom,
+  pdfPageReadRequestAtom,
+} from "../app-jotai";
 import { OcrAreaDialog } from "../components/OcrAreaDialog";
 import { browserOcr } from "../ocr/browserOcr";
 
@@ -254,5 +259,45 @@ describe("AC-329 the area to read is chosen before the page is read", () => {
     await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
 
     expect(read.mock.calls[0][1]).not.toHaveProperty("region");
+  });
+});
+
+describe("AC-343 the engine that reads is chosen where a page is read", () => {
+  afterEach(() => {
+    appJotaiStore.set(ocrEngineChoiceAtom, null);
+  });
+
+  it("AC-343 the question about the area offers the engines, and the choice is kept", async () => {
+    appJotaiStore.set(ocrEngineChoiceAtom, null);
+
+    await render(
+      <Provider store={appJotaiStore}>
+        <Excalidraw>
+          <OcrAreaDialog picture={PICTURE} onRead={vi.fn()} onClose={vi.fn()} />
+        </Excalidraw>
+      </Provider>,
+    );
+
+    const select = document.querySelector(
+      '[data-testid="ocr-engine-select"]',
+    ) as HTMLSelectElement;
+
+    expect(select).not.toBeNull();
+    expect([...select.options].map((option) => option.value)).toEqual([
+      "indra",
+      "tesseract",
+    ]);
+
+    fireEvent.change(select, { target: { value: "tesseract" } });
+
+    expect(appJotaiStore.get(ocrEngineChoiceAtom)).toBe("tesseract");
+  });
+
+  it("AC-343 a read goes with the engine that was chosen, and with none when none was", () => {
+    appJotaiStore.set(ocrEngineChoiceAtom, null);
+    expect(chosenReadEngine()).toEqual({});
+
+    appJotaiStore.set(ocrEngineChoiceAtom, "tesseract");
+    expect(chosenReadEngine()).toEqual({ engine: "tesseract" });
   });
 });

@@ -35,8 +35,9 @@ import type {
   BinaryFileData,
   DataURL,
   ExcalidrawImperativeAPI,
+  SceneData,
 } from "@excalidraw/excalidraw/types";
-import type { FileId } from "@excalidraw/element/types";
+import type { FileId, TextStyleRun } from "@excalidraw/element/types";
 import type {
   ExcalidrawElement,
   ExcalidrawTextElement,
@@ -45,8 +46,9 @@ import type {
 import { layoutOcrLines } from "../ocr/ocrLayout";
 
 import { codeCardColumns, highlightCode, layoutCode } from "./codeCard";
+import { nodeDrop } from "./nodeDropHook";
 
-import type { OcrLine } from "../../packages/vscode-bridge/bridge/src/ocr";
+import type { StyledOcrLine } from "../ocr/ocrLayout";
 
 import type { LaidOutRun } from "./codeCard";
 
@@ -67,6 +69,18 @@ export const appendElements = (
    * readable back yet (D-104).
    */
   pageId?: string,
+  /**
+   * How the insert is recorded in the undo history. Left out, it is the
+   * library's default (the insert joins the next recorded change); a caller
+   * that adds one thing the user will want to undo on its own - a whole chart
+   * (D-161) - passes `CaptureUpdateAction.IMMEDIATELY`.
+   */
+  captureUpdate?: SceneData["captureUpdate"],
+  /**
+   * The elements already say which page each is on (a chart spread over pages,
+   * D-226): they are not all stamped with the one page.
+   */
+  keepPageIds = false,
 ) => {
   const existing = api.getSceneElements();
 
@@ -76,10 +90,9 @@ export const appendElements = (
   // helper the library's own insertion paths use. Without it, an image (or a
   // code card) inserted while a later page was active landed on page 1 and was
   // invisible on the canvas even though it was in the document.
-  const stamped = stampCurrentPage(
-    added,
-    pageId ?? api.getAppState().currentPageId,
-  );
+  const stamped = keepPageIds
+    ? added
+    : stampCurrentPage(added, pageId ?? api.getAppState().currentPageId);
 
   api.updateScene({
     elements: reconcileElements(
@@ -88,6 +101,7 @@ export const appendElements = (
       api.getAppState(),
     ),
     appState,
+    captureUpdate,
   });
 };
 
@@ -261,7 +275,7 @@ const readFrame = (
  * This is the *default* placement only. An explicit drop or click point is
  * user-authoritative and is passed straight through by `insertImageIntoScene`.
  */
-const viewportCenter = (
+export const viewportCenter = (
   api: ExcalidrawImperativeAPI,
   width: number,
   height: number,
@@ -310,7 +324,7 @@ const showPlaced = (
   api.scrollToContent?.(elements as ExcalidrawElement[], { animate: true });
 };
 
-const getImageSize = (src: string) =>
+export const getImageSize = (src: string) =>
   new Promise<{ width: number; height: number }>((resolve, reject) => {
     const image = new Image();
     image.onload = () =>
@@ -511,6 +525,37 @@ export const insertScreenshotIntoScene = (
 };
 
 /**
+ * Puts the part of a PDF page that was in the selection box on the current page
+ * as an **image** (D-315): in the middle of the page, at the size an image of
+ * the sidebar has, selected, with the view moved to it.
+ *
+ * The picture is the page's own pixels, so it is as sharp as the page was drawn.
+ */
+export const insertPdfPictureIntoScene = (
+  api: ExcalidrawImperativeAPI,
+  picture: { dataURL: string; width: number; height: number },
+) => {
+  const size = screenshotCanvasSize(picture.width, picture.height);
+  const origin = pageCenterOrigin(api, size);
+
+  const fileId = insertScreenshotIntoScene(api, {
+    dataURL: picture.dataURL,
+    canvasWidth: size.width,
+    canvasHeight: size.height,
+    x: origin.x,
+    y: origin.y,
+  });
+
+  const placed = api
+    .getSceneElements()
+    .filter((element) => element.type === "image" && element.fileId === fileId);
+
+  showPlaced(api, placed);
+
+  return placed[0] ?? null;
+};
+
+/**
  * Places a screenshot on a **new page** (D-103, D-104).
  *
  * The page is created after the page the teacher is on, and the picture lands
@@ -646,6 +691,21 @@ const clientPointToScene = (
   clientX: number,
   clientY: number,
 ): ScenePoint => viewportToScene({ clientX, clientY }, readFrame(api, canvas));
+
+/**
+ * The scene point under a pointer, measured against the live canvas - or
+ * `undefined` when there is no canvas to measure against. A drop onto the
+ * canvas from outside the sidebar (the sticker bar) uses this.
+ */
+export const sceneAtClientPoint = (
+  api: ExcalidrawImperativeAPI,
+  clientX: number,
+  clientY: number,
+): ScenePoint | undefined => {
+  const canvas = findCanvas();
+
+  return canvas ? clientPointToScene(api, canvas, clientX, clientY) : undefined;
+};
 
 /**
  * Stashes `file` and arms a single canvas click to paste it where it was
@@ -887,6 +947,21 @@ export const armFileDragOnCanvas = (
 
     const client = { clientX: event.clientX, clientY: event.clientY };
     const at = clientPointToScene(api, canvas, client.clientX, client.clientY);
+
+    // released on a node of a chart: the file goes into the node (D-246)
+    const onNode = nodeDrop();
+
+    if (onNode?.claims(at)) {
+      onNode.add(stashed.file, at).catch((error) => {
+        console.error(error);
+        api.setToast?.({
+          message: `Could not add ${stashed.file.name}`,
+          closable: true,
+        });
+      });
+
+      return;
+    }
 
     // the image path is the default; a video brings its own inserter, because
     // a video becomes a panel (D-98)
@@ -1207,7 +1282,14 @@ const insertLongCode = async (
 export const insertTextBoxIntoScene = (
   api: ExcalidrawImperativeAPI,
   text: string,
-  { monospace = false }: { monospace?: boolean } = {},
+  {
+    monospace = false,
+    styleRuns,
+  }: {
+    monospace?: boolean;
+    /** the parts of `text` that are bold or italic (D-321) */
+    styleRuns?: readonly TextStyleRun[];
+  } = {},
 ) => {
   const fontFamily = monospace ? FONT_FAMILY.Cascadia : DEFAULT_FONT_FAMILY;
   const fontSize = monospace ? CODE_FONT_SIZE + 4 : DEFAULT_FONT_SIZE;
@@ -1228,6 +1310,7 @@ export const insertTextBoxIntoScene = (
   const block = newTextElement({
     text: wrapped,
     originalText: text,
+    styleRuns,
     fontFamily,
     fontSize,
     lineHeight,
@@ -1265,7 +1348,7 @@ export const insertTextBlockIntoScene = (
  */
 export const insertOcrLinesIntoScene = (
   api: ExcalidrawImperativeAPI,
-  lines: readonly OcrLine[],
+  lines: readonly StyledOcrLine[],
 ) => {
   const fontFamily = FONT_FAMILY.Helvetica;
   const lineHeight = getLineHeight(fontFamily);
@@ -1294,6 +1377,7 @@ export const insertOcrLinesIntoScene = (
   const placed = layout.lines.map((line) =>
     newTextElement({
       text: line.text,
+      styleRuns: line.styleRuns,
       x: origin.x + line.x,
       y: origin.y + line.y,
       fontFamily,

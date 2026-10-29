@@ -64,6 +64,7 @@ import type { isOverScrollBars } from "./scene/scrollbars";
 import type { PanelBridgeStatus } from "./scene/panelContent";
 import type { PanelMirror } from "./scene/panelMirror";
 import type { PanelScreenshotChoice } from "./scene/panelScreenshot";
+import type { PagePaper, PagePaperDraw } from "./scene/paper";
 import type React from "react";
 import type { JSX } from "react";
 
@@ -231,6 +232,11 @@ export type ExcalidrawPage = {
    * teacher has to see the one they picked.
    */
   sizePreset?: string;
+  /**
+   * The page's paper (D-243): its type, colour, grain and age. A page without
+   * one is plain, in the canvas colour.
+   */
+  paper?: PagePaper;
 };
 
 /** a page whose geometry has been resolved to concrete numbers */
@@ -264,6 +270,8 @@ export type PageDecoration = {
    * page has no number
    */
   number: { text: string; x: number; y: number } | null;
+  /** the page's paper (D-243), drawn under the content; absent when it is plain */
+  paper?: PagePaperDraw | null;
 };
 
 export type BinaryFileData = {
@@ -366,6 +374,8 @@ export type StaticCanvasAppState = Readonly<
     currentPageRect?: PageRect | null;
     /** the current page's frame and number; null when it has neither */
     currentPageDecoration?: PageDecoration | null;
+    /** the papers of an export of many pages (D-243), drawn under the content */
+    currentPagePapers?: readonly PagePaperDraw[] | null;
     frameRendering: AppState["frameRendering"];
     currentHoveredFontFamily: AppState["currentHoveredFontFamily"];
     hoveredElementIds: AppState["hoveredElementIds"];
@@ -577,7 +587,7 @@ export interface AppState {
   openSidebar: { name: SidebarName; tab?: SidebarTabName } | null;
   openDialog:
     | null
-    | { name: "imageExport" | "help" | "jsonExport" }
+    | { name: "imageExport" | "help" | "jsonExport" | "pageLook" }
     | { name: "ttd"; tab: "text-to-diagram" | "mermaid" }
     | { name: "commandPalette" }
     | { name: "settings" }
@@ -882,6 +892,12 @@ export interface ExcalidrawProps {
    */
   pagesEnabled?: boolean;
   /**
+   * A window that shows the board and is not operated - the presenter. It plays
+   * the class loop of the flows marked for class, and has no Steps button
+   * (D-187).
+   */
+  flowDisplayOnly?: boolean;
+  /**
    * Width of the docked sidebar in css px. Drives `--right-sidebar-width`,
    * which the sidebar box and the canvas wrapper (`100% - sidebar width`) both
    * size themselves from — so changing it reflows the canvas.
@@ -1071,6 +1087,12 @@ export type PanelRunControls = {
   browserLanguages?: string[];
   /** the teacher cleared the console (D-274) */
   onClear?: (panelId: string) => void;
+  /**
+   * The teacher answered the question the program is waiting on (D-298): the
+   * host runs the program again with the answer. The panel shows the answer
+   * field while the run's state is `waiting-input`.
+   */
+  onAnswer?: (panelId: string, answer: string) => void;
   /**
    * The languages the picker lists, and where each stands (D-289): ready, to be
    * downloaded, downloading (with how far) or not available yet.

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 100 100" role="img" aria-label="Ghost">
+  <circle cx="50" cy="40" r="35" fill="#D5D9DE"/>
+  <rect x="15" y="40" width="70" height="49" rx="0" fill="#D5D9DE"/>
+  <circle cx="26" cy="87" r="11" fill="#D5D9DE"/>
+  <circle cx="50" cy="89" r="11" fill="#D5D9DE"/>
+  <circle cx="74" cy="87" r="11" fill="#D5D9DE"/>
+  <circle cx="50" cy="40" r="32" fill="#FFFFFF"/>
+  <rect x="18" y="40" width="64" height="46" rx="0" fill="#FFFFFF"/>
+  <circle cx="26" cy="86" r="8" fill="#FFFFFF"/>
+  <circle cx="50" cy="88" r="8" fill="#FFFFFF"/>
+  <circle cx="74" cy="86" r="8" fill="#FFFFFF"/>
+  <ellipse cx="38" cy="40" rx="5" ry="8" fill="#1A1A1A"/>
+  <ellipse cx="62" cy="40" rx="5" ry="8" fill="#1A1A1A"/>
+  <ellipse cx="50" cy="58" rx="6" ry="8" fill="#1A1A1A"/>
+</svg>

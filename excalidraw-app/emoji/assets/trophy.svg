@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 100 100" role="img" aria-label="Trophy">
+  <polyline points="24,46 19.41,45.09 15.51,42.49 12.91,38.59 12,34 12.91,29.41 15.51,25.51 19.41,22.91 24,22" fill="none" stroke="#E0A800" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="76,22 80.59,22.91 84.49,25.51 87.09,29.41 88,34 87.09,38.59 84.49,42.49 80.59,45.09 76,46" fill="none" stroke="#E0A800" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <polygon points="26,10 74,10 70,46 58,62 42,62 30,46" fill="#FFD84D"/>
+  <rect x="45" y="62" width="10" height="16" rx="2" fill="#E0A800"/>
+  <rect x="30" y="78" width="40" height="12" rx="4" fill="#E0A800"/>
+  <polygon points="50,24 52.35,30.76 59.51,30.91 53.8,35.24 55.88,42.09 50,38 44.12,42.09 46.2,35.24 40.49,30.91 47.65,30.76" fill="#FFFFFF"/>
+</svg>

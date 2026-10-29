@@ -6,7 +6,7 @@
  * form they choose, without pasting and finding a menu entry on the canvas.
  */
 
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 
 import { ExcalidrawAPIContext } from "@excalidraw/excalidraw/components/App";
@@ -87,7 +87,7 @@ const open = async () => {
 
   resetBrowserState();
 
-  const { container, queryByText, getByText } = render(
+  const { container, queryByLabelText, getByLabelText } = render(
     <ExcalidrawAPIContext.Provider value={api}>
       <FilesTab />
     </ExcalidrawAPIContext.Provider>,
@@ -109,11 +109,15 @@ const open = async () => {
     { timeout: WAIT_MS },
   );
 
+  // the viewer listens for the end of a selection from an effect: let it run
+  // before a test selects anything
+  await act(async () => {});
+
   return {
     body: container.querySelector<HTMLElement>(".app-doc-markdown")!,
     updates,
-    queryByText,
-    getByText,
+    queryByLabelText,
+    getByLabelText,
   };
 };
 
@@ -123,16 +127,16 @@ describe("AC-302 the selection bar", () => {
   });
 
   it("AC-302 the selection bar has two buttons that insert", async () => {
-    const { body, updates, getByText } = await open();
+    const { body, updates, getByLabelText } = await open();
 
     select(body.querySelector("p")!);
     fireEvent.mouseUp(document);
 
-    const asCard = await waitFor(() => getByText("As a code card"), {
+    const asCard = await waitFor(() => getByLabelText("As a code card"), {
       timeout: WAIT_MS,
     });
 
-    expect(getByText("As a table")).toBeTruthy();
+    expect(getByLabelText("As a table")).toBeTruthy();
 
     fireEvent.click(asCard);
 
@@ -153,13 +157,13 @@ describe("AC-302 the selection bar", () => {
   });
 
   it("AC-302 the table button puts the cells of the selection on the page", async () => {
-    const { body, updates, getByText } = await open();
+    const { body, updates, getByLabelText } = await open();
 
     select(body.querySelector("table")!);
     fireEvent.mouseUp(document);
 
     fireEvent.click(
-      await waitFor(() => getByText("As a table"), { timeout: WAIT_MS }),
+      await waitFor(() => getByLabelText("As a table"), { timeout: WAIT_MS }),
     );
 
     await waitFor(() => expect(updates.length).toBeGreaterThan(0), {
@@ -174,13 +178,15 @@ describe("AC-302 the selection bar", () => {
   });
 
   it("AC-324 the selection bar offers a flexible text box too", async () => {
-    const { body, updates, getByText } = await open();
+    const { body, updates, getByLabelText } = await open();
 
     select(body.querySelector("p")!);
     fireEvent.mouseUp(document);
 
     fireEvent.click(
-      await waitFor(() => getByText("As a text box"), { timeout: WAIT_MS }),
+      await waitFor(() => getByLabelText("As a text box"), {
+        timeout: WAIT_MS,
+      }),
     );
 
     await waitFor(() => expect(updates.length).toBeGreaterThan(0), {
@@ -194,10 +200,104 @@ describe("AC-302 the selection bar", () => {
     expect(texts[0].autoResize).toBe(false);
   });
 
-  it("AC-302 no selection no bar", async () => {
-    const { queryByText } = await open();
+  it("AC-357 the choices of a selected text are icons with names, with no image", async () => {
+    const { body, getByLabelText } = await open();
 
-    expect(queryByText("As a code card")).toBeNull();
-    expect(queryByText("As a table")).toBeNull();
+    select(body.querySelector("p")!);
+    fireEvent.mouseUp(document);
+
+    await waitFor(() => getByLabelText("As a code card"), {
+      timeout: WAIT_MS,
+    });
+
+    const buttons = Array.from(
+      document.querySelectorAll<HTMLElement>(".app-doc-selection button"),
+    );
+
+    expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
+      "As a code card",
+      "As a text box",
+      "As a table",
+      "Close",
+    ]);
+
+    // an icon and no words; the name is the tooltip
+    for (const button of buttons) {
+      expect(button.querySelector("svg")).not.toBeNull();
+      expect(button.textContent).toBe("");
+      expect(button.getAttribute("title")).toBeTruthy();
+    }
+
+    // a document has no picture of the selection: no image
+    expect(
+      document.querySelector('[data-testid="selection-image"]'),
+    ).toBeNull();
+  });
+
+  it("AC-357 the choices are inside the document, at the end of the selection", async () => {
+    // the end of the selection is 50 pixels from the left and 120 from the top
+    Range.prototype.getBoundingClientRect = function () {
+      return { left: 50, top: 100, right: 200, bottom: 120 } as DOMRect;
+    };
+
+    try {
+      const { body } = await open();
+
+      Object.defineProperty(body, "clientWidth", {
+        configurable: true,
+        value: 400,
+      });
+
+      select(body.querySelector("p")!);
+      fireEvent.mouseUp(document);
+
+      const float = await waitFor(
+        () => {
+          const found = body.querySelector<HTMLElement>(
+            '[data-testid="selection-float"]',
+          );
+
+          expect(found).not.toBeNull();
+
+          return found!;
+        },
+        { timeout: WAIT_MS },
+      );
+
+      // inside the body, which scrolls: the row moves with the text and nothing
+      // is pushed down to make room for it
+      expect(body.contains(float)).toBe(true);
+      expect(float.style.left).toBe("50px");
+      expect(float.style.top).toBe("126px");
+      expect(
+        document.querySelector(".app-doc-viewer > .app-doc-selection"),
+      ).toBeNull();
+
+      // and a long way to the right it is kept in the document
+      body.scrollLeft = 0;
+      select(body.querySelector("p")!);
+      Range.prototype.getBoundingClientRect = function () {
+        return { left: 390, top: 100, right: 395, bottom: 120 } as DOMRect;
+      };
+      fireEvent.mouseUp(document);
+
+      await waitFor(
+        () =>
+          expect(
+            body.querySelector<HTMLElement>('[data-testid="selection-float"]')!
+              .style.left,
+          ).toBe("260px"),
+        { timeout: WAIT_MS },
+      );
+    } finally {
+      Reflect.deleteProperty(Range.prototype, "getBoundingClientRect");
+    }
+  });
+
+  it("AC-302 no selection no bar", async () => {
+    const { queryByLabelText } = await open();
+
+    expect(queryByLabelText("As a code card")).toBeNull();
+    expect(queryByLabelText("As a table")).toBeNull();
   });
 });

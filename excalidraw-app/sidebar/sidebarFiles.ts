@@ -603,9 +603,11 @@ const markdownRenderer = (): RendererObject => ({
   link({ href, title, tokens }) {
     const label = this.parser.parseInline(tokens);
 
+    // not draggable (D-309): the browser drags a link instead of selecting
+    // its text, and a link in a table could not be selected or pasted
     return `<a href="${escapeHtml(safeUrl(href))}"${titleAttribute(
       title,
-    )} target="_blank" rel="noreferrer noopener">${label}</a>`;
+    )} target="_blank" rel="noreferrer noopener" draggable="false">${label}</a>`;
   },
   image({ href, title, text }) {
     return `<img src="${escapeHtml(safeUrl(href))}" alt="${escapeHtml(
@@ -613,6 +615,187 @@ const markdownRenderer = (): RendererObject => ({
     )}"${titleAttribute(title)} loading="lazy" />`;
   },
 });
+
+/**
+ * Where a link of a document goes (D-308).
+ *
+ * - `external`: an address elsewhere; the browser opens it in a new tab
+ * - `anchor`: a heading of the document itself
+ * - `document`: a file of the opened folder, which the viewer opens itself
+ * - `missing`: it points at a file that was not opened
+ */
+export type DocumentLink =
+  | { type: "external" }
+  | { type: "anchor"; anchor: string }
+  | { type: "document"; file: ScannedFile; anchor: string | null }
+  | { type: "missing"; target: string };
+
+/** what a link written with no extension may stand for, in this order */
+const LINK_SUFFIXES = [".md", ".markdown", ".mdx"];
+const FOLDER_INDEXES = ["index.md", "README.md", "readme.md"];
+
+const decodeSegment = (segment: string) => {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+};
+
+/** `.` and `..` resolved; null when `..` leaves the opened folder */
+const joinSegments = (segments: string[]): string[] | null => {
+  const joined: string[] = [];
+
+  for (const segment of segments) {
+    if (!segment || segment === ".") {
+      continue;
+    }
+
+    if (segment === "..") {
+      if (!joined.length) {
+        return null;
+      }
+
+      joined.pop();
+    } else {
+      joined.push(segment);
+    }
+  }
+
+  return joined;
+};
+
+/** the id a heading has for a link to it: lower case, spaces as hyphens */
+export const headingSlug = (text: string) =>
+  text
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s_-]/gu, "")
+    .replace(/\s/g, "-");
+
+/** the heading of `body` that a link to `anchor` means */
+export const findHeading = (body: ParentNode, anchor: string) => {
+  const wanted = headingSlug(anchor);
+
+  for (const heading of body.querySelectorAll<HTMLElement>(
+    "h1, h2, h3, h4, h5, h6",
+  )) {
+    if (headingSlug(heading.textContent ?? "") === wanted) {
+      return heading;
+    }
+  }
+
+  return null;
+};
+
+/**
+ * Reads a link of the document at `from` against the files that were opened.
+ *
+ * The link is read as it is written: relative to the document's own folder, or
+ * from the root of the opened folder when it starts with a slash. A link
+ * written with this app's own address (`origin`) is the same thing - the
+ * address is only where the browser would have looked for it. A file is found
+ * as written, with a markdown extension added, or as the index of a folder.
+ */
+export const resolveDocumentLink = ({
+  href,
+  from,
+  files,
+  origin,
+}: {
+  href: string;
+  /** the path of the document the link is in */
+  from: string;
+  /** the files a link may open */
+  files: readonly ScannedFile[];
+  /** this app's own address, e.g. "http://localhost:3000" */
+  origin?: string;
+}): DocumentLink => {
+  const raw = href.trim();
+
+  if (raw.startsWith("#")) {
+    return { type: "anchor", anchor: decodeSegment(raw.slice(1)) };
+  }
+
+  let written = raw;
+
+  if (raw.startsWith("//")) {
+    return { type: "external" };
+  }
+
+  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) {
+    let url: URL;
+
+    try {
+      url = new URL(raw);
+    } catch {
+      return { type: "external" };
+    }
+
+    if (
+      (url.protocol !== "http:" && url.protocol !== "https:") ||
+      !origin ||
+      url.origin !== origin
+    ) {
+      return { type: "external" };
+    }
+
+    written = `${url.pathname}${url.hash}`;
+  }
+
+  const hashAt = written.indexOf("#");
+  const anchor =
+    hashAt >= 0 && hashAt < written.length - 1
+      ? decodeSegment(written.slice(hashAt + 1))
+      : null;
+  let path = hashAt >= 0 ? written.slice(0, hashAt) : written;
+
+  const queryAt = path.indexOf("?");
+
+  if (queryAt >= 0) {
+    path = path.slice(0, queryAt);
+  }
+
+  if (!path) {
+    return { type: "anchor", anchor: anchor ?? "" };
+  }
+
+  const exact = new Map(files.map((file) => [file.path, file]));
+  const lower = new Map(files.map((file) => [file.path.toLowerCase(), file]));
+  const folder = from.split("/").slice(0, -1);
+  const segments = path.split("/").map(decodeSegment);
+  const folderLink = path.endsWith("/");
+  // from the document's folder, and then from the root: a link that is not
+  // found where it stands is looked for at the top of the opened folder
+  const bases = path.startsWith("/") ? [[], folder] : [folder, []];
+
+  for (const base of bases) {
+    const resolved = joinSegments([...base, ...segments]);
+
+    if (!resolved) {
+      continue;
+    }
+
+    const joined = resolved.join("/");
+    const last = resolved[resolved.length - 1];
+    const candidates = [
+      ...(folderLink || !joined ? [] : [joined]),
+      ...(joined ? LINK_SUFFIXES.map((suffix) => `${joined}${suffix}`) : []),
+      ...FOLDER_INDEXES.map((index) => (joined ? `${joined}/${index}` : index)),
+      ...(last ? [`${joined}/${last}.md`] : []),
+    ];
+
+    for (const candidate of candidates) {
+      const file = exact.get(candidate) ?? lower.get(candidate.toLowerCase());
+
+      if (file) {
+        return { type: "document", file, anchor };
+      }
+    }
+  }
+
+  return { type: "missing", target: segments.filter(Boolean).join("/") };
+};
 
 /** markdown source -> sanitised HTML, ready to be injected into the viewer */
 export const renderMarkdown = async (source: string): Promise<string> => {

@@ -20,8 +20,10 @@
 
 import {
   getCommonBounds,
+  captionOf,
   isLinearElement,
   isTextElement,
+  mediaOf,
 } from "@excalidraw/element";
 
 import type {
@@ -61,11 +63,18 @@ export type FlowEdge = {
   to: string;
 };
 
+/** which arrow carries an edge - so an animation can draw along the arrow itself */
+export type FlowEdgeArrow = FlowEdge & {
+  arrowId: string;
+};
+
 export type FlowGraph = {
   /** the steps, in the order the animation walks them */
   steps: FlowStep[];
   /** the edges the arrows gave us */
   edges: FlowEdge[];
+  /** the arrow behind each edge (two arrows between the same steps are both listed) */
+  edgeArrows: FlowEdgeArrow[];
 };
 
 /** An item the reading order sorts. */
@@ -237,7 +246,73 @@ export const buildFlowGraph = (
     }
   };
 
+  // the shapes of a chart by the node they are, for the words that are not bound to
+  // their shape (a target's and a venn's, D-235)
+  const shapeOfNode = new Map<string, ExcalidrawElement>();
+
   for (const element of targetElements) {
+    const flow = element.customData?.flow;
+
+    if (flow?.role === "node" && element.type !== "text") {
+      shapeOfNode.set(`${flow.chartId ?? ""}/${flow.nodeId}`, element);
+    }
+  }
+
+  for (const element of targetElements) {
+    const flowRole = element.customData?.flow?.role;
+
+    // what a chart draws besides its steps is not one: a timeline's dots (D-237)
+    if (flowRole === "timeline-dot") {
+      continue;
+    }
+
+    // the media of a node (D-246) is part of the node's step, not a step of its
+    // own: the step's box and its highlight hold it
+    const media = mediaOf(element);
+
+    if (media) {
+      const owner = elementsMap.get(media.of);
+
+      if (owner && targetIds.has(owner.id)) {
+        addContainer(owner);
+        members.get(owner.id)!.push(element.id);
+      }
+
+      continue;
+    }
+
+    // the words of a node that holds media are a caption under it (D-248): part
+    // of the node's step, as they are when they are inside it
+    const caption = element.type === "text" ? captionOf(element) : null;
+
+    if (caption) {
+      const owner = elementsMap.get(caption.of);
+
+      if (owner && targetIds.has(owner.id)) {
+        addContainer(owner);
+        members.get(owner.id)!.push(element.id);
+      }
+
+      continue;
+    }
+
+    // words that are grouped with their shape and not bound to it are part of its step
+    if (
+      element.type === "text" &&
+      !element.containerId &&
+      flowRole === "label"
+    ) {
+      const flow = element.customData!.flow;
+      const shape = shapeOfNode.get(`${flow.chartId ?? ""}/${flow.nodeId}`);
+
+      if (shape) {
+        addContainer(shape);
+        members.get(shape.id)!.push(element.id);
+      }
+
+      continue;
+    }
+
     const boundContainer = getBoundContainer(element, elementsMap);
 
     if (boundContainer) {
@@ -279,17 +354,53 @@ export const buildFlowGraph = (
     });
   }
 
-  const reading = sortByReadingOrder(
+  let reading = sortByReadingOrder(
     [...containers.keys()].map((id) => ({ id, box: boxes.get(id)! })),
   );
+
+  // The shapes of a chart that nothing joins - a list, a grid, a timeline whose
+  // boxes sit above and below its line - are walked in the order of the script
+  // they were made from, which is the order they were meant to be read in (D-231)
+  const scriptOrder = [...containers.values()].map((container) => {
+    const nodeId = container.customData?.flow?.nodeId;
+    const match = typeof nodeId === "string" ? /^n(\d+)$/.exec(nodeId) : null;
+
+    return match ? Number(match[1]) : null;
+  });
+
+  if (
+    arrows.every(
+      (arrow) => !arrow.startBinding?.elementId || !arrow.endBinding?.elementId,
+    ) &&
+    containers.size > 1 &&
+    scriptOrder.every((n) => n !== null)
+  ) {
+    const ids = [...containers.keys()];
+
+    reading = ids
+      .map((id, i) => ({ id, n: scriptOrder[i] as number }))
+      .sort((a, b) => a.n - b.n)
+      .map(({ id }) => ({ id, box: boxes.get(id)! }));
+  }
+
   const readingIndex = new Map(reading.map((item, index) => [item.id, index]));
 
   const edges: FlowEdge[] = [];
+  const edgeArrows: FlowEdgeArrow[] = [];
   const seen = new Set<string>();
 
   for (const arrow of arrows) {
-    const from = arrow.startBinding?.elementId;
-    const to = arrow.endBinding?.elementId;
+    // an arrow joins the shapes it is bound to, or the two shapes it says it
+    // joins (the segments of a timeline's line, D-238)
+    const joins = arrow.customData?.flow?.joins;
+    const named =
+      Array.isArray(joins) &&
+      joins.length === 2 &&
+      joins.every((id) => typeof id === "string")
+        ? (joins as [string, string])
+        : null;
+    const from = arrow.startBinding?.elementId ?? named?.[0];
+    const to = arrow.endBinding?.elementId ?? named?.[1];
 
     if (!from || !to || from === to) {
       continue;
@@ -298,6 +409,8 @@ export const buildFlowGraph = (
     if (!containers.has(from) || !containers.has(to)) {
       continue;
     }
+
+    edgeArrows.push({ from, to, arrowId: arrow.id });
 
     // an unambiguous key: two different edges must not share one
     const key = JSON.stringify([from, to]);
@@ -318,5 +431,5 @@ export const buildFlowGraph = (
     box: boxes.get(containerId)!,
   }));
 
-  return { steps, edges };
+  return { steps, edges, edgeArrows };
 };

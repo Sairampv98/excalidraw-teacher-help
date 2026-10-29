@@ -16,6 +16,9 @@ export {
   actionChangeOpacity,
   actionChangeFontSize,
   actionChangeFontFamily,
+  actionChangeFontStyle,
+  actionToggleBold,
+  actionToggleItalic,
   actionChangeTextAlign,
   actionChangeVerticalAlign,
   actionChangeArrowProperties,
@@ -70,7 +73,8 @@ export {
 
 export { actionFlipHorizontal, actionFlipVertical } from "./actionFlip";
 
-export { actionFlowLayout } from "./actionFlowLayout";
+export { actionFlowClass } from "./actionFlowClass";
+export { actionFlowLayout, actionFlowResetLayout } from "./actionFlowLayout";
 
 export {
   actionCopy,
@@ -95,3 +99,5 @@ export { actionToggleLinearEditor } from "./actionLinearEditor";
 export { actionToggleSearchMenu } from "./actionToggleSearchMenu";
 
 export { actionToggleCropEditor } from "./actionCropEditor";
+
+export { actionChangeInkLook } from "./actionInk";

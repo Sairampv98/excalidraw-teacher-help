@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 
 import { useExcalidrawAPI } from "@excalidraw/excalidraw";
 import { videoFormatName } from "@excalidraw/excalidraw";
@@ -9,6 +17,8 @@ import { findCaptionSidecar } from "../components/videoCaptions";
 import { browserState, setBrowserCwd, setBrowserRoot } from "./browserState";
 import { hideVideoWireframe, showVideoWireframe } from "./dragWireframe";
 import { DocumentViewer } from "./DocumentViewer";
+import { SidebarHeaderSlotContext } from "./headerSlot";
+import { SidebarIcon } from "./SidebarIcons";
 import {
   DRAG_MIME,
   armFileDragOnCanvas,
@@ -198,6 +208,11 @@ export const FilesTab = () => {
   const [selected, setSelected] = useState<string | null>(null);
   /** the path of the document being read, if any */
   const [reading, setReading] = useState<string | null>(null);
+  /** the heading a link opened the document at (D-308) */
+  const [linkAnchor, setLinkAnchor] = useState<{
+    path: string;
+    anchor: string;
+  } | null>(null);
   /** the paths of the files that could not be read — they are not usable */
   const [unreadable, setUnreadable] = useState<string[]>([]);
   /**
@@ -225,6 +240,8 @@ export const FilesTab = () => {
    * fetched and no markup is parsed.
    */
   const [youtubeLink, setYoutubeLink] = useState("");
+  /** the field for the link is shown after a click on its button (D-303) */
+  const [showYoutube, setShowYoutube] = useState(false);
 
   // a stash armed here must not survive the tab going away, or a later click
   // on the canvas would paste an image nobody asked for
@@ -274,6 +291,33 @@ export const FilesTab = () => {
   const readingEntry = useMemo(
     () => documents.find((document) => document.path === reading) ?? null,
     [documents, reading],
+  );
+
+  /**
+   * What a link of a markdown document may open (D-308): every document of
+   * the opened folder, whichever folder of it the list is in.
+   */
+  const linkTargets = useMemo(
+    () =>
+      scan.files.filter(
+        (file) =>
+          !isImageKind(file.kind) &&
+          file.kind !== "video" &&
+          file.kind !== "captions" &&
+          !unreadable.includes(file.path),
+      ),
+    [scan.files, unreadable],
+  );
+
+  /** a link opened another document: the list moves to its folder, and it is read */
+  const openLinkedDocument = useCallback(
+    (file: ScannedFile, anchor: string | null) => {
+      setCwd(file.dir);
+      setBrowserCwd(file.dir);
+      setLinkAnchor(anchor ? { path: file.path, anchor } : null);
+      setReading(file.path);
+    },
+    [],
   );
 
   // object URLs for the row thumbnails, revoked whenever the listing changes
@@ -346,6 +390,7 @@ export const FilesTab = () => {
 
     insertYoutubePanel(api, { videoId });
     setYoutubeLink("");
+    setShowYoutube(false);
     setNotice(null);
   }, [api, youtubeLink]);
 
@@ -746,6 +791,52 @@ export const FilesTab = () => {
     );
   };
 
+  /** where the buttons that open files are drawn (D-312) */
+  const headerSlot = useContext(SidebarHeaderSlotContext);
+  const buttonClass = headerSlot
+    ? "app-sidebar-icon app-sidebar-icon--header"
+    : "app-sidebar-icon";
+
+  const openButtons = (
+    <>
+      <button
+        type="button"
+        className={
+          headerSlot ? buttonClass : `${buttonClass} app-sidebar-icon--primary`
+        }
+        data-testid="files-open-files"
+        title="Open files"
+        aria-label="Open files"
+        onClick={() => filesInputRef.current?.click()}
+      >
+        <SidebarIcon name="openFiles" />
+      </button>
+      <button
+        type="button"
+        className={buttonClass}
+        data-testid="files-open-folder"
+        title="Open folder"
+        aria-label="Open folder"
+        onClick={() => folderInputRef.current?.click()}
+      >
+        <SidebarIcon name="openFolder" />
+      </button>
+      {/* A YouTube video is added like a file: a button of its own beside
+      the others (D-303). */}
+      <button
+        type="button"
+        className={buttonClass}
+        data-testid="files-youtube-button"
+        title={t("labels.panel.youtube.button")}
+        aria-label={t("labels.panel.youtube.button")}
+        aria-expanded={showYoutube}
+        onClick={() => setShowYoutube((shown) => !shown)}
+      >
+        <SidebarIcon name="youtube" />
+      </button>
+    </>
+  );
+
   const hasFiles = scan.files.length > 0 || scan.unsupported.length > 0;
 
   return (
@@ -772,47 +863,48 @@ export const FilesTab = () => {
         } as React.InputHTMLAttributes<HTMLInputElement>)}
       />
 
-      <div className="app-sidebar-actions">
-        <button
-          type="button"
-          className="app-sidebar-primary"
-          onClick={() => filesInputRef.current?.click()}
-        >
-          Open files
-        </button>
-        <button
-          type="button"
-          className="app-sidebar-secondary"
-          onClick={() => folderInputRef.current?.click()}
-        >
-          Open folder
-        </button>
-      </div>
+      {/* The three buttons are icons, each with its name as the tooltip
+      (D-310). They are drawn in the sidebar's header when it has a place for
+      them (D-312), and at the top of the tab when it has not. */}
+      {headerSlot === undefined ? (
+        <div className="app-sidebar-actions app-sidebar-actions--icons">
+          {openButtons}
+        </div>
+      ) : headerSlot ? (
+        createPortal(openButtons, headerSlot)
+      ) : null}
 
       {/* The YouTube video: a link, and a panel that plays it (D-128). */}
-      <div className="app-sidebar-youtube">
-        <input
-          type="text"
-          className="app-sidebar-input"
-          placeholder={t("labels.panel.youtube.linkPlaceholder")}
-          aria-label={t("labels.panel.youtube.linkPlaceholder")}
-          value={youtubeLink}
-          onChange={(event) => setYoutubeLink(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              onAddYoutube();
-            }
-          }}
-        />
-        <button
-          type="button"
-          className="app-sidebar-secondary"
-          onClick={onAddYoutube}
-        >
-          {t("labels.panel.youtube.add")}
-        </button>
-      </div>
+      {showYoutube && (
+        <div className="app-sidebar-youtube" data-testid="files-youtube-field">
+          <input
+            type="text"
+            className="app-sidebar-input"
+            autoFocus
+            placeholder={t("labels.panel.youtube.linkPlaceholder")}
+            aria-label={t("labels.panel.youtube.linkPlaceholder")}
+            value={youtubeLink}
+            onChange={(event) => setYoutubeLink(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                onAddYoutube();
+              }
+
+              if (event.key === "Escape") {
+                setShowYoutube(false);
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="app-sidebar-secondary"
+            onClick={onAddYoutube}
+          >
+            {t("labels.panel.youtube.add")}
+          </button>
+        </div>
+      )}
 
       {scan.rootName && (
         <div className="app-sidebar-note">
@@ -837,8 +929,16 @@ export const FilesTab = () => {
             (document) => document.path === readingEntry.path,
           )}
           onStep={step}
-          onBack={() => setReading(null)}
+          onBack={() => {
+            setLinkAnchor(null);
+            setReading(null);
+          }}
           onUnreadable={onUnreadable}
+          linkTargets={linkTargets}
+          onOpenDocument={openLinkedDocument}
+          anchor={
+            linkAnchor?.path === readingEntry.path ? linkAnchor.anchor : null
+          }
         />
       ) : !hasFiles ? (
         <p className="app-sidebar-empty">

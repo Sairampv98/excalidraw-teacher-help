@@ -2,7 +2,7 @@
 id: v2-integration
 paths: .,tasks
 base: v2
-status: open
+status: merged
 ---
 
 The repaired first release, together with everything built since.

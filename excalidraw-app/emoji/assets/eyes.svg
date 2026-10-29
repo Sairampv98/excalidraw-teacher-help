@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 100 100" role="img" aria-label="Eyes">
+  <ellipse cx="33" cy="50" rx="21" ry="28" fill="#8A8F98"/>
+  <ellipse cx="67" cy="50" rx="21" ry="28" fill="#8A8F98"/>
+  <ellipse cx="33" cy="50" rx="18" ry="25" fill="#FFFFFF"/>
+  <ellipse cx="67" cy="50" rx="18" ry="25" fill="#FFFFFF"/>
+  <circle cx="38" cy="56" r="8" fill="#1A1A1A"/>
+  <circle cx="72" cy="56" r="8" fill="#1A1A1A"/>
+</svg>

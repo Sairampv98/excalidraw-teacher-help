@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 100 100" role="img" aria-label="Crown">
+  <polygon points="10,78 6,26 30,50 50,18 70,50 94,26 90,78" fill="#FFD84D"/>
+  <rect x="10" y="72" width="80" height="14" rx="4" fill="#E0A800"/>
+  <circle cx="6" cy="24" r="6" fill="#E8363D"/>
+  <circle cx="50" cy="14" r="6" fill="#E8363D"/>
+  <circle cx="94" cy="24" r="6" fill="#E8363D"/>
+  <circle cx="50" cy="58" r="6" fill="#3B8CF0"/>
+</svg>

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 100 100" role="img" aria-label="Sparkles">
+  <polygon points="40,24 48.16,49.84 74,58 48.16,66.16 40,92 31.84,66.16 6,58 31.84,49.84" fill="#FFD84D"/>
+  <polygon points="76,6 80.32,19.68 94,24 80.32,28.32 76,42 71.68,28.32 58,24 71.68,19.68" fill="#FFCB3D"/>
+  <polygon points="80,62 83.36,72.64 94,76 83.36,79.36 80,90 76.64,79.36 66,76 76.64,72.64" fill="#FFD84D"/>
+</svg>

@@ -58,7 +58,6 @@ import {
   restoreElements,
 } from "@excalidraw/excalidraw/data/restore";
 import { newElementWith } from "@excalidraw/element";
-import { isInitializedImageElement } from "@excalidraw/element";
 import { syncInvalidIndices } from "@excalidraw/element";
 import clsx from "clsx";
 import {
@@ -97,6 +96,8 @@ import {
   useAtomValue,
   useAtomWithInitialValue,
   appJotaiStore,
+  ocrBridgeConnectedAtom,
+  ocrEngineChoiceAtom,
   pdfPageReadRequestAtom,
 } from "./app-jotai";
 import {
@@ -131,6 +132,7 @@ import {
 } from "./data";
 
 import { updateStaleImageStatuses } from "./data/FileManager";
+import { fileIdsOfAll } from "./data/fileIds";
 import { FileStatusStore } from "./data/fileStatusStore";
 import {
   importFromLocalStorage,
@@ -159,6 +161,9 @@ import { AIComponents } from "./components/AI";
 import { EdgeDocks } from "./dock/EdgeDocks";
 import { useEdgeDocksEnabled } from "./dock/dockTypes";
 import PageBar from "./components/PageBar";
+import StickerBar from "./emoji/StickerBar";
+import { MediaCropMode } from "./sidebar/MediaCrop";
+import { NodeMediaDrop } from "./sidebar/NodeMediaPanel";
 import { ExcalidrawPlusIframeExport } from "./ExcalidrawPlusIframeExport";
 import { isPresenterWindow } from "./presenter/presenterChannel";
 import { openPresenterView } from "./presenter/openPresenterView";
@@ -185,6 +190,17 @@ import type { OcrRegion } from "../packages/vscode-bridge/bridge/src/ocr";
 import type { CollabAPI } from "./collab/Collab";
 
 import type { CropRect } from "./components/cropModal";
+
+/**
+ * The engine the teacher chose for reading a page or a picture, when they chose
+ * one: it goes first, and the machine's own order is the rest (D-300).
+ */
+export const chosenReadEngine = () => {
+  const engine = appJotaiStore.get(ocrEngineChoiceAtom);
+
+  return engine ? { engine } : {};
+};
+
 polyfill();
 
 window.EXCALIDRAW_THROTTLE_RENDER = true;
@@ -555,6 +571,12 @@ const ExcalidrawWrapper = () => {
     read: (region: OcrRegion | null) => void;
   } | null>(null);
 
+  // the pickers of the reading engine say what an engine needs: indra needs the
+  // bridge (D-300)
+  useEffect(() => {
+    appJotaiStore.set(ocrBridgeConnectedAtom, bridge.status === "connected");
+  }, [bridge.status]);
+
   // a PDF page the teacher asked to read: the viewer sets the request, the app
   // asks which part of the page, then reads it and shows what was found
   // (D-279, D-291)
@@ -576,6 +598,7 @@ const ExcalidrawWrapper = () => {
           place: false,
           image: pdfPageRequest,
           ...(region ? { region } : {}),
+          ...chosenReadEngine(),
           placement: {
             x: 0,
             y: 0,
@@ -630,6 +653,7 @@ const ExcalidrawWrapper = () => {
             place: false,
             image,
             ...(region ? { region } : {}),
+            ...chosenReadEngine(),
             placement: {
               x: element.x,
               y: element.y,
@@ -775,11 +799,16 @@ const ExcalidrawWrapper = () => {
         },
         pageId: panel.pageId,
         strokeColor: current.getAppState().currentItemStrokeColor,
+        // the engine chosen for this panel, in the crop as in its properties
+        // (D-300)
+        ...(pickedEngineFor(panel.id)
+          ? { engine: pickedEngineFor(panel.id)! }
+          : {}),
       });
 
       showRead(result);
     },
-    [excalidrawAPI, readOcr, rememberPanelCrop, showRead],
+    [excalidrawAPI, pickedEngineFor, readOcr, rememberPanelCrop, showRead],
   );
 
   /**
@@ -925,13 +954,8 @@ const ExcalidrawWrapper = () => {
             });
         }
       } else {
-        const fileIds =
-          data.scene.elements?.reduce((acc, element) => {
-            if (isInitializedImageElement(element)) {
-              return acc.concat(element.fileId);
-            }
-            return acc;
-          }, [] as FileId[]) || [];
+        // the files of the images and of the panels that are made of a file (D-250)
+        const fileIds = fileIdsOfAll(data.scene.elements);
 
         if (data.isExternalScene) {
           if (fileIds.length) {
@@ -1051,17 +1075,10 @@ const ExcalidrawWrapper = () => {
         if (isBrowserStorageStateNewer(STORAGE_KEYS.VERSION_FILES)) {
           const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
           const currFiles = excalidrawAPI.getFiles();
-          const fileIds =
-            elements?.reduce((acc, element) => {
-              if (
-                isInitializedImageElement(element) &&
-                // only load and update images that aren't already loaded
-                !currFiles[element.fileId]
-              ) {
-                return acc.concat(element.fileId);
-              }
-              return acc;
-            }, [] as FileId[]) || [];
+          // only load and update files that aren't already loaded
+          const fileIds = fileIdsOfAll(elements).filter(
+            (fileId) => !currFiles[fileId],
+          );
           if (fileIds.length) {
             LocalData.fileStorage
               .getFiles(fileIds)
@@ -1584,9 +1601,6 @@ const ExcalidrawWrapper = () => {
         }}
       >
         <AppMainMenu
-          onCollabDialogOpen={onCollabDialogOpen}
-          isCollaborating={isCollaborating}
-          isCollabEnabled={!isCollabDisabled}
           theme={appTheme}
           setTheme={(theme) => setAppTheme(theme)}
           refresh={() => forceRefresh((prev) => !prev)}
@@ -1669,6 +1683,9 @@ const ExcalidrawWrapper = () => {
             }}
             ocrMessage={ocrMessage}
             ocrBusy={ocrBusy}
+            ocrEngine={pickedEngineFor(panelCrop.panel.id)}
+            onOcrEngine={(engine) => selectEngine(panelCrop.panel.id, engine)}
+            ocrBridgeConnected={bridge.status === "connected"}
             onApply={(element) => {
               // a NEW element has no fractional index yet, and the scene
               // validates the indices before it syncs them - so the host app
@@ -1692,6 +1709,15 @@ const ExcalidrawWrapper = () => {
 
         {/* pages system: page chips + add page + export all pages */}
         <PageBar />
+
+        {/* emoji and GIF bar: bundled stickers, dragged or clicked onto the page */}
+        <StickerBar />
+
+        {/* a picture, GIF or video dropped on a node of a chart goes into it */}
+        <NodeMediaDrop />
+
+        {/* the crop screen of the picture in a node */}
+        <MediaCropMode />
 
         <ShareDialog
           collabAPI={collabAPI}

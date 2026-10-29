@@ -12,6 +12,9 @@ import {
   getContainingFrame,
   getRenderOpacity,
   isPosterPanelElement,
+  mediaCssClip,
+  mediaOf,
+  viewPlacement,
 } from "@excalidraw/element";
 
 import type {
@@ -813,6 +816,8 @@ const CodePanelSurface = ({
   const bodyRef = useRef<HTMLDivElement | null>(null);
   /** what is typed in the input box, kept here until the box is left (D-283) */
   const [inputDraft, setInputDraft] = useState<string | null>(null);
+  /** the answer being typed to the question the program asked (D-298) */
+  const [answerDraft, setAnswerDraft] = useState("");
   const consoleSize = dragSize ?? consoleView.size;
 
   const changeConsole = (next: Partial<PanelConsoleView>) =>
@@ -1112,8 +1117,14 @@ const CodePanelSurface = ({
     }
 
     // a language the teacher's own editor runs, through the bridge (D-290)
-    return run?.languages?.includes(language)
-      ? `${name} (${t("labels.editor.runsInEditor")})`
+    if (run?.languages?.includes(language)) {
+      return `${name} (${t("labels.editor.runsInEditor")})`;
+    }
+
+    // a language nothing here can run is only given its colours: the picker
+    // says so, rather than let Run fail on it (D-304)
+    return run && pack?.state !== "ready"
+      ? `${name} (${t("labels.editor.coloursOnly")})`
       : name;
   };
 
@@ -1630,7 +1641,15 @@ const CodePanelSurface = ({
           ...barButton(),
           position: "absolute",
           top: 2,
-          right: screenshot ? chrome.cameraReserve : 4,
+          // Beside the editor, not over the console (D-311): with the console
+          // at the right the button is the width of the console (and of the
+          // divider) from the edge, at the editor's own top right corner.
+          right:
+            consoleView.dock === "right"
+              ? `calc(${consoleSize * 100}% + 8px)`
+              : screenshot
+              ? chrome.cameraReserve
+              : 4,
           zIndex: 2,
         }}
       >
@@ -1876,7 +1895,9 @@ const CodePanelSurface = ({
             className="excalidraw__panel-code-consolebar"
             style={{
               ...barRow,
-              flexWrap: "nowrap",
+              // a console beside the editor is narrow: the bar goes on to
+              // another line, so the + is never cut off (D-311)
+              flexWrap: "wrap",
               flex: "0 0 auto",
               color: palette.muted,
               ...hairline,
@@ -1958,6 +1979,42 @@ const CodePanelSurface = ({
                 {line.text}
               </div>
             ))}
+            {state?.run.state === "waiting-input" && run?.onAnswer ? (
+              // the program asked a question: the answer is typed where the
+              // question is, and the program goes on from there (D-298)
+              <form
+                className="excalidraw__panel-code-answer"
+                data-testid="code-panel-answer-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  run.onAnswer?.(panel.id, answerDraft);
+                  setAnswerDraft("");
+                }}
+                style={{ display: "flex", gap: 4, alignItems: "center" }}
+              >
+                <span aria-hidden="true" style={{ color: palette.muted }}>
+                  &gt;
+                </span>
+                <input
+                  autoFocus
+                  data-testid="code-panel-answer"
+                  aria-label={t("labels.editor.answerLabel")}
+                  placeholder={t("labels.editor.answerHint")}
+                  spellCheck={false}
+                  value={answerDraft}
+                  onChange={(event) => setAnswerDraft(event.target.value)}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    font: "inherit",
+                    background: palette.background,
+                    color: palette.foreground,
+                    border: `1px solid ${palette.accent}`,
+                    padding: "1px 4px",
+                  }}
+                />
+              </form>
+            ) : null}
           </div>
           <div
             className="excalidraw__panel-code-console"
@@ -2101,6 +2158,29 @@ const VideoPanelSurface = ({
   const [durationMs, setDurationMs] = useState(0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
+  const nodeMedia = mediaOf(panel);
+  const isNodeMedia = nodeMedia !== null;
+  const nodeVideoStyle: React.CSSProperties | undefined =
+    nodeMedia?.view && nodeMedia.natural
+      ? (() => {
+          const placed = viewPlacement(
+            nodeMedia.view,
+            panel,
+            nodeMedia.natural,
+          );
+
+          return {
+            position: "absolute",
+            left: placed.x,
+            top: placed.y,
+            width: placed.width,
+            height: placed.height,
+            maxWidth: "none",
+            flex: "none",
+            objectFit: "fill",
+          };
+        })()
+      : undefined;
   /**
    * The video's **effective** state (D-119).
    *
@@ -2316,7 +2396,9 @@ const VideoPanelSurface = ({
   const reportPosition = useCallback(() => {
     const video = videoRef.current;
 
-    if (!video) {
+    // the video of a node is a loop that plays by itself in every window: its
+    // position is not shared, and nothing is written to the element (D-246)
+    if (!video || isNodeMedia) {
       return;
     }
 
@@ -2332,7 +2414,7 @@ const VideoPanelSurface = ({
       time: video.currentTime || 0,
       playing: !video.paused,
     });
-  }, [activeTrack, onVideoEvent, panel.id]);
+  }, [activeTrack, isNodeMedia, onVideoEvent, panel.id]);
 
   /**
    * Applies the position the editor published, and keeps the video moving
@@ -2400,7 +2482,8 @@ const VideoPanelSurface = ({
    * as the element carries one.
    */
   useEffect(() => {
-    if (!mirror) {
+    // the video of a node plays by itself, so there is nothing to follow
+    if (!mirror || isNodeMedia) {
       return;
     }
 
@@ -2413,7 +2496,7 @@ const VideoPanelSurface = ({
     receivedRef.current = playback;
 
     applyPublishedPlayback(Date.now());
-  }, [applyPublishedPlayback, mirror, panel]);
+  }, [applyPublishedPlayback, isNodeMedia, mirror, panel]);
 
   /**
    * The local clock: the video keeps playing between the updates, and the
@@ -2424,7 +2507,7 @@ const VideoPanelSurface = ({
    * on a timer — slower, but the same rule.
    */
   useEffect(() => {
-    if (!mirror) {
+    if (!mirror || isNodeMedia) {
       return;
     }
 
@@ -2473,7 +2556,7 @@ const VideoPanelSurface = ({
         withFrameCallback.cancelVideoFrameCallback?.(frameHandle);
       }
     };
-  }, [applyPublishedPlayback, mirror]);
+  }, [applyPublishedPlayback, isNodeMedia, mirror]);
 
   const togglePlay = () => {
     const video = videoRef.current;
@@ -2586,7 +2669,14 @@ const VideoPanelSurface = ({
   }
 
   return (
-    <div className="excalidraw__panel-video-box" data-testid="panel-video-box">
+    <div
+      className="excalidraw__panel-video-box"
+      data-testid="panel-video-box"
+      // the video of a node is cut to the node's shape (D-246): the video is
+      // cut, and not the panel, so that what the panel puts round it (its lock,
+      // the choices of a screenshot) is not cut with it
+      style={nodeMedia ? { clipPath: mediaCssClip(nodeMedia) } : undefined}
+    >
       <video
         // Each attempt is its own element, so an error for a source the panel
         // has already replaced is delivered to the handler of THAT attempt
@@ -2598,10 +2688,16 @@ const VideoPanelSurface = ({
         // the primary source, or the fallback once it has been tried (D-126)
         src={fallbackUrl ?? src}
         playsInline={true}
+        // the video of a node shows the part of the picture that is its view,
+        // which may reach past the video (D-247)
+        style={nodeVideoStyle}
+        // the video of a node is a silent loop (D-246)
+        autoPlay={isNodeMedia}
+        loop={isNodeMedia}
         // the metadata is what tells the browser the video's own size, and the
         // size is what a poster is captured at
         preload="metadata"
-        muted={muted}
+        muted={muted || isNodeMedia}
         onTimeUpdate={reportPosition}
         onSeeked={reportPosition}
         // the ELEMENT is the truth and the state only mirrors it: whatever
@@ -3325,6 +3421,8 @@ const Panel = ({
     ],
   );
 
+  const nodeMedia = mediaOf(panel);
+
   const clipPath = useMemo(
     () => animatedImageClipPath(panel, elementsMap, camera, viewport),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3348,6 +3446,8 @@ const Panel = ({
         data-testid="panel"
         data-panel-id={panel.id}
         data-panel-kind={panel.panelKind}
+        // the video of a node fills the node and is cut to its shape (D-246)
+        data-node-media={nodeMedia ? "" : undefined}
         style={
           {
             position: "absolute",

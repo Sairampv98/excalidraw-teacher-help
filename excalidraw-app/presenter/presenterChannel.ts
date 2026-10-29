@@ -16,6 +16,7 @@ import type {
   SocketId,
 } from "@excalidraw/excalidraw/types";
 import type { PanelCapture } from "@excalidraw/excalidraw";
+import type { FlowAnimationSnapshot } from "@excalidraw/excalidraw/components/FlowAnimationState";
 import type {
   FileId,
   OrderedExcalidrawElement,
@@ -138,6 +139,41 @@ export const pointerCollaborators = (
     ],
   ]);
 
+/**
+ * Whether the editor's view moved and nothing else changed (D-212): the same
+ * elements, and everything of the camera but where the view is. Then only the
+ * view needs to cross - sending the whole scene on every frame of a fly-to is
+ * what made the projector follow in lagging jumps.
+ */
+/**
+ * Whether two lists of pages are the same pages. They are compared by what is
+ * in them, not by identity: a list that was built again with the same pages is
+ * no change, and must not turn a move of the view into a whole scene (D-212).
+ */
+const samePages = (a: PresenterCamera["pages"], b: PresenterCamera["pages"]) =>
+  a === b || JSON.stringify(a) === JSON.stringify(b);
+
+export const isViewOnlyChange = (
+  previous: PresenterScene | null,
+  next: PresenterScene,
+): boolean => {
+  if (!previous || previous.elements !== next.elements) {
+    return false;
+  }
+
+  const a = previous.camera;
+  const b = next.camera;
+
+  return (
+    a.viewBackgroundColor === b.viewBackgroundColor &&
+    a.gridModeEnabled === b.gridModeEnabled &&
+    a.gridSize === b.gridSize &&
+    a.pagesEnabled === b.pagesEnabled &&
+    samePages(a.pages, b.pages) &&
+    a.currentPageId === b.currentPageId
+  );
+};
+
 export type PresenterMessage =
   /** presenter announces itself, editor replies with a full snapshot */
   | { type: "presenter:hello"; presenterId: string }
@@ -145,6 +181,8 @@ export type PresenterMessage =
   | { type: "presenter:bye"; presenterId: string }
   /** scene + camera update */
   | { type: "presenter:scene"; scene: PresenterScene }
+  /** only the view moved (D-212): the presenter moves its view and nothing else */
+  | { type: "presenter:camera"; camera: PresenterCamera }
   /** pointer update — this is what drives the mirrored laser trail */
   | { type: "presenter:pointer"; pointer: PresenterPointer }
   /** presenter is missing binary files (images) it does not have yet */
@@ -171,7 +209,14 @@ export type PresenterMessage =
    * The presenter frames that panel across its whole window, so the class sees
    * what the teacher sees.
    */
-  | { type: "presenter:focus-panel"; panelId: string | null };
+  | { type: "presenter:focus-panel"; panelId: string | null }
+  /**
+   * the flow animation, so the projector shows it too (D-181): plain data that
+   * names the steps by id - the presenter finds them in its own copy of the
+   * scene. `null` says that nothing is playing. It is only ever sent by the
+   * editor; the presenter never answers with one.
+   */
+  | { type: "presenter:flow"; flow: FlowAnimationSnapshot | null };
 
 /** presenters announce themselves at least this often while starved */
 export const PRESENTER_HEARTBEAT_MS = 2000;
