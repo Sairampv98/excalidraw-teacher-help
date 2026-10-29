@@ -12415,10 +12415,7 @@ class App extends React.Component<AppProps, AppState> {
 
       if (isTextElement(newElement)) {
         const minWidth = getMinTextElementWidth(
-          getFontString({
-            fontSize: newElement.fontSize,
-            fontFamily: newElement.fontFamily,
-          }),
+          getFontString(newElement),
           newElement.lineHeight,
         );
 

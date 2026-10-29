@@ -255,6 +255,8 @@ export const newTextElement = (
     containerId?: ExcalidrawTextContainer["id"] | null;
     lineHeight?: ExcalidrawTextElement["lineHeight"];
     autoResize?: ExcalidrawTextElement["autoResize"];
+    bold?: boolean;
+    italic?: boolean;
   } & ElementConstructorOpts,
 ): NonDeleted<ExcalidrawTextElement> => {
   const fontFamily = opts.fontFamily || DEFAULT_FONT_FAMILY;
@@ -263,7 +265,12 @@ export const newTextElement = (
   const text = normalizeText(opts.text);
   const metrics = measureText(
     text,
-    getFontString({ fontFamily, fontSize }),
+    getFontString({
+      fontFamily,
+      fontSize,
+      bold: opts.bold,
+      italic: opts.italic,
+    }),
     lineHeight,
   );
   const textAlign = opts.textAlign || DEFAULT_TEXT_ALIGN;
@@ -288,6 +295,9 @@ export const newTextElement = (
     originalText: opts.originalText ?? text,
     autoResize: opts.autoResize ?? true,
     lineHeight,
+    // only what is set is stored: a plain text has neither field (D-320)
+    ...(opts.bold ? { bold: true } : {}),
+    ...(opts.italic ? { italic: true } : {}),
   };
 
   const textElement: ExcalidrawTextElement = newElementWith(

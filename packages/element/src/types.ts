@@ -372,6 +372,13 @@ export type ExcalidrawTextElement = _ExcalidrawElementBase &
      *  with font size (using `getLineHeightInPx` helper).
      */
     lineHeight: number & { _brand: "unitlessLineHeight" };
+    /**
+     * The text is bold, as a whole (D-320). A text that is not bold has no such
+     * field at all, so a drawing that never used it is saved as it was.
+     */
+    bold?: boolean;
+    /** The text is italic, as a whole (D-320). Absent when it is not. */
+    italic?: boolean;
   }>;
 
 export type ExcalidrawBindableElement =

@@ -352,10 +352,7 @@ export const resizeSingleTextElement = (
 
   if (transformHandleType === "e" || transformHandleType === "w") {
     const minWidth = getMinTextElementWidth(
-      getFontString({
-        fontSize: element.fontSize,
-        fontFamily: element.fontFamily,
-      }),
+      getFontString(element),
       element.lineHeight,
     );
 

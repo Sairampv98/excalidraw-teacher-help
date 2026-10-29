@@ -83,6 +83,7 @@ import type { Scene } from "@excalidraw/element";
 import type { CaptureUpdateActionType } from "@excalidraw/element";
 
 import { trackEvent } from "../analytics";
+import { ButtonIcon } from "../components/ButtonIcon";
 import { PanelActions } from "../components/PanelActions";
 import { RadioSelection } from "../components/RadioSelection";
 import { ColorPicker } from "../components/ColorPicker/ColorPicker";
@@ -124,6 +125,8 @@ import {
   ArrowheadDiamondIcon,
   ArrowheadDiamondOutlineIcon,
   fontSizeIcon,
+  boldIcon,
+  italicIcon,
   sharpArrowIcon,
   roundArrowIcon,
   elbowArrowIcon,
@@ -164,6 +167,8 @@ import { getShortcutKey } from "../shortcut";
 import { PAGE_HEIGHT, PAGE_WIDTH } from "../types";
 
 import { register } from "./register";
+
+import type { ActionResult } from "./types";
 
 import type { AppClassProperties, AppState, Primitive } from "../types";
 
@@ -1303,6 +1308,176 @@ export const actionChangeFontFamily = register<{
           }}
         />
       </>
+    );
+  },
+});
+
+/** the two styles a text can have, as a whole (D-320) */
+type FontStyleKey = "bold" | "italic";
+
+/**
+ * Turns bold or italic on for the texts that are selected - a shape's own text
+ * among them, and the text that is being typed - or off when every one of them
+ * has it (D-320).
+ */
+const toggleFontStyle = (
+  elements: readonly ExcalidrawElement[],
+  appState: AppState,
+  app: AppClassProperties,
+  key: FontStyleKey,
+): ActionResult => {
+  const texts = new Map<string, ExcalidrawTextElement>();
+
+  for (const element of getSelectedElements(elements, appState, {
+    includeBoundTextElement: true,
+  })) {
+    if (isTextElement(element)) {
+      texts.set(element.id, element);
+    }
+  }
+
+  const typed = appState.editingTextElement;
+
+  if (typed) {
+    texts.set(typed.id, typed);
+  }
+
+  if (!texts.size) {
+    return false;
+  }
+
+  const on = ![...texts.values()].every((text) => text[key] === true);
+
+  return {
+    elements: changeProperty(
+      elements,
+      appState,
+      (oldElement) => {
+        if (isTextElement(oldElement)) {
+          const newElement: ExcalidrawTextElement = newElementWith(oldElement, {
+            [key]: on,
+          });
+
+          redrawTextBoundingBox(
+            newElement,
+            app.scene.getContainerElement(oldElement),
+            app.scene,
+          );
+
+          return newElement;
+        }
+
+        return oldElement;
+      },
+      true,
+    ),
+    appState,
+    captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+  };
+};
+
+/** is there a text for a change of style to be for? */
+const hasStyleTarget = (
+  elements: readonly ExcalidrawElement[],
+  appState: AppState,
+) =>
+  !!appState.editingTextElement ||
+  getSelectedElements(elements, appState, {
+    includeBoundTextElement: true,
+  }).some(isTextElement);
+
+/** Ctrl/Cmd and the letter, and no other key held */
+const isStyleKey = (
+  event: KeyboardEvent | React.KeyboardEvent,
+  letter: string,
+) =>
+  event[KEYS.CTRL_OR_CMD] &&
+  !event.shiftKey &&
+  !event.altKey &&
+  event.key.toLowerCase() === letter;
+
+export const actionToggleBold = register({
+  name: "toggleBold",
+  label: "labels.bold",
+  trackEvent: false,
+  perform: (elements, appState, _value, app) =>
+    toggleFontStyle(elements, appState, app, "bold"),
+  // the key is taken only when there is a text for it: with none, the browser
+  // keeps it (D-320)
+  keyTest: (event, appState, elements) =>
+    isStyleKey(event, "b") &&
+    (!appState || !elements || hasStyleTarget(elements, appState)),
+});
+
+export const actionToggleItalic = register({
+  name: "toggleItalic",
+  label: "labels.italic",
+  trackEvent: false,
+  perform: (elements, appState, _value, app) =>
+    toggleFontStyle(elements, appState, app, "italic"),
+  // the key is taken only when there is a text for it: with none, the browser
+  // keeps it (D-320)
+  keyTest: (event, appState, elements) =>
+    isStyleKey(event, "i") &&
+    (!appState || !elements || hasStyleTarget(elements, appState)),
+});
+
+/**
+ * The two buttons of the properties of a text (D-320): Bold and Italic, each lit
+ * when every text selected has it. Pressing one is the same as its key.
+ */
+export const actionChangeFontStyle = register<FontStyleKey>({
+  name: "changeFontStyle",
+  label: "labels.fontStyle",
+  trackEvent: false,
+  perform: (elements, appState, value, app) =>
+    value ? toggleFontStyle(elements, appState, app, value) : false,
+  PanelComponent: ({ elements, appState, updateData, app, data }) => {
+    const elementsMap = app.scene.getNonDeletedElementsMap();
+    const { isCompact } = getStylesPanelInfo(app);
+
+    const isOn = (key: FontStyleKey) =>
+      getFormValue<boolean>(
+        elements,
+        app,
+        (element) => {
+          if (isTextElement(element)) {
+            return element[key] === true;
+          }
+
+          return getBoundTextElement(element, elementsMap)?.[key] === true;
+        },
+        (element) =>
+          isTextElement(element) ||
+          getBoundTextElement(element, elementsMap) !== null,
+        false,
+      );
+
+    return (
+      <fieldset>
+        <legend>{t("labels.fontStyle")}</legend>
+        <div className="buttonList">
+          {(["bold", "italic"] as const).map((key) => (
+            <ButtonIcon
+              key={key}
+              icon={key === "bold" ? boldIcon : italicIcon}
+              title={`${t(`labels.${key}`)} - ${getShortcutKey(
+                `CtrlOrCmd+${key === "bold" ? "B" : "I"}`,
+              )}`}
+              testId={`font-style-${key}`}
+              active={isOn(key)}
+              onClick={() => {
+                withCaretPositionPreservation(
+                  () => updateData(key),
+                  isCompact,
+                  !!appState.editingTextElement,
+                  data?.onPreventClose,
+                );
+              }}
+            />
+          ))}
+        </div>
+      </fieldset>
     );
   },
 });

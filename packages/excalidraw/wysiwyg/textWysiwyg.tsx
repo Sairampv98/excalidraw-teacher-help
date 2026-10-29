@@ -63,6 +63,8 @@ import {
 import {
   actionDecreaseFontSize,
   actionIncreaseFontSize,
+  actionToggleBold,
+  actionToggleItalic,
 } from "../actions/actionProperties";
 import {
   actionResetZoom,
@@ -643,6 +645,25 @@ export const textWysiwyg = ({
       app.actionManager.executeAction(actionDecreaseFontSize);
     } else if (actionIncreaseFontSize.keyTest(event)) {
       app.actionManager.executeAction(actionIncreaseFontSize);
+    } else if (
+      actionToggleBold.keyTest(
+        event,
+        app.state,
+        app.scene.getElementsIncludingDeleted(),
+      )
+    ) {
+      // the text being typed is bold, or is not (D-320)
+      event.preventDefault();
+      app.actionManager.executeAction(actionToggleBold);
+    } else if (
+      actionToggleItalic.keyTest(
+        event,
+        app.state,
+        app.scene.getElementsIncludingDeleted(),
+      )
+    ) {
+      event.preventDefault();
+      app.actionManager.executeAction(actionToggleItalic);
     } else if (event.key === KEYS.ESCAPE) {
       event.preventDefault();
       submittedViaKeyboard = true;

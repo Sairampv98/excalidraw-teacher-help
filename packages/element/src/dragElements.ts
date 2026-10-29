@@ -308,10 +308,7 @@ export const dragNewElement = ({
   if (isTextElement(newElement)) {
     height = newElement.height;
     const minWidth = getMinTextElementWidth(
-      getFontString({
-        fontSize: newElement.fontSize,
-        fontFamily: newElement.fontFamily,
-      }),
+      getFontString(newElement),
       newElement.lineHeight,
     );
     width = Math.max(width, minWidth);
