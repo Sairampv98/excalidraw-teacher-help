@@ -103,7 +103,10 @@ describe("AC-272 the hamburger menu is tidied", () => {
 
     // (1) the file
     expect(first[0]).toBe("Open");
-    expect(first).toContain("Code panel (VS Code)");
+    // the code panel is two entries since the repairs: an editor of its own
+    // in the browser, and the mirror of VS Code
+    expect(first).toContain("Code editor (in the browser)");
+    expect(first).toContain("VS Code mirror (bridge)");
     expect(first.some((entry) => /^Save/.test(entry))).toBe(true);
     expect(first.some((entry) => /^Export/.test(entry))).toBe(true);
 
