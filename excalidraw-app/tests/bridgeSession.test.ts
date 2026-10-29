@@ -19,6 +19,7 @@ import { PANEL_KEY_CODES } from "@excalidraw/excalidraw";
 import { BRIDGE_KEY_CODES } from "../../packages/vscode-bridge/bridge/src/protocol";
 import {
   BRIDGE_SESSION_KEY,
+  bridgeConnection,
   createBridgeSession,
   readSessionToken,
   writeSessionToken,
@@ -453,5 +454,44 @@ describe("the control of the editor's window over the session (D-323, D-327, D-3
     // the key table is the same on both sides: a key the panel may send is a
     // key the protocol accepts, and the other way round
     expect([...PANEL_KEY_CODES].sort()).toEqual([...BRIDGE_KEY_CODES].sort());
+  });
+});
+
+describe("a token the extension refuses, in the app (D-333)", () => {
+  it("AC-380 the app shows a refused token as rejected", async () => {
+    mockClipboard(TEST_TOKEN);
+
+    const states: string[] = [];
+    const app = createBridgeSession({
+      url: BRIDGE_URL,
+      WebSocketImpl: FakeSocket,
+      onStateChange: (state) =>
+        states.push(`${state.status}:${state.connection}`),
+    });
+
+    await app.pasteToken();
+
+    const socket = FakeSocket.instances[FakeSocket.instances.length - 1];
+
+    socket.open();
+
+    // the extension answers the wrong token with its own close code
+    socket.onclose?.({ code: 1008 });
+
+    expect(app.getState().status).toBe("refused");
+    expect(app.getState().connection).toBe("rejected");
+    expect(bridgeConnection("refused")).toBe("rejected");
+
+    // the sentence the panel shows says what to do, and does not say the
+    // extension is missing
+    expect(app.getState().message).toContain("did not accept this token");
+    expect(app.getState().message).not.toMatch(/is the extension running/i);
+
+    // and the app does not open a second socket with the same token
+    const opened = FakeSocket.instances.length;
+
+    await new Promise((resolve) => setTimeout(resolve, 700));
+
+    expect(FakeSocket.instances.length).toBe(opened);
   });
 });

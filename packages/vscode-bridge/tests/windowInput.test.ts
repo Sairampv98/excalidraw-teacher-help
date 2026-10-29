@@ -22,6 +22,7 @@ import {
   createInputGate,
   createWindowInput,
   encodeInputLine,
+  INPUT_ROUTE_CHOICES,
   inputArgs,
   isMachineChord,
   KEY_VK,
@@ -714,5 +715,139 @@ describe("the way in is chosen, and the panel is told", () => {
     expect(timers).toHaveLength(1);
     expect(processes).toHaveLength(2);
     expect(input.send("T aGk=")).toBe(false);
+  });
+});
+
+/** the extension's own source, without its comments */
+const extensionCode = (): string =>
+  readFileSync(join(packageRoot, "extension", "src", "extension.ts"), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .map((line) => line.replace(/\/\/.*$/, ""))
+    .join("\n");
+
+describe("the way in is chosen from the notification (D-335)", () => {
+  it("AC-381 the pick list has the three routes", () => {
+    // in the order the setting has them, each said in a sentence
+    expect(INPUT_ROUTE_CHOICES.map((choice) => choice.value)).toEqual([
+      "auto",
+      "background",
+      "focus",
+    ]);
+
+    for (const choice of INPUT_ROUTE_CHOICES) {
+      expect(choice.label.length).toBeGreaterThan(0);
+      expect(choice.description.length).toBeGreaterThan(20);
+      // every line of the list is a value the setting reads as itself
+      expect(resolveInputRoute(choice.value)).toBe(choice.value);
+    }
+
+    // the setting the manifest has says the same three
+    const manifest = JSON.parse(
+      readFileSync(join(packageRoot, "extension", "package.json"), "utf8"),
+    ) as {
+      contributes: {
+        commands: { command: string }[];
+        configuration: {
+          properties: Record<string, { enum?: string[]; default?: string }>;
+        };
+      };
+    };
+    const setting =
+      manifest.contributes.configuration.properties[
+        "excalidraw-bridge.inputRoute"
+      ];
+
+    expect(setting.enum).toEqual(INPUT_ROUTE_CHOICES.map((c) => c.value));
+    expect(setting.default).toBe("auto");
+    expect(
+      manifest.contributes.commands.map((command) => command.command),
+    ).toContain("excalidraw-bridge.chooseInputRoute");
+  });
+
+  it("AC-381 the notification opens the pick list and the choice applies at once", () => {
+    const code = extensionCode();
+
+    // the notification that shows the token has a second button for it
+    expect(code).toMatch(
+      /showInformationMessage\([\s\S]{0,400}"Copy token",\s*"Input route\.\.\.",?\s*\)/,
+    );
+    expect(code).toMatch(
+      /if \(choice === "Input route\.\.\."\) \{\s*await chooseInputRoute\(\);/,
+    );
+
+    // the list is a pick list with the current route ticked, and the choice is
+    // written to the user's own setting
+    expect(code).toContain("vscode.window.showQuickPick(");
+    expect(code).toContain('"$(check) "');
+    expect(code).toMatch(
+      /\.update\("inputRoute", picked\.value, vscode\.ConfigurationTarget\.Global\)/,
+    );
+
+    // and it applies at once: the setting is read again each time the helper
+    // is made, and a change of it while Control is on makes the helper again
+    expect(code).toMatch(
+      /const makeWindowInput = \(\): WindowInput =>[\s\S]{0,400}getConfiguration\(CONFIG_SECTION\)\s*\.get<string>\("inputRoute"\)/,
+    );
+    expect(code).toMatch(
+      /onDidChangeConfiguration\(\(event\) => \{[\s\S]{0,300}affectsConfiguration\(`\$\{CONFIG_SECTION\}\.inputRoute`\)[\s\S]{0,300}windowInput\.stop\(\);\s*windowInput = makeWindowInput\(\);/,
+    );
+  });
+});
+
+describe("the focus route needs the window on a display (D-336)", () => {
+  it("AC-382 the helper asks for a display once and looks again when told", () => {
+    // the module reads the request
+    expect(parseHelperLine("NEED display")).toEqual({
+      kind: "need",
+      what: "display",
+    });
+    expect(parseHelperLine("NEED the moon")).toBeNull();
+
+    const fake = fakeProcess();
+    const needs: string[] = [];
+    const input = createWindowInput({
+      scriptPath: "input.ps1",
+      processName: "Code",
+      titleLike: "",
+      route: "focus",
+      onState: () => undefined,
+      onNeed: (what) => needs.push(what),
+      spawn: () => fake.process,
+    });
+
+    input.start();
+    fake.say("ROUTE none real input needs the editor's window on a display\n");
+    fake.say("NEED display\n");
+
+    expect(needs).toEqual(["display"]);
+
+    // the helper's own code: it asks when the route changes to "none" for want
+    // of a display, and not again until something changes; and it looks again
+    // when it is told to
+    const helper = codeOf(readFileSync(inputScriptPath, "utf8"));
+
+    expect(helper).toMatch(
+      /if \(Announce\("none", "real input needs the editor's window on a display[^"]*"\)\) \{\s*Say\("NEED display"\);\s*\}/,
+    );
+    expect(helper).toMatch(
+      /if \(f\[0\] == "R"\) \{\s*Resolve\(true\);\s*return;\s*\}/,
+    );
+    expect(helper).toMatch(/static bool Announce\(/);
+  });
+
+  it("AC-382 the extension brings the window back and the helper looks again", () => {
+    const code = extensionCode();
+
+    // on the request: the window is brought back, the state is read again, the
+    // reason says it was done, and the helper is told to look - but only when
+    // the window really came back
+    expect(code).toMatch(
+      /onNeed: \(\) => \{[\s\S]{0,200}await windowPark\.bringBack\(editorRule\);\s*await refreshWindowState\(\);/,
+    );
+    expect(code).toContain(
+      "real input needs the editor's window on a display, so it was brought back",
+    );
+    expect(code).toMatch(/if \(result\.ok\) \{\s*windowInput\?\.send\("R"\);/);
   });
 });

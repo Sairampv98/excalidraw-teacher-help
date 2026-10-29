@@ -291,7 +291,18 @@
       "modeWhole": "Whole",
       "modePart": "Part",
       "modeFollow": "Follow",
-      "size": "How much of the window the following area shows"
+      "size": "How much of the window the following area shows",
+      "title": "VS Code",
+      "state": {
+        "connecting": "Connecting to VS Code...",
+        "looking": "Looking for VS Code - is the Excalidraw Bridge extension running?",
+        "token": "Paste the token from VS Code to connect",
+        "tokenHint": "In VS Code run \"Excalidraw Bridge: Copy the session token\", then press Paste from clipboard.",
+        "refused": "VS Code did not accept the token",
+        "waiting": "Waiting for the editor's window...",
+        "unavailable": "The editor's window cannot be shown",
+        "unavailableHint": "The live view comes back by itself when the window does."
+      }
     },
     "control": {
       "label": "Control",

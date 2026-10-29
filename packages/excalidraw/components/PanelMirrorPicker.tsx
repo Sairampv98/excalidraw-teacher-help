@@ -1,4 +1,5 @@
 import React, { useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 
 import type { ExcalidrawPanelElement } from "@excalidraw/element/types";
 
@@ -14,6 +15,23 @@ import { t } from "../i18n";
 import { moveCropEdge } from "./PanelScreenshotFocus";
 
 import type { PanelMirrorRegion } from "../scene/panelMirror";
+
+/**
+ * The element that is full screen right now, or null (D-334).
+ *
+ * The browser shows only that element while it is full screen, so a picker that
+ * is drawn anywhere else is drawn behind it and cannot be seen.
+ */
+const useFullscreenElement = (): Element | null =>
+  useSyncExternalStore(
+    (notify) => {
+      document.addEventListener("fullscreenchange", notify);
+
+      return () => document.removeEventListener("fullscreenchange", notify);
+    },
+    () => document.fullscreenElement ?? null,
+    () => null,
+  );
 
 /**
  * The **picker**: the teacher's own control for what is mirrored (D-143).
@@ -49,6 +67,10 @@ export const PanelMirrorPicker = ({
     getAnyPanelMirrorPicker,
     getAnyPanelMirrorPicker,
   );
+
+  // A panel that is full screen is all the browser shows, so the picker is drawn
+  // INTO it - and it fits the screen the panel fills (D-334).
+  const fullscreen = useFullscreenElement();
 
   /**
    * The drag of the crop.
@@ -103,16 +125,23 @@ export const PanelMirrorPicker = ({
    * sees the editor's window as it is - big enough to crop, small enough to
    * leave room around it.
    */
+  const room = fullscreen
+    ? {
+        width: fullscreen.clientWidth || viewport.width,
+        height: fullscreen.clientHeight || viewport.height,
+      }
+    : viewport;
+
   const fit = Math.min(
-    (viewport.width * 0.9) / pictureWidth,
-    (viewport.height * 0.8) / pictureHeight,
+    (room.width * 0.9) / pictureWidth,
+    (room.height * 0.8) / pictureHeight,
   );
 
   const displayWidth = pictureWidth * fit;
   const displayHeight = pictureHeight * fit;
 
-  const pictureLeft = (viewport.width - displayWidth) / 2;
-  const pictureTop = (viewport.height - displayHeight) / 2;
+  const pictureLeft = (room.width - displayWidth) / 2;
+  const pictureTop = (room.height - displayHeight) / 2;
 
   /** the crop, in the picture's own fractions */
   const region = open.region;
@@ -229,7 +258,7 @@ export const PanelMirrorPicker = ({
     onChoose?.(open.panelId, next);
   };
 
-  return (
+  const node = (
     <div
       className="excalidraw__panel-mirror-picker"
       data-testid="panel-mirror-picker"
@@ -395,6 +424,8 @@ export const PanelMirrorPicker = ({
       </div>
     </div>
   );
+
+  return fullscreen ? createPortal(node, fullscreen) : node;
 };
 
 /** the eight handles of the crop: the four corners and the four edges */

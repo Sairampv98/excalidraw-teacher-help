@@ -170,11 +170,13 @@ public static class InputEngine {
     return found;
   }
 
-  static void Announce(string next, string reason) {
-    if (next == route && reason == routeReason) return;
+  // says the way in, once - and whether it said anything
+  static bool Announce(string next, string reason) {
+    if (next == route && reason == routeReason) return false;
     route = next;
     routeReason = reason;
     Say("ROUTE " + next + " " + reason);
+    return true;
   }
 
   static void Resolve(bool force) {
@@ -193,7 +195,11 @@ public static class InputEngine {
         ? "real input was chosen: the editor's window is brought to the front for a moment"
         : "this window has no page to post input to, so the input goes with the focus";
       if (!onDisplay) {
-        Announce("none", "real input needs the editor's window on a display - bring it back first");
+        // real input goes to the window in front, and a parked window is on no
+        // display: the extension is asked to bring it back (once per change)
+        if (Announce("none", "real input needs the editor's window on a display - it is being brought back")) {
+          Say("NEED display");
+        }
       } else {
         Announce("focus", why);
       }
@@ -525,6 +531,11 @@ public static class InputEngine {
   static void Handle(string line) {
     string[] f = line.Split(' ');
     if (f.Length == 0 || f[0].Length == 0) return;
+    // "R": look again now - the extension has brought the window back
+    if (f[0] == "R") {
+      Resolve(true);
+      return;
+    }
     Resolve(false);
     if (top == IntPtr.Zero || route == "none") return;
     lastEvent = DateTime.UtcNow;
@@ -566,7 +577,12 @@ public static class InputEngine {
     double quiet = (DateTime.UtcNow - lastEvent).TotalMilliseconds;
     if (appliedMods != 0 && quiet > 250) SyncMods(0);
     if (burst && quiet > 600) EndBurst();
-    if (route == "none" && (DateTime.UtcNow - resolvedAt).TotalSeconds >= 2) Resolve(true);
+    // Without the way in (none), and on the focus route (a window that is
+    // parked in the meantime is on no display any more), the window is looked
+    // at again every two seconds: the background route does not care where the
+    // window is.
+    if ((route == "none" || route == "focus") && !burst &&
+        (DateTime.UtcNow - resolvedAt).TotalSeconds >= 2) Resolve(true);
   }
 
   public static void Release() {

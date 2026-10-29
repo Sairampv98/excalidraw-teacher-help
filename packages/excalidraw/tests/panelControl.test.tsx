@@ -273,26 +273,20 @@ describe("the three modes of the mirror (D-322)", () => {
     );
   });
 
-  it("AC-365 Part leaves full screen to show the picker", async () => {
-    // a panel that is full screen is all the browser shows: the picker, drawn
-    // over the page, would open behind it
+  it("AC-365 Part draws the picker into the full-screen panel, with no exit", async () => {
+    // a panel that is full screen is all the browser shows: a picker drawn
+    // anywhere else would open behind it, so it is drawn INTO the element that
+    // is full screen (D-334) and the teacher never has to leave
     const onChange = vi.fn();
     const panel = livePanel();
-    let leave: () => void = () => undefined;
-    const exit = vi.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          leave = () => {
-            fullscreen = null;
-            resolve();
-          };
-        }),
-    );
-    let fullscreen: Element | null = document.createElement("div");
+    const exit = vi.fn(async () => undefined);
+    const host = document.createElement("div");
+
+    document.body.appendChild(host);
 
     Object.defineProperty(document, "fullscreenElement", {
       configurable: true,
-      get: () => fullscreen,
+      get: () => host,
     });
     Object.defineProperty(document, "exitFullscreen", {
       configurable: true,
@@ -312,6 +306,7 @@ describe("the three modes of the mirror (D-322)", () => {
           width: 1000,
           height: 500,
         });
+        document.dispatchEvent(new Event("fullscreenchange"));
       });
 
       const part = (await waitFor(() => {
@@ -326,32 +321,28 @@ describe("the three modes of the mirror (D-322)", () => {
 
       fireEvent.click(part);
 
-      // it asks to leave full screen, and the picker waits for it
-      expect(exit).toHaveBeenCalledTimes(1);
-      expect(getAnyPanelMirrorPicker()).toBeNull();
-
-      await act(async () => {
-        leave();
-      });
-
+      // the picker opens at once ...
       await waitFor(() =>
         expect(getAnyPanelMirrorPicker()?.panelId).toBe(panel.id),
       );
 
-      // not full screen: the picker opens at once, with nothing to leave
-      closePanelMirrorPicker(panel.id);
-      exit.mockClear();
-      fireEvent.click(part);
-
+      // ... INSIDE the element that is full screen ...
       await waitFor(() =>
-        expect(getAnyPanelMirrorPicker()?.panelId).toBe(panel.id),
+        expect(
+          host.querySelector('[data-testid="panel-mirror-picker"]'),
+        ).not.toBeNull(),
       );
+
+      // ... and the teacher was not made to leave full screen for it
       expect(exit).not.toHaveBeenCalled();
+
+      closePanelMirrorPicker(panel.id);
     } finally {
       // @ts-expect-error the test's own stand-ins are taken off again
       delete document.fullscreenElement;
       // @ts-expect-error the test's own stand-ins are taken off again
       delete document.exitFullscreen;
+      host.remove();
     }
   });
 

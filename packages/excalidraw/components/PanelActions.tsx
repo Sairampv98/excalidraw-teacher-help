@@ -1,7 +1,10 @@
 /**
- * The **actions** of a panel: the camera, the read and the bridge box.
+ * The **actions** of a panel: the camera and the read.
  *
- * These three controls used to be drawn INSIDE the panel's overlay, and that
+ * (The bridge box is in the VS Code mirror itself now (D-333): it is needed
+ * where the connection is shown, and not in a sidebar.)
+ *
+ * These controls used to be drawn INSIDE the panel's overlay, and that
  * made every one of them a button on top of a picture (D-135): on a YouTube
  * panel the picture is an **iframe** - a foreign document - and the iframe
  * takes the click and gives it to YouTube. The control was visible and dead,
@@ -27,10 +30,6 @@ import React, { useState } from "react";
 
 import type { ExcalidrawPanelElement } from "@excalidraw/element/types";
 
-import {
-  isBridgeCodePanel,
-  isStandaloneCodePanel,
-} from "../scene/panelContent";
 import { PANEL_SCALE_PROPERTY, panelScreenChrome } from "../scene/panelChrome";
 
 import { t } from "../i18n";
@@ -40,7 +39,6 @@ import Spinner from "./Spinner";
 
 import type {
   ExcalidrawProps,
-  PanelBridgeControls,
   PanelOcrControls,
   PanelOcrEngine,
   PanelScreenshotControls,
@@ -86,141 +84,6 @@ const PanelScreenshotButton = ({
     >
       {ScreenshotIcon}
     </button>
-  );
-};
-
-/**
- * The **bridge field** of a code panel: the token, a button that pastes it
- * from the clipboard, and the state of the connection.
- *
- * The field is drawn by the library and driven by the **host**: the host owns
- * the token, because the token is a secret, and the host owns the connection,
- * because the host is the side that talks to the bridge (D-52).
- *
- * The token is masked in the field. It is held in memory for the session only:
- * it is never written to disk and never put in a URL (D-50).
- *
- * The box is an ordinary block in the panel's own column now (D-136): it is
- * not floating over the picture any more, so it needs no position of its own.
- */
-const PanelBridgeField = ({
-  panel,
-  bridge,
-}: {
-  panel: ExcalidrawPanelElement;
-  bridge: PanelBridgeControls;
-}) => {
-  const inputId = `panel-bridge-token-${panel.id}`;
-  const screen = panelScreenChrome;
-
-  return (
-    <div
-      className="excalidraw__panel-bridge"
-      data-testid="panel-bridge"
-      data-panel-id={panel.id}
-      data-bridge-state={bridge.status}
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "stretch",
-        gap: screen.chromeGap,
-        padding: screen.bridgeBoxPadding,
-        boxSizing: "border-box",
-        width: `calc(${screen.bridgeFieldWidth} + 2 * ${screen.bridgeBoxPadding})`,
-        borderRadius: "8px",
-        background: "var(--island-bg-color)",
-        boxShadow: "0 0 0 1px var(--color-surface-lowest)",
-        color: "var(--text-primary-color)",
-        fontSize: screen.bridgeFontSize,
-      }}
-    >
-      <label
-        className="excalidraw__panel-bridge-label"
-        htmlFor={inputId}
-        style={{ fontSize: screen.bridgeFontSize }}
-      >
-        {t("labels.panel.bridge.label")}
-      </label>
-      <input
-        id={inputId}
-        className="excalidraw__panel-bridge-token"
-        data-testid="panel-bridge-token"
-        type="password"
-        value={bridge.token}
-        placeholder={t("labels.panel.bridge.placeholder")}
-        autoComplete="off"
-        spellCheck={false}
-        onChange={(event) => bridge.onTokenChange?.(event.target.value)}
-        style={{
-          width: "100%",
-          height: screen.bridgeFieldHeight,
-          boxSizing: "border-box",
-          padding: `0 ${screen.bridgeBoxPadding}`,
-          borderRadius: "4px",
-          border: "1px solid var(--input-border-color)",
-          background: "var(--input-bg-color)",
-          color: "inherit",
-          fontSize: screen.bridgeFontSize,
-          fontFamily: "inherit",
-        }}
-      />
-      <div
-        style={{
-          display: "flex",
-          gap: screen.chromeGap,
-        }}
-      >
-        <button
-          type="button"
-          className="excalidraw__panel-bridge-paste"
-          data-testid="panel-bridge-paste"
-          onClick={() => bridge.onPasteToken?.()}
-          style={{
-            width: screen.bridgeButtonWidth,
-            height: screen.bridgeButtonHeight,
-            fontSize: screen.bridgeFontSize,
-            fontFamily: "inherit",
-            color: "inherit",
-            background: "var(--button-gray-2)",
-            border: "1px solid var(--default-border-color)",
-            borderRadius: "4px",
-            cursor: "pointer",
-          }}
-        >
-          {t("labels.panel.bridge.paste")}
-        </button>
-        <button
-          type="button"
-          className="excalidraw__panel-bridge-connect"
-          data-testid="panel-bridge-connect"
-          onClick={() => bridge.onConnect?.()}
-          style={{
-            width: screen.bridgeButtonWidth,
-            height: screen.bridgeButtonHeight,
-            fontSize: screen.bridgeFontSize,
-            fontFamily: "inherit",
-            color: "var(--color-primary-contrast, #fff)",
-            background: "var(--color-primary)",
-            border: "1px solid var(--color-primary)",
-            borderRadius: "4px",
-            cursor: "pointer",
-          }}
-        >
-          {t("labels.panel.bridge.connect")}
-        </button>
-      </div>
-      <span
-        className="excalidraw__panel-bridge-state"
-        data-testid="panel-bridge-state"
-        data-bridge-state={bridge.status}
-        style={{
-          maxWidth: screen.bridgeMessageMaxWidth,
-          fontSize: screen.bridgeFontSize,
-        }}
-      >
-        {bridge.message}
-      </span>
-    </div>
   );
 };
 
@@ -536,13 +399,7 @@ export const PanelActions = ({
 }) => {
   const screenshot = appProps.panelScreenshot;
   const ocr = appProps.panelOcr;
-  const bridge = appProps.panelBridge;
-
-  // the bridge belongs to a code panel that is backed by a bridge session
-  const hasBridge =
-    !!bridge && isBridgeCodePanel(panel) && !isStandaloneCodePanel(panel);
-
-  if (!screenshot && !ocr && !hasBridge) {
+  if (!screenshot && !ocr) {
     return null;
   }
 
@@ -567,7 +424,6 @@ export const PanelActions = ({
         <PanelScreenshotButton panel={panel} screenshot={screenshot} />
       )}
       {ocr && <PanelOcrButton panel={panel} ocr={ocr} />}
-      {hasBridge && <PanelBridgeField panel={panel} bridge={bridge!} />}
     </div>
   );
 };

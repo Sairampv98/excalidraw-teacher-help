@@ -94,7 +94,10 @@ import { PANEL_PALETTES, VS_CODE_DARK } from "./vscodeTheme";
 
 import { captionCueAt, DEFAULT_CAPTION_LANGUAGE } from "./panelCaptions";
 import { codeMirrorLanguageIds } from "./codeLanguages";
+import { MirrorPanelSurface } from "./MirrorPanelSurface";
 import { usePanelControlSurface } from "./usePanelControlSurface";
+import { PanelIcon } from "./panelIcons";
+import { toggleFullscreen } from "./panelFullscreen";
 import {
   registerVideoSurface,
   unregisterVideoSurface,
@@ -119,6 +122,7 @@ import type { MediaFallback, MediaPanelSource } from "../scene/mediaRegistry";
 import type { PanelCamera } from "../scene/panelContent";
 import type { PanelChrome } from "../scene/panelChrome";
 import type { PanelControlControls } from "../scene/panelControl";
+import type { PanelBridgeControls, PanelOcrControls } from "../types";
 import type { PanelMirror, PanelMirrorMode } from "../scene/panelMirror";
 import type { PanelPlayback } from "../scene/panelContent";
 import type { PlaybackSyncState } from "../scene/panelPlayback";
@@ -238,6 +242,10 @@ type PanelOverlayProps = {
   copy?: PanelCopyControls;
   /** the host's controls for the control of the mirrored window (D-323) */
   control?: PanelControlControls;
+  /** the host's read of the picture (D-59, D-332) */
+  ocrControls?: PanelOcrControls;
+  /** the host's bridge: the connection and the token (D-333) */
+  bridgeControls?: PanelBridgeControls;
   /**
    * The teacher chose the language the panel **reads** the file as (D-142).
    *
@@ -443,52 +451,6 @@ const CodePanelEditor = ({
 };
 
 /**
- * The icons of a code panel's bars (D-274): drawn as paths so they are crisp at
- * any size, and named so a bar can be read at a glance.
- */
-const PANEL_ICON_PATHS: Record<string, React.ReactNode> = {
-  play: <path d="M8 5v14l11-7z" fill="currentColor" stroke="none" />,
-  copy: (
-    <>
-      <rect x="9" y="9" width="11" height="11" rx="2" />
-      <path d="M5 15V6a2 2 0 0 1 2-2h9" />
-    </>
-  ),
-  plus: <path d="M12 5v14M5 12h14" />,
-  minus: <path d="M5 12h14" />,
-  fullscreen: <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />,
-  clear: <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" />,
-  dockBottom: (
-    <>
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="M3 14h18" />
-    </>
-  ),
-  dockRight: (
-    <>
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="M14 4v16" />
-    </>
-  ),
-};
-
-const PanelIcon = ({ name, size }: { name: string; size: number | string }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    {PANEL_ICON_PATHS[name]}
-  </svg>
-);
-
-/**
  * The hairline between a code panel's regions - VS Code's own.
  */
 const hairlineOf = (palette: PanelPalette): React.CSSProperties => ({
@@ -504,26 +466,6 @@ const hairlineOf = (palette: PanelPalette): React.CSSProperties => ({
  * shape VS Code's zoom has: a few steps, and no more (D-117).
  */
 const ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
-
-/**
- * Shows the panel the button is in full screen, or leaves full screen (D-271).
- *
- * The browser's own full screen is used on the panel's element: only that
- * element is shown, the canvas is not, and Esc leaves.
- */
-const toggleFullscreen = (button: HTMLElement) => {
-  if (document.fullscreenElement) {
-    void document.exitFullscreen?.();
-    return;
-  }
-
-  void button
-    .closest<HTMLElement>(".excalidraw__panel")
-    ?.requestFullscreen?.()
-    ?.catch(() => {
-      // full screen was refused: the panel stays as it is
-    });
-};
 
 /** the language an editor reads its text as until the teacher chooses (D-270) */
 const DEFAULT_CODE_LANGUAGE = "python";
@@ -675,6 +617,8 @@ const CodePanelSurface = ({
   run,
   copy,
   control,
+  ocrControls,
+  bridgeControls,
   onReadLanguageChange,
   onZoomChange,
   onThemeChange,
@@ -697,6 +641,10 @@ const CodePanelSurface = ({
   copy?: PanelCopyControls;
   /** the host's controls for the control of the mirrored window (D-323) */
   control?: PanelControlControls;
+  /** the host's read of the picture (D-59, D-332) */
+  ocrControls?: PanelOcrControls;
+  /** the host's bridge: the connection and the token (D-333) */
+  bridgeControls?: PanelBridgeControls;
   /** the teacher chose the language the panel reads the file as (D-142) */
   onReadLanguageChange?: (panelId: string, language: string) => void;
   /** the teacher zoomed the editor (D-142) */
@@ -3417,6 +3365,8 @@ const PanelSurface = ({
   run,
   copy,
   control,
+  ocrControls,
+  bridgeControls,
   onReadLanguageChange,
   onZoomChange,
   onThemeChange,
@@ -3444,6 +3394,10 @@ const PanelSurface = ({
   copy?: PanelCopyControls;
   /** the host's controls for the control of the mirrored window (D-323) */
   control?: PanelControlControls;
+  /** the host's read of the picture (D-59, D-332) */
+  ocrControls?: PanelOcrControls;
+  /** the host's bridge: the connection and the token (D-333) */
+  bridgeControls?: PanelBridgeControls;
   /** the teacher chose the language the panel reads the file as (D-142) */
   onReadLanguageChange?: (panelId: string, language: string) => void;
   /** the teacher zoomed the editor (D-142) */
@@ -3458,6 +3412,28 @@ const PanelSurface = ({
   // the source, widened: a panel may name media in the host's store (D-95)
   const source = panelSource(panel);
 
+  // The VS Code mirror is the editor's window and nothing else - a surface of
+  // its own, built for it (D-331). The code editor in the browser keeps the
+  // code panel.
+  if (
+    panel.panelKind === "code" &&
+    isBridgeCodePanel(panel) &&
+    !isStandaloneCodePanel(panel)
+  ) {
+    return (
+      <MirrorPanelSurface
+        panel={panel}
+        chrome={chrome}
+        readOnly={mirror}
+        bridge={bridgeControls}
+        screenshot={screenshot}
+        ocr={ocrControls}
+        onMirrorChange={onMirrorChange}
+        control={control}
+      />
+    );
+  }
+
   if (panel.panelKind === "code" && isBridgeCodePanel(panel)) {
     return (
       <CodePanelSurface
@@ -3471,6 +3447,8 @@ const PanelSurface = ({
         run={run}
         copy={copy}
         control={control}
+        ocrControls={ocrControls}
+        bridgeControls={bridgeControls}
         onReadLanguageChange={onReadLanguageChange}
         onZoomChange={onZoomChange}
         onThemeChange={onThemeChange}
@@ -3593,6 +3571,8 @@ const Panel = ({
   run,
   copy,
   control,
+  ocrControls,
+  bridgeControls,
   onReadLanguageChange,
   onZoomChange,
   onThemeChange,
@@ -3621,6 +3601,10 @@ const Panel = ({
   copy?: PanelCopyControls;
   /** the host's controls for the control of the mirrored window (D-323) */
   control?: PanelControlControls;
+  /** the host's read of the picture (D-59, D-332) */
+  ocrControls?: PanelOcrControls;
+  /** the host's bridge: the connection and the token (D-333) */
+  bridgeControls?: PanelBridgeControls;
   /** the teacher chose the language the panel reads the file as (D-142) */
   onReadLanguageChange?: (panelId: string, language: string) => void;
   /** the teacher zoomed the editor (D-142) */
@@ -3756,6 +3740,8 @@ const Panel = ({
           run={run}
           copy={copy}
           control={control}
+          ocrControls={ocrControls}
+          bridgeControls={bridgeControls}
           onReadLanguageChange={onReadLanguageChange}
           onZoomChange={onZoomChange}
           onThemeChange={onThemeChange}
@@ -3816,6 +3802,8 @@ const PanelOverlayImpl = ({
   run,
   copy,
   control,
+  ocrControls,
+  bridgeControls,
   onReadLanguageChange,
   onZoomChange,
   onThemeChange,
@@ -3851,6 +3839,8 @@ const PanelOverlayImpl = ({
           run={run}
           copy={copy}
           control={control}
+          ocrControls={ocrControls}
+          bridgeControls={bridgeControls}
           onReadLanguageChange={onReadLanguageChange}
           onZoomChange={onZoomChange}
           onThemeChange={onThemeChange}
@@ -3888,6 +3878,8 @@ const areEqual = (prev: PanelOverlayProps, next: PanelOverlayProps) =>
   prev.run === next.run &&
   prev.copy === next.copy &&
   prev.control === next.control &&
+  prev.ocrControls === next.ocrControls &&
+  prev.bridgeControls === next.bridgeControls &&
   prev.onReadLanguageChange === next.onReadLanguageChange &&
   prev.onZoomChange === next.onZoomChange &&
   prev.onThemeChange === next.onThemeChange &&

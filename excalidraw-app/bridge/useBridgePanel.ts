@@ -1108,6 +1108,8 @@ export const useBridgePanel = (
   const bridge: PanelBridgeControls = useMemo(
     () => ({
       status: state.connection,
+      // the session's own word, finer than the status (D-333)
+      phase: state.status,
       message: state.message,
       token,
       onTokenChange,
@@ -1116,6 +1118,7 @@ export const useBridgePanel = (
     }),
     [
       state.connection,
+      state.status,
       state.message,
       token,
       onTokenChange,

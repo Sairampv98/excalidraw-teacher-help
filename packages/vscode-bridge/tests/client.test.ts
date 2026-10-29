@@ -7,7 +7,11 @@ import {
   type WebSocketLike,
 } from "../bridge/src/client";
 
-import { parseBridgeMessage, type BridgeMessage } from "../bridge/src/protocol";
+import {
+  BRIDGE_CLOSE_UNAUTHORIZED,
+  parseBridgeMessage,
+  type BridgeMessage,
+} from "../bridge/src/protocol";
 
 import type { AddressInfo } from "node:net";
 
@@ -151,5 +155,79 @@ describe("the bridge client", () => {
         token: "a-per-session-token",
       }),
     ).toThrow(/token/i);
+  });
+});
+
+describe("a token the extension refuses (D-333)", () => {
+  /** Every socket the client opens, so a test can count the tries. */
+  const track = () => {
+    const sockets: FakeWebSocket[] = [];
+
+    class Tracked extends FakeWebSocket {
+      constructor(url: string) {
+        super(url);
+        sockets.push(this);
+      }
+    }
+
+    return { sockets, Tracked };
+  };
+
+  it("AC-380 a refused token is said and not retried", async () => {
+    const { sockets, Tracked } = track();
+    const states: BridgeClientState[] = [];
+    const client = createBridgeClient({
+      url: "ws://127.0.0.1:47511/",
+      token: "an-old-token",
+      WebSocketImpl: Tracked,
+      retryDelayMs: 5,
+      onStateChange: (state) => states.push(state),
+    });
+
+    client.connect();
+    sockets[0].open();
+
+    // the extension answers a wrong token with its own close code
+    sockets[0].onclose?.({ code: BRIDGE_CLOSE_UNAUTHORIZED });
+
+    const state = client.getState();
+
+    expect(state.status).toBe("refused");
+
+    // it says what to do, and it does not say the extension is missing
+    expect(state.message).toContain("did not accept this token");
+    expect(state.message).toContain(
+      "Excalidraw Bridge: Copy the session token",
+    );
+    expect(state.message).not.toMatch(/is the extension running/i);
+
+    // and it does not ask again with the same token
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    expect(sockets).toHaveLength(1);
+    expect(states.map((entry) => entry.status)).not.toContain("reconnecting");
+  });
+
+  it("AC-380 any other close is still retried", async () => {
+    const { sockets, Tracked } = track();
+    const client = createBridgeClient({
+      url: "ws://127.0.0.1:47511/",
+      token: "a-token",
+      WebSocketImpl: Tracked,
+      retryDelayMs: 5,
+    });
+
+    client.connect();
+    sockets[0].open();
+
+    // a dropped connection, a stopped extension, a refused origin: not a
+    // refused token, so the client keeps trying
+    sockets[0].onclose?.({ code: 1006 });
+
+    expect(client.getState().status).toBe("reconnecting");
+
+    await waitFor(() => sockets.length >= 2);
+
+    client.disconnect();
   });
 });

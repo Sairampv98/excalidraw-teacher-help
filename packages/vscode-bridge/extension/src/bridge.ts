@@ -7,6 +7,7 @@ import {
 } from "node:timers";
 
 import {
+  BRIDGE_CLOSE_UNAUTHORIZED,
   BRIDGE_PROTOCOL_VERSION,
   parseBridgeMessage,
   workspaceName,
@@ -47,7 +48,7 @@ import type { Socket } from "node:net";
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 /** The websocket close code for a connection that failed the token check. */
-export const CLOSE_UNAUTHORIZED = 1008;
+export const CLOSE_UNAUTHORIZED = BRIDGE_CLOSE_UNAUTHORIZED;
 
 /** The websocket close code for a frame that is not a legal message. */
 export const CLOSE_INVALID_FRAME = 1007;

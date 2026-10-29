@@ -206,15 +206,41 @@ const pythonCodePanelElement = () =>
   });
 
 /**
+ * A **code editor of its own** (D-331), with the teacher's text in it.
+ *
+ * It is not connected to anything: the VS Code mirror is a panel of its own,
+ * and the editor shares the session that panel connected.
+ */
+const editorPanelElement = (language: string, text: string) =>
+  newPanelElement({
+    type: "panel",
+    x: 100,
+    y: 100,
+    width: 400,
+    height: 300,
+    panelKind: "code",
+    panel: withPanelDraft(
+      codePanelContent(emptyCodePanelState(), "session-1", {
+        standalone: true,
+      }),
+      { text, language, edited: true },
+    ),
+    posterMode: false,
+    posterFileId: null,
+  });
+
+/**
  * The app's scene, and the API the hook writes into.
  *
  * The hook needs an API; this one keeps the elements in a variable, so the
  * test can look at what the app wrote into the document.
  */
-const scene = (element?: ExcalidrawElement) => {
+const scene = (element?: ExcalidrawElement, ...rest: ExcalidrawElement[]) => {
   const panel = (element ?? codePanelElement()) as unknown as ExcalidrawElement;
 
-  const state: { elements: ExcalidrawElement[] } = { elements: [panel] };
+  const state: { elements: ExcalidrawElement[] } = {
+    elements: [panel, ...rest],
+  };
 
   const api = {
     getSceneElements: () => state.elements,
@@ -250,9 +276,7 @@ const Harness = ({
   return (
     <Excalidraw
       initialData={{
-        elements: [panel],
-        // the panel is selected, so its chrome — and with it the bridge field —
-        // is on the screen
+        elements: [...api.getSceneElements()],
         appState: { selectedElementIds: { [panel.id]: true } },
       }}
       panelBridge={bridge}
@@ -423,17 +447,23 @@ describe("the app's side of the bridge", () => {
     // be visible
     API.setAppState({ width: 1000, height: 1000 });
 
-    const input = document.querySelector(
-      '[data-testid="panel-bridge-token"]',
-    ) as HTMLInputElement;
+    const field = () =>
+      document.querySelector(
+        '[data-testid="panel-bridge-token"]',
+      ) as HTMLInputElement | null;
 
-    expect(input.value).toBe("");
+    expect(field()!.value).toBe("");
 
     fireEvent.click(
       document.querySelector('[data-testid="panel-bridge-paste"]')!,
     );
 
-    await waitFor(() => expect(input.value).toBe(TEST_TOKEN));
+    // the token is read from the clipboard, held, and used to connect (the
+    // panel's body moves on to "connecting", so the field is not the place
+    // to look for it)
+    await waitFor(() =>
+      expect(storageHolds(sessionStorage, TEST_TOKEN)).toBe(true),
+    );
 
     expect(clipboard.readText).toHaveBeenCalled();
   });
@@ -512,13 +542,11 @@ describe("the app's side of the bridge", () => {
       });
     });
 
-    // the chrome says it ...
+    // the mirror says it ...
     await waitFor(() => {
-      const chrome = document.querySelector(
-        '[data-testid="panel-bridge-state"]',
-      );
+      const line = document.querySelector('[data-testid="mirror-panel-hint"]');
 
-      expect(chrome?.textContent).toContain("VSCodium");
+      expect(line?.textContent).toContain("VSCodium");
     });
 
     // ... and so does the panel's console
@@ -999,7 +1027,7 @@ describe("the app's code languages", () => {
     // the app's grammars are registered when the module is imported
     await import("../codeLanguages");
 
-    const panel = pythonCodePanelElement();
+    const panel = editorPanelElement("python", "def greet():\n    return 1");
 
     await render(<Excalidraw initialData={{ elements: [panel] }} />);
 
@@ -1133,7 +1161,12 @@ describe("the app's runnable editor", () => {
   it("AC-162 the run control sends the draft and the language to the bridge", async () => {
     mockClipboard(TEST_TOKEN);
 
-    const { api, panel } = scene(draftedCodePanelElement());
+    // a code editor of its own, in a language only VS Code runs, and the
+    // mirror that holds the token field
+    const { api, panel } = scene(
+      editorPanelElement("java", "class Main {}"),
+      codePanelElement(),
+    );
 
     await render(<Harness api={api} panel={panel} />);
 
@@ -1191,8 +1224,8 @@ describe("the app's runnable editor", () => {
       const request = sent.find((message) => message.type === "code:run");
 
       expect(request).toBeTruthy();
-      expect(request.language).toBe("python");
-      expect(request.text).toBe("print('mine')");
+      expect(request.language).toBe("java");
+      expect(request.text).toBe("class Main {}");
       expect(typeof request.id).toBe("string");
       expect(request.id.length).toBeGreaterThan(0);
     });
@@ -1210,36 +1243,8 @@ describe("the app's runnable editor", () => {
     expect(offered).toContain("javascript");
   });
 
-  /** a panel with a draft in the given language */
-  const draftPanel = (language: string, text: string) => {
-    const element = pythonCodePanelElement();
-
-    return {
-      ...element,
-      panel: withPanelDraft(element.panel, { text, language, edited: true }),
-    } as unknown as ExcalidrawElement;
-  };
-
-  /**
-   * Turns the panel into a code editor of its own.
-   *
-   * The harness's scene is a stand-in that the hook reads at the moment Run is
-   * pressed, so the panel can be connected through its bridge field first (a
-   * code editor of its own has none) and made standalone afterwards - the way a
-   * teacher's second editor shares the bridge the first one connected.
-   */
-  const makeStandalone = (state: { elements: ExcalidrawElement[] }) => {
-    const element = state.elements[0] as unknown as {
-      panel: Record<string, unknown>;
-    };
-
-    state.elements = [
-      {
-        ...element,
-        panel: { ...element.panel, standalone: true },
-      } as unknown as ExcalidrawElement,
-    ];
-  };
+  /** a code editor of its own, with a draft in the given language */
+  const draftPanel = editorPanelElement;
 
   /** the editor with the bridge connected, and the runtimes VS Code found */
   const connectWithRuntimes = async (
@@ -1248,7 +1253,8 @@ describe("the app's runnable editor", () => {
   ) => {
     mockClipboard(TEST_TOKEN);
 
-    const { api, state } = scene(panel);
+    // the editor shares the session the VS Code mirror connected
+    const { api, state } = scene(panel, codePanelElement());
 
     await render(<Harness api={api} panel={panel} />);
 
@@ -1296,7 +1302,7 @@ describe("the app's runnable editor", () => {
       .filter((message) => message.type === "code:run");
 
   it("AC-332 a language VS Code runs is run by VS Code, also from a code editor of its own", async () => {
-    const { socket, run, state } = await connectWithRuntimes(
+    const { socket, run } = await connectWithRuntimes(
       draftPanel("java", "class Main {}"),
       ["java", "python"],
     );
@@ -1310,8 +1316,6 @@ describe("the app's runnable editor", () => {
 
     expect(option("java").textContent).toBe("Java (runs in VS Code)");
     expect(option("java").disabled).toBe(false);
-
-    makeStandalone(state);
 
     act(() => {
       fireEvent.click(run);
@@ -1328,12 +1332,10 @@ describe("the app's runnable editor", () => {
       .spyOn(pythonRunner, "run")
       .mockResolvedValue({ kind: "exit", code: 0 });
 
-    const { socket, run, state } = await connectWithRuntimes(
+    const { socket, run } = await connectWithRuntimes(
       draftPanel("python", "print('mine')"),
       ["java", "python"],
     );
-
-    makeStandalone(state);
 
     act(() => {
       fireEvent.click(run);
@@ -1462,21 +1464,16 @@ describe("the app's runnable editor", () => {
 
 describe("the panel's editor copy", () => {
   it("AC-179 the panel's copy pastes on the canvas as the same code card", async () => {
-    // the file the panel is mirroring
+    // the text in the editor
     const CODE = "def greet():\n    return 1";
 
     const clipboard = mockClipboard(CODE);
 
     let api: ExcalidrawImperativeAPI | null = null;
 
-    // the panel is in the editor view, so the editor - and the editor's own
-    // controls - are on the screen
-    const panel = pythonCodePanelElement();
-
-    const inEditorView = {
-      ...panel,
-      panel: withPanelView(panel.panel, "editor"),
-    };
+    // a code editor of its own, so the editor - and the editor's own controls
+    // - are on the screen
+    const inEditorView = editorPanelElement("python", CODE);
 
     const { container } = await render(
       <Excalidraw

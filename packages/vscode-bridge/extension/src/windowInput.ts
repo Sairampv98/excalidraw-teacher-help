@@ -51,6 +51,38 @@ export const resolveInputRoute = (value: unknown): InputRouteSetting =>
   value === "background" || value === "focus" ? value : "auto";
 
 /**
+ * The routes the teacher can choose from, as the pick list shows them
+ * (D-335).
+ *
+ * The list is where the teacher chooses: the setting is the same one, and the
+ * list is the way to reach it without opening the settings page.
+ */
+export const INPUT_ROUTE_CHOICES: readonly {
+  value: InputRouteSetting;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "auto",
+    label: "Automatic",
+    description:
+      "post the input to the editor's window, and take the focus only where the window cannot take it",
+  },
+  {
+    value: "background",
+    label: "Background",
+    description:
+      "post the input to the editor's window - your own focus, keyboard and mouse are never touched",
+  },
+  {
+    value: "focus",
+    label: "Focus",
+    description:
+      "real input: the window is brought to the front for a moment and your keyboard goes with it",
+  },
+];
+
+/**
  * The Windows virtual-key code of each key the control may send.
  *
  * A key travels as a **name** (`KeyboardEvent.code`'s own) and never as a raw
@@ -347,14 +379,17 @@ export interface InputHelperState {
  * One line of the helper's stdout, read.
  *
  * `ROUTE <route> <reason>` is the way in; `STATUS <text>` is something the
- * teacher should read (a window that would not come to the front). Anything
- * else is not said to the panel.
+ * teacher should read (a window that would not come to the front);
+ * `NEED display` says the way in is real input and the window is not on a
+ * display, so the extension can bring it back (D-336). Anything else is not
+ * said to the panel.
  */
 export const parseHelperLine = (
   line: string,
 ):
   | { kind: "route"; state: InputHelperState }
   | { kind: "status"; text: string }
+  | { kind: "need"; what: "display" }
   | null => {
   const trimmed = line.trim();
   const route = /^ROUTE\s+(background|focus|none)\s+(.+)$/.exec(trimmed);
@@ -364,6 +399,10 @@ export const parseHelperLine = (
       kind: "route",
       state: { route: route[1] as BridgeControlRoute, reason: route[2] },
     };
+  }
+
+  if (/^NEED\s+display$/.test(trimmed)) {
+    return { kind: "need", what: "display" };
   }
 
   const status = /^STATUS\s+(.+)$/.exec(trimmed);
@@ -433,6 +472,12 @@ export interface WindowInputOptions {
   onState: (state: InputHelperState) => void;
   /** the helper said something the teacher should read */
   onStatus?: (text: string) => void;
+  /**
+   * The helper needs the window on a display (D-336): real input goes to the
+   * window in front, and a parked window is not on a display. The extension
+   * brings it back and says `R` to the helper, which looks again.
+   */
+  onNeed?: (what: "display") => void;
   /** overridable for the tests */
   spawn?: InputSpawn;
   /** how long a dead helper waits before it is started again */
@@ -497,6 +542,8 @@ export const createWindowInput = (options: WindowInputOptions): WindowInput => {
           options.onState(said.state);
         } else if (said?.kind === "status") {
           options.onStatus?.(said.text);
+        } else if (said?.kind === "need") {
+          options.onNeed?.(said.what);
         }
       }
     });

@@ -15,7 +15,8 @@ import {
   resolveCaptureFps,
   resolvePort,
   resolvePythonPath,
-  resolveToken,
+  resolveSessionToken,
+  KEPT_SESSION_SLOT,
 } from "./config";
 import {
   documentForTabUri,
@@ -52,6 +53,7 @@ import {
 import {
   createInputGate,
   createWindowInput,
+  INPUT_ROUTE_CHOICES,
   INPUT_SCRIPT_RELATIVE_PATH,
   resolveInputRoute,
   type InputHelperState,
@@ -105,13 +107,38 @@ let shutdownWindow: (() => Promise<void>) | null = null;
  */
 let textPublisher: CoalescedPublisher | null = null;
 
-export function activate(context: vscode.ExtensionContext): void {
+export async function activate(
+  context: vscode.ExtensionContext,
+): Promise<void> {
   extensionVersion = context.extension?.packageJSON?.version ?? "0.0.0";
 
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const configuration = vscode.workspace.getConfiguration(CONFIG_SECTION);
   const port = resolvePort(workspaceRoot, configuration.get<number>("port"));
-  const { token, generated } = resolveToken(configuration.get<string>("token"));
+  // The token of the session is KEPT in the editor's secret storage (D-333):
+  // a reload of the editor gives the page the token it already has, so the
+  // page reconnects by itself instead of retrying a token that is gone.
+  let storedToken: string | undefined;
+
+  try {
+    storedToken = await context.secrets.get(KEPT_SESSION_SLOT);
+  } catch {
+    // no secret storage here: the token is made for this session, as it was
+    storedToken = undefined;
+  }
+
+  const { token, generated, reused } = resolveSessionToken(
+    configuration.get<string>("token"),
+    storedToken,
+  );
+
+  if (generated && !reused) {
+    try {
+      await context.secrets.store(KEPT_SESSION_SLOT, token);
+    } catch {
+      // not kept: the next start makes a new one
+    }
+  }
   /**
    * The teacher's **own** YouTube API key (D-129).
    *
@@ -790,6 +817,11 @@ export function activate(context: vscode.ExtensionContext): void {
     });
   };
 
+  // The control is announced from the FIRST message of the descriptor, off:
+  // a panel draws its Control switch only when the extension says it has one
+  // (D-323), and it used to say so only once somebody had turned it on.
+  publishControl();
+
   /** said once while the limit is dropping events, and not for every one */
   const noteLimited = () => {
     if (limited) {
@@ -805,6 +837,55 @@ export function activate(context: vscode.ExtensionContext): void {
     }, 2000);
   };
 
+  /**
+   * The helper, with the route the setting says NOW (D-335): the setting is
+   * read again every time, because the pick list changes it while the editor
+   * runs.
+   */
+  const makeWindowInput = (): WindowInput =>
+    createWindowInput({
+      scriptPath: join(context.extensionPath, INPUT_SCRIPT_RELATIVE_PATH),
+      processName: editorProcessName(appName),
+      titleLike: workspace,
+      route: resolveInputRoute(
+        vscode.workspace
+          .getConfiguration(CONFIG_SECTION)
+          .get<string>("inputRoute"),
+      ),
+      onState: (state) => {
+        helperState = state;
+        publishControl();
+      },
+      onStatus: (text) => {
+        // something the teacher should read: it replaces the reason until
+        // the helper says the route again
+        helperState = { ...helperState, reason: text };
+        publishControl();
+      },
+      // Real input goes to the window in front, and a parked window is on no
+      // display: the window is brought back, and the helper looks again
+      // (D-336). The window is the teacher's, so it is said.
+      onNeed: () => {
+        void (async () => {
+          const result = await windowPark.bringBack(editorRule);
+
+          await refreshWindowState();
+
+          helperState = {
+            route: helperState.route,
+            reason: result.ok
+              ? "real input needs the editor's window on a display, so it was brought back"
+              : result.reason,
+          };
+          publishControl();
+
+          if (result.ok) {
+            windowInput?.send("R");
+          }
+        })();
+      },
+    });
+
   const setControl = (enabled: boolean, from?: BridgeConnection) => {
     if (process.platform !== "win32") {
       helperState = {
@@ -819,22 +900,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     if (enabled) {
       if (!windowInput) {
-        windowInput = createWindowInput({
-          scriptPath: join(context.extensionPath, INPUT_SCRIPT_RELATIVE_PATH),
-          processName: editorProcessName(appName),
-          titleLike: workspace,
-          route: resolveInputRoute(configuration.get<string>("inputRoute")),
-          onState: (state) => {
-            helperState = state;
-            publishControl();
-          },
-          onStatus: (text) => {
-            // something the teacher should read: it replaces the reason until
-            // the helper says the route again
-            helperState = { ...helperState, reason: text };
-            publishControl();
-          },
-        });
+        windowInput = makeWindowInput();
       }
 
       helperState = { route: "none", reason: "starting the input helper" };
@@ -846,6 +912,22 @@ export function activate(context: vscode.ExtensionContext): void {
 
     publishControl();
   };
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (
+        event.affectsConfiguration(`${CONFIG_SECTION}.inputRoute`) &&
+        inputGate.enabled &&
+        windowInput
+      ) {
+        windowInput.stop();
+        windowInput = makeWindowInput();
+        helperState = { route: "none", reason: "starting the input helper" };
+        windowInput.start();
+        publishControl();
+      }
+    }),
+  );
 
   /** a connection ended: when it was the one that had Control, it is off (D-327) */
   const onBridgeDisconnect = (connection: BridgeConnection) => {
@@ -1030,21 +1112,81 @@ export function activate(context: vscode.ExtensionContext): void {
   status.show();
   context.subscriptions.push(status);
 
+  /** the route the setting says now (D-335) */
+  const currentInputRoute = () =>
+    resolveInputRoute(
+      vscode.workspace
+        .getConfiguration(CONFIG_SECTION)
+        .get<string>("inputRoute"),
+    );
+
+  /**
+   * The teacher chooses how the canvas types into the editor, from a pick list
+   * (D-335): the same setting as `excalidraw-bridge.inputRoute`, reached
+   * without opening the settings page, and applied at once.
+   */
+  const chooseInputRoute = async () => {
+    const current = currentInputRoute();
+
+    const picked = await vscode.window.showQuickPick(
+      INPUT_ROUTE_CHOICES.map((choice) => ({
+        label: `${choice.value === current ? "$(check) " : ""}${choice.label}`,
+        description: choice.description,
+        value: choice.value,
+      })),
+      {
+        title: "Excalidraw Bridge: how the canvas types into this editor",
+        placeHolder: "Choose the way in",
+      },
+    );
+
+    if (!picked || picked.value === current) {
+      return;
+    }
+
+    await vscode.workspace
+      .getConfiguration(CONFIG_SECTION)
+      .update("inputRoute", picked.value, vscode.ConfigurationTarget.Global);
+
+    const label =
+      INPUT_ROUTE_CHOICES.find((choice) => choice.value === picked.value)
+        ?.label ?? picked.value;
+
+    void vscode.window.showInformationMessage(
+      `Excalidraw Bridge: the canvas types into the editor by the ${label} route from now on.`,
+    );
+  };
+
   const showStatus = async () => {
+    const route = INPUT_ROUTE_CHOICES.find(
+      (choice) => choice.value === currentInputRoute(),
+    );
+
     const choice = await vscode.window.showInformationMessage(
       `Excalidraw Bridge is listening on ws://${DEFAULT_BRIDGE_HOST}:${port}.${
-        generated ? " This session's token is:" : " The token is:"
-      } ${token}`,
+        generated
+          ? " The token is kept in this editor, so a reload reconnects by itself:"
+          : " The token is:"
+      } ${token} - input route: ${route?.label ?? "Automatic"}.`,
       "Copy token",
+      "Input route...",
     );
     if (choice === "Copy token") {
       await vscode.env.clipboard.writeText(token);
       vscode.window.showInformationMessage("Excalidraw Bridge: token copied.");
     }
+
+    if (choice === "Input route...") {
+      await chooseInputRoute();
+    }
   };
 
   context.subscriptions.push(
     vscode.commands.registerCommand("excalidraw-bridge.showStatus", showStatus),
+    vscode.commands.registerCommand(
+      "excalidraw-bridge.chooseInputRoute",
+      chooseInputRoute,
+    ),
     vscode.commands.registerCommand("excalidraw-bridge.copyToken", async () => {
       await vscode.env.clipboard.writeText(token);
       vscode.window.showInformationMessage("Excalidraw Bridge: token copied.");

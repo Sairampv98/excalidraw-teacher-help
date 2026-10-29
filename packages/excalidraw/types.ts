@@ -62,6 +62,7 @@ import type { ImportedDataState } from "./data/types";
 import type { Language } from "./i18n";
 import type { isOverScrollBars } from "./scene/scrollbars";
 import type { PanelBridgeStatus } from "./scene/panelContent";
+import type { MirrorBridgePhase } from "./scene/mirrorPanelView";
 import type { PanelControlControls } from "./scene/panelControl";
 import type { PanelMirror } from "./scene/panelMirror";
 import type { PanelScreenshotChoice } from "./scene/panelScreenshot";
@@ -1170,6 +1171,13 @@ export type PanelCaptionControls = {
 export type PanelBridgeControls = {
   /** where the connection stands */
   status: PanelBridgeStatus;
+  /**
+   * The session's own word for it, finer than `status` (D-333): connecting,
+   * looking for an extension that does not answer, refused (the extension
+   * answered and did not accept the token). The VS Code mirror shows a state
+   * for each. A host that does not say it gets the three-way `status`.
+   */
+  phase?: MirrorBridgePhase;
   /** a sentence for the state. Never empty. */
   message: string;
   /** the token currently in the field */

@@ -98,7 +98,10 @@ export const bridgeConnection = (
   switch (status) {
     case "connected":
       return "connected";
+    // the extension is there and did not accept the token (D-333), or it does
+    // not answer
     case "reconnecting":
+    case "refused":
       return "rejected";
     default:
       return "not-connected";

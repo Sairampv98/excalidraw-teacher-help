@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,7 +25,13 @@ import {
 
 import { createRunner, type SpawnedProcess } from "../extension/src/runner";
 import { runSnippet } from "../extension/src/snippet";
-import { resolvePort, resolveToken } from "../extension/src/config";
+import {
+  isStoredToken,
+  resolvePort,
+  resolveSessionToken,
+  resolveToken,
+  KEPT_SESSION_SLOT,
+} from "../extension/src/config";
 import {
   createInputPanel,
   isPanelAction,
@@ -1181,6 +1187,141 @@ describe("the control of the editor's window (D-323, D-327)", () => {
         '{"v":1,"type":"editor:capture","state":"live","seq":1,"control":{"enabled":true,"route":"focus","reason":""}}',
       ),
     ).toBeNull();
+  });
+
+  /** the extension's own source, without its comments */
+  const extensionCode = () =>
+    readFileSync(
+      join(
+        process.cwd(),
+        "packages",
+        "vscode-bridge",
+        "extension",
+        "src",
+        "extension.ts",
+      ),
+      "utf8",
+    )
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("\n")
+      .map((line) => line.replace(/\/\/.*$/, ""))
+      .join("\n");
+
+  it("AC-378 the first descriptor already carries the control, off", () => {
+    const published: CaptureStateMessage[] = [];
+    const captureState = createCaptureStatePublisher((message) =>
+      published.push(message),
+    );
+
+    // the extension says it has a control BEFORE the capture's first frame,
+    // and the first descriptor carries it: a panel draws its Control and Park
+    // buttons from it, and used to wait for somebody to turn the control on -
+    // which nobody could do without the buttons
+    captureState.setControl({
+      enabled: false,
+      route: "none",
+      reason: "Control is off",
+    });
+
+    expect(published).toHaveLength(0);
+
+    captureState.live(1, { width: 1920, height: 1008 });
+
+    expect(published).toHaveLength(1);
+    expect(published[0].control).toEqual({
+      enabled: false,
+      route: "none",
+      reason: "Control is off",
+    });
+
+    // and a panel that connects later is sent the same descriptor
+    expect(parseBridgeMessage(encodeBridgeMessage(published[0]))).toEqual(
+      published[0],
+    );
+  });
+
+  it("AC-378 the extension announces the control when it starts", () => {
+    const code = extensionCode();
+
+    // a call at the level of the activation (two spaces in), not one inside a
+    // handler that only runs when somebody turns the control on
+    expect(code).toMatch(/^ {2}publishControl\(\);$/m);
+
+    // and it comes after the function it calls and before the first message
+    // is handled
+    expect(code.search(/^ {2}publishControl\(\);$/m)).toBeGreaterThan(
+      code.indexOf("const publishControl = () => {"),
+    );
+  });
+
+  it("AC-379 a kept token is used again", () => {
+    const kept = "ab".repeat(24);
+
+    // a token the extension made and kept is used again - so the page, which
+    // remembers it, reconnects after the editor is reloaded
+    expect(isStoredToken(kept)).toBe(true);
+    expect(resolveSessionToken(undefined, kept)).toEqual({
+      token: kept,
+      generated: true,
+      reused: true,
+    });
+    expect(resolveSessionToken("", kept).token).toBe(kept);
+
+    // with nothing kept a new one is made, and it is a token of ours
+    const made = resolveSessionToken(undefined, undefined);
+
+    expect(made.reused).toBe(false);
+    expect(isStoredToken(made.token)).toBe(true);
+    expect(resolveSessionToken(undefined, undefined).token).not.toBe(
+      made.token,
+    );
+
+    // a kept value that is not a token of ours is not trusted
+    for (const garbage of [
+      "",
+      "short",
+      "zz".repeat(24),
+      "AB".repeat(24),
+      "ab".repeat(25),
+    ]) {
+      expect(isStoredToken(garbage)).toBe(false);
+      expect(resolveSessionToken(undefined, garbage).token).not.toBe(garbage);
+      expect(resolveSessionToken(undefined, garbage).reused).toBe(false);
+    }
+
+    // the token that was always a new one stays that for who asks for it so
+    expect(resolveToken().token).not.toBe(resolveToken().token);
+  });
+
+  it("AC-379 a configured token wins and is never kept", () => {
+    const kept = "cd".repeat(24);
+
+    expect(resolveSessionToken("  my-own-token  ", kept)).toEqual({
+      token: "my-own-token",
+      generated: false,
+      reused: false,
+    });
+  });
+
+  it("AC-379 the extension reads the storage before it listens and keeps what it makes", () => {
+    const code = extensionCode();
+
+    // the activation waits for the storage, and does so before the server is made
+    expect(code).toMatch(/export async function activate\(/);
+    expect(code).toContain("await context.secrets.get(KEPT_SESSION_SLOT)");
+    expect(code.indexOf("context.secrets.get(KEPT_SESSION_SLOT)")).toBeLessThan(
+      code.indexOf("createBridgeServer({"),
+    );
+
+    // a token that was made - and not a configured one, and not one that was
+    // read - is stored
+    expect(code).toMatch(
+      /if \(generated && !reused\) \{[\s\S]{0,80}context\.secrets\.store\(KEPT_SESSION_SLOT, token\)/,
+    );
+
+    // and the notification says the token is kept
+    expect(code).toContain("The token is kept in this editor");
+    expect(KEPT_SESSION_SLOT).toBe("excalidraw-bridge.kept-session");
   });
 });
 

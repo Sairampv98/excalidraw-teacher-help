@@ -561,7 +561,7 @@ describe("the presenter shows the panels", () => {
     // thing a teacher cannot read
     const status = (await waitFor(() => {
       const found = document.querySelector(
-        '[data-testid="code-panel-live-status"]',
+        '[data-testid="mirror-panel-message"]',
       );
 
       expect(found).not.toBeNull();
@@ -571,18 +571,23 @@ describe("the presenter shows the panels", () => {
 
     expect(status.textContent).toContain("live window");
 
+    // with a spinner: it is on its way, and the presenter has no controls to
+    // press (D-57)
+    expect(
+      document.querySelector('[data-testid="mirror-panel-spinner"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector('[data-testid="mirror-panel-header"]'),
+    ).toBeNull();
+
     // and there is no picture pretending to be the editor
     expect(
       document.querySelector('[data-testid="code-panel-live-frame"]'),
     ).toBeNull();
 
-    // the mirrored text is still there: the text is the FALLBACK, never a
-    // blank region
-    await waitFor(() =>
-      expect(
-        document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
-      ).not.toBeNull(),
-    );
+    // and no text pretending to be the editor either: the mirror is the
+    // editor's window and nothing else (D-331)
+    expect(document.querySelector(".cm-editor")).toBeNull();
   });
 
   it("AC-138 the editor hands the live view's descriptor to the presenter", async () => {

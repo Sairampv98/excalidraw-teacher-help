@@ -2610,6 +2610,11 @@ class App extends React.Component<AppProps, AppState> {
                             // teacher does over the live view into events
                             // (D-323)
                             control={this.props.panelControl}
+                            // the VS Code mirror carries its own tools: the
+                            // read of the picture and the bridge's field are
+                            // in the panel (D-332, D-333)
+                            ocrControls={this.props.panelOcr}
+                            bridgeControls={this.props.panelBridge}
                             // the panel's own reading language and the editor's
                             // own zoom (D-142)
                             onReadLanguageChange={this.setPanelReadLanguage}

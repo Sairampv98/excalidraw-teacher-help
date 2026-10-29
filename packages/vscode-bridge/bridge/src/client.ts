@@ -1,4 +1,5 @@
 import {
+  BRIDGE_CLOSE_UNAUTHORIZED,
   encodeBridgeMessage,
   parseBridgeMessage,
   type BridgeMessage,
@@ -21,6 +22,8 @@ export type BridgeClientStatus =
   | "connecting"
   | "connected"
   | "reconnecting"
+  /** the extension answered, and did not accept the token (D-333) */
+  | "refused"
   | "closed";
 
 export interface BridgeClientState {
@@ -83,6 +86,8 @@ const MESSAGES: Record<BridgeClientStatus, string> = {
   connected: "Connected to the Excalidraw Bridge.",
   reconnecting:
     "Not connected to the Excalidraw Bridge - is the extension running in VS Code or VSCodium?",
+  refused:
+    'VS Code did not accept this token - it may have a new one. In VS Code run "Excalidraw Bridge: Copy the session token", then press Paste here.',
   closed: "Disconnected from the Excalidraw Bridge.",
 };
 
@@ -208,10 +213,18 @@ export function createBridgeClient(options: BridgeClientOptions): BridgeClient {
       // The close event always follows; the reconnect is scheduled there.
     };
 
-    next.onclose = () => {
+    next.onclose = (event: { code?: number } | undefined) => {
       socket = null;
       if (closedByUs) {
         setState("closed");
+        return;
+      }
+      if (event?.code === BRIDGE_CLOSE_UNAUTHORIZED) {
+        // The extension is THERE, and it did not accept the token: asking
+        // again with the same one gets the same answer. The panel says what to
+        // do, and a new token starts a new connection (D-333).
+        clearTimer();
+        setState("refused");
         return;
       }
       scheduleReconnect();

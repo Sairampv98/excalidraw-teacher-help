@@ -67,6 +67,10 @@
         "title": "Excalidraw Bridge: Open the presenter's input panel"
       },
       {
+        "command": "excalidraw-bridge.chooseInputRoute",
+        "title": "Excalidraw Bridge: Choose how the canvas types into the editor"
+      },
+      {
         "command": "excalidraw-bridge.parkEditorWindow",
         "title": "Excalidraw Bridge: Park the editor's window out of sight"
       },

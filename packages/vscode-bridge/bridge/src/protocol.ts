@@ -43,6 +43,15 @@ export const DEFAULT_BRIDGE_PORT = 47511;
  */
 export const BRIDGE_URL_ENV_VAR = "VITE_APP_BRIDGE_URL";
 
+/**
+ * The websocket close code the extension answers a wrong token with.
+ *
+ * The page reads it: a token that was REFUSED is a different fact from an
+ * extension that is not there, and retrying a refused token is pointless
+ * (D-333).
+ */
+export const BRIDGE_CLOSE_UNAUTHORIZED = 1008;
+
 /** The task type the extension contributes, so a run can be owned by the extension. */
 export const BRIDGE_TASK_TYPE = "excalidraw-bridge.run";
 
