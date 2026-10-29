@@ -96,6 +96,8 @@ import {
   useAtomValue,
   useAtomWithInitialValue,
   appJotaiStore,
+  ocrBridgeConnectedAtom,
+  ocrEngineChoiceAtom,
   pdfPageReadRequestAtom,
 } from "./app-jotai";
 import {
@@ -188,6 +190,17 @@ import type { OcrRegion } from "../packages/vscode-bridge/bridge/src/ocr";
 import type { CollabAPI } from "./collab/Collab";
 
 import type { CropRect } from "./components/cropModal";
+
+/**
+ * The engine the teacher chose for reading a page or a picture, when they chose
+ * one: it goes first, and the machine's own order is the rest (D-300).
+ */
+export const chosenReadEngine = () => {
+  const engine = appJotaiStore.get(ocrEngineChoiceAtom);
+
+  return engine ? { engine } : {};
+};
+
 polyfill();
 
 window.EXCALIDRAW_THROTTLE_RENDER = true;
@@ -558,6 +571,12 @@ const ExcalidrawWrapper = () => {
     read: (region: OcrRegion | null) => void;
   } | null>(null);
 
+  // the pickers of the reading engine say what an engine needs: indra needs the
+  // bridge (D-300)
+  useEffect(() => {
+    appJotaiStore.set(ocrBridgeConnectedAtom, bridge.status === "connected");
+  }, [bridge.status]);
+
   // a PDF page the teacher asked to read: the viewer sets the request, the app
   // asks which part of the page, then reads it and shows what was found
   // (D-279, D-291)
@@ -579,6 +598,7 @@ const ExcalidrawWrapper = () => {
           place: false,
           image: pdfPageRequest,
           ...(region ? { region } : {}),
+          ...chosenReadEngine(),
           placement: {
             x: 0,
             y: 0,
@@ -633,6 +653,7 @@ const ExcalidrawWrapper = () => {
             place: false,
             image,
             ...(region ? { region } : {}),
+            ...chosenReadEngine(),
             placement: {
               x: element.x,
               y: element.y,
@@ -778,11 +799,16 @@ const ExcalidrawWrapper = () => {
         },
         pageId: panel.pageId,
         strokeColor: current.getAppState().currentItemStrokeColor,
+        // the engine chosen for this panel, in the crop as in its properties
+        // (D-300)
+        ...(pickedEngineFor(panel.id)
+          ? { engine: pickedEngineFor(panel.id)! }
+          : {}),
       });
 
       showRead(result);
     },
-    [excalidrawAPI, readOcr, rememberPanelCrop, showRead],
+    [excalidrawAPI, pickedEngineFor, readOcr, rememberPanelCrop, showRead],
   );
 
   /**
@@ -1657,6 +1683,9 @@ const ExcalidrawWrapper = () => {
             }}
             ocrMessage={ocrMessage}
             ocrBusy={ocrBusy}
+            ocrEngine={pickedEngineFor(panelCrop.panel.id)}
+            onOcrEngine={(engine) => selectEngine(panelCrop.panel.id, engine)}
+            ocrBridgeConnected={bridge.status === "connected"}
             onApply={(element) => {
               // a NEW element has no fractional index yet, and the scene
               // validates the indices before it syncs them - so the host app

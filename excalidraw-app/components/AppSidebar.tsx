@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { DefaultSidebar, Sidebar } from "@excalidraw/excalidraw";
 import { useExcalidrawSetAppState } from "@excalidraw/excalidraw/components/App";
@@ -6,6 +6,7 @@ import { useUIAppState } from "@excalidraw/excalidraw/context/ui-appState";
 
 import { FilesTab } from "../sidebar/FilesTab";
 import { FlowTab } from "../sidebar/FlowTab";
+import { SidebarHeaderSlotContext } from "../sidebar/headerSlot";
 import { installSidebarRelease } from "../sidebar/sidebarRelease";
 import { useAutoFitPageOnResize } from "../sidebar/useSidebarLayout";
 
@@ -152,6 +153,10 @@ export const AppSidebar = ({
   // closing the sidebar afterwards is a choice we don't argue with.
   const pinnedOnLoad = useRef(false);
 
+  // the place in the header where the Files tab draws the buttons that open
+  // files (D-312): null until the header is there
+  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
+
   useEffect(() => {
     if (pinnedOnLoad.current) {
       return;
@@ -217,9 +222,19 @@ export const AppSidebar = ({
           >
             <FitPageIcon active={autoFitEnabled} />
           </button>
+
+          {/* the buttons that open files and folders are drawn here by the
+          Files tab (D-312) */}
+          <span
+            ref={setHeaderSlot}
+            className="app-sidebar-header-tools"
+            data-testid="sidebar-header-tools"
+          />
         </DefaultSidebar.TabTriggers>
         <Sidebar.Tab tab={FILES_TAB}>
-          <FilesTab />
+          <SidebarHeaderSlotContext.Provider value={headerSlot}>
+            <FilesTab />
+          </SidebarHeaderSlotContext.Provider>
         </Sidebar.Tab>
         <Sidebar.Tab tab={FLOW_TAB}>
           <FlowTab />

@@ -97,6 +97,7 @@ export * from "./sortElements";
 export * from "./store";
 export * from "./textElement";
 export * from "./textMeasurements";
+export * from "./textStyle";
 export * from "./textWrapping";
 export * from "./transform";
 export * from "./transformHandles";

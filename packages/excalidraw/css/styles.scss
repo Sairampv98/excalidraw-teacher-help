@@ -1226,6 +1226,17 @@ body.excalidraw-cursor-resize * {
     }
   }
 
+  // The styled copy of a text that has bold or italic parts, under the textarea
+  // of the editor (D-320). Bold is a stroke and italic a lean, the same as on
+  // the canvas, so no letter is wider than in the textarea above it.
+  .excalidraw-wysiwyg-mirror__bold {
+    -webkit-text-stroke: 0.05em currentColor;
+  }
+
+  .excalidraw-wysiwyg-mirror__italic {
+    font-style: italic;
+  }
+
   input.is-redacted {
     // we don't use type=password because browsers (chrome?) prompt
     // you to save it which is annoying

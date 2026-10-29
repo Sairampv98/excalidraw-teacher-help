@@ -8,6 +8,8 @@ import {
 
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
+import { viewportCenter } from "../sidebar/insertIntoScene";
+
 /**
  * Inserts a **code panel** — a live mirror of the teacher's VS Code editor —
  * into the canvas (D-51).
@@ -42,10 +44,15 @@ export const insertCodePanel = (
     zoom,
   );
 
+  // the middle of what the teacher is looking at, at any zoom and scroll:
+  // the scene point under the middle of the screen is `screen / zoom - scroll`,
+  // and the part of the canvas the sidebar covers is left out (D-297)
+  const origin = viewportCenter(api, size.width, size.height);
+
   const panel = newPanelElement({
     type: "panel",
-    x: (appState.width / 2 - appState.scrollX) / zoom - size.width / 2,
-    y: (appState.height / 2 - appState.scrollY) / zoom - size.height / 2,
+    x: origin.x,
+    y: origin.y,
     width: size.width,
     height: size.height,
     panelKind: "code",

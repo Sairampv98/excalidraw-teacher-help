@@ -36,6 +36,7 @@ import {
 import { LinearElementEditor } from "@excalidraw/element";
 
 import { newElementWith } from "@excalidraw/element";
+import { rangeHasStyle, setStyleOnRange } from "@excalidraw/element";
 import { getArrowheadForPicker } from "@excalidraw/element";
 
 import {
@@ -75,6 +76,7 @@ import type {
   ExcalidrawTextElement,
   FontFamilyValues,
   TextAlign,
+  TextStyleKey,
   VerticalAlign,
 } from "@excalidraw/element/types";
 
@@ -83,6 +85,7 @@ import type { Scene } from "@excalidraw/element";
 import type { CaptureUpdateActionType } from "@excalidraw/element";
 
 import { trackEvent } from "../analytics";
+import { ButtonIcon } from "../components/ButtonIcon";
 import { PanelActions } from "../components/PanelActions";
 import { RadioSelection } from "../components/RadioSelection";
 import { ColorPicker } from "../components/ColorPicker/ColorPicker";
@@ -124,6 +127,8 @@ import {
   ArrowheadDiamondIcon,
   ArrowheadDiamondOutlineIcon,
   fontSizeIcon,
+  boldIcon,
+  italicIcon,
   sharpArrowIcon,
   roundArrowIcon,
   elbowArrowIcon,
@@ -152,8 +157,14 @@ import {
 } from "../hooks/useTextEditorFocus";
 
 import { getShortcutKey } from "../shortcut";
+import {
+  getActiveTextEditor,
+  getTextEditorRange,
+} from "../wysiwyg/editorSelection";
 
 import { register } from "./register";
+
+import type { ActionResult } from "./types";
 
 import type { AppClassProperties, AppState, Primitive } from "../types";
 
@@ -1293,6 +1304,268 @@ export const actionChangeFontFamily = register<{
           }}
         />
       </>
+    );
+  },
+});
+
+/** the two styles a part of a text can have (D-320) */
+type FontStyleKey = TextStyleKey;
+
+/**
+ * Turns bold or italic on for the texts that are selected - a shape's own text
+ * among them - or off when every one of them has it (D-320).
+ *
+ * A text that is being typed is changed over what is selected in its editor;
+ * with nothing selected there, as for any text that is only selected, it is the
+ * whole text.
+ */
+const toggleFontStyle = (
+  elements: readonly ExcalidrawElement[],
+  appState: AppState,
+  app: AppClassProperties,
+  key: FontStyleKey,
+): ActionResult => {
+  /** each text, and the part of it that is changed */
+  const targets = new Map<
+    string,
+    { element: ExcalidrawTextElement; start: number; end: number }
+  >();
+
+  for (const element of getSelectedElements(elements, appState, {
+    includeBoundTextElement: true,
+  })) {
+    if (isTextElement(element)) {
+      targets.set(element.id, {
+        element,
+        start: 0,
+        end: element.originalText.length,
+      });
+    }
+  }
+
+  const typed = appState.editingTextElement
+    ? app.scene.getElement<ExcalidrawTextElement>(
+        appState.editingTextElement.id,
+      )
+    : null;
+
+  if (typed) {
+    const range = getTextEditorRange();
+
+    targets.set(typed.id, {
+      element: typed,
+      start: range?.start ?? 0,
+      end: range?.end ?? typed.originalText.length,
+    });
+  }
+
+  if (!targets.size) {
+    return false;
+  }
+
+  const on = ![...targets.values()].every(({ element, start, end }) =>
+    rangeHasStyle(
+      element.styleRuns,
+      element.originalText.length,
+      start,
+      end,
+      key,
+    ),
+  );
+
+  return {
+    elements: changeProperty(
+      elements,
+      appState,
+      (oldElement) => {
+        const target = isTextElement(oldElement)
+          ? targets.get(oldElement.id)
+          : undefined;
+
+        if (!isTextElement(oldElement) || !target) {
+          return oldElement;
+        }
+
+        // the letters keep their widths, so nothing is measured again
+        const styleRuns = setStyleOnRange(
+          oldElement.styleRuns,
+          oldElement.originalText.length,
+          target.start,
+          target.end,
+          key,
+          on,
+        );
+
+        // `force`: an update that only takes the field away is still an update
+        return newElementWith(
+          oldElement,
+          { styleRuns: styleRuns.length ? styleRuns : undefined },
+          true,
+        );
+      },
+      true,
+    ),
+    appState,
+    captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+  };
+};
+
+/** is there a text for a change of style to be for? */
+const hasStyleTarget = (
+  elements: readonly ExcalidrawElement[],
+  appState: AppState,
+) =>
+  !!appState.editingTextElement ||
+  getSelectedElements(elements, appState, {
+    includeBoundTextElement: true,
+  }).some(isTextElement);
+
+/** Ctrl/Cmd and the letter, and no other key held */
+const isStyleKey = (
+  event: KeyboardEvent | React.KeyboardEvent,
+  letter: string,
+) =>
+  event[KEYS.CTRL_OR_CMD] &&
+  !event.shiftKey &&
+  !event.altKey &&
+  event.key.toLowerCase() === letter;
+
+export const actionToggleBold = register({
+  name: "toggleBold",
+  label: "labels.bold",
+  trackEvent: false,
+  perform: (elements, appState, _value, app) =>
+    toggleFontStyle(elements, appState, app, "bold"),
+  // the key is taken only when there is a text for it: with none, the browser
+  // keeps it (D-320)
+  keyTest: (event, appState, elements) =>
+    isStyleKey(event, "b") &&
+    (!appState || !elements || hasStyleTarget(elements, appState)),
+});
+
+export const actionToggleItalic = register({
+  name: "toggleItalic",
+  label: "labels.italic",
+  trackEvent: false,
+  perform: (elements, appState, _value, app) =>
+    toggleFontStyle(elements, appState, app, "italic"),
+  // the key is taken only when there is a text for it: with none, the browser
+  // keeps it (D-320)
+  keyTest: (event, appState, elements) =>
+    isStyleKey(event, "i") &&
+    (!appState || !elements || hasStyleTarget(elements, appState)),
+});
+
+/**
+ * The two buttons of the properties of a text (D-320): Bold and Italic, each lit
+ * when every text selected has it. Pressing one is the same as its key.
+ */
+export const actionChangeFontStyle = register<FontStyleKey>({
+  name: "changeFontStyle",
+  label: "labels.fontStyle",
+  trackEvent: false,
+  perform: (elements, appState, value, app) =>
+    value ? toggleFontStyle(elements, appState, app, value) : false,
+  PanelComponent: ({ elements, appState, updateData, app, data }) => {
+    const elementsMap = app.scene.getNonDeletedElementsMap();
+    const { isCompact } = getStylesPanelInfo(app);
+
+    // What is selected in the editor decides what the buttons are for and
+    // whether they are lit, and it changes without anything else changing: the
+    // buttons are drawn again when it does (D-320).
+    const [, selectionChanged] = useState(0);
+    const typing = appState.editingTextElement?.id;
+
+    useEffect(() => {
+      const editor = typing ? getActiveTextEditor() : null;
+
+      if (!editor) {
+        return;
+      }
+
+      const again = () => selectionChanged((count) => count + 1);
+      const events = ["select", "keyup", "pointerup", "input"] as const;
+
+      events.forEach((event) => editor.addEventListener(event, again));
+      document.addEventListener("selectionchange", again);
+
+      return () => {
+        events.forEach((event) => editor.removeEventListener(event, again));
+        document.removeEventListener("selectionchange", again);
+      };
+    }, [typing]);
+
+    /** does the part that is selected - or the whole text - have the style? */
+    const isOn = (key: FontStyleKey) => {
+      const typedId = app.state.editingTextElement?.id;
+      const range = typedId ? getTextEditorRange() : null;
+
+      if (typedId && range) {
+        const typed = app.scene.getElement<ExcalidrawTextElement>(typedId);
+
+        return (
+          !!typed &&
+          rangeHasStyle(
+            typed.styleRuns,
+            typed.originalText.length,
+            range.start,
+            range.end,
+            key,
+          )
+        );
+      }
+
+      return getFormValue<boolean>(
+        elements,
+        app,
+        (element) => {
+          const text = isTextElement(element)
+            ? element
+            : getBoundTextElement(element, elementsMap);
+
+          return (
+            !!text &&
+            rangeHasStyle(
+              text.styleRuns,
+              text.originalText.length,
+              0,
+              text.originalText.length,
+              key,
+            )
+          );
+        },
+        (element) =>
+          isTextElement(element) ||
+          getBoundTextElement(element, elementsMap) !== null,
+        false,
+      );
+    };
+
+    return (
+      <fieldset>
+        <legend>{t("labels.fontStyle")}</legend>
+        <div className="buttonList">
+          {(["bold", "italic"] as const).map((key) => (
+            <ButtonIcon
+              key={key}
+              icon={key === "bold" ? boldIcon : italicIcon}
+              title={`${t(`labels.${key}`)} - ${getShortcutKey(
+                `CtrlOrCmd+${key === "bold" ? "B" : "I"}`,
+              )}`}
+              testId={`font-style-${key}`}
+              active={isOn(key)}
+              onClick={() => {
+                withCaretPositionPreservation(
+                  () => updateData(key),
+                  isCompact,
+                  !!appState.editingTextElement,
+                  data?.onPreventClose,
+                );
+              }}
+            />
+          ))}
+        </div>
+      </fieldset>
     );
   },
 });

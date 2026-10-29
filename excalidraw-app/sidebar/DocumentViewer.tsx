@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useExcalidrawAPI } from "@excalidraw/excalidraw";
 import { codeToHtml } from "shiki";
 
+import type { TextStyleRun } from "@excalidraw/element/types";
+
 import { appJotaiStore, pdfPageReadRequestAtom } from "../app-jotai";
 
 import {
@@ -17,12 +19,24 @@ import {
   PDF_ZOOM_MIN,
   clampPdfZoom,
 } from "./PdfViewer";
+import { selectionStyleRuns } from "./selectionStyle";
 import { SelectionBar } from "./SelectionBar";
-import { escapeHtml, kindLabel, renderMarkdown } from "./sidebarFiles";
+import {
+  escapeHtml,
+  findHeading,
+  kindLabel,
+  renderMarkdown,
+  resolveDocumentLink,
+} from "./sidebarFiles";
 
 import "./sidebar.scss";
 
+import type { PdfRegion } from "./PdfViewer";
+
 import type { ScannedFile } from "./sidebarFiles";
+
+/** the width of the choices under a selected text, to keep them in the document */
+const SELECTION_BAR_WIDTH = 140;
 
 /** highlighting a megabyte of source in the main thread is not worth it */
 const MAX_HIGHLIGHT_BYTES = 400 * 1024;
@@ -59,6 +73,12 @@ type DocumentViewerProps = {
   onBack: () => void;
   /** the file could not be read — the picker names it with the reason */
   onUnreadable?: (entry: ScannedFile) => void;
+  /** the files a link of a markdown document may open (D-308) */
+  linkTargets?: readonly ScannedFile[];
+  /** a link opened this file: the viewer reads it, and goes to its heading */
+  onOpenDocument?: (file: ScannedFile, anchor: string | null) => void;
+  /** the heading to go to once the document is shown */
+  anchor?: string | null;
 };
 
 /**
@@ -75,6 +95,9 @@ export const DocumentViewer = ({
   onStep,
   onBack,
   onUnreadable,
+  linkTargets,
+  onOpenDocument,
+  anchor,
 }: DocumentViewerProps) => {
   const api = useExcalidrawAPI();
   /** the rendered document body — a selection has to lie inside it */
@@ -89,6 +112,15 @@ export const DocumentViewer = ({
   const [zoom, setZoom] = useState(1);
   /** the text the teacher has just selected in the document, if any */
   const [picked, setPicked] = useState<string | null>(null);
+  /** the parts of it that are bold or italic in the document (D-321) */
+  const [pickedRuns, setPickedRuns] = useState<TextStyleRun[]>([]);
+  /** where the choices for it float, from the corner of the document (D-317) */
+  const [pickedAt, setPickedAt] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
+  /** the place in the zoom row where the PDF's toolbar is drawn (D-313) */
+  const [toolbarHost, setToolbarHost] = useState<HTMLElement | null>(null);
 
   const isMarkdown = entry.kind === "markdown";
 
@@ -141,7 +173,8 @@ export const DocumentViewer = ({
   useEffect(() => {
     const body = bodyRef.current;
 
-    if (!body) {
+    // a PDF is selected with a box, not with the browser's selection (D-314)
+    if (!body || entry.kind === "pdf") {
       return;
     }
 
@@ -174,11 +207,32 @@ export const DocumentViewer = ({
         api?.setToast({ message: "Clipboard was blocked", closable: true });
       }
 
-      // the bar is offered whether or not the copy went through
+      // the choices float under the end of the selection, inside the document:
+      // they scroll with the text and move nothing (D-317)
+      const end = range.getBoundingClientRect?.();
+      const area = body.getBoundingClientRect();
+
+      setPickedAt({
+        left: Math.min(
+          Math.max(0, (end?.left ?? area.left) - area.left + body.scrollLeft),
+          Math.max(0, body.clientWidth - SELECTION_BAR_WIDTH) + body.scrollLeft,
+        ),
+        top: (end?.bottom ?? area.top) - area.top + body.scrollTop + 6,
+      });
+
+      // the bar is offered whether or not the copy went through; a text box
+      // made of the text keeps what was bold or italic in it (D-321)
+      setPickedRuns(selectionStyleRuns(range, text));
       setPicked(text);
     };
 
-    const onSelectionEnd = () => {
+    const onSelectionEnd = (event: Event) => {
+      // pressing one of the bar's own buttons is not a new selection: the bar
+      // would come back after it was closed (D-306)
+      if ((event.target as Element | null)?.closest?.(".app-doc-selection")) {
+        return;
+      }
+
       void copySelection();
     };
 
@@ -300,15 +354,86 @@ export const DocumentViewer = ({
     }
   }, [api, copyAndArm, loaded]);
 
+  /** goes to the heading a link means; with none, to the top (D-308) */
+  const scrollToAnchor = useCallback((target: string) => {
+    const body = bodyRef.current;
+
+    if (!body) {
+      return;
+    }
+
+    const heading = target ? findHeading(body, target) : null;
+
+    if (heading) {
+      heading.scrollIntoView?.({ block: "start" });
+    } else if (!target) {
+      body.scrollTo?.({ top: 0 });
+    }
+  }, []);
+
+  // a document opened by a link to one of its headings goes there once it shows
+  useEffect(() => {
+    if (anchor && html) {
+      scrollToAnchor(anchor);
+    }
+  }, [anchor, html, scrollToAnchor]);
+
+  /**
+   * A link of the document goes where it points (D-308): a file of the opened
+   * folder opens here, a heading is scrolled to, and an address elsewhere is
+   * left to the browser, which opens it in a new tab.
+   */
+  const onLinkClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>, link: HTMLElement) => {
+      const resolved = resolveDocumentLink({
+        href: link.getAttribute("href") ?? "",
+        from: entry.path,
+        files: linkTargets ?? [],
+        origin: window.location.origin,
+      });
+
+      if (resolved.type === "external") {
+        return;
+      }
+
+      // none of these may load this app in a tab of its own
+      event.preventDefault();
+
+      if (resolved.type === "anchor") {
+        scrollToAnchor(resolved.anchor);
+      } else if (resolved.type === "document") {
+        if (resolved.file.path === entry.path) {
+          scrollToAnchor(resolved.anchor ?? "");
+        } else {
+          onOpenDocument?.(resolved.file, resolved.anchor);
+        }
+      } else {
+        api?.setToast({
+          message: `"${resolved.target}" is not among the opened files`,
+          closable: true,
+        });
+      }
+    },
+    [api, entry.path, linkTargets, onOpenDocument, scrollToAnchor],
+  );
+
   /**
    * One delegated listener for every fenced block's copy button. The buttons are
    * part of the injected markdown HTML, so there is no React node to hang a
    * handler on — and the code is read back from the block's own `<pre>`, which is
-   * verbatim.
+   * verbatim. The links of the document are read the same way.
    */
   const onMarkdownClick = useCallback(
     async (event: React.MouseEvent<HTMLDivElement>) => {
-      const button = (event.target as HTMLElement | null)?.closest?.(
+      const target = event.target as HTMLElement | null;
+      const link = target?.closest?.("a[href]") as HTMLElement | null;
+
+      if (link && isMarkdown) {
+        onLinkClick(event, link);
+        return;
+      }
+
+      const button = target?.closest?.(
         ".app-doc-copy-code",
       ) as HTMLElement | null;
 
@@ -355,7 +480,7 @@ export const DocumentViewer = ({
         }
       }, COPY_FEEDBACK_MS);
     },
-    [api, copyAndArm, loaded],
+    [api, copyAndArm, isMarkdown, loaded, onLinkClick],
   );
 
   const onInsert = useCallback(async () => {
@@ -377,6 +502,26 @@ export const DocumentViewer = ({
       setBusy(false);
     }
   }, [api, busy, loaded]);
+
+  /**
+   * The box of a PDF covers text: it is copied, as a selection is (D-314). A
+   * box with no text - a figure - leaves the clipboard as it was.
+   */
+  const copyRegion = useCallback(
+    async (region: PdfRegion) => {
+      if (!region.text.trim()) {
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(region.text);
+      } catch (error) {
+        console.error(error);
+        api?.setToast({ message: "Clipboard was blocked", closable: true });
+      }
+    },
+    [api],
+  );
 
   const zoomBar = (
     <div className="app-doc-zoom">
@@ -407,6 +552,15 @@ export const DocumentViewer = ({
       >
         +
       </button>
+      {/* the PDF's tools are drawn here by its viewer, where they never scroll
+      away (D-313) */}
+      {isPdf ? (
+        <span
+          ref={setToolbarHost}
+          className="app-doc-pdf-toolhost"
+          data-testid="pdf-toolhost"
+        />
+      ) : null}
     </div>
   );
 
@@ -469,34 +623,33 @@ export const DocumentViewer = ({
       {entry.kind === "pdf" ? (
         <>
           {zoomBar}
-          {picked && (
-            <SelectionBar
-              api={api}
-              text={picked}
-              onDone={() => setPicked(null)}
-            />
-          )}
           <PdfViewer
             file={entry.file}
             zoom={zoom}
             onZoomChange={setZoom}
             containerRef={bodyRef}
+            toolbarHost={toolbarHost}
             onReadPage={(picture) =>
               appJotaiStore.set(pdfPageReadRequestAtom, picture)
             }
+            onRegion={copyRegion}
+            // the choices are under the box that was drawn (D-314)
+            renderRegionBar={(region, close) => (
+              <SelectionBar
+                api={api}
+                text={region.text}
+                styleRuns={region.styleRuns}
+                lines={region.lines}
+                picture={region.picture}
+                onDone={close}
+              />
+            )}
           />
         </>
       ) : loaded?.text != null ? (
         <>
           {isMarkdown && zoomBar}
 
-          {picked && (
-            <SelectionBar
-              api={api}
-              text={picked}
-              onDone={() => setPicked(null)}
-            />
-          )}
           {html ? (
             <div
               ref={bodyRef}
@@ -508,10 +661,25 @@ export const DocumentViewer = ({
                   ? { fontSize: `${Math.round(zoom * 100)}%` }
                   : undefined
               }
-              // the renderer escapes raw HTML and untrusted URLs first
               onClick={onMarkdownClick}
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
+            >
+              {/* the renderer escapes raw HTML and untrusted URLs first */}
+              <div dangerouslySetInnerHTML={{ __html: html }} />
+              {picked && pickedAt && (
+                <div
+                  className="app-doc-selection-float"
+                  data-testid="selection-float"
+                  style={{ left: pickedAt.left, top: pickedAt.top }}
+                >
+                  <SelectionBar
+                    api={api}
+                    text={picked}
+                    styleRuns={pickedRuns}
+                    onDone={() => setPicked(null)}
+                  />
+                </div>
+              )}
+            </div>
           ) : (
             <pre className="app-doc-code app-doc-code--loading">
               {loaded.text}

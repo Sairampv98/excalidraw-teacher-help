@@ -2295,6 +2295,27 @@ export const youtubeIcon = createIcon(
   tablerIconProps,
 );
 
+// tabler-icon: bold
+export const boldIcon = createIcon(
+  <g strokeWidth={1.5}>
+    <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+    <path d="M7 5h6a3.5 3.5 0 0 1 0 7h-6z" />
+    <path d="M13 12h1a3.5 3.5 0 0 1 0 7h-7v-7" />
+  </g>,
+  tablerIconProps,
+);
+
+// tabler-icon: italic
+export const italicIcon = createIcon(
+  <g strokeWidth={1.5}>
+    <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+    <path d="M11 5l6 0" />
+    <path d="M7 19l6 0" />
+    <path d="M14 5l-4 14" />
+  </g>,
+  tablerIconProps,
+);
+
 export const gridIcon = createIcon(
   <g strokeWidth={1.5}>
     <path stroke="none" d="M0 0h24v24H0z" fill="none" />

@@ -736,6 +736,55 @@ describe("the app's side of the bridge", () => {
     expect(state.elements[0].height).toBe(200);
   });
 
+  it("AC-336 a new code editor opens in the middle of what is on the screen, at any zoom and scroll", () => {
+    const state: { elements: ExcalidrawElement[] } = { elements: [] };
+
+    const api = (view: { zoom: number; scrollX: number; scrollY: number }) =>
+      ({
+        getSceneElements: () => state.elements,
+        getAppState: () => ({
+          width: 1000,
+          height: 800,
+          scrollX: view.scrollX,
+          scrollY: view.scrollY,
+          zoom: { value: view.zoom },
+          currentPageId: "page-1",
+        }),
+        updateScene: (data: { elements?: readonly ExcalidrawElement[] }) => {
+          if (data.elements) {
+            state.elements = [...data.elements];
+          }
+        },
+      } as unknown as ExcalidrawImperativeAPI);
+
+    // the scene point under the middle of the screen is `screen / zoom - scroll`
+    const middleOf = (view: {
+      zoom: number;
+      scrollX: number;
+      scrollY: number;
+    }) => ({
+      x: 500 / view.zoom - view.scrollX,
+      y: 400 / view.zoom - view.scrollY,
+    });
+
+    for (const view of [
+      { zoom: 1, scrollX: 0, scrollY: 0 },
+      // zoomed far out, the view moved away from where the scene starts
+      { zoom: 0.1, scrollX: -3000, scrollY: 500 },
+      // zoomed in, the other way
+      { zoom: 2, scrollX: 800, scrollY: -1200 },
+    ]) {
+      state.elements = [];
+      insertCodePanel(api(view));
+
+      const panel = state.elements[0];
+      const middle = middleOf(view);
+
+      expect(panel.x + panel.width / 2).toBeCloseTo(middle.x, 4);
+      expect(panel.y + panel.height / 2).toBeCloseTo(middle.y, 4);
+    }
+  });
+
   it("AC-320 the menu inserts a code editor of its own or a mirror of VS Code", () => {
     const state: { elements: ExcalidrawElement[] } = { elements: [] };
 

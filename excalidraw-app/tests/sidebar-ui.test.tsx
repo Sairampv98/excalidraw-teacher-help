@@ -9,6 +9,7 @@ import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { resetBrowserState } from "../sidebar/browserState";
 import { hideVideoWireframe } from "../sidebar/dragWireframe";
 import { FilesTab } from "../sidebar/FilesTab";
+import { SidebarHeaderSlotContext } from "../sidebar/headerSlot";
 import {
   cancelCodePaste,
   cancelImageDrag,
@@ -962,16 +963,163 @@ describe("FilesTab list and reader", () => {
     expect(labels).toContain("Copy code");
   });
 
-  it("always offers both load actions", () => {
+  it("AC-341 always offers both load actions, and the YouTube link as a button beside them", () => {
     mockObjectUrls();
 
     const { container } = render(<FilesTab />);
 
     const actions = Array.from(
       container.querySelectorAll(".app-sidebar-actions > button"),
-    ).map((button) => button.textContent);
+    ).map((button) => button.getAttribute("aria-label"));
 
-    expect(actions).toEqual(["Open files", "Open folder"]);
+    expect(actions).toEqual(["Open files", "Open folder", "YouTube link"]);
+  });
+
+  it("AC-349 the open buttons are icons with names", () => {
+    mockObjectUrls();
+
+    const { container } = render(<FilesTab />);
+
+    const buttons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        ".app-sidebar-actions > button",
+      ),
+    );
+
+    expect(buttons).toHaveLength(3);
+
+    for (const button of buttons) {
+      // an icon and no words; the name is the tooltip and the accessible name
+      expect(button.querySelector("svg")).not.toBeNull();
+      expect(button.textContent).toBe("");
+      expect(button.getAttribute("title")).toBe(
+        button.getAttribute("aria-label"),
+      );
+    }
+
+    // the pickers are still opened by the buttons: the files one first
+    const input = getFilesInput(container);
+    const click = vi.spyOn(input, "click");
+
+    fireEvent.click(
+      container.querySelector('[data-testid="files-open-files"]')!,
+    );
+
+    expect(click).toHaveBeenCalledTimes(1);
+  });
+
+  it("AC-352 the open buttons are in the header when it has a place for them", () => {
+    mockObjectUrls();
+
+    const slot = document.createElement("div");
+
+    document.body.append(slot);
+
+    const { container, unmount } = render(
+      <SidebarHeaderSlotContext.Provider value={slot}>
+        <FilesTab />
+      </SidebarHeaderSlotContext.Provider>,
+    );
+
+    // the three buttons are in the header, and the tab has none of its own
+    expect(
+      Array.from(slot.querySelectorAll("button")).map((button) =>
+        button.getAttribute("aria-label"),
+      ),
+    ).toEqual(["Open files", "Open folder", "YouTube link"]);
+    expect(container.querySelector(".app-sidebar-actions")).toBeNull();
+    expect(
+      container.querySelector("button[aria-label='Open files']"),
+    ).toBeNull();
+
+    unmount();
+
+    // until the header has given its place nothing is drawn, and nothing twice
+    const pending = render(
+      <SidebarHeaderSlotContext.Provider value={null}>
+        <FilesTab />
+      </SidebarHeaderSlotContext.Provider>,
+    );
+
+    expect(
+      pending.container.querySelector("button[aria-label='Open files']"),
+    ).toBeNull();
+    expect(slot.querySelectorAll("button")).toHaveLength(0);
+
+    pending.unmount();
+    slot.remove();
+  });
+
+  it("AC-352 the buttons in the header still open the pickers and the YouTube field", () => {
+    mockObjectUrls();
+
+    const slot = document.createElement("div");
+
+    document.body.append(slot);
+
+    const { container } = render(
+      <SidebarHeaderSlotContext.Provider value={slot}>
+        <FilesTab />
+      </SidebarHeaderSlotContext.Provider>,
+    );
+
+    const files = vi.spyOn(getFilesInput(container), "click");
+    const folder = vi.spyOn(getFolderInput(container), "click");
+
+    fireEvent.click(slot.querySelector('[data-testid="files-open-files"]')!);
+    fireEvent.click(slot.querySelector('[data-testid="files-open-folder"]')!);
+
+    expect(files).toHaveBeenCalledTimes(1);
+    expect(folder).toHaveBeenCalledTimes(1);
+
+    // the field for a link opens in the tab, below the header
+    const youtube = slot.querySelector<HTMLElement>(
+      '[data-testid="files-youtube-button"]',
+    )!;
+
+    expect(
+      container.querySelector('[data-testid="files-youtube-field"]'),
+    ).toBeNull();
+
+    fireEvent.click(youtube);
+
+    expect(
+      container.querySelector('[data-testid="files-youtube-field"]'),
+    ).not.toBeNull();
+    expect(youtube.getAttribute("aria-expanded")).toBe("true");
+
+    slot.remove();
+  });
+
+  it("AC-341 the field for the link opens with its button and closes with Escape", () => {
+    mockObjectUrls();
+
+    const { container } = render(<FilesTab />);
+
+    const button = container.querySelector<HTMLButtonElement>(
+      '[data-testid="files-youtube-button"]',
+    )!;
+
+    // the field is not in the way until it is asked for
+    expect(
+      container.querySelector('[data-testid="files-youtube-field"]'),
+    ).toBeNull();
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(button);
+
+    const field = container.querySelector<HTMLInputElement>(
+      '[data-testid="files-youtube-field"] input',
+    );
+
+    expect(field).not.toBeNull();
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.keyDown(field!, { key: "Escape" });
+
+    expect(
+      container.querySelector('[data-testid="files-youtube-field"]'),
+    ).toBeNull();
   });
 
   it("renders a markdown document as a document, with a zoom control", async () => {

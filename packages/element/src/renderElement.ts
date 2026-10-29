@@ -53,6 +53,7 @@ import {
   getBoundTextMaxWidth,
 } from "./textElement";
 import { getLineHeightInPx } from "./textMeasurements";
+import { drawStyledLine, getStyledLines } from "./textStyle";
 import {
   isTextElement,
   isLinearElement,
@@ -695,7 +696,24 @@ const drawElementOnCanvas = (
           lineHeightPx,
         );
 
+        // the parts of the text that are bold or italic (D-320); a text that has
+        // none is drawn as it always was, and so is a line that reads right to
+        // left
+        const styledLines = rtl ? null : getStyledLines(element);
+
         for (let index = 0; index < lines.length; index++) {
+          if (styledLines?.[index]?.length) {
+            drawStyledLine(
+              context,
+              styledLines[index],
+              index * lineHeightPx + verticalOffset,
+              horizontalOffset,
+              element.textAlign as CanvasTextAlign,
+              element.fontSize,
+            );
+            continue;
+          }
+
           context.fillText(
             lines[index],
             horizontalOffset,

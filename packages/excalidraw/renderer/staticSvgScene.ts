@@ -21,6 +21,7 @@ import {
 import { LinearElementEditor } from "@excalidraw/element";
 import { getBoundTextElement, getContainerElement } from "@excalidraw/element";
 import { getLineHeightInPx } from "@excalidraw/element";
+import { FAUX_BOLD_STROKE, getStyledLines } from "@excalidraw/element";
 import {
   isArrowElement,
   isIframeLikeElement,
@@ -844,19 +845,43 @@ const renderElementToSvg = (
             : element.textAlign === "right" || direction === "rtl"
             ? "end"
             : "start";
+        // the parts of the text that are bold or italic (D-320)
+        const styledLines = getStyledLines(element);
+        const textColor =
+          renderConfig.theme === THEME.DARK
+            ? applyDarkModeFilter(element.strokeColor)
+            : element.strokeColor;
         for (let i = 0; i < lines.length; i++) {
           const text = svgRoot.ownerDocument.createElementNS(SVG_NS, "text");
-          text.textContent = lines[i];
+          if (styledLines?.[i]?.length) {
+            for (const segment of styledLines[i]) {
+              const stretch = svgRoot.ownerDocument.createElementNS(
+                SVG_NS,
+                "tspan",
+              );
+              stretch.textContent = segment.text;
+              if (segment.bold) {
+                // thickened, as on the canvas, so no letter gets wider
+                stretch.setAttribute("stroke", textColor);
+                stretch.setAttribute(
+                  "stroke-width",
+                  `${element.fontSize * FAUX_BOLD_STROKE}`,
+                );
+                stretch.setAttribute("stroke-linejoin", "round");
+              }
+              if (segment.italic) {
+                stretch.setAttribute("font-style", "italic");
+              }
+              text.appendChild(stretch);
+            }
+          } else {
+            text.textContent = lines[i];
+          }
           text.setAttribute("x", `${horizontalOffset}`);
           text.setAttribute("y", `${i * lineHeightPx + verticalOffset}`);
           text.setAttribute("font-family", getFontFamilyString(element));
           text.setAttribute("font-size", `${element.fontSize}px`);
-          text.setAttribute(
-            "fill",
-            renderConfig.theme === THEME.DARK
-              ? applyDarkModeFilter(element.strokeColor)
-              : element.strokeColor,
-          );
+          text.setAttribute("fill", textColor);
           text.setAttribute("text-anchor", textAnchor);
           text.setAttribute("style", "white-space: pre;");
           text.setAttribute("direction", direction);

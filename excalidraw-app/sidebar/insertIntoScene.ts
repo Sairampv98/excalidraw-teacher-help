@@ -37,7 +37,7 @@ import type {
   ExcalidrawImperativeAPI,
   SceneData,
 } from "@excalidraw/excalidraw/types";
-import type { FileId } from "@excalidraw/element/types";
+import type { FileId, TextStyleRun } from "@excalidraw/element/types";
 import type {
   ExcalidrawElement,
   ExcalidrawTextElement,
@@ -48,7 +48,7 @@ import { layoutOcrLines } from "../ocr/ocrLayout";
 import { codeCardColumns, highlightCode, layoutCode } from "./codeCard";
 import { nodeDrop } from "./nodeDropHook";
 
-import type { OcrLine } from "../../packages/vscode-bridge/bridge/src/ocr";
+import type { StyledOcrLine } from "../ocr/ocrLayout";
 
 import type { LaidOutRun } from "./codeCard";
 
@@ -275,7 +275,7 @@ const readFrame = (
  * This is the *default* placement only. An explicit drop or click point is
  * user-authoritative and is passed straight through by `insertImageIntoScene`.
  */
-const viewportCenter = (
+export const viewportCenter = (
   api: ExcalidrawImperativeAPI,
   width: number,
   height: number,
@@ -522,6 +522,37 @@ export const insertScreenshotIntoScene = (
   );
 
   return fileId;
+};
+
+/**
+ * Puts the part of a PDF page that was in the selection box on the current page
+ * as an **image** (D-315): in the middle of the page, at the size an image of
+ * the sidebar has, selected, with the view moved to it.
+ *
+ * The picture is the page's own pixels, so it is as sharp as the page was drawn.
+ */
+export const insertPdfPictureIntoScene = (
+  api: ExcalidrawImperativeAPI,
+  picture: { dataURL: string; width: number; height: number },
+) => {
+  const size = screenshotCanvasSize(picture.width, picture.height);
+  const origin = pageCenterOrigin(api, size);
+
+  const fileId = insertScreenshotIntoScene(api, {
+    dataURL: picture.dataURL,
+    canvasWidth: size.width,
+    canvasHeight: size.height,
+    x: origin.x,
+    y: origin.y,
+  });
+
+  const placed = api
+    .getSceneElements()
+    .filter((element) => element.type === "image" && element.fileId === fileId);
+
+  showPlaced(api, placed);
+
+  return placed[0] ?? null;
 };
 
 /**
@@ -1251,7 +1282,14 @@ const insertLongCode = async (
 export const insertTextBoxIntoScene = (
   api: ExcalidrawImperativeAPI,
   text: string,
-  { monospace = false }: { monospace?: boolean } = {},
+  {
+    monospace = false,
+    styleRuns,
+  }: {
+    monospace?: boolean;
+    /** the parts of `text` that are bold or italic (D-321) */
+    styleRuns?: readonly TextStyleRun[];
+  } = {},
 ) => {
   const fontFamily = monospace ? FONT_FAMILY.Cascadia : DEFAULT_FONT_FAMILY;
   const fontSize = monospace ? CODE_FONT_SIZE + 4 : DEFAULT_FONT_SIZE;
@@ -1272,6 +1310,7 @@ export const insertTextBoxIntoScene = (
   const block = newTextElement({
     text: wrapped,
     originalText: text,
+    styleRuns,
     fontFamily,
     fontSize,
     lineHeight,
@@ -1309,7 +1348,7 @@ export const insertTextBlockIntoScene = (
  */
 export const insertOcrLinesIntoScene = (
   api: ExcalidrawImperativeAPI,
-  lines: readonly OcrLine[],
+  lines: readonly StyledOcrLine[],
 ) => {
   const fontFamily = FONT_FAMILY.Helvetica;
   const lineHeight = getLineHeight(fontFamily);
@@ -1338,6 +1377,7 @@ export const insertOcrLinesIntoScene = (
   const placed = layout.lines.map((line) =>
     newTextElement({
       text: line.text,
+      styleRuns: line.styleRuns,
       x: origin.x + line.x,
       y: origin.y + line.y,
       fontFamily,

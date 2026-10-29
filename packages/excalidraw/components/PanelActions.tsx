@@ -500,7 +500,15 @@ const PanelOcrButton = ({
       <span
         className="excalidraw__panel-ocr-message"
         data-testid="panel-ocr-message"
-        style={{ fontSize: screen.bridgeFontSize }}
+        // a long sentence wraps inside the properties panel instead of running
+        // out of it (D-305)
+        style={{
+          fontSize: screen.bridgeFontSize,
+          display: "block",
+          minWidth: 0,
+          maxWidth: "100%",
+          overflowWrap: "anywhere",
+        }}
       >
         {ocr.message}
       </span>

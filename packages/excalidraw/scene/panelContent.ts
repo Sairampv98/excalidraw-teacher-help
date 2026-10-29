@@ -253,7 +253,12 @@ export const panelTransform = (
 export type PanelBridgeStatus = "not-connected" | "connected" | "rejected";
 
 /** The state of the program's run, as the panel shows it. */
-export type CodePanelRunState = "idle" | "running" | "exited";
+export type CodePanelRunState =
+  | "idle"
+  | "running"
+  /** the program asked a question and the panel waits for the answer (D-298) */
+  | "waiting-input"
+  | "exited";
 
 /** One line of the program's output. */
 export type CodePanelOutputLine = {

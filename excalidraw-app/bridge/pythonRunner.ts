@@ -24,6 +24,8 @@ type WorkerMessage =
   | { type: "ready" }
   | { type: "load-failed"; text: string }
   | { type: "output"; stream: "stdout" | "stderr"; text: string }
+  /** the program asked for a line of input and there was none to give (D-298) */
+  | { type: "needs-input" }
   | { type: "done" }
   | { type: "error"; text: string };
 
@@ -46,7 +48,16 @@ export type PythonRunResult =
   /** the runtime could not be downloaded */
   | { kind: "load-failed"; reason: string }
   /** the program's worker died while it ran: it used more memory than it may */
-  | { kind: "crashed"; reason: string };
+  | { kind: "crashed"; reason: string }
+  /**
+   * the program asked for a line of input that nobody has typed yet (D-298):
+   * it was stopped at the question, and it is run again from the top once the
+   * answer is there
+   */
+  | { kind: "needs-input" };
+
+/** how long a program that was stopped at a question may take to end by itself */
+export const NEEDS_INPUT_GRACE_MS = 1500;
 
 /** the worker's own source, as a string: it is built into a blob at run time */
 export const workerSource = (indexUrl: string) => `
@@ -55,8 +66,12 @@ let pyodide = null;
 // a program that prints for ever must not flood the page: past the cap nothing
 // more is sent (the page cuts the output at its own limit and stops the run)
 let sent = 0;
+// set when the program asks for a line of input that was not given: what it
+// prints after that, and the error that ends it, are not shown (the page asks
+// for the answer and runs the program again)
+let needInput = false;
 const send = (stream, text) => {
-  if (sent > ${OUTPUT_FLOOD_CAP}) return;
+  if (needInput || sent > ${OUTPUT_FLOOD_CAP}) return;
   sent += text.length;
   self.postMessage({ type: "output", stream, text });
 };
@@ -65,6 +80,7 @@ self.onmessage = async (event) => {
   const code = event.data.code;
   const input = (event.data.stdin || []).slice();
   sent = 0;
+  needInput = false;
   if (!pyodide) {
     self.postMessage({ type: "loading" });
     try {
@@ -79,9 +95,24 @@ self.onmessage = async (event) => {
   // out exactly as the program wrote it
   pyodide.setStdout({ write: (bytes) => { send("stdout", decoders.stdout.decode(bytes, { stream: true })); return bytes.length; } });
   pyodide.setStderr({ write: (bytes) => { send("stderr", decoders.stderr.decode(bytes, { stream: true })); return bytes.length; } });
-  // input() reads the lines the teacher typed in advance; with none left the
-  // program meets the end of its input
-  pyodide.setStdin({ stdin: () => (input.length ? input.shift() : null) });
+  // input() reads the lines that were typed: in advance, or as answers to the
+  // questions it asked before. The console shows each line as a terminal does.
+  // With none left the program is at a question: the page is told, and the
+  // program meets the end of its input (D-298).
+  pyodide.setStdin({
+    stdin: () => {
+      if (input.length) {
+        const line = input.shift();
+        send("stdout", line + "\\n");
+        return line;
+      }
+      if (!needInput) {
+        needInput = true;
+        self.postMessage({ type: "needs-input" });
+      }
+      return null;
+    },
+  });
   try {
     await pyodide.runPythonAsync(code);
     self.postMessage({ type: "done" });
@@ -121,7 +152,7 @@ export const explainError = (text: string): string | null => {
   }
 
   if (/EOFError/.test(text)) {
-    return "Hint: the program asked for more input than was given. Type the lines it needs in the Input box.";
+    return "Hint: the program tried to read more input than there is.";
   }
 
   return null;
@@ -162,10 +193,16 @@ export const createPythonRunner = ({
       let written = 0;
       let cut = false;
       let timer: ReturnType<typeof setTimeout> | null = null;
+      // the program is at a question nobody has answered (D-298)
+      let awaitingInput = false;
+      let grace: ReturnType<typeof setTimeout> | null = null;
 
       const finish = (result: PythonRunResult) => {
         if (timer) {
           clearTimeout(timer);
+        }
+        if (grace) {
+          clearTimeout(grace);
         }
         current.onmessage = null;
         current.onerror = null;
@@ -238,10 +275,31 @@ export const createPythonRunner = ({
           case "output":
             emit(data.stream, data.text);
             break;
+          case "needs-input":
+            // the program ends at the question by itself, nearly always (the
+            // end of its input is an error that ends it); one that goes on
+            // after it is stopped, and it is asked again with the answer
+            awaitingInput = true;
+            grace ??= setTimeout(() => {
+              stop();
+              finish({ kind: "needs-input" });
+            }, NEEDS_INPUT_GRACE_MS);
+            break;
           case "done":
-            finish({ kind: "exit", code: 0 });
+            finish(
+              awaitingInput
+                ? { kind: "needs-input" }
+                : { kind: "exit", code: 0 },
+            );
             break;
           case "error": {
+            // the error that ends a program at its question is not an error of
+            // the program: the question is asked instead
+            if (awaitingInput) {
+              finish({ kind: "needs-input" });
+              break;
+            }
+
             const hint = explainError(data.text);
 
             emit("stderr", hint ? `${data.text}\n${hint}\n` : data.text);

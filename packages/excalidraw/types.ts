@@ -1088,6 +1088,12 @@ export type PanelRunControls = {
   /** the teacher cleared the console (D-274) */
   onClear?: (panelId: string) => void;
   /**
+   * The teacher answered the question the program is waiting on (D-298): the
+   * host runs the program again with the answer. The panel shows the answer
+   * field while the run's state is `waiting-input`.
+   */
+  onAnswer?: (panelId: string, answer: string) => void;
+  /**
    * The languages the picker lists, and where each stands (D-289): ready, to be
    * downloaded, downloading (with how far) or not available yet.
    */

@@ -97,6 +97,13 @@ let runCounter = 0;
 const OUTPUT_FLUSH_MS = 100;
 
 /**
+ * The lines typed in the Input box, one for each input() of the program
+ * (D-283). The newline that ends the last line does not start another one.
+ */
+const typedLines = (input: string): string[] =>
+  input === "" ? [] : input.replace(/\n$/, "").split("\n");
+
+/**
  * The bridge's hello - the message that names the editor (D-76).
  */
 type BridgeHello = Extract<BridgeMessage, { type: "bridge:hello" }>;
@@ -177,6 +184,12 @@ export const useBridgePanel = (
   const runtimesRef = useRef<string[]>(runtimes);
 
   runtimesRef.current = runtimes;
+
+  /**
+   * What the program that is waiting for an answer does with it (D-298): runs
+   * the program again with the answer added. `null` when nothing is waiting.
+   */
+  const pendingAnswerRef = useRef<((answer: string) => void) | null>(null);
 
   const sessionRef = useRef<BridgeSession | null>(null);
   const panelStateRef = useRef<CodePanelState>(initialCodePanelState());
@@ -697,7 +710,8 @@ export const useBridgePanel = (
    */
   const runInBrowser = useCallback(
     (text: string, language: string, input = "") => {
-      const runId = `browser-run-${++runCounter}`;
+      pendingAnswerRef.current = null;
+
       const say = (message: BridgeMessage) =>
         publish(reduceCodePanelState(panelStateRef.current, message));
 
@@ -705,97 +719,164 @@ export const useBridgePanel = (
         say({
           v: 1,
           type: "run:notice",
-          runId,
+          runId: `browser-run-${++runCounter}`,
           kind: "missing-runtime",
-          text: `Running ${language} needs the Excalidraw Bridge. Without it only Python and JavaScript run, in the browser.`,
+          text: `${language} cannot be run here: the browser runs Python and JavaScript. Other languages run in VS Code, when the bridge is connected and the language is installed on that machine.`,
         });
         return false;
       }
 
-      say({
-        v: 1,
-        type: "run:started",
-        runId,
-        command: isJavascript(language)
-          ? "javascript (in the browser)"
-          : "python (in the browser)",
-        cwd: "",
-      });
+      const command = isJavascript(language)
+        ? "javascript (in the browser)"
+        : "python (in the browser)";
 
-      // The output arrives faster than a page can draw it: it is gathered and
-      // written to the panel a few times a second, so a program that prints a
-      // lot does not stall the page.
-      let pending: { stream: "stdout" | "stderr"; text: string } | null = null;
-      let timer: ReturnType<typeof setTimeout> | null = null;
+      /**
+       * One run of the program, with the answers the teacher has given to its
+       * questions so far (D-298). A program that asks a question nobody has
+       * answered is stopped at it; the console asks, and the program is run
+       * again from the top with the answer added - the lines it printed before
+       * the question come out the same, and the answers are shown where it read
+       * them.
+       */
+      const start = (answers: string[]) => {
+        const runId = `browser-run-${++runCounter}`;
 
-      const flush = () => {
-        if (timer) {
-          clearTimeout(timer);
-          timer = null;
-        }
+        if (answers.length) {
+          // the same run, going on: the console starts again from the top
+          const current = panelStateRef.current;
 
-        if (pending) {
-          say({ v: 1, type: "run:output", runId, ...pending });
-          pending = null;
-        }
-      };
-
-      const gather = (stream: "stdout" | "stderr", text: string) => {
-        if (pending && pending.stream !== stream) {
-          flush();
-        }
-
-        pending = { stream, text: (pending?.text ?? "") + text };
-        timer ??= setTimeout(flush, OUTPUT_FLUSH_MS);
-      };
-
-      void (isJavascript(language) ? javascriptRunner : pythonRunner)
-        .run(
-          text,
-          {
-            onLoading: () =>
-              gather("stdout", "Loading Python (the first run only)...\n"),
-            onOutput: gather,
-            onNotice: (kind, notice) => {
-              flush();
-              say({ v: 1, type: "run:notice", runId, kind, text: notice });
-            },
-          },
-          // the lines the program reads with input() (D-283)
-          { stdin: input === "" ? [] : input.split("\n") },
-        )
-        .then((result) => {
-          flush();
-
-          if (result.kind === "crashed") {
-            say({
-              v: 1,
-              type: "run:output",
-              runId,
-              stream: "stderr",
-              text: `The program stopped: it used more memory than the browser allows, or it crashed (${result.reason}).\n`,
-            });
-          }
-
-          if (result.kind === "load-failed") {
-            say({
-              v: 1,
-              type: "run:notice",
-              runId,
-              kind: "missing-runtime",
-              text: `Python could not be downloaded (${result.reason}). Check the connection and press Run to try again.`,
-            });
-          }
-
-          say({
-            v: 1,
-            type: "run:exit",
-            runId,
-            code: result.kind === "exit" ? result.code : null,
+          publish({
+            ...current,
+            output: [],
+            run: { runId, command, state: "running", exitCode: null },
           });
-        });
+        } else {
+          say({ v: 1, type: "run:started", runId, command, cwd: "" });
+        }
+
+        // The output arrives faster than a page can draw it: it is gathered and
+        // written to the panel a few times a second, so a program that prints a
+        // lot does not stall the page.
+        let pending: { stream: "stdout" | "stderr"; text: string } | null =
+          null;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+
+        const flush = () => {
+          if (timer) {
+            clearTimeout(timer);
+            timer = null;
+          }
+
+          if (pending) {
+            say({ v: 1, type: "run:output", runId, ...pending });
+            pending = null;
+          }
+        };
+
+        const gather = (stream: "stdout" | "stderr", text: string) => {
+          if (pending && pending.stream !== stream) {
+            flush();
+          }
+
+          pending = { stream, text: (pending?.text ?? "") + text };
+          timer ??= setTimeout(flush, OUTPUT_FLUSH_MS);
+        };
+
+        void (isJavascript(language) ? javascriptRunner : pythonRunner)
+          .run(
+            text,
+            {
+              onLoading: () =>
+                gather("stdout", "Loading Python (the first run only)...\n"),
+              onOutput: gather,
+              onNotice: (kind, notice) => {
+                flush();
+                say({ v: 1, type: "run:notice", runId, kind, text: notice });
+              },
+            },
+            // the lines the program reads with input(): the ones typed in advance
+            // (D-283), then the answers to its questions (D-298)
+            { stdin: [...typedLines(input), ...answers] },
+          )
+          .then((result) => {
+            flush();
+
+            if (result.kind === "needs-input") {
+              // the console asks; the answer starts the program again
+              pendingAnswerRef.current = (answer) =>
+                start([...answers, answer]);
+
+              const current = panelStateRef.current;
+
+              publish({
+                ...current,
+                run: { ...current.run, runId, state: "waiting-input" },
+              });
+
+              return;
+            }
+
+            if (result.kind === "crashed") {
+              say({
+                v: 1,
+                type: "run:output",
+                runId,
+                stream: "stderr",
+                text: `The program stopped: it used more memory than the browser allows, or it crashed (${result.reason}).\n`,
+              });
+            }
+
+            if (result.kind === "load-failed") {
+              say({
+                v: 1,
+                type: "run:notice",
+                runId,
+                kind: "missing-runtime",
+                text: `Python could not be downloaded (${result.reason}). Check the connection and press Run to try again.`,
+              });
+            }
+
+            say({
+              v: 1,
+              type: "run:exit",
+              runId,
+              code: result.kind === "exit" ? result.code : null,
+            });
+          });
+      };
+
+      start([]);
 
       return true;
+    },
+    [publish],
+  );
+
+  /**
+   * The teacher answered the question the program is waiting on (D-298).
+   *
+   * A program that is not waiting any more (the page was reloaded, the console
+   * was cleared) cannot take the answer: it is said, and the run is over.
+   */
+  const onAnswer = useCallback(
+    (_panelId: string, answer: string) => {
+      const next = pendingAnswerRef.current;
+
+      if (!next) {
+        const current = panelStateRef.current;
+
+        publish({ ...current, run: { ...current.run, state: "exited" } });
+        apiRef.current?.setToast({
+          message:
+            "That program is not waiting for an answer any more. Press Run to start it again.",
+          closable: true,
+        });
+
+        return;
+      }
+
+      pendingAnswerRef.current = null;
+      next(answer);
     },
     [publish],
   );
@@ -851,6 +932,8 @@ export const useBridgePanel = (
         return runInBrowser(text, language, found.input);
       }
 
+      pendingAnswerRef.current = null;
+
       return session.runSnippet({
         id: `code-run-${++runCounter}`,
         language,
@@ -873,10 +956,16 @@ export const useBridgePanel = (
   const onClear = useCallback(() => {
     const current = panelStateRef.current;
 
+    // a program that was waiting for an answer is over with its console
+    const waiting = pendingAnswerRef.current !== null;
+
+    pendingAnswerRef.current = null;
+
     publish({
       ...current,
       output: [],
       console: current.console.filter((line) => line.kind === "connection"),
+      ...(waiting ? { run: { ...current.run, state: "exited" as const } } : {}),
     });
   }, [publish]);
 
@@ -914,12 +1003,13 @@ export const useBridgePanel = (
       languages: runtimes,
       onRun,
       onClear,
+      onAnswer,
       canRunInBrowser: true,
       browserLanguages: BROWSER_LANGUAGES,
       languagePacks: allPacks,
       onInstallPack,
     }),
-    [runtimes, onRun, onClear, allPacks, onInstallPack],
+    [runtimes, onRun, onClear, onAnswer, allPacks, onInstallPack],
   );
 
   /**
