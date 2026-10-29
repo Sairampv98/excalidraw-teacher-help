@@ -63,10 +63,14 @@ import {
   subscribePendingScreenshots,
 } from "../scene/panelScreenshot";
 import {
+  FOLLOW_SIZE_MAX,
+  FOLLOW_SIZE_MIN,
+  FOLLOW_SIZE_STEP,
   openPanelMirrorPicker,
   panelMirrorCrop,
   panelMirrorMode,
   panelMirrorRegionAtPointer,
+  resizePanelMirrorRegion,
   withPanelMirrorMode,
 } from "../scene/panelMirror";
 import { CONTROL_RELEASE_CHORD } from "../scene/panelControl";
@@ -1003,11 +1007,22 @@ const CodePanelSurface = ({
    * picture comes from the teacher's own machine - the capability in the URL
    * is what authorises it (D-86).
    */
-  const openMirrorPicker = () => {
+  const openMirrorPicker = async () => {
     setMirrorNotice(null);
 
     if (capture?.status !== "live") {
       return;
+    }
+
+    // The picker is drawn over the page, and a panel that is full screen is the
+    // only thing the browser shows: the picker would open behind it and the
+    // teacher would see nothing. So the panel leaves full screen first (D-322).
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen?.();
+      } catch {
+        // full screen could not be left: the picker opens all the same
+      }
     }
 
     openPanelMirrorPicker(
@@ -1037,7 +1052,7 @@ const CodePanelSurface = ({
    */
   const chooseMode = (next: PanelMirrorMode) => {
     if (next === "part" && (mode === "part" || !panelMirror.region)) {
-      openMirrorPicker();
+      void openMirrorPicker();
 
       return;
     }
@@ -1942,6 +1957,49 @@ const CodePanelSurface = ({
                       </button>
                     ))}
                   </div>
+                ) : null}
+                {canMirror && mode === "follow" && panelMirror.region ? (
+                  /* How big the area that follows the pointer is, as a share of
+                  the window - the teacher's own setting, and it keeps the
+                  area's shape (D-322). */
+                  <label
+                    className="excalidraw__panel-code-mirror-size"
+                    title={t("labels.mirror.size")}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      color: palette.muted,
+                      fontSize: chrome.languageFontSize,
+                    }}
+                  >
+                    <input
+                      type="range"
+                      data-testid="code-panel-mirror-size"
+                      aria-label={t("labels.mirror.size")}
+                      min={Math.round(FOLLOW_SIZE_MIN * 100)}
+                      max={Math.round(FOLLOW_SIZE_MAX * 100)}
+                      step={Math.round(FOLLOW_SIZE_STEP * 100)}
+                      value={Math.round(panelMirror.region.width * 100)}
+                      onChange={(event) => {
+                        if (!panelMirror.region) {
+                          return;
+                        }
+
+                        onMirrorChange?.(panel.id, {
+                          ...panelMirror,
+                          region: resizePanelMirrorRegion(
+                            panelMirror.region,
+                            Number(event.currentTarget.value) / 100,
+                          ),
+                        });
+                      }}
+                      style={{ width: 72 }}
+                    />
+                    <span data-testid="code-panel-mirror-size-value">
+                      {Math.round(panelMirror.region.width * 100)}%
+                    </span>
+                  </label>
                 ) : null}
                 {canControl ? (
                   <>

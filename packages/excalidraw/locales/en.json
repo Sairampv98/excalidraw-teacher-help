@@ -290,7 +290,8 @@
       "fetchFailed": "The editor's window could not be fetched - the whole window is mirrored.",
       "modeWhole": "Whole",
       "modePart": "Part",
-      "modeFollow": "Follow"
+      "modeFollow": "Follow",
+      "size": "How much of the window the following area shows"
     },
     "control": {
       "label": "Control",

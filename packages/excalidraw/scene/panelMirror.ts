@@ -143,12 +143,58 @@ export const isSamePanelMirrorRegion = (
  */
 export type PanelMirrorMode = "whole" | "part" | "follow";
 
-/** The region a follow starts with when none was drawn: 40% by 40%, centred. */
+/**
+ * The region a follow starts with when none was drawn: 60% of the window's
+ * width and height, centred.
+ *
+ * It is big enough to read a screen of code in, and small enough for the pointer
+ * to have somewhere to move it to. The teacher sets the size they want
+ * ({@link resizePanelMirrorRegion}); this is only where it starts.
+ */
 export const DEFAULT_FOLLOW_REGION: PanelMirrorRegion = {
-  x: 0.3,
-  y: 0.3,
-  width: 0.4,
-  height: 0.4,
+  x: 0.2,
+  y: 0.2,
+  width: 0.6,
+  height: 0.6,
+};
+
+/** The smallest and the biggest share of the window a follow may take. */
+export const FOLLOW_SIZE_MIN = 0.2;
+export const FOLLOW_SIZE_MAX = 0.9;
+
+/** One step of the follow's size control. */
+export const FOLLOW_SIZE_STEP = 0.05;
+
+/**
+ * The region at another size, around the same middle (D-322).
+ *
+ * `width` is the new share of the window's width, between
+ * {@link FOLLOW_SIZE_MIN} and {@link FOLLOW_SIZE_MAX}. The region keeps its
+ * **shape** - the height changes with the width - so a region the teacher drew
+ * is still that shape at another size, and the part of the picture it shows is
+ * never stretched. A region that would reach outside the window is pulled
+ * back inside it.
+ */
+export const resizePanelMirrorRegion = (
+  region: PanelMirrorRegion,
+  width: number,
+): PanelMirrorRegion => {
+  const wanted = Math.min(Math.max(width, FOLLOW_SIZE_MIN), FOLLOW_SIZE_MAX);
+  // the shape is kept, and the region never gets taller than the window
+  const scale = Math.min(wanted / region.width, 1 / region.height);
+  const nextWidth = region.width * scale;
+  const nextHeight = region.height * scale;
+  const middleX = region.x + region.width / 2;
+  const middleY = region.y + region.height / 2;
+
+  return (
+    normalizePanelMirrorRegion({
+      x: middleX - nextWidth / 2,
+      y: middleY - nextHeight / 2,
+      width: nextWidth,
+      height: nextHeight,
+    }) ?? region
+  );
 };
 
 /** The mode a mirror is in. */

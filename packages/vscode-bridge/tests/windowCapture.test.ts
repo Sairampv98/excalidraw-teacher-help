@@ -787,4 +787,37 @@ describe("the capture of the editor's own window", () => {
     expect(script).toContain("IsWindowVisible");
     expect(script).toContain("IsIconic");
   });
+
+  it("AC-377 the capture sees the whole window at any display scaling", () => {
+    const script = readFileSync(captureScriptPath(), "utf8");
+
+    // The helper says it is DPI aware (per-monitor v2) ...
+    expect(script).toContain("SetProcessDpiAwarenessContext(new IntPtr(-4))");
+    expect(script).toMatch(/public static void BeDpiAware\(\) \{/);
+
+    // ... and says it BEFORE it reads a single window: a process that is not
+    // aware is handed virtualised sizes - on the teacher's screen at 150% a
+    // 1920 by 1008 window read as 1280 by 672 - and PrintWindow into a bitmap of
+    // that size draws the top-left two thirds of the window and nothing else
+    // (a CALL: at the start of a line, not in a comment that names it)
+    const call = /^\[PwCap\]::BeDpiAware\(\)/m.exec(script);
+    const aware = call ? call.index : -1;
+    const firstLookup = script.indexOf("= Find-EditorWindow");
+    const firstSize = script.indexOf("[PwCap]::ClientRect(");
+
+    expect(aware).toBeGreaterThan(-1);
+    expect(firstLookup).toBeGreaterThan(aware);
+    expect(firstSize).toBeGreaterThan(aware);
+
+    // and the other helpers of the extension read the same real pixels, so a
+    // place in the picture is a place in the window
+    for (const helper of ["window.ps1", "input.ps1"]) {
+      const text = readFileSync(
+        join(dirname(captureScriptPath()), helper),
+        "utf8",
+      );
+
+      expect(text).toContain("SetProcessDpiAwarenessContext(new IntPtr(-4))");
+    }
+  });
 });

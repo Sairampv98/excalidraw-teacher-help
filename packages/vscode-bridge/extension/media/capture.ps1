@@ -80,6 +80,19 @@ public class PwCap {
   [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr h, ref POINT p);
   [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
+  [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr context);
+
+  // The helper's process is DPI AWARE: on a screen at 150% a process that is
+  // not told it is aware is handed VIRTUALISED sizes - a 1920 by 1008 window
+  // reads as 1280 by 672 - and PrintWindow into a bitmap of that size draws the
+  // TOP-LEFT two thirds of the window and nothing else. The panel then showed
+  // "the whole window" without its right side or its status bar (found on the
+  // teacher's own machine, 2026-10-29). Per-monitor v2 (-4) gives the real
+  // pixels, the same ones the input helper delivers to.
+  public static void BeDpiAware() {
+    SetProcessDpiAwarenessContext(new IntPtr(-4));
+  }
+
   [StructLayout(LayoutKind.Sequential)]
   public struct RECT { public int Left, Top, Right, Bottom; }
   [StructLayout(LayoutKind.Sequential)]
@@ -164,6 +177,9 @@ public class PwCap {
 }
 '@
 Add-Type -TypeDefinition $code -ReferencedAssemblies 'System.Drawing'
+
+# before any window is read: the sizes are the real ones (see BeDpiAware)
+[PwCap]::BeDpiAware()
 
 # The editor's OWN window, found BY RULE (D-113).
 #

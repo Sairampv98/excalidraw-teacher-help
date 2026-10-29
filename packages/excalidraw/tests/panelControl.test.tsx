@@ -27,11 +27,14 @@ import {
 } from "../scene/panelContent";
 import {
   DEFAULT_FOLLOW_REGION,
+  FOLLOW_SIZE_MIN,
+  FOLLOW_SIZE_MAX,
   getAnyPanelMirrorPicker,
   closePanelMirrorPicker,
   panelMirrorMode,
   panelPointInView,
   panelPointToWindow,
+  resizePanelMirrorRegion,
   withPanelMirrorMode,
 } from "../scene/panelMirror";
 import {
@@ -158,15 +161,198 @@ describe("the three modes of the mirror (D-322)", () => {
 
     expect(started).toEqual({ region: DEFAULT_FOLLOW_REGION, follow: true });
 
-    // 40% by 40%, centred
-    expect(DEFAULT_FOLLOW_REGION.width).toBe(0.4);
-    expect(DEFAULT_FOLLOW_REGION.height).toBe(0.4);
+    // 60% by 60%, centred: big enough to read a screen of code in
+    expect(DEFAULT_FOLLOW_REGION.width).toBe(0.6);
+    expect(DEFAULT_FOLLOW_REGION.height).toBe(0.6);
     expect(
       DEFAULT_FOLLOW_REGION.x + DEFAULT_FOLLOW_REGION.width / 2,
     ).toBeCloseTo(0.5, 6);
     expect(
       DEFAULT_FOLLOW_REGION.y + DEFAULT_FOLLOW_REGION.height / 2,
     ).toBeCloseTo(0.5, 6);
+  });
+
+  it("AC-365 the follow area has a size the teacher sets", async () => {
+    // the pure rule: the middle and the shape stay, the size changes
+    const bigger = resizePanelMirrorRegion(REGION, 0.8);
+
+    expect(bigger.width).toBeCloseTo(0.8, 6);
+    // the shape (width to height) is the region's own
+    expect(bigger.height / bigger.width).toBeCloseTo(
+      REGION.height / REGION.width,
+      5,
+    );
+    // around the same middle, unless the window's edge is in the way
+    const middleBefore = REGION.x + REGION.width / 2;
+    const middleAfter = bigger.x + bigger.width / 2;
+
+    expect(middleAfter).toBeCloseTo(middleBefore, 5);
+
+    // never smaller than the least, never bigger than the most, never outside
+    expect(resizePanelMirrorRegion(REGION, 0.01).width).toBeCloseTo(
+      FOLLOW_SIZE_MIN,
+      6,
+    );
+    expect(resizePanelMirrorRegion(REGION, 5).width).toBeLessThanOrEqual(
+      FOLLOW_SIZE_MAX + 1e-9,
+    );
+
+    for (const size of [0.2, 0.5, 0.9]) {
+      const grown = resizePanelMirrorRegion(
+        { x: 0.9, y: 0.9, width: 0.1, height: 0.1 },
+        size,
+      );
+
+      expect(grown.x).toBeGreaterThanOrEqual(0);
+      expect(grown.y).toBeGreaterThanOrEqual(0);
+      expect(grown.x + grown.width).toBeLessThanOrEqual(1 + 1e-9);
+      expect(grown.y + grown.height).toBeLessThanOrEqual(1 + 1e-9);
+    }
+
+    // the control: a slider, only in the follow mode, that says its size and
+    // gives the host the region at the size the teacher chose
+    const onChange = vi.fn();
+    const panel = livePanel({ region: DEFAULT_FOLLOW_REGION, follow: true });
+
+    await render(<Excalidraw panelMirror={{ onChange }} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    act(() => {
+      setPanelCapture(panel.id, {
+        status: "live",
+        streamUrl: STREAM,
+        width: 1000,
+        height: 500,
+      });
+    });
+
+    const slider = (await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="code-panel-mirror-size"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found;
+    })) as HTMLInputElement;
+
+    expect(slider.value).toBe("60");
+    expect(
+      document.querySelector('[data-testid="code-panel-mirror-size-value"]')
+        ?.textContent,
+    ).toBe("60%");
+
+    fireEvent.change(slider, { target: { value: "80" } });
+
+    const [panelId, mirror] =
+      onChange.mock.calls[onChange.mock.calls.length - 1];
+
+    expect(panelId).toBe(panel.id);
+    expect(mirror.follow).toBe(true);
+    expect(mirror.region.width).toBeCloseTo(0.8, 6);
+
+    // in the other modes there is no such control
+    const part = livePanel({ region: REGION, follow: false });
+
+    API.setElements([asElement(part)]);
+    act(() => {
+      setPanelCapture(part.id, {
+        status: "live",
+        streamUrl: STREAM,
+        width: 1000,
+        height: 500,
+      });
+    });
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-mirror-size"]'),
+      ).toBeNull(),
+    );
+  });
+
+  it("AC-365 Part leaves full screen to show the picker", async () => {
+    // a panel that is full screen is all the browser shows: the picker, drawn
+    // over the page, would open behind it
+    const onChange = vi.fn();
+    const panel = livePanel();
+    let leave: () => void = () => undefined;
+    const exit = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          leave = () => {
+            fullscreen = null;
+            resolve();
+          };
+        }),
+    );
+    let fullscreen: Element | null = document.createElement("div");
+
+    Object.defineProperty(document, "fullscreenElement", {
+      configurable: true,
+      get: () => fullscreen,
+    });
+    Object.defineProperty(document, "exitFullscreen", {
+      configurable: true,
+      value: exit,
+    });
+
+    try {
+      await render(<Excalidraw panelMirror={{ onChange }} />);
+
+      API.setAppState({ width: 1000, height: 1000 });
+      API.setElements([asElement(panel)]);
+
+      act(() => {
+        setPanelCapture(panel.id, {
+          status: "live",
+          streamUrl: STREAM,
+          width: 1000,
+          height: 500,
+        });
+      });
+
+      const part = (await waitFor(() => {
+        const found = document.querySelector(
+          '[data-testid="code-panel-mirror-region"]',
+        );
+
+        expect(found).not.toBeNull();
+
+        return found;
+      })) as HTMLElement;
+
+      fireEvent.click(part);
+
+      // it asks to leave full screen, and the picker waits for it
+      expect(exit).toHaveBeenCalledTimes(1);
+      expect(getAnyPanelMirrorPicker()).toBeNull();
+
+      await act(async () => {
+        leave();
+      });
+
+      await waitFor(() =>
+        expect(getAnyPanelMirrorPicker()?.panelId).toBe(panel.id),
+      );
+
+      // not full screen: the picker opens at once, with nothing to leave
+      closePanelMirrorPicker(panel.id);
+      exit.mockClear();
+      fireEvent.click(part);
+
+      await waitFor(() =>
+        expect(getAnyPanelMirrorPicker()?.panelId).toBe(panel.id),
+      );
+      expect(exit).not.toHaveBeenCalled();
+    } finally {
+      // @ts-expect-error the test's own stand-ins are taken off again
+      delete document.fullscreenElement;
+      // @ts-expect-error the test's own stand-ins are taken off again
+      delete document.exitFullscreen;
+    }
   });
 
   it("AC-365 the panel has one control with the three modes", async () => {

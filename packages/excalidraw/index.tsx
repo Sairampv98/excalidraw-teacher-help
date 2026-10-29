@@ -673,11 +673,7 @@ export {
   INITIAL_PANEL_MIRROR,
   normalizePanelMirrorRegion,
   panelMirrorCrop,
-  panelMirrorMode,
   panelMirrorRegionAtPointer,
-  panelPointInView,
-  panelPointToWindow,
-  withPanelMirrorMode,
   WHOLE_WINDOW,
 } from "./scene/panelMirror";
 
