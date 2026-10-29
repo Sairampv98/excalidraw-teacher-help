@@ -164,7 +164,14 @@ export type PresenterMessage =
    * only by this origin's own pages, so the descriptor does not travel
    * further than the window the teacher opened.
    */
-  | { type: "presenter:live-view"; panelId: string; capture: PanelCapture };
+  | { type: "presenter:live-view"; panelId: string; capture: PanelCapture }
+  /**
+   * the panel the editor shows full screen, or `null` when none is (D-281).
+   *
+   * The presenter frames that panel across its whole window, so the class sees
+   * what the teacher sees.
+   */
+  | { type: "presenter:focus-panel"; panelId: string | null };
 
 /** presenters announce themselves at least this often while starved */
 export const PRESENTER_HEARTBEAT_MS = 2000;
@@ -375,4 +382,28 @@ export const createPresenterChannel = (
   };
 
   return channel;
+};
+
+/**
+ * The camera that frames a panel across a window (D-281): the panel fills the
+ * window, with a small margin, and sits in its middle.
+ */
+export const panelFocusCamera = (
+  panel: { x: number; y: number; width: number; height: number },
+  viewport: { width: number; height: number },
+): Pick<AppState, "scrollX" | "scrollY" | "zoom"> => {
+  const MARGIN = 0.98;
+
+  const zoom = clamp(
+    Math.min(viewport.width / panel.width, viewport.height / panel.height) *
+      MARGIN,
+    MIN_ZOOM,
+    MAX_ZOOM,
+  ) as NormalizedZoomValue;
+
+  return {
+    zoom: { value: zoom },
+    scrollX: viewport.width / 2 / zoom - (panel.x + panel.width / 2),
+    scrollY: viewport.height / 2 / zoom - (panel.y + panel.height / 2),
+  };
 };

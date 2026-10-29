@@ -31,6 +31,7 @@ import {
   presenterFileTooLargeMessage,
   PRESENTER_HEARTBEAT_MS,
   PRESENTER_WINDOW_NAME,
+  panelFocusCamera,
   resolvePresenterCamera,
 } from "./presenterChannel";
 
@@ -193,6 +194,33 @@ export const PresenterView = () => {
     post({ type: "presenter:bye", presenterId: presenterIdRef.current });
   }, [post]);
 
+  /** the panel the editor shows full screen, if any (D-281) */
+  const focusPanelIdRef = useRef<string | null>(null);
+
+  /** frames the panel the editor has full screen across this window */
+  const applyFocus = useCallback(() => {
+    const api = apiRef.current;
+    const panelId = focusPanelIdRef.current;
+
+    if (!api || api.isDestroyed || !panelId) {
+      return;
+    }
+
+    const panel = api
+      .getSceneElements()
+      .find((element) => element.id === panelId);
+
+    if (!panel) {
+      return;
+    }
+
+    measureViewport();
+    api.updateScene({
+      appState: panelFocusCamera(panel, viewportRef.current),
+      captureUpdate: CaptureUpdateAction.NEVER,
+    });
+  }, [measureViewport]);
+
   const applyScene = useCallback(
     (scene: PresenterScene) => {
       const api = apiRef.current;
@@ -227,8 +255,14 @@ export const PresenterView = () => {
         // the projector must never pollute (or be able to undo) editor history
         captureUpdate: CaptureUpdateAction.NEVER,
       });
+
+      // a panel that is full screen in the editor keeps the whole window,
+      // whatever camera the editor has (D-281)
+      if (focusPanelIdRef.current) {
+        applyFocus();
+      }
     },
-    [measureViewport],
+    [measureViewport, applyFocus],
   );
 
   /**
@@ -247,6 +281,12 @@ export const PresenterView = () => {
         return;
       }
 
+      // the window changed size: a panel that is full screen is framed again
+      if (focusPanelIdRef.current) {
+        applyFocus();
+        return;
+      }
+
       const { scrollX, scrollY, zoom } = resolvePresenterCamera(
         camera,
         viewportRef.current,
@@ -257,7 +297,7 @@ export const PresenterView = () => {
         captureUpdate: CaptureUpdateAction.NEVER,
       });
     },
-    [measureViewport],
+    [measureViewport, applyFocus],
   );
 
   /**
@@ -349,6 +389,17 @@ export const PresenterView = () => {
           applyPointer(message.pointer);
           break;
         }
+        case "presenter:focus-panel": {
+          // the editor put a panel full screen, or took it out of it (D-281)
+          focusPanelIdRef.current = message.panelId;
+
+          if (message.panelId) {
+            applyFocus();
+          } else if (lastSceneRef.current) {
+            applyScene(lastSceneRef.current);
+          }
+          break;
+        }
         case "presenter:live-view": {
           // The live view's **descriptor** (D-101). The presenter is a second
           // JavaScript context, so the registry that holds the descriptor is
@@ -390,7 +441,7 @@ export const PresenterView = () => {
           break;
       }
     },
-    [applyPointer, applyScene, requestMissingFiles],
+    [applyFocus, applyPointer, applyScene, requestMissingFiles],
   );
 
   // ---------------------------------------------------------------------------
