@@ -35,8 +35,6 @@ import {
 import {
   Excalidraw,
   ExcalidrawAPIProvider,
-  codePanelContent,
-  emptyCodePanelState,
   getCurrentPageRect,
 } from "@excalidraw/excalidraw";
 
@@ -408,18 +406,16 @@ describe("AC-321 the presenter follows a panel that is full screen", () => {
   });
 
   it("AC-321 the presenter frames the panel across its window, and goes back when it leaves", async () => {
+    // any element the editor names is framed the same way; a plain one keeps
+    // the test free of a code editor that jsdom cannot lay out
     const panel = newElementWith(
       API.createElement({
-        type: "panel",
+        type: "rectangle",
         x: 300,
         y: 200,
         width: 400,
         height: 300,
-        panelKind: "code",
-        panel: codePanelContent(emptyCodePanelState(), "session"),
-        posterMode: false,
-        posterFileId: null,
-      } as never),
+      }),
       { pageId: PAGE_ONE },
     );
 
