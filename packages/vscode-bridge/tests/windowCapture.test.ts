@@ -750,7 +750,19 @@ describe("the capture of the editor's own window", () => {
     // is the normal state while the teacher is looking at the whiteboard
     // (D-113).
     expect(code).not.toContain("MainWindowHandle");
-    expect(code).not.toContain("GetForegroundWindow");
+
+    // The foreground window is asked about ONLY to say, once a second, whether
+    // the editor is in front (D-371): its declaration and that one question,
+    // and never inside the lookup.
+    const lookup = code.slice(
+      code.indexOf("function Find-EditorWindow"),
+      code.indexOf("function Test-Empty"),
+    );
+
+    expect(lookup.length).toBeGreaterThan(100);
+    expect(lookup).not.toContain("GetForegroundWindow");
+    expect(lookup).not.toContain("InFront");
+    expect(code.split("GetForegroundWindow").length - 1).toBe(2);
 
     // The window is found by ENUMERATING the editor's own top-level windows
     // and matching the title - the same title rule the project already uses
