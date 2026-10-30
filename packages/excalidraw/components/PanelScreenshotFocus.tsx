@@ -1,4 +1,9 @@
-import React, { useEffect, useRef, useSyncExternalStore } from "react";
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { createPortal } from "react-dom";
 
 import type { ExcalidrawPanelElement } from "@excalidraw/element/types";
@@ -73,6 +78,7 @@ export const PanelScreenshotFocus = ({
   panels,
   viewport,
   pages,
+  currentPageId,
   onPageChoice,
   onChoice,
 }: {
@@ -82,6 +88,8 @@ export const PanelScreenshotFocus = ({
   viewport: { width: number; height: number };
   /** the document's pages: the page selector ribbon offers them (D-140) */
   pages: readonly ExcalidrawPage[];
+  /** the page the teacher is on: where the picture goes unless they say else (D-349) */
+  currentPageId?: string;
   /** the teacher picked a page in the ribbon (D-140) */
   onPageChoice?: (panelId: string, pageId: string | null) => void;
   /** the teacher chose what to do with the picture (D-277) */
@@ -133,6 +141,9 @@ export const PanelScreenshotFocus = ({
 
   const fullscreen = useFullscreenElement();
 
+  /** the page the teacher chose to put the picture on; none yet is the current one (D-349) */
+  const [chosenPage, setChosenPage] = useState<string | null>(null);
+
   if (!pending) {
     return null;
   }
@@ -181,6 +192,15 @@ export const PanelScreenshotFocus = ({
   const pictureLeft = (room.width - displayWidth) / 2;
   const pictureTop = CROP_BAR_HEIGHT + (below - displayHeight) / 2;
 
+  /** the page the picture goes on, and what the button says it is (D-349) */
+  const targetPage =
+    pages.find((page) => page.id === chosenPage)?.id ?? currentPageId;
+  const targetName = pages.find((page) => page.id === targetPage)?.name;
+  const insertLabel =
+    targetPage && targetPage !== currentPageId && targetName
+      ? t("labels.panel.screenshot.pageNamed", { name: targetName })
+      : t("labels.panel.screenshot.page");
+
   /** whether the teacher has cropped the picture: the read says what it reads */
   const cropped = crop.x > 0 || crop.y > 0 || crop.width < 1 || crop.height < 1;
 
@@ -205,7 +225,11 @@ export const PanelScreenshotFocus = ({
     onChoice?.(panelId, value);
 
     if (value === "new-page") {
+      // a new page needs no ribbon: it is made when the picture is placed
       onPageChoice?.(panelId, null);
+    } else if (value === "page" && targetPage && targetPage !== currentPageId) {
+      // another page than the one the teacher is on (D-349)
+      onPageChoice?.(panelId, targetPage);
     }
   };
 
@@ -450,9 +474,29 @@ export const PanelScreenshotFocus = ({
           ["--panel-scale" as string]: 1,
         }}
       >
+        {pages.length > 1 ? (
+          /* which page the picture goes on (D-349) */
+          <select
+            data-testid="panel-screenshot-page-select"
+            aria-label={t("labels.panel.screenshot.pageChoice")}
+            value={targetPage ?? ""}
+            onChange={(event) => setChosenPage(event.target.value)}
+            style={{ ...CROP_BUTTON, flexShrink: 0 }}
+          >
+            {pages.map((page, index) => (
+              <option key={page.id} value={page.id}>
+                {page.name || `${index + 1}`}
+                {page.id === currentPageId
+                  ? ` (${t("labels.panel.screenshot.here")})`
+                  : ""}
+              </option>
+            ))}
+          </select>
+        ) : null}
+
         {(
           [
-            ["page", "page", t("labels.panel.screenshot.page")],
+            ["page", "page", insertLabel],
             ["new-page", "new-page", t("labels.panel.screenshot.newPage")],
             [
               "ocr",

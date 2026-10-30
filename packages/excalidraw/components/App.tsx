@@ -2664,6 +2664,7 @@ class App extends React.Component<AppProps, AppState> {
                               height: this.state.height,
                             }}
                             pages={this.state.pages}
+                            currentPageId={this.state.currentPageId}
                             onPageChoice={
                               this.props.panelScreenshot?.onPageChoice
                             }

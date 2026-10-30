@@ -48,6 +48,8 @@ import {
   TextIcon,
 } from "./icons";
 
+import { isKeyboardTaken } from "./keyboardTaken";
+
 import "./SearchMenu.scss";
 
 import type { AppClassProperties, SearchMatch } from "../types";
@@ -280,6 +282,11 @@ export const SearchMenu = () => {
 
   useEffect(() => {
     const eventHandler = (event: KeyboardEvent) => {
+      // the editor's window has the keyboard: Ctrl+F and Esc are its own (D-345)
+      if (isKeyboardTaken(event)) {
+        return;
+      }
+
       if (
         event.key === KEYS.ESCAPE &&
         !app.state.openDialog &&

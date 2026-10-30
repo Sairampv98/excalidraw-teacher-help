@@ -4,6 +4,10 @@ import {
   CaptureUpdateAction,
   reconcileElements,
   ExcalidrawAPIProvider,
+  fetchEditorSnapshot,
+  getPanelCapture,
+  isStandaloneCodePanel,
+  snapshotUrl,
   useExcalidrawAPI,
   useExcalidrawStateValue,
 } from "@excalidraw/excalidraw";
@@ -51,7 +55,12 @@ import {
   youtubeIcon,
 } from "@excalidraw/excalidraw/components/icons";
 import { isElementLink } from "@excalidraw/element";
-import { isPanelElement, isPosterPanelElement } from "@excalidraw/element";
+import {
+  isImageElement,
+  isPanelElement,
+  isPosterPanelElement,
+  mediaOf,
+} from "@excalidraw/element";
 import {
   bumpElementVersions,
   restoreAppState,
@@ -163,6 +172,8 @@ import { useEdgeDocksEnabled } from "./dock/dockTypes";
 import PageBar from "./components/PageBar";
 import StickerBar from "./emoji/StickerBar";
 import { MediaCropMode } from "./sidebar/MediaCrop";
+import { ImageCropMode } from "./sidebar/ImageCrop";
+import { openImageCrop } from "./sidebar/imageCropState";
 import { NodeMediaDrop } from "./sidebar/NodeMediaPanel";
 import { ExcalidrawPlusIframeExport } from "./ExcalidrawPlusIframeExport";
 import { isPresenterWindow } from "./presenter/presenterChannel";
@@ -693,7 +704,27 @@ const ExcalidrawWrapper = () => {
         return;
       }
 
-      const image = imageOfPanel(panel);
+      // The **VS Code mirror** has no poster and no frame: its picture is the
+      // editor's window, which the extension hands over (D-347).
+      const live = getPanelCapture(panelId);
+      const mirrored =
+        panel.panelKind === "code" &&
+        !isStandaloneCodePanel(panel) &&
+        live?.status === "live"
+          ? await fetchEditorSnapshot(snapshotUrl(live.streamUrl))
+          : null;
+
+      if (panel.panelKind === "code" && !isStandaloneCodePanel(panel)) {
+        if (!mirrored) {
+          current.setToast({
+            message: t("labels.panel.screenshot.nothingToCapture"),
+          });
+
+          return;
+        }
+      }
+
+      const image = mirrored ?? imageOfPanel(panel);
 
       if (!image) {
         return;
@@ -707,6 +738,37 @@ const ExcalidrawWrapper = () => {
        * marked and not the whole poster.
        */
       const crop = cropFor(panelId);
+
+      // Without a crop of the teacher's own the read asks which part of the
+      // picture is read - the same window every other read opens (D-347)
+      if (!crop) {
+        setOcrArea({
+          picture: image,
+          read: (region) => {
+            setOcrArea(null);
+
+            void readOcr({
+              place: false,
+              image,
+              panelId,
+              ...(region ? { region } : {}),
+              placement: {
+                x: panel.x,
+                y: panel.y,
+                width: panel.width,
+                height: panel.height,
+              },
+              pageId: panel.pageId,
+              strokeColor: current.getAppState().currentItemStrokeColor,
+              ...(pickedEngineFor(panelId)
+                ? { engine: pickedEngineFor(panelId)! }
+                : {}),
+            }).then((result) => showRead(result));
+          },
+        });
+
+        return;
+      }
 
       const result = await readOcr({
         place: false,
@@ -1178,6 +1240,18 @@ const ExcalidrawWrapper = () => {
 
       if (croppingElement && isPosterPanelElement(croppingElement)) {
         setPanelCropId(croppingId);
+      } else if (
+        croppingElement &&
+        isImageElement(croppingElement) &&
+        !mediaOf(croppingElement)
+      ) {
+        // The crop of a picture is a window of its own (D-348): the library's
+        // in-place crop is asked for by the crop button and by Enter, and it
+        // was drawn under the panels. It is left at once and the window opens.
+        openImageCrop(croppingId);
+        excalidrawAPI?.updateScene({
+          appState: { croppingElementId: null },
+        });
       }
     }
 
@@ -1720,6 +1794,9 @@ const ExcalidrawWrapper = () => {
 
         {/* the crop screen of the picture in a node */}
         <MediaCropMode />
+
+        {/* the crop window of every other picture and GIF (D-348) */}
+        <ImageCropMode />
 
         <ShareDialog
           collabAPI={collabAPI}

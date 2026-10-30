@@ -107,6 +107,10 @@ let shutdownWindow: (() => Promise<void>) | null = null;
  */
 let textPublisher: CoalescedPublisher | null = null;
 
+/** what the panel says while the editor's window is on the virtual display (D-350) */
+const VIRTUAL_REASON =
+  "real input was chosen: the editor's window is brought to the front for a moment - on the virtual display, out of your way";
+
 export async function activate(
   context: vscode.ExtensionContext,
 ): Promise<void> {
@@ -805,6 +809,81 @@ export async function activate(
   /** are events being dropped for being too many right now? (D-327) */
   let limited = false;
 
+  /**
+   * Whether the editor's window was put on the **virtual display** for the
+   * focus route (D-350).
+   *
+   * Real input goes to the window in front, so on this route the window is
+   * brought to the front for every burst of input - and on the teacher's own
+   * screen that is a window that jumps up and goes back. On a virtual display
+   * it jumps up where nobody is looking. It is put there when the route turns
+   * out to be the focus route, and it is put back when Control ends.
+   */
+  let onVirtualDisplay = false;
+
+  /** the move to the virtual display is tried once for each Control session */
+  let virtualTried = false;
+
+  /** the window is put on the virtual display, and the helper looks again */
+  const moveToVirtual = async (): Promise<boolean> => {
+    virtualTried = true;
+
+    try {
+      const result = await windowPark.moveToVirtualDisplay(editorRule);
+
+      if (!result.ok) {
+        // no virtual display: the route works on the teacher's own screen, and
+        // the reason says what would make it better
+        helperState = {
+          route: helperState.route,
+          reason:
+            helperState.route === "focus"
+              ? "real input was chosen: the editor's window is brought to the front for a moment - a virtual display would keep that out of your way"
+              : helperState.reason,
+        };
+        publishControl();
+
+        return false;
+      }
+
+      onVirtualDisplay = true;
+
+      await refreshWindowState();
+
+      helperState = {
+        route: helperState.route,
+        reason: VIRTUAL_REASON,
+      };
+      publishControl();
+
+      if (result.moved) {
+        windowInput?.send("R");
+      }
+
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  /** the window comes back from the virtual display, when it was put there */
+  const leaveVirtualDisplay = async () => {
+    virtualTried = false;
+
+    if (!onVirtualDisplay) {
+      return;
+    }
+
+    onVirtualDisplay = false;
+
+    try {
+      await windowPark.bringBack(editorRule);
+      await refreshWindowState();
+    } catch {
+      // the window may be gone already
+    }
+  };
+
   const publishControl = () => {
     captureState.setControl({
       enabled: inputGate.enabled,
@@ -853,8 +932,22 @@ export async function activate(
           .get<string>("inputRoute"),
       ),
       onState: (state) => {
-        helperState = state;
+        helperState =
+          onVirtualDisplay && state.route === "focus"
+            ? { route: state.route, reason: VIRTUAL_REASON }
+            : state;
         publishControl();
+
+        // the focus route: the window goes to the virtual display, if there is
+        // one (D-350)
+        if (
+          state.route === "focus" &&
+          inputGate.enabled &&
+          !onVirtualDisplay &&
+          !virtualTried
+        ) {
+          void moveToVirtual();
+        }
       },
       onStatus: (text) => {
         // something the teacher should read: it replaces the reason until
@@ -867,6 +960,12 @@ export async function activate(
       // (D-336). The window is the teacher's, so it is said.
       onNeed: () => {
         void (async () => {
+          // a virtual display is where the window goes when there is one
+          // (D-350); the teacher's own screen when there is not (D-336)
+          if (await moveToVirtual()) {
+            return;
+          }
+
           const result = await windowPark.bringBack(editorRule);
 
           await refreshWindowState();
@@ -908,6 +1007,7 @@ export async function activate(
     } else {
       windowInput?.stop();
       windowInput = null;
+      void leaveVirtualDisplay();
     }
 
     publishControl();
@@ -934,6 +1034,7 @@ export async function activate(
     if (inputGate.connectionEnded(connection)) {
       windowInput?.stop();
       windowInput = null;
+      void leaveVirtualDisplay();
       publishControl();
     }
   };
@@ -942,10 +1043,14 @@ export async function activate(
     windowInput?.stop();
     windowInput = null;
 
-    // a window that is parked when the extension ends is brought back (D-328)
+    // a window that is parked - or on the virtual display - when the
+    // extension ends is brought back (D-328, D-350)
     if (process.platform === "win32" && workspace) {
       try {
-        if (await windowPark.isParked(editorRule)) {
+        if (onVirtualDisplay) {
+          onVirtualDisplay = false;
+          await windowPark.bringBack(editorRule);
+        } else if (await windowPark.isParked(editorRule)) {
           await windowPark.bringBack(editorRule);
         }
       } catch {

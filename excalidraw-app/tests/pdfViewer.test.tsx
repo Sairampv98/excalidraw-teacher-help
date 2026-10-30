@@ -266,6 +266,96 @@ describe("AC-318 the PDF viewer", () => {
     expect(big).toBeCloseTo(small * 2, 5);
   });
 
+  it("AC-401 Read this page works with the pages scrolled, because a press on the toolbar is not a press on a page", async () => {
+    const onReadPage = vi.fn();
+    const host = document.createElement("div");
+
+    document.body.appendChild(host);
+
+    HTMLCanvasElement.prototype.toDataURL = () => "data:image/png;base64,AAAA";
+
+    const capture = vi.fn();
+    const original = HTMLElement.prototype.setPointerCapture;
+
+    HTMLElement.prototype.setPointerCapture = capture;
+
+    try {
+      // the toolbar is in a row of its own, outside the viewer, as in the app
+      const { ref, getByTestId } = mount({
+        pages: 3,
+        onReadPage,
+        toolbarHost: host,
+      });
+
+      await waitFor(() =>
+        expect(ref.current!.querySelectorAll("canvas")).toHaveLength(3),
+      );
+
+      // the viewer is scrolled: the first page reaches up under the toolbar
+      const viewer = getByTestId("pdf-viewer");
+
+      viewer.getBoundingClientRect = () =>
+        ({
+          left: 0,
+          right: 300,
+          top: 100,
+          bottom: 500,
+          width: 300,
+          height: 400,
+        } as DOMRect);
+
+      const sheets =
+        ref.current!.querySelectorAll<HTMLElement>(".app-doc-pdf-page");
+
+      sheets[0].getBoundingClientRect = () =>
+        ({
+          left: 0,
+          right: 300,
+          top: -200,
+          bottom: 160,
+          width: 300,
+          height: 360,
+        } as DOMRect);
+      sheets[1].getBoundingClientRect = () =>
+        ({
+          left: 0,
+          right: 300,
+          top: 170,
+          bottom: 530,
+          width: 300,
+          height: 360,
+        } as DOMRect);
+
+      // the press is at the toolbar's height, above the viewer, where only the
+      // first page's scrolled-up part is
+      const button = host.querySelector(
+        '[data-testid="pdf-read-page"]',
+      ) as HTMLElement;
+
+      // (jsdom has no pointer events: a mouse event of that type carries the same)
+      act(() => {
+        button.dispatchEvent(
+          new MouseEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            clientX: 20,
+            clientY: 60,
+          }),
+        );
+      });
+
+      // nothing was begun on a page, and the pointer was not taken from the button
+      expect(capture).not.toHaveBeenCalled();
+
+      fireEvent.click(button);
+
+      expect(onReadPage).toHaveBeenCalledTimes(1);
+    } finally {
+      HTMLElement.prototype.setPointerCapture = original;
+      host.remove();
+    }
+  });
+
   it("AC-318 a page can be read with OCR, and a book is not drawn all at once", async () => {
     const onReadPage = vi.fn();
 

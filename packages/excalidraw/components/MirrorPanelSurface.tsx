@@ -9,6 +9,7 @@ import React, {
 import type { ExcalidrawPanelElement } from "@excalidraw/element/types";
 
 import { t } from "../i18n";
+
 import { CONTROL_RELEASE_CHORD } from "../scene/panelControl";
 import { readCodePanelState, readPanelMirror } from "../scene/panelContent";
 import { getPanelCapture, subscribePanelCaptures } from "../scene/panelFrames";
@@ -25,6 +26,8 @@ import {
 } from "../scene/panelMirror";
 import { mirrorPanelView } from "../scene/mirrorPanelView";
 import { snapshotUrl } from "../scene/panelScreenshot";
+
+import { KEYBOARD_TAKEN_ATTRIBUTE } from "./keyboardTaken";
 
 import Spinner from "./Spinner";
 import { toggleFullscreen } from "./panelFullscreen";
@@ -904,6 +907,11 @@ export const MirrorPanelSurface = ({
       // the view takes the keyboard when it is clicked, and only while Control
       // is on (D-323)
       tabIndex={controlOn ? 0 : undefined}
+      // while the window has the keyboard, the canvas's own shortcuts keep out
+      // of it (D-345)
+      {...(controlOn && surface.engaged
+        ? { [KEYBOARD_TAKEN_ATTRIBUTE]: "true" }
+        : {})}
       data-control={controlOn ? (surface.engaged ? "engaged" : "on") : "off"}
       style={{
         ...(crop

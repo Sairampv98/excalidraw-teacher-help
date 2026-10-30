@@ -18,6 +18,7 @@ import {
   isParkedPlace,
   PARK_X,
   PARK_Y,
+  parseDisplays,
   parsePlacement,
   parseWindow,
   parseWorkArea,
@@ -142,6 +143,7 @@ const fakeHelper = (options: {
   windows: Record<string, unknown>[];
   place?: (args: string[]) => Record<string, unknown>;
   workArea?: Record<string, unknown>;
+  displays?: Record<string, unknown>[];
 }) => {
   const calls: string[][] = [];
   let found = 0;
@@ -156,6 +158,10 @@ const fakeHelper = (options: {
       found += 1;
 
       return JSON.stringify(next);
+    }
+
+    if (args.includes("Displays")) {
+      return JSON.stringify({ displays: options.displays ?? [] });
     }
 
     if (args.includes("Primary")) {
@@ -479,8 +485,187 @@ describe("the editor's window is parked and brought back", () => {
   );
 });
 
+/** The displays of a desktop with one real screen and one virtual one. */
+const REAL_DISPLAY = {
+  device: "DISPLAY1",
+  adapter: "Intel(R) UHD Graphics",
+  virtual: false,
+  primary: true,
+  x: 0,
+  y: 0,
+  width: 1920,
+  height: 1080,
+};
+
+const VIRTUAL_DISPLAY = {
+  device: "DISPLAY4",
+  adapter: "an indirect display adapter",
+  virtual: true,
+  primary: false,
+  x: 1920,
+  y: 0,
+  width: 1920,
+  height: 1080,
+};
+
+describe("the focus route puts the editor's window on a virtual display", () => {
+  it("AC-408 the helper's list of displays is read, and what is not a display is left out", () => {
+    const list = parseDisplays(
+      JSON.stringify({
+        displays: [
+          REAL_DISPLAY,
+          VIRTUAL_DISPLAY,
+          { width: 0, height: 0 },
+          null,
+        ],
+      }),
+    );
+
+    expect(list).toHaveLength(2);
+    expect(list[0]).toMatchObject({ primary: true, virtual: false });
+    expect(list[1]).toMatchObject({
+      virtual: true,
+      primary: false,
+      x: 1920,
+      width: 1920,
+    });
+    expect(parseDisplays("not json")).toEqual([]);
+    expect(parseDisplays(JSON.stringify({ displays: "no" }))).toEqual([]);
+  });
+
+  it("AC-408 the window is put on the virtual display, filling it, and comes back where it was", async () => {
+    const helper = fakeHelper({
+      // on a display, then found on the virtual display for the way back
+      windows: [
+        ON_A_DISPLAY,
+        { ...ON_A_DISPLAY, x: 1920, y: 0, width: 1920, height: 1080 },
+      ],
+      displays: [REAL_DISPLAY, VIRTUAL_DISPLAY],
+    });
+    const park = createWindowPark({
+      scriptPath: "window.ps1",
+      run: helper.run,
+    });
+
+    const result = await park.moveToVirtualDisplay(RULE);
+
+    expect(result).toMatchObject({ ok: true, moved: true });
+
+    const [place] = placeCalls(helper.calls);
+
+    expect(place[place.indexOf("-X") + 1]).toBe("1920");
+    expect(place[place.indexOf("-Y") + 1]).toBe("0");
+    expect(place[place.indexOf("-Width") + 1]).toBe("1920");
+    expect(place[place.indexOf("-Height") + 1]).toBe("1080");
+
+    // the way back is the way of a parked window: where it was, as big as it was
+    const back = await park.bringBack(RULE);
+
+    expect(back.ok).toBe(true);
+
+    const [, second] = placeCalls(helper.calls);
+
+    expect(second[second.indexOf("-X") + 1]).toBe("100");
+    expect(second[second.indexOf("-Y") + 1]).toBe("80");
+    expect(second[second.indexOf("-Width") + 1]).toBe("1200");
+    expect(second[second.indexOf("-Height") + 1]).toBe("800");
+  });
+
+  it("AC-408 a window already there is not moved, and no virtual display moves nothing", async () => {
+    const there = fakeHelper({
+      windows: [{ ...ON_A_DISPLAY, x: 2000, y: 100, width: 800, height: 600 }],
+      displays: [REAL_DISPLAY, VIRTUAL_DISPLAY],
+    });
+    const parkThere = createWindowPark({
+      scriptPath: "window.ps1",
+      run: there.run,
+    });
+
+    expect(await parkThere.moveToVirtualDisplay(RULE)).toMatchObject({
+      ok: true,
+      moved: false,
+    });
+    expect(placeCalls(there.calls)).toHaveLength(0);
+
+    // only the teacher's own screen: nothing is moved, and the reason says so
+    const none = fakeHelper({
+      windows: [ON_A_DISPLAY],
+      displays: [REAL_DISPLAY],
+    });
+    const parkNone = createWindowPark({
+      scriptPath: "window.ps1",
+      run: none.run,
+    });
+    const result = await parkNone.moveToVirtualDisplay(RULE);
+
+    expect(result.ok).toBe(false);
+    expect(result.moved).toBe(false);
+    expect(result.reason).toContain("no virtual display");
+    expect(placeCalls(none.calls)).toHaveLength(0);
+
+    // a window that is not found is not moved
+    const lost = fakeHelper({
+      windows: [{ found: false }],
+      displays: [VIRTUAL_DISPLAY],
+    });
+    const parkLost = createWindowPark({
+      scriptPath: "window.ps1",
+      run: lost.run,
+    });
+
+    expect((await parkLost.moveToVirtualDisplay(RULE)).ok).toBe(false);
+    expect(placeCalls(lost.calls)).toHaveLength(0);
+  });
+
+  it("AC-409 the extension moves the window for the focus route, and puts it back", () => {
+    const source = codeOf(read("extension", "src", "extension.ts"));
+
+    // the move is tried when the route is the focus route and Control is on, and
+    // when the window is needed in front
+    expect(source).toMatch(
+      /state\.route === "focus"[\s\S]*inputGate\.enabled[\s\S]*moveToVirtual\(\)/,
+    );
+    expect(source).toMatch(/onNeed:[\s\S]*moveToVirtual\(\)[\s\S]*bringBack/);
+
+    // Control ending, the bridge going away and the extension ending put it back
+    expect(source).toMatch(
+      /windowInput\?\.stop\(\);[\s\S]*leaveVirtualDisplay\(\)/,
+    );
+    expect(source).toMatch(
+      /shutdownWindow = async \(\) => \{[\s\S]*onVirtualDisplay[\s\S]*bringBack\(editorRule\)/,
+    );
+
+    // and the helper lists displays and says which are virtual
+    const helperSource = read("extension", "media", "window.ps1");
+
+    expect(helperSource).toContain("'Displays'");
+    expect(helperSource).toContain("EnumDisplayMonitors");
+    expect(helperSource).toContain("EnumDisplayDevices");
+  });
+
+  it.skipIf(process.platform !== "win32")(
+    "AC-409 the real helper lists the displays of this machine",
+    async () => {
+      const answer = await runTheRealHelper(["-Mode", "Displays"]);
+      const list = parseDisplays(answer.output);
+
+      expect(list.length).toBeGreaterThan(0);
+      expect(list.filter((display) => display.primary)).toHaveLength(1);
+
+      for (const display of list) {
+        expect(display.width).toBeGreaterThan(0);
+        expect(display.height).toBeGreaterThan(0);
+      }
+    },
+    60_000,
+  );
+});
+
 describe("nothing uses or ships the virtual display driver", () => {
+  // the extension may USE a virtual display that is there (D-350); it never
+  // names, installs or drives the driver itself (D-329)
   const driverWords = /virtual.?display|\bVDD\b|VirtualDisplayDriver/i;
+  const extensionWords = /\bVDD\b|MttVDD|VirtualDisplayDriver|virtual-display/i;
 
   it("AC-374 the extension has no virtual display code or command", () => {
     // the files that were the virtual display are gone
@@ -502,7 +687,7 @@ describe("nothing uses or ships the virtual display driver", () => {
       join("extension", "src", "captureState.ts"),
       join("scripts", "build-vsix.mjs"),
     ]) {
-      expect(codeOf(read(file)), file).not.toMatch(driverWords);
+      expect(codeOf(read(file)), file).not.toMatch(extensionWords);
     }
 
     // the manifest has the parking commands and no command that names a display

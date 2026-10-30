@@ -221,6 +221,52 @@ export const parseWorkArea = (output: string): WorkArea | null => {
   };
 };
 
+/** One display of the desktop, as the helper reports it (D-350). */
+export interface DisplayInfo {
+  /** the display's device name, e.g. "\\.\DISPLAY4" */
+  device: string;
+  /** what the adapter says about itself: its description, id and key */
+  adapter: string;
+  /** whether the adapter says it is a virtual one (an indirect display driver) */
+  virtual: boolean;
+  /** whether it is the primary display */
+  primary: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** The displays the helper listed. Nothing that is not a display is one. */
+export const parseDisplays = (output: string): DisplayInfo[] => {
+  const raw = firstRecord(output);
+  const list = raw && Array.isArray(raw.displays) ? raw.displays : [];
+
+  const displays: DisplayInfo[] = [];
+
+  for (const item of list as Array<Record<string, unknown>>) {
+    const width = asNumber(item?.width);
+    const height = asNumber(item?.height);
+
+    if (width <= 0 || height <= 0) {
+      continue;
+    }
+
+    displays.push({
+      device: typeof item.device === "string" ? item.device : "",
+      adapter: typeof item.adapter === "string" ? item.adapter : "",
+      virtual: item.virtual === true,
+      primary: item.primary === true,
+      x: asNumber(item.x),
+      y: asNumber(item.y),
+      width,
+      height,
+    });
+  }
+
+  return displays;
+};
+
 /** What a park or a bring back did. */
 export interface ParkResult {
   /** is the window where the teacher asked it to be? */
@@ -324,6 +370,17 @@ export interface WindowPark {
   ) => Promise<PlacementOutcome>;
   /** the primary display's work area */
   workArea: () => Promise<WorkArea | null>;
+  /** every display of the desktop, and which of them are virtual (D-350) */
+  displays: () => Promise<DisplayInfo[]>;
+  /**
+   * Put the window on the **virtual display**, filling it, without taking the
+   * focus (D-350). `moved` says whether the window was moved now - a window that
+   * is there already is not moved again. The way back is the same as a parked
+   * window's.
+   */
+  moveToVirtualDisplay: (
+    rule: WindowRule,
+  ) => Promise<ParkResult & { moved: boolean }>;
   /** park the window: far off every display, out of sight and still working */
   park: (rule: WindowRule) => Promise<ParkResult>;
   /** bring the window BACK, the way the teacher had it (D-149) */
@@ -390,6 +447,9 @@ export const createWindowPark = (options: WindowParkOptions): WindowPark => {
 
   const workArea = async (): Promise<WorkArea | null> =>
     parseWorkArea(await run(helperArgs(["-Mode", "Primary"])));
+
+  const displays = async (): Promise<DisplayInfo[]> =>
+    parseDisplays(await run(helperArgs(["-Mode", "Displays"])));
 
   /**
    * What it remembers about a window it parked.
@@ -531,11 +591,99 @@ export const createWindowPark = (options: WindowParkOptions): WindowPark => {
     };
   };
 
+  const moveToVirtualDisplay = async (
+    rule: WindowRule,
+  ): Promise<ParkResult & { moved: boolean }> => {
+    const window = await find(rule);
+
+    if (!window?.found) {
+      return {
+        ok: false,
+        moved: false,
+        reason: `no window was found to move - ${rule.subject} is not open`,
+        handle: 0,
+      };
+    }
+
+    const virtual = (await displays()).find((display) => display.virtual);
+
+    if (!virtual) {
+      return {
+        ok: false,
+        moved: false,
+        reason: "there is no virtual display on this machine",
+        handle: window.handle,
+      };
+    }
+
+    const middleX = window.x + window.width / 2;
+    const middleY = window.y + window.height / 2;
+
+    if (
+      middleX >= virtual.x &&
+      middleX < virtual.x + virtual.width &&
+      middleY >= virtual.y &&
+      middleY < virtual.y + virtual.height
+    ) {
+      return {
+        ok: true,
+        moved: false,
+        reason: `${rule.subject} is on the virtual display`,
+        handle: window.handle,
+      };
+    }
+
+    const outcome = await place(window.handle, {
+      x: virtual.x,
+      y: virtual.y,
+      width: virtual.width,
+      height: virtual.height,
+    });
+
+    if (!outcome.placed) {
+      return {
+        ok: false,
+        moved: false,
+        reason: `${rule.subject} was not moved to the virtual display - ${outcome.reason}`,
+        handle: window.handle,
+      };
+    }
+
+    // the way back is the same as a parked window's (D-149): the facts, and
+    // never the handle - and a window that was parked first keeps the place it
+    // had before it was
+    if (!parked.has(ruleKey(rule))) {
+      parked.set(ruleKey(rule), {
+        x: window.x,
+        y: window.y,
+        width: window.width,
+        height: window.height,
+        maximised: outcome.wasMaximised,
+      });
+    }
+
+    return {
+      ok: true,
+      moved: true,
+      reason: `${rule.subject} is on the virtual display`,
+      handle: window.handle,
+    };
+  };
+
   const isParked = async (rule: WindowRule): Promise<boolean> => {
     const window = await find(rule);
 
     return Boolean(window?.found && isParkedPlace(window.x, window.y));
   };
 
-  return { find, place, workArea, park, bringBack, isParked };
+  return {
+    find,
+    place,
+    workArea,
+    displays,
+    moveToVirtualDisplay,
+    park,
+    bringBack,
+    isParked,
+  };
 };

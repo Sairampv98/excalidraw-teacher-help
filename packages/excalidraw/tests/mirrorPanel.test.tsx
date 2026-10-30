@@ -14,7 +14,7 @@ import type {
   NonDeletedExcalidrawElement,
 } from "@excalidraw/element/types";
 
-import { Excalidraw } from "../index";
+import { CommandPalette, Excalidraw } from "../index";
 import { codePanelContent, emptyCodePanelState } from "../scene/panelContent";
 import { mirrorPanelView } from "../scene/mirrorPanelView";
 import {
@@ -649,6 +649,98 @@ describe("the screenshot of the mirror", () => {
     finish(panel.id);
   });
 
+  it("AC-403 the crop window lists the pages, and Insert goes to the page that was chosen", async () => {
+    const screenshot = host();
+    const panel = await openCropWindow(screenshot);
+
+    // with one page there is nothing to choose
+    expect(
+      document.querySelector('[data-testid="panel-screenshot-page-select"]'),
+    ).toBeNull();
+
+    act(() => {
+      API.setAppState({
+        pages: [
+          { id: "p1", name: "One" },
+          { id: "p2", name: "Two" },
+          { id: "p3", name: "Three" },
+        ],
+        currentPageId: "p2",
+      });
+    });
+
+    const select = (await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="panel-screenshot-page-select"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found;
+    })) as HTMLSelectElement;
+
+    // every page is there, and the one the teacher is on says so
+    expect([...select.options].map((option) => option.textContent)).toEqual([
+      "One",
+      "Two (this page)",
+      "Three",
+    ]);
+    expect(select.value).toBe("p2");
+
+    // the page the teacher is on is where the picture goes, and the button says
+    // so
+    const insert = () =>
+      document.querySelector(
+        '[data-testid="panel-screenshot-action-page"]',
+      ) as HTMLElement;
+
+    expect(insert().textContent).toBe("Insert into this page");
+
+    // another page is chosen, and the button says which
+    fireEvent.change(select, { target: { value: "p3" } });
+
+    await waitFor(() => expect(insert().textContent).toBe("Insert into Three"));
+
+    press("panel-screenshot-action-page");
+
+    await waitFor(() =>
+      expect(screenshot.onChoice).toHaveBeenCalledWith(panel.id, "page"),
+    );
+    expect(screenshot.onPageChoice).toHaveBeenCalledWith(panel.id, "p3");
+
+    finish(panel.id);
+  });
+
+  it("AC-403 Insert on the page the teacher is on asks for no other page", async () => {
+    const screenshot = host();
+    const panel = await openCropWindow(screenshot);
+
+    act(() => {
+      API.setAppState({
+        pages: [
+          { id: "p1", name: "One" },
+          { id: "p2", name: "Two" },
+        ],
+        currentPageId: "p1",
+      });
+    });
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="panel-screenshot-page-select"]'),
+      ).not.toBeNull(),
+    );
+
+    press("panel-screenshot-action-page");
+
+    await waitFor(() =>
+      expect(screenshot.onChoice).toHaveBeenCalledWith(panel.id, "page"),
+    );
+    expect(screenshot.onPageChoice).not.toHaveBeenCalled();
+
+    finish(panel.id);
+  });
+
   it("AC-394 a panel that is full screen is left before the rectangle, because the rectangle is on the canvas", async () => {
     const screenshot = host();
     const exit = vi.fn(async () => undefined);
@@ -839,5 +931,86 @@ describe("the screenshot of the mirror", () => {
     expect(screenshot.onChoice).not.toHaveBeenCalled();
 
     finish(panel.id);
+  });
+});
+
+describe("the keyboard of the mirror", () => {
+  it("AC-400 while Control has the keyboard, the canvas's own shortcuts keep out of it", async () => {
+    const panel = mirror();
+    const onInput = vi.fn();
+
+    await render(
+      <Excalidraw
+        panelBridge={bridge("connected", "connected")}
+        panelControl={{ onToggle: vi.fn(), onInput, onWindow: vi.fn() }}
+      >
+        {/* the host app mounts the canvas's command palette */}
+        <CommandPalette />
+      </Excalidraw>,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    act(() => {
+      setPanelCapture(panel.id, {
+        ...live,
+        control: { enabled: true, route: "background", reason: "" },
+      });
+    });
+
+    const view = (await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="code-panel-live-window"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found;
+    })) as HTMLElement;
+
+    // Control is on and the window has the keyboard
+    await waitFor(() => expect(document.activeElement).toBe(view));
+    expect(view.getAttribute("data-keyboard-taken")).toBe("true");
+
+    // Ctrl+/ and Ctrl+Shift+P are the editor's (comment the lines, the
+    // command palette), Ctrl+F is its find: they go into it, and the canvas's
+    // own palette and search do not open
+    const chords = [
+      { code: "Slash", key: "/", ctrlKey: true },
+      { code: "KeyP", key: "P", ctrlKey: true, shiftKey: true },
+      { code: "KeyF", key: "f", ctrlKey: true },
+    ];
+
+    for (const chord of chords) {
+      onInput.mockClear();
+
+      fireEvent.keyDown(view, chord);
+
+      expect(onInput).toHaveBeenCalledWith(
+        panel.id,
+        expect.objectContaining({
+          kind: "key",
+          action: "down",
+          code: chord.code,
+        }),
+      );
+      expect(window.h.state.openDialog).toBeNull();
+    }
+
+    // anywhere else the shortcut is the canvas's, as it was
+    fireEvent.keyDown(document.body, {
+      code: "Slash",
+      key: "/",
+      ctrlKey: true,
+    });
+
+    await waitFor(() =>
+      expect(window.h.state.openDialog).toEqual({ name: "commandPalette" }),
+    );
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
   });
 });

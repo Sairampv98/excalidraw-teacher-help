@@ -7,6 +7,7 @@
 #   -Mode Find       one object: the window the RULE finds
 #   -Mode Place      one object: what the placement did
 #   -Mode Primary    one object: the work area of the primary display
+#   -Mode Displays   one object: every display on the machine, and which are virtual
 #
 # WHY a helper and not a library: the extension has NO runtime dependency of
 # its own, and PowerShell is on every Windows machine - the same reason the
@@ -49,10 +50,10 @@
 # same helper puts a window back, and -Maximise puts it back into the maximised
 # state it was in before it was parked.
 #
-# Arguments: -Mode <Find|Place|Primary> -TitleLike <substring>
+# Arguments: -Mode <Find|Place|Primary|Displays> -TitleLike <substring>
 #            -ProcessName <name> -Handle <n> -X -Y -Width -Height -Maximise
 param(
-  [ValidateSet('Find', 'Place', 'Primary')][string]$Mode = 'Find',
+  [ValidateSet('Find', 'Place', 'Primary', 'Displays')][string]$Mode = 'Find',
   [string]$TitleLike = '',
   [string]$ProcessName = '',
   [long]$Handle = 0,
@@ -90,6 +91,82 @@ public class WinPark {
   static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
   [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr context);
   [DllImport("user32.dll")] static extern bool SystemParametersInfo(uint action, uint param, out RECT rect, uint flags);
+
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  public struct DISPLAY_DEVICE {
+    public int cb;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string DeviceName;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceString;
+    public int StateFlags;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceID;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceKey;
+  }
+
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  public struct MONITORINFOEX {
+    public int cbSize;
+    public RECT rcMonitor;
+    public RECT rcWork;
+    public int dwFlags;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string szDevice;
+  }
+
+  public delegate bool MonitorProc(IntPtr monitor, IntPtr hdc, ref RECT rect, IntPtr data);
+  [DllImport("user32.dll")]
+  static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr clip, MonitorProc proc, IntPtr data);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+  static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFOEX info);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+  static extern bool EnumDisplayDevices(string device, uint index, ref DISPLAY_DEVICE found, uint flags);
+
+  public class DisplayInfo {
+    public string Device;
+    public string Adapter;
+    public bool Virtual;
+    public bool Primary;
+    public int X, Y, Width, Height;
+  }
+
+  /// Every display that is part of the desktop, in real pixels, and whether its
+  /// adapter says it is a virtual one (an indirect display driver names itself in
+  /// its description, its id or its key).
+  public static DisplayInfo[] Displays() {
+    Dictionary<string, string> adapters = new Dictionary<string, string>();
+
+    for (uint i = 0; i < 64; i++) {
+      DISPLAY_DEVICE device = new DISPLAY_DEVICE();
+      device.cb = Marshal.SizeOf(typeof(DISPLAY_DEVICE));
+      if (!EnumDisplayDevices(null, i, ref device, 0)) break;
+      adapters[device.DeviceName] = device.DeviceString + " | " + device.DeviceID + " | " + device.DeviceKey;
+    }
+
+    List<DisplayInfo> found = new List<DisplayInfo>();
+
+    EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, delegate(IntPtr monitor, IntPtr hdc, ref RECT rect, IntPtr data) {
+      MONITORINFOEX info = new MONITORINFOEX();
+      info.cbSize = Marshal.SizeOf(typeof(MONITORINFOEX));
+
+      if (GetMonitorInfo(monitor, ref info)) {
+        string text;
+        if (!adapters.TryGetValue(info.szDevice, out text)) text = "";
+
+        DisplayInfo display = new DisplayInfo();
+        display.Device = info.szDevice;
+        display.Adapter = text;
+        display.Virtual = System.Text.RegularExpressions.Regex.IsMatch(text, "virtual|indirect|\\bidd\\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        display.Primary = (info.dwFlags & 1) != 0;
+        display.X = info.rcMonitor.Left;
+        display.Y = info.rcMonitor.Top;
+        display.Width = info.rcMonitor.Right - info.rcMonitor.Left;
+        display.Height = info.rcMonitor.Bottom - info.rcMonitor.Top;
+        found.Add(display);
+      }
+
+      return true;
+    }, IntPtr.Zero);
+
+    return found.ToArray();
+  }
 
   /// Every pixel this helper reads or writes is a real one.
   public static void BeDpiAware() {
@@ -382,6 +459,24 @@ try {
       measuredHeight = $result.Height
       reason      = $result.Reason
     })
+  }
+  elseif ($Mode -eq 'Displays') {
+    $list = @()
+
+    foreach ($display in [WinPark]::Displays()) {
+      $list += [ordered]@{
+        device  = $display.Device
+        adapter = $display.Adapter
+        virtual = $display.Virtual
+        primary = $display.Primary
+        x       = $display.X
+        y       = $display.Y
+        width   = $display.Width
+        height  = $display.Height
+      }
+    }
+
+    Write-Json ([ordered]@{ displays = $list })
   }
   elseif ($Mode -eq 'Primary') {
     $area = [WinPark]::WorkArea()

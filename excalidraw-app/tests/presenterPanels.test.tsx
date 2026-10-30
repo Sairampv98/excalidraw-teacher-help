@@ -529,6 +529,47 @@ describe("the presenter shows the panels", () => {
     ).toBeNull();
   });
 
+  it("AC-399 a presenter whose canvas was emptied by its own start-up gets the scene back", async () => {
+    const panel = codePanel();
+
+    await render(
+      <ExcalidrawAPIProvider>
+        <PresenterView />
+      </ExcalidrawAPIProvider>,
+    );
+
+    const channel = FakeBroadcastChannel.instances[0];
+
+    await act(async () => {
+      channel.receive({
+        type: "presenter:scene",
+        scene: { elements: [panel], camera: camera() },
+      });
+    });
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    await waitFor(() =>
+      expect(document.querySelector('[data-testid="panel"]')).not.toBeNull(),
+    );
+
+    // the window settles itself after the scene was put on it, and the canvas
+    // is empty - the editor sends nothing more, because nothing in it changed
+    // (D-344)
+    await act(async () => {
+      API.setElements([]);
+    });
+
+    expect(document.querySelector('[data-testid="panel"]')).toBeNull();
+
+    // the presenter looks for the scene and puts it back, by itself
+    await waitFor(
+      () =>
+        expect(document.querySelector('[data-testid="panel"]')).not.toBeNull(),
+      { timeout: 3000 },
+    );
+  });
+
   it("AC-138 a presenter with no descriptor says why instead of showing black", async () => {
     const panel = codePanel();
 
