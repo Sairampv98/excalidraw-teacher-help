@@ -341,4 +341,38 @@ describe("the crop window of an image", () => {
 
     expect(same.width).toBe(200);
   });
+
+  it("AC-405 Reset and Enter bring a cropped picture back whole", async () => {
+    const image = await mount({
+      x: 100,
+      y: 50,
+      width: 500,
+      height: 250,
+      naturalWidth: 1000,
+      naturalHeight: 500,
+    });
+
+    act(() => openImageCrop(image.id));
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="image-crop"]'),
+      ).not.toBeNull(),
+    );
+
+    // Reset puts the box on the whole picture, and Enter applies it
+    fireEvent.click(
+      document.querySelector('[data-testid="image-crop-reset"]') as HTMLElement,
+    );
+    fireEvent.keyDown(window, { key: "Enter" });
+
+    expect(document.querySelector('[data-testid="image-crop"]')).toBeNull();
+
+    const whole = window.h.elements.find(
+      (candidate) => candidate.id === image.id,
+    ) as unknown as { width: number; crop: unknown };
+
+    expect(whole.crop).toBeNull();
+    expect(whole.width).toBeCloseTo(400, 5);
+  });
 });

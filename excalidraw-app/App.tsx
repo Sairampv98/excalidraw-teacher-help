@@ -5,6 +5,7 @@ import {
   reconcileElements,
   ExcalidrawAPIProvider,
   fetchEditorSnapshot,
+  getYoutubeSurface,
   getPanelCapture,
   isStandaloneCodePanel,
   snapshotUrl,
@@ -126,7 +127,8 @@ import { AppWelcomeScreen } from "./components/AppWelcomeScreen";
 import { insertCodePanel } from "./bridge/insertCodePanel";
 import { useBridgePanel } from "./bridge/useBridgePanel";
 import { useOcr, imageNaturalSize } from "./bridge/useOcr";
-import { useScreenshot } from "./bridge/useScreenshot";
+import { tabCaptureMessage, useScreenshot } from "./bridge/useScreenshot";
+import { captureTabRegion } from "./bridge/tabCapture";
 import {
   ExportToExcalidrawPlus,
   exportToExcalidrawPlus,
@@ -724,7 +726,22 @@ const ExcalidrawWrapper = () => {
         }
       }
 
-      const image = mirrored ?? imageOfPanel(panel);
+      // A YouTube player is a foreign document: its picture is the tab's
+      // picture of it (D-352).
+      const youtube = getYoutubeSurface(panelId);
+      let tabbed: Awaited<ReturnType<typeof captureTabRegion>> = null;
+
+      if (youtube) {
+        try {
+          tabbed = await captureTabRegion(youtube.getBoundingClientRect());
+        } catch (error) {
+          current.setToast({ message: tabCaptureMessage(error) });
+
+          return;
+        }
+      }
+
+      const image = mirrored ?? tabbed ?? imageOfPanel(panel);
 
       if (!image) {
         return;

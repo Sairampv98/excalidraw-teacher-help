@@ -34,7 +34,7 @@ import { PANEL_SCALE_PROPERTY, panelScreenChrome } from "../scene/panelChrome";
 
 import { t } from "../i18n";
 
-import { ScreenshotIcon } from "./icons";
+import { FrameCaptureIcon } from "./icons";
 import Spinner from "./Spinner";
 
 import type {
@@ -82,7 +82,7 @@ const PanelScreenshotButton = ({
         flexShrink: 0,
       }}
     >
-      {ScreenshotIcon}
+      {FrameCaptureIcon}
     </button>
   );
 };

@@ -193,6 +193,21 @@ const ImageCropScreen = ({
     closeImageCrop();
   }, [api, image, natural, part]);
 
+  // Enter applies, as it does in the crop window of a poster
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        apply();
+      }
+    };
+
+    window.addEventListener("keydown", onKey, true);
+
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [apply]);
+
   if (!image || !file || !natural || !part) {
     return (
       <div className="media-crop" data-testid="image-crop">

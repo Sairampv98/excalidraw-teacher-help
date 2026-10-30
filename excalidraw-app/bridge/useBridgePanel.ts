@@ -92,6 +92,8 @@ const sameCapture = (a: PanelCapture | null, b: PanelCapture): boolean => {
       a.width === b.width &&
       a.height === b.height &&
       a.parked === b.parked &&
+      a.virtual === b.virtual &&
+      a.virtualAvailable === b.virtualAvailable &&
       sameControl(a.control, b.control)
     );
   }

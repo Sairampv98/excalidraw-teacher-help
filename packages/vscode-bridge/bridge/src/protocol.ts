@@ -433,13 +433,19 @@ export const isBridgeControlState = (
   typeof value.reason === "string" &&
   value.reason.length > 0;
 
-/** What the panel asks of the editor's window itself (D-328). */
-export type BridgeWindowAction = "park" | "bring-back";
+/**
+ * What the panel asks of the editor's window itself (D-328, D-351).
+ *
+ * `virtual` puts the window on the machine's virtual display, and
+ * `bring-back` brings it back to the display it came from.
+ */
+export type BridgeWindowAction = "park" | "bring-back" | "virtual";
 
 /** Every action on the window the panel may ask for. The list is closed. */
 export const BRIDGE_WINDOW_ACTIONS: readonly BridgeWindowAction[] = [
   "park",
   "bring-back",
+  "virtual",
 ];
 
 /** Whether a value is one of the window's actions. */
@@ -637,6 +643,12 @@ export type BridgeMessage =
        * Absent means it is not.
        */
       parked?: boolean;
+      /**
+       * Whether the editor's window is on the **virtual display** (D-351), and
+       * whether the machine has one to put it on. Absent means no.
+       */
+      virtual?: boolean;
+      virtualAvailable?: boolean;
     }
   /**
    * panel -> extension. Control on or off (D-323).
@@ -999,7 +1011,10 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
         // the control and the parking are optional: an extension that
         // predates them still connects (D-323, D-328)
         (value.control === undefined || isBridgeControlState(value.control)) &&
-        (value.parked === undefined || typeof value.parked === "boolean")
+        (value.parked === undefined || typeof value.parked === "boolean") &&
+        (value.virtual === undefined || typeof value.virtual === "boolean") &&
+        (value.virtualAvailable === undefined ||
+          typeof value.virtualAvailable === "boolean")
       );
     case "editor:control":
       return typeof value.enabled === "boolean";

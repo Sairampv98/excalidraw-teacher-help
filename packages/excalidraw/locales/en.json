@@ -205,7 +205,9 @@
         "cropHandle": "Crop the picture",
         "revertCrop": "Revert the crop",
         "nothingToCapture": "There is nothing to capture on this panel yet.",
-        "captureFailed": "The picture could not be taken."
+        "captureFailed": "The picture could not be taken.",
+        "tabNotShared": "The picture of the video needs this tab to be shared with the page - press Allow when the browser asks, and choose this tab.",
+        "tabUnsupported": "This browser cannot take a picture of a tab, so the video cannot be photographed here."
       },
       "bridge": {
         "label": "Bridge",
@@ -318,6 +320,10 @@
       "parkTitle": "Park the editor's window out of sight - it keeps working",
       "bringBack": "Bring back",
       "bringBackTitle": "Bring the editor's window back",
+      "virtual": "Virtual",
+      "virtualTitle": "Move the editor's window to the virtual display - out of your way, and still live here",
+      "mainScreen": "Main",
+      "mainScreenTitle": "Bring the editor's window back to your main display",
       "routeBackground": "no focus taken",
       "routeFocus": "with focus"
     },

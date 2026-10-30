@@ -246,6 +246,17 @@ declare module "vscode" {
       store(key: string, value: string): Thenable<void>;
       delete(key: string): Thenable<void>;
     };
+    /**
+     * A folder of the extension's own, which the editor keeps across updates.
+     *
+     * The private Python environment of the indra engine lives here (D-353).
+     */
+    readonly globalStorageUri: { readonly fsPath: string };
+  }
+
+  export enum ProgressLocation {
+    Window = 10,
+    Notification = 15,
   }
 
   export namespace window {
@@ -308,6 +319,17 @@ declare module "vscode" {
       items: readonly T[],
       options?: { title?: string; placeHolder?: string },
     ): Thenable<T | undefined>;
+    /** a task that takes time, with a progress notice while it does (D-353) */
+    export function withProgress<R>(
+      options: {
+        location: ProgressLocation;
+        title?: string;
+        cancellable?: boolean;
+      },
+      task: (progress: {
+        report(value: { message?: string; increment?: number }): void;
+      }) => Thenable<R>,
+    ): Thenable<R>;
     export function createStatusBarItem(
       alignment?: StatusBarAlignment,
       priority?: number,

@@ -65,6 +65,11 @@ export interface CaptureStatePublisher {
   setControl: (control: BridgeControlState) => void;
   /** whether the editor's window is parked off every display (D-328) */
   setParked: (parked: boolean) => void;
+  /**
+   * whether the editor's window is on the virtual display, and whether the
+   * machine has one (D-351)
+   */
+  setVirtual: (virtual: { on: boolean; available: boolean }) => void;
   /** the state as it stands, or null when nothing has been published yet */
   readonly state: CaptureState | null;
 }
@@ -102,6 +107,9 @@ export const createCaptureStatePublisher = (
   /** is the editor's window parked? (D-328) */
   let parked = false;
 
+  /** is it on the virtual display, and is there one? (D-351) */
+  let virtual = { on: false, available: false };
+
   /** the last frame's number: the seq a re-published state carries. */
   let seq = 0;
 
@@ -119,6 +127,8 @@ export const createCaptureStatePublisher = (
       ...(size ? { width: size.width, height: size.height } : {}),
       ...(control ? { control } : {}),
       ...(parked ? { parked: true } : {}),
+      ...(virtual.on ? { virtual: true } : {}),
+      ...(virtual.available ? { virtualAvailable: true } : {}),
     });
   };
 
@@ -195,6 +205,18 @@ export const createCaptureStatePublisher = (
       }
 
       parked = next;
+
+      if (state) {
+        send(state);
+      }
+    },
+
+    setVirtual: (next: { on: boolean; available: boolean }) => {
+      if (virtual.on === next.on && virtual.available === next.available) {
+        return;
+      }
+
+      virtual = next;
 
       if (state) {
         send(state);

@@ -726,3 +726,84 @@ describe("nothing uses or ships the virtual display driver", () => {
     }
   });
 });
+
+describe("the teacher's own button for the virtual display (D-351)", () => {
+  it("AC-411 the state says whether there is a virtual display and whether the window is on it", async () => {
+    // a virtual display, and the window on the teacher's own
+    const away = createWindowPark({
+      scriptPath: "window.ps1",
+      run: fakeHelper({
+        windows: [ON_A_DISPLAY],
+        displays: [REAL_DISPLAY, VIRTUAL_DISPLAY],
+      }).run,
+    });
+
+    expect(await away.virtualState(RULE)).toEqual({
+      available: true,
+      on: false,
+    });
+
+    // the window on it
+    const there = createWindowPark({
+      scriptPath: "window.ps1",
+      run: fakeHelper({
+        windows: [
+          { ...ON_A_DISPLAY, x: 2000, y: 100, width: 800, height: 600 },
+        ],
+        displays: [REAL_DISPLAY, VIRTUAL_DISPLAY],
+      }).run,
+    });
+
+    expect(await there.virtualState(RULE)).toEqual({
+      available: true,
+      on: true,
+    });
+
+    // and a machine without one says so, and moves nothing
+    const none = fakeHelper({
+      windows: [ON_A_DISPLAY],
+      displays: [REAL_DISPLAY],
+    });
+    const without = createWindowPark({
+      scriptPath: "window.ps1",
+      run: none.run,
+    });
+
+    expect(await without.virtualState(RULE)).toEqual({
+      available: false,
+      on: false,
+    });
+    expect(placeCalls(none.calls)).toHaveLength(0);
+  });
+
+  it("AC-411 the extension routes the panel's actions, and a window the teacher chose stays", () => {
+    const source = codeOf(read("extension", "src", "extension.ts"));
+
+    // the panel's actions: park, the virtual display, and back
+    expect(source).toMatch(
+      /case "editor:window":[\s\S]*parkEditor\(\)[\s\S]*moveToVirtualByChoice\(\)[\s\S]*bringBackByChoice\(\)/,
+    );
+
+    // the window's state is published with the descriptor
+    expect(source).toMatch(
+      /captureState\.setVirtual\(await windowPark\.virtualState\(editorRule\)\)/,
+    );
+
+    // Control ending does not take a chosen window back, and the focus route
+    // does not put a window back that the teacher brought to the main display
+    expect(source).toMatch(/if \(!onVirtualDisplay \|\| chosenVirtual\)/);
+    expect(source).toMatch(/!declinedVirtual/);
+
+    // the command is in the manifest and registered
+    const manifest = JSON.parse(read("extension", "package.json")) as {
+      contributes: { commands: { command: string }[] };
+    };
+
+    expect(manifest.contributes.commands.map((each) => each.command)).toContain(
+      "excalidraw-bridge.moveEditorWindowToVirtualScreen",
+    );
+    expect(source).toContain(
+      "excalidraw-bridge.moveEditorWindowToVirtualScreen",
+    );
+  });
+});

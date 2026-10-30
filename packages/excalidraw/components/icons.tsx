@@ -209,6 +209,20 @@ export const ScreenshotIcon = createIcon(
   tablerIconProps,
 );
 
+// tabler-icons: scan - the corners of a frame round a point: the picture of a
+// part of the screen, which is what the panel's camera takes (D-352)
+export const FrameCaptureIcon = createIcon(
+  <g strokeWidth="1.5">
+    <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+    <path d="M4 7v-1a2 2 0 0 1 2 -2h2" />
+    <path d="M4 17v1a2 2 0 0 0 2 2h2" />
+    <path d="M16 4h2a2 2 0 0 1 2 2v1" />
+    <path d="M16 20h2a2 2 0 0 0 2 -2v-1" />
+    <path d="M12 15a3 3 0 1 0 0 -6a3 3 0 0 0 0 6z" />
+  </g>,
+  tablerIconProps,
+);
+
 // tabler-icons: lock (via Figma)
 export const LockedIcon = createIcon(
   <g strokeWidth="1.25">

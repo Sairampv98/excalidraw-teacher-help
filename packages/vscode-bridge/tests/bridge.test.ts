@@ -1495,3 +1495,61 @@ describe("what is mirrored (D-143)", () => {
     expect(published[2].follow).toBeUndefined();
   });
 });
+
+describe("the window on the virtual display, over the bridge (D-351)", () => {
+  it("AC-411 the window action and the descriptor carry the virtual display", async () => {
+    const { BRIDGE_WINDOW_ACTIONS } = await import("../bridge/src/protocol");
+
+    expect([...BRIDGE_WINDOW_ACTIONS]).toEqual([
+      "park",
+      "bring-back",
+      "virtual",
+    ]);
+
+    // the action round-trips, and a made-up action is refused
+    const action = {
+      v: 1,
+      type: "editor:window",
+      action: "virtual",
+    } as BridgeMessage;
+
+    expect(parseBridgeMessage(encodeBridgeMessage(action))).toEqual(action);
+    expect(
+      parseBridgeMessage(
+        JSON.stringify({ v: 1, type: "editor:window", action: "elsewhere" }),
+      ),
+    ).toBeNull();
+
+    // the descriptor says nothing until there is something to say
+    const published: CaptureStateMessage[] = [];
+    const captureState = createCaptureStatePublisher((message) =>
+      published.push(message),
+    );
+
+    captureState.live(1, { width: 1282, height: 674 });
+    expect(published[0].virtual).toBeUndefined();
+    expect(published[0].virtualAvailable).toBeUndefined();
+
+    captureState.setVirtual({ on: false, available: true });
+    expect(published).toHaveLength(2);
+    expect(published[1].virtualAvailable).toBe(true);
+    expect(published[1].virtual).toBeUndefined();
+
+    captureState.setVirtual({ on: true, available: true });
+    expect(published).toHaveLength(3);
+    expect(published[2].virtual).toBe(true);
+
+    // the same thing again is not a change
+    captureState.setVirtual({ on: true, available: true });
+    expect(published).toHaveLength(3);
+
+    for (const message of published) {
+      expect(parseBridgeMessage(encodeBridgeMessage(message))).toEqual(message);
+    }
+
+    // a descriptor with the wrong shape is refused
+    expect(
+      parseBridgeMessage(JSON.stringify({ ...published[2], virtual: "yes" })),
+    ).toBeNull();
+  });
+});

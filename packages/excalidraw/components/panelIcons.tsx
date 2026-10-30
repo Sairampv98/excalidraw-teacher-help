@@ -43,6 +43,12 @@ const PANEL_ICON_PATHS: Record<string, React.ReactNode> = {
     <path d="M4 7V4h3M20 7V4h-3M4 17v3h3M20 17v3h-3M8 9h8M8 12h8M8 15h5" />
   ),
   pointer: <path d="M5 3l6 17 2.5-7.5L21 10z" />,
+  monitor: (
+    <>
+      <rect x="3" y="4" width="18" height="12" rx="2" />
+      <path d="M8 20h8M12 16v4" />
+    </>
+  ),
   hide: (
     <>
       <path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z" />

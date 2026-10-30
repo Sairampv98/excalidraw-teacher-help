@@ -1,5 +1,6 @@
 import React, {
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -112,6 +113,37 @@ const fileNameOf = (uri: string | undefined): string => {
     return uri.split("/").pop() ?? "";
   }
 };
+
+/**
+ * The **sharpening** of the live picture (D-354).
+ *
+ * The window is captured at its own size and drawn in a panel that is a third
+ * of that or less, so the browser has to shrink it - and a picture that is
+ * shrunk comes out soft, text first. The picture is drawn through a 3x3
+ * sharpening kernel (the weights add up to one, so brightness is kept): it
+ * works on the pixels that are drawn, and not on the ones that are streamed,
+ * so it adds nothing to the capture, the stream or the bytes. What it costs is
+ * the browser's filter pass over the panel's area for every frame, which was
+ * measured (D-354).
+ */
+const MirrorSharpenFilter = ({ id }: { id: string }) => (
+  <svg
+    aria-hidden="true"
+    width="0"
+    height="0"
+    style={{ position: "absolute", pointerEvents: "none" }}
+  >
+    <filter id={id} colorInterpolationFilters="sRGB">
+      <feConvolveMatrix
+        order="3"
+        kernelMatrix="0 -0.4 0 -0.4 2.6 -0.4 0 -0.4 0"
+        divisor="1"
+        edgeMode="duplicate"
+        preserveAlpha="true"
+      />
+    </filter>
+  </svg>
+);
 
 export const MirrorPanelSurface = ({
   panel,
@@ -257,10 +289,16 @@ export const MirrorPanelSurface = ({
 
   // ---------------------------------------------------------------- control
 
+  // the id of the sharpening filter the live picture is drawn through (D-354)
+  const sharpenId = `mirror-sharpen-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+
   const controlState = capture?.status === "live" ? capture.control : undefined;
   const controlOn =
     !isReadOnly && Boolean(control?.onToggle) && controlState?.enabled === true;
   const parked = capture?.status === "live" && capture.parked === true;
+  const virtualOn = capture?.status === "live" && capture.virtual === true;
+  const virtualAvailable =
+    capture?.status === "live" && capture.virtualAvailable === true;
   const canControl =
     !isReadOnly &&
     Boolean(control?.onToggle) &&
@@ -583,6 +621,37 @@ export const MirrorPanelSurface = ({
             <PanelIcon name={parked ? "show" : "hide"} size={iconSize} />
             {parked ? t("labels.control.bringBack") : t("labels.control.park")}
           </button>
+          {(virtualOn || virtualAvailable) && control?.onWindow ? (
+            <button
+              type="button"
+              className="excalidraw__panel-code-virtual"
+              data-testid="code-panel-virtual"
+              data-panel-id={panel.id}
+              data-virtual={virtualOn ? "yes" : "no"}
+              onClick={() =>
+                control.onWindow?.(
+                  panel.id,
+                  virtualOn ? "bring-back" : "virtual",
+                )
+              }
+              title={
+                virtualOn
+                  ? t("labels.control.mainScreenTitle")
+                  : t("labels.control.virtualTitle")
+              }
+              aria-label={
+                virtualOn
+                  ? t("labels.control.mainScreenTitle")
+                  : t("labels.control.virtualTitle")
+              }
+              style={tool({ active: virtualOn, wide: true })}
+            >
+              <PanelIcon name="monitor" size={iconSize} />
+              {virtualOn
+                ? t("labels.control.mainScreen")
+                : t("labels.control.virtual")}
+            </button>
+          ) : null}
           {controlOn && controlState ? (
             <span
               className="excalidraw__panel-code-control-route"
@@ -952,6 +1021,7 @@ export const MirrorPanelSurface = ({
           : {}),
       }}
     >
+      <MirrorSharpenFilter id={sharpenId} />
       <img
         className="excalidraw__panel-code-live"
         data-testid="code-panel-live-frame"
@@ -967,12 +1037,14 @@ export const MirrorPanelSurface = ({
                 left: crop.pictureLeft,
                 top: crop.pictureTop,
                 display: "block",
+                filter: `url(#${sharpenId})`,
               }
             : {
                 width: "100%",
                 height: "100%",
                 objectFit: "contain",
                 display: "block",
+                filter: `url(#${sharpenId})`,
               }
         }
       />

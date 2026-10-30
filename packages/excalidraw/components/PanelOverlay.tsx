@@ -94,6 +94,10 @@ import {
   registerVideoSurface,
   unregisterVideoSurface,
 } from "./videoPanelSurface";
+import {
+  registerYoutubeSurface,
+  unregisterYoutubeSurface,
+} from "./youtubePanelSurface";
 
 import type { PanelPalette } from "./vscodeTheme";
 
@@ -3139,6 +3143,22 @@ const YoutubePanelSurface = ({
 
     captions?.onRequest?.(panel.id, source.videoId);
   }, [captions, panel.id, source.videoId]);
+
+  /**
+   * The iframe is where a host looks for the picture of the player (D-352):
+   * the surface is kept for as long as the panel is on the screen.
+   */
+  useEffect(() => {
+    const frame = iframeRef.current;
+
+    if (!frame) {
+      return;
+    }
+
+    registerYoutubeSurface(panel.id, frame);
+
+    return () => unregisterYoutubeSurface(panel.id);
+  }, [panel.id]);
 
   /**
    * The focus goes back to the canvas when the pointer leaves (D-130).

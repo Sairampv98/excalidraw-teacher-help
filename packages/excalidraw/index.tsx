@@ -695,6 +695,10 @@ export {
   getVideoSurface,
 } from "./components/videoPanelSurface";
 
+// the YouTube panel's iframe: where the host looks for the picture of the
+// player (D-352)
+export { getYoutubeSurface } from "./components/youtubePanelSurface";
+
 export { CommandPalette } from "./components/CommandPalette/CommandPalette";
 
 export {

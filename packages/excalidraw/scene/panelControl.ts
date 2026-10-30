@@ -74,8 +74,8 @@ export interface PanelControlState {
   reason: string;
 }
 
-/** What the panel asks of the editor's window itself (D-328). */
-export type PanelWindowAction = "park" | "bring-back";
+/** What the panel asks of the editor's window itself (D-328, D-351). */
+export type PanelWindowAction = "park" | "bring-back" | "virtual";
 
 /**
  * What the host tells the library about the **control** (D-323).

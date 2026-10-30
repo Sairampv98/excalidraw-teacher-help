@@ -33,6 +33,7 @@ import {
   resolveEngineState,
   stopOcrSidecar,
 } from "./ocrEngines";
+import { installIndra, isIndraMissing, pythonForSidecar } from "./indraEnv";
 import { portConflictMessage } from "./portConflict";
 import { createRunPseudoterminal } from "./pseudoterminal";
 import { createRunner, type Runner } from "./runner";
@@ -419,7 +420,19 @@ export async function activate(
   const configuredEngine = resolveOcrEngine(
     configuration.get<string>("ocrEngine"),
   );
-  const pythonPath = resolvePythonPath(configuration.get<string>("pythonPath"));
+  const configuredPython = resolvePythonPath(
+    configuration.get<string>("pythonPath"),
+  );
+
+  /**
+   * The Python the sidecar runs in: the private environment the extension made
+   * for indra once there is one, and the teacher's own Python until then
+   * (D-353).
+   */
+  let pythonPath = pythonForSidecar({
+    configured: configuredPython,
+    storageDir: context.globalStorageUri.fsPath,
+  });
 
   /**
    * Whether the teacher has already been told about the fall-back.
@@ -492,6 +505,70 @@ export async function activate(
     publishOcrState(state);
   };
 
+  /**
+   * Installs the indra engine in an environment of its own (D-353).
+   *
+   * The sidecar is stopped and started again in the new environment, and the
+   * panel is told the engine is there - so the next read uses it without the
+   * teacher doing anything else.
+   */
+  const installIndraEngine = async () => {
+    const outcome = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title:
+          "Excalidraw Bridge: installing the indra OCR engine (one download, about 270 MB)",
+        cancellable: false,
+      },
+      () =>
+        installIndra({
+          basePython: configuredPython,
+          storageDir: context.globalStorageUri.fsPath,
+          extensionDir: context.extensionPath,
+        }),
+    );
+
+    if (!outcome.ok || !outcome.python) {
+      void vscode.window.showErrorMessage(
+        `Excalidraw Bridge: ${outcome.message}`,
+      );
+
+      return;
+    }
+
+    stopOcrSidecar();
+    pythonPath = outcome.python;
+    await resolveTheEngine();
+
+    void vscode.window.showInformationMessage(
+      "Excalidraw Bridge: indra is installed - the next read uses it. (Its model downloads the first time it reads.)",
+    );
+  };
+
+  /** the teacher is asked once whether indra is installed now (D-353) */
+  let offeredIndra = false;
+
+  const offerIndraInstall = async () => {
+    if (offeredIndra) {
+      return;
+    }
+
+    offeredIndra = true;
+
+    const choice = await vscode.window.showInformationMessage(
+      "Excalidraw Bridge: the indra OCR engine is not installed on this machine, so the text was read with tesseract. Install indra now? It is one download of about 270 MB, made once, in an environment of its own.",
+      "Install indra",
+      "Not now",
+    );
+
+    if (choice === "Install indra") {
+      await installIndraEngine();
+    } else {
+      // asked again the next time the teacher reads with indra
+      offeredIndra = false;
+    }
+  };
+
   const readText = async (request: OcrRequest) => {
     try {
       // the request may name an engine; when it does not, the setting decides
@@ -545,7 +622,14 @@ export async function activate(
         message,
       });
 
-      vscode.window.showErrorMessage(`Excalidraw Bridge: ${message}`);
+      // indra that is not installed is a choice, not an error: the read was
+      // taken by the next engine, and the teacher is offered the install once
+      // (D-353)
+      if (isIndraMissing(message)) {
+        void offerIndraInstall();
+      } else {
+        vscode.window.showErrorMessage(`Excalidraw Bridge: ${message}`);
+      }
     }
   };
 
@@ -625,7 +709,13 @@ export async function activate(
       case "editor:window":
         // Park the editor's window, or bring it back (D-328): the teacher's
         // choice, from the panel (D-148).
-        void (message.action === "park" ? parkEditor() : bringBackEditor());
+        if (message.action === "park") {
+          void parkEditor();
+        } else if (message.action === "virtual") {
+          void moveToVirtualByChoice();
+        } else {
+          void bringBackByChoice();
+        }
         break;
       case "ocr:request":
         void readText(message);
@@ -705,6 +795,7 @@ export async function activate(
       };
 
       captureState.setParked(parked);
+      captureState.setVirtual(await windowPark.virtualState(editorRule));
     } catch (error) {
       panelState = {
         parked: false,
@@ -790,6 +881,48 @@ export async function activate(
   };
 
   /**
+   * The teacher's own button: the window goes to the virtual display (D-351).
+   *
+   * It stays there - Control ending does not take it back - until the teacher
+   * brings it back to the main display.
+   */
+  const moveToVirtualByChoice = async () => {
+    if (process.platform !== "win32" || !workspace) {
+      void vscode.window.showInformationMessage(
+        "Excalidraw Bridge: moving the editor's window needs Windows and an open folder.",
+      );
+      return;
+    }
+
+    chosenVirtual = true;
+    declinedVirtual = false;
+
+    const moved = await moveToVirtual();
+
+    if (!moved) {
+      chosenVirtual = false;
+
+      void vscode.window.showInformationMessage(
+        "Excalidraw Bridge: there is no virtual display on this machine to put the editor's window on.",
+      );
+    }
+
+    await refreshWindowState();
+  };
+
+  /**
+   * The teacher's own button: the window comes back to the main display, from
+   * the virtual display or from where it was parked (D-149, D-351).
+   */
+  const bringBackByChoice = async () => {
+    chosenVirtual = false;
+    declinedVirtual = true;
+    onVirtualDisplay = false;
+
+    await bringBackEditor();
+  };
+
+  /**
    * The **control** of the editor's window (D-323 to D-327).
    *
    * It is off until a panel turns it on, and it is off again when that panel's
@@ -823,6 +956,18 @@ export async function activate(
 
   /** the move to the virtual display is tried once for each Control session */
   let virtualTried = false;
+
+  /**
+   * The teacher put the window on the virtual display themselves (D-351): it
+   * stays there until they bring it back, and Control ending does not.
+   */
+  let chosenVirtual = false;
+
+  /**
+   * The teacher brought the window back to the main display themselves
+   * (D-351): the focus route leaves it there until Control ends.
+   */
+  let declinedVirtual = false;
 
   /** the window is put on the virtual display, and the helper looks again */
   const moveToVirtual = async (): Promise<boolean> => {
@@ -869,8 +1014,10 @@ export async function activate(
   /** the window comes back from the virtual display, when it was put there */
   const leaveVirtualDisplay = async () => {
     virtualTried = false;
+    declinedVirtual = false;
 
-    if (!onVirtualDisplay) {
+    // a window the teacher put there stays there until they bring it back
+    if (!onVirtualDisplay || chosenVirtual) {
       return;
     }
 
@@ -944,7 +1091,8 @@ export async function activate(
           state.route === "focus" &&
           inputGate.enabled &&
           !onVirtualDisplay &&
-          !virtualTried
+          !virtualTried &&
+          !declinedVirtual
         ) {
           void moveToVirtual();
         }
@@ -962,7 +1110,7 @@ export async function activate(
         void (async () => {
           // a virtual display is where the window goes when there is one
           // (D-350); the teacher's own screen when there is not (D-336)
-          if (await moveToVirtual()) {
+          if (!declinedVirtual && (await moveToVirtual())) {
             return;
           }
 
@@ -1309,7 +1457,17 @@ export async function activate(
     ),
     vscode.commands.registerCommand(
       "excalidraw-bridge.bringBackEditorWindow",
-      bringBackEditor,
+      bringBackByChoice,
+    ),
+    // the indra engine installs itself, when the teacher says so (D-353)
+    vscode.commands.registerCommand(
+      "excalidraw-bridge.installIndraOcr",
+      installIndraEngine,
+    ),
+    // the virtual display is the teacher's choice too (D-351)
+    vscode.commands.registerCommand(
+      "excalidraw-bridge.moveEditorWindowToVirtualScreen",
+      moveToVirtualByChoice,
     ),
   );
 

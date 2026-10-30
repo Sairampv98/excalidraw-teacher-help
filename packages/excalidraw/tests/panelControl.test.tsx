@@ -1554,3 +1554,133 @@ describe("the panel parks the editor's window (D-328)", () => {
     expect(onWindow).toHaveBeenLastCalledWith(panel.id, "bring-back");
   });
 });
+
+describe("the panel puts the editor's window on the virtual display (D-351)", () => {
+  it("AC-410 the virtual screen button shows only when there is one, and moves the window both ways", async () => {
+    const onWindow = vi.fn();
+    const panel = livePanel();
+
+    await render(
+      <Excalidraw
+        panelControl={{ onToggle: vi.fn(), onInput: vi.fn(), onWindow }}
+        panelMirror={{ onChange: vi.fn() }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    const capture = (extra: Record<string, unknown>) =>
+      act(() => {
+        setPanelCapture(panel.id, {
+          status: "live",
+          streamUrl: STREAM,
+          width: 1000,
+          height: 500,
+          control: BACKGROUND,
+          ...extra,
+        } as never);
+      });
+
+    // a machine with no virtual display is offered no button for it
+    capture({});
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-park"]'),
+      ).not.toBeNull(),
+    );
+    expect(
+      document.querySelector('[data-testid="code-panel-virtual"]'),
+    ).toBeNull();
+
+    // one that has one: the button puts the window there
+    capture({ virtualAvailable: true });
+
+    const button = (await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="code-panel-virtual"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found;
+    })) as HTMLElement;
+
+    expect(button.getAttribute("data-virtual")).toBe("no");
+    expect(button.textContent).toBe("Virtual");
+
+    fireEvent.click(button);
+    expect(onWindow).toHaveBeenLastCalledWith(panel.id, "virtual");
+
+    // the window is on it: the same button brings it back to the main display
+    capture({ virtualAvailable: true, virtual: true });
+
+    await waitFor(() =>
+      expect(button.getAttribute("data-virtual")).toBe("yes"),
+    );
+    expect(button.textContent).toBe("Main");
+
+    fireEvent.click(button);
+    expect(onWindow).toHaveBeenLastCalledWith(panel.id, "bring-back");
+  });
+
+  it("AC-415 the live picture is drawn through a sharpening kernel that keeps its brightness", async () => {
+    const panel = livePanel();
+
+    await render(
+      <Excalidraw
+        panelControl={{ onToggle: vi.fn(), onInput: vi.fn() }}
+        panelMirror={{ onChange: vi.fn() }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    act(() => {
+      setPanelCapture(panel.id, {
+        status: "live",
+        streamUrl: STREAM,
+        width: 1000,
+        height: 500,
+        control: BACKGROUND,
+      });
+    });
+
+    const frame = (await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="code-panel-live-frame"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found;
+    })) as HTMLElement;
+
+    // the picture is drawn through a filter that is on the page
+    const id = /url\(["']?#([^)"']+)["']?\)/.exec(frame.style.filter)?.[1];
+
+    expect(id).toBeTruthy();
+
+    const kernel = document
+      .getElementById(id!)
+      ?.querySelector("feConvolveMatrix");
+
+    expect(kernel).not.toBeNull();
+    expect(kernel!.getAttribute("order")).toBe("3");
+
+    // the weights add up to one: an edge is made crisper and a flat area stays
+    // as bright as it was
+    const weights = kernel!
+      .getAttribute("kernelMatrix")!
+      .split(/\s+/)
+      .map(Number);
+
+    expect(weights).toHaveLength(9);
+    expect(weights.reduce((sum, weight) => sum + weight, 0)).toBeCloseTo(1, 6);
+    // and the middle is stronger than its neighbours: it sharpens
+    expect(weights[4]).toBeGreaterThan(1);
+    expect(weights[1]).toBeLessThan(0);
+  });
+});

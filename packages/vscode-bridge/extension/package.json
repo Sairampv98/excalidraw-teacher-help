@@ -77,6 +77,14 @@
       {
         "command": "excalidraw-bridge.bringBackEditorWindow",
         "title": "Excalidraw Bridge: Bring the editor's window back"
+      },
+      {
+        "command": "excalidraw-bridge.installIndraOcr",
+        "title": "Excalidraw Bridge: Install the indra OCR engine"
+      },
+      {
+        "command": "excalidraw-bridge.moveEditorWindowToVirtualScreen",
+        "title": "Excalidraw Bridge: Move the editor's window to the virtual screen"
       }
     ],
     "configuration": {

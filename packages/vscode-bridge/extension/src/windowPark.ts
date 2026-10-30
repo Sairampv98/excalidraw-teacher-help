@@ -267,6 +267,26 @@ export const parseDisplays = (output: string): DisplayInfo[] => {
   return displays;
 };
 
+/** Whether the middle of a window is on a display (D-350, D-351). */
+const isOnDisplay = (
+  window: { x: number; y: number; width: number; height: number } | null,
+  display: DisplayInfo,
+): boolean => {
+  if (!window) {
+    return false;
+  }
+
+  const middleX = window.x + window.width / 2;
+  const middleY = window.y + window.height / 2;
+
+  return (
+    middleX >= display.x &&
+    middleX < display.x + display.width &&
+    middleY >= display.y &&
+    middleY < display.y + display.height
+  );
+};
+
 /** What a park or a bring back did. */
 export interface ParkResult {
   /** is the window where the teacher asked it to be? */
@@ -372,6 +392,14 @@ export interface WindowPark {
   workArea: () => Promise<WorkArea | null>;
   /** every display of the desktop, and which of them are virtual (D-350) */
   displays: () => Promise<DisplayInfo[]>;
+  /**
+   * Whether the machine has a virtual display, and whether the window is on it
+   * now (D-351). It moves nothing.
+   */
+  virtualState: (rule: WindowRule) => Promise<{
+    available: boolean;
+    on: boolean;
+  }>;
   /**
    * Put the window on the **virtual display**, filling it, without taking the
    * focus (D-350). `moved` says whether the window was moved now - a window that
@@ -616,15 +644,7 @@ export const createWindowPark = (options: WindowParkOptions): WindowPark => {
       };
     }
 
-    const middleX = window.x + window.width / 2;
-    const middleY = window.y + window.height / 2;
-
-    if (
-      middleX >= virtual.x &&
-      middleX < virtual.x + virtual.width &&
-      middleY >= virtual.y &&
-      middleY < virtual.y + virtual.height
-    ) {
+    if (isOnDisplay(window, virtual)) {
       return {
         ok: true,
         moved: false,
@@ -670,6 +690,23 @@ export const createWindowPark = (options: WindowParkOptions): WindowPark => {
     };
   };
 
+  const virtualState = async (
+    rule: WindowRule,
+  ): Promise<{ available: boolean; on: boolean }> => {
+    const virtual = (await displays()).find((display) => display.virtual);
+
+    if (!virtual) {
+      return { available: false, on: false };
+    }
+
+    const window = await find(rule);
+
+    return {
+      available: true,
+      on: Boolean(window?.found) && isOnDisplay(window, virtual),
+    };
+  };
+
   const isParked = async (rule: WindowRule): Promise<boolean> => {
     const window = await find(rule);
 
@@ -681,6 +718,7 @@ export const createWindowPark = (options: WindowParkOptions): WindowPark => {
     place,
     workArea,
     displays,
+    virtualState,
     moveToVirtualDisplay,
     park,
     bringBack,

@@ -77,6 +77,10 @@ export interface PanelCaptureLive {
   control?: PanelControlState;
   /** whether the editor's window is **parked** off every display (D-328) */
   parked?: boolean;
+  /** whether the editor's window is on the **virtual display** (D-351) */
+  virtual?: boolean;
+  /** whether the machine has a virtual display to put it on (D-351) */
+  virtualAvailable?: boolean;
 }
 
 /**

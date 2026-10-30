@@ -10,6 +10,7 @@ import {
   getPanelCapture,
   getPendingScreenshot,
   getVideoSurface,
+  getYoutubeSurface,
   setPendingScreenshot,
   setPendingScreenshotStage,
   snapshotUrl,
@@ -32,6 +33,7 @@ import {
 } from "../sidebar/insertIntoScene";
 
 import { ocrTextElements } from "./ocrPlacement";
+import { TabCaptureError, captureTabRegion } from "./tabCapture";
 
 import type { ScreenshotPlacement } from "../sidebar/insertIntoScene";
 import type { OcrImage, OcrPlacement } from "./useOcr";
@@ -67,6 +69,14 @@ import type { OcrLine } from "../../packages/vscode-bridge/bridge/src/ocr";
  * is forgotten, so the focus state - the dimming and the picture in front -
  * goes with it.
  */
+/** what the teacher is told when the tab's picture could not be taken (D-352) */
+export const tabCaptureMessage = (error: unknown): string =>
+  error instanceof TabCaptureError && error.reason === "unsupported"
+    ? t("labels.panel.screenshot.tabUnsupported")
+    : error instanceof TabCaptureError
+    ? t("labels.panel.screenshot.tabNotShared")
+    : t("labels.panel.screenshot.captureFailed");
+
 export const useScreenshot = ({
   api,
   readOcr,
@@ -164,6 +174,33 @@ export const useScreenshot = ({
         current?.setToast({
           message: t("labels.panel.screenshot.captureFailed"),
         });
+
+        return;
+      }
+
+      // a YouTube player is a foreign document: its picture is the tab's
+      // picture of it (D-352)
+      const youtube = getYoutubeSurface(panelId);
+
+      if (youtube) {
+        try {
+          const picture = await captureTabRegion(
+            youtube.getBoundingClientRect(),
+          );
+
+          if (picture) {
+            publish(panelId, "video", picture);
+            return;
+          }
+
+          current?.setToast({
+            message: t("labels.panel.screenshot.captureFailed"),
+          });
+        } catch (error) {
+          current?.setToast({
+            message: tabCaptureMessage(error),
+          });
+        }
 
         return;
       }
