@@ -33,7 +33,7 @@ import {
 } from "../sidebar/insertIntoScene";
 
 import { ocrTextElements } from "./ocrPlacement";
-import { TabCaptureError, captureTabRegion } from "./tabCapture";
+import { TabCaptureError, captureYoutubePicture } from "./tabCapture";
 
 import type { ScreenshotPlacement } from "../sidebar/insertIntoScene";
 import type { OcrImage, OcrPlacement } from "./useOcr";
@@ -184,8 +184,16 @@ export const useScreenshot = ({
 
       if (youtube) {
         try {
-          const picture = await captureTabRegion(
-            youtube.getBoundingClientRect(),
+          const element = current
+            ?.getSceneElements()
+            .find((candidate) => candidate.id === panelId);
+
+          // the player's own shape: the panel is the video (D-131)
+          const picture = await captureYoutubePicture(
+            youtube,
+            element && element.height > 0
+              ? element.width / element.height
+              : null,
           );
 
           if (picture) {

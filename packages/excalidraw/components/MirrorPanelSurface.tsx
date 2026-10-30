@@ -126,6 +126,62 @@ const fileNameOf = (uri: string | undefined): string => {
  * the browser's filter pass over the panel's area for every frame, which was
  * measured (D-354).
  */
+/**
+ * Whether the header has run out of room (D-361).
+ *
+ * The header is one row of buttons with words on them, and a panel that is
+ * narrow wrapped it onto a second row, which took a third of the picture. A
+ * header that wraps is a header with no room for its words: the buttons that
+ * have an icon keep the icon, and the words are in their tooltips. It is
+ * measured, not guessed: the row has wrapped when the middles of its children
+ * are not all on one line. The width at which it wrapped is kept, and the words come
+ * back when the header is clearly wider than that.
+ */
+const useCompactWhenWrapped = (
+  ref: React.RefObject<HTMLElement | null>,
+): boolean => {
+  const [compact, setCompact] = useState(false);
+  const wrappedAt = useRef(0);
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+
+    if (!element || typeof ResizeObserver === "undefined") {
+      return undefined;
+    }
+
+    const measure = () => {
+      const width = element.clientWidth;
+
+      if (!compact) {
+        // the middles of the children: a row has one, whatever the heights are
+        const middles = Array.from(element.children).map((child) => {
+          const box = child as HTMLElement;
+
+          return box.offsetTop + box.offsetHeight / 2;
+        });
+
+        if (Math.max(...middles) - Math.min(...middles) > 6) {
+          wrappedAt.current = width;
+          setCompact(true);
+        }
+      } else if (width > wrappedAt.current + Math.max(120, width * 0.2)) {
+        setCompact(false);
+      }
+    };
+
+    measure();
+
+    const observer = new ResizeObserver(measure);
+
+    observer.observe(element);
+
+    return () => observer.disconnect();
+  }, [compact, ref]);
+
+  return compact;
+};
+
 const MirrorSharpenFilter = ({ id }: { id: string }) => (
   <svg
     aria-hidden="true"
@@ -288,6 +344,10 @@ export const MirrorPanelSurface = ({
   };
 
   // ---------------------------------------------------------------- control
+
+  // the header keeps to one row (D-361)
+  const headerRef = useRef<HTMLDivElement>(null);
+  const compact = useCompactWhenWrapped(headerRef);
 
   // the id of the sharpening filter the live picture is drawn through (D-354)
   const sharpenId = `mirror-sharpen-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
@@ -479,8 +539,10 @@ export const MirrorPanelSurface = ({
 
   const header = (
     <div
+      ref={headerRef}
       className="excalidraw__panel-mirror-header"
       data-testid="mirror-panel-header"
+      data-compact={compact ? "yes" : "no"}
       style={{
         display: "flex",
         flexWrap: "wrap",
@@ -510,6 +572,8 @@ export const MirrorPanelSurface = ({
         data-testid="mirror-panel-title"
         style={{
           fontFamily: "monospace",
+          flex: "0 1 auto",
+          minWidth: 0,
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
@@ -595,7 +659,7 @@ export const MirrorPanelSurface = ({
             style={tool({ active: controlOn, wide: true })}
           >
             <PanelIcon name="pointer" size={iconSize} />
-            {t("labels.control.label")}
+            {compact ? null : t("labels.control.label")}
           </button>
           <button
             type="button"
@@ -619,7 +683,11 @@ export const MirrorPanelSurface = ({
             style={tool({ active: parked, wide: true })}
           >
             <PanelIcon name={parked ? "show" : "hide"} size={iconSize} />
-            {parked ? t("labels.control.bringBack") : t("labels.control.park")}
+            {compact
+              ? null
+              : parked
+              ? t("labels.control.bringBack")
+              : t("labels.control.park")}
           </button>
           {(virtualOn || virtualAvailable) && control?.onWindow ? (
             <button
@@ -647,12 +715,14 @@ export const MirrorPanelSurface = ({
               style={tool({ active: virtualOn, wide: true })}
             >
               <PanelIcon name="monitor" size={iconSize} />
-              {virtualOn
+              {compact
+                ? null
+                : virtualOn
                 ? t("labels.control.mainScreen")
                 : t("labels.control.virtual")}
             </button>
           ) : null}
-          {controlOn && controlState ? (
+          {controlOn && controlState && !compact ? (
             <span
               className="excalidraw__panel-code-control-route"
               data-testid="code-panel-control-route"
@@ -710,7 +780,11 @@ export const MirrorPanelSurface = ({
             ) : (
               <PanelIcon name="readText" size={iconSize} />
             )}
-            {ocr.busy ? t("labels.ocrLadder.reading") : t("labels.panel.ocr")}
+            {compact
+              ? null
+              : ocr.busy
+              ? t("labels.ocrLadder.reading")
+              : t("labels.panel.ocr")}
           </button>
           {ocr.engines && ocr.engines.length > 0 ? (
             <select

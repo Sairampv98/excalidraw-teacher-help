@@ -1684,3 +1684,122 @@ describe("the panel puts the editor's window on the virtual display (D-351)", ()
     expect(weights[1]).toBeLessThan(0);
   });
 });
+
+describe("the mirror's header keeps to one row (D-361)", () => {
+  it("AC-423 a header that wraps keeps only the icons, and the words come back with room", async () => {
+    const callbacks: (() => void)[] = [];
+
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          callbacks.push(callback);
+        }
+
+        observe() {}
+
+        unobserve() {}
+
+        disconnect() {}
+      },
+    );
+
+    // jsdom has no layout: the header's children are on two rows (the Control
+    // button is below the others), at a width that is said here
+    let wrapped = true;
+    let width = 400;
+
+    vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(
+      function (this: HTMLElement) {
+        return wrapped && this.dataset.testid === "code-panel-control" ? 60 : 0;
+      },
+    );
+    vi.spyOn(Element.prototype, "clientWidth", "get").mockImplementation(
+      () => width,
+    );
+
+    try {
+      const panel = livePanel();
+
+      await render(
+        <Excalidraw
+          panelControl={{
+            onToggle: vi.fn(),
+            onInput: vi.fn(),
+            onWindow: vi.fn(),
+          }}
+          panelMirror={{ onChange: vi.fn() }}
+        />,
+      );
+
+      API.setAppState({ width: 1000, height: 1000 });
+      API.setElements([asElement(panel)]);
+
+      act(() => {
+        setPanelCapture(panel.id, {
+          status: "live",
+          streamUrl: STREAM,
+          width: 1000,
+          height: 500,
+          control: BACKGROUND,
+        });
+      });
+
+      const header = (await waitFor(() => {
+        const found = document.querySelector(
+          '[data-testid="mirror-panel-header"]',
+        );
+
+        expect(found).not.toBeNull();
+
+        return found;
+      })) as HTMLElement;
+
+      // the browser tells the header its size changed when its row wraps
+      await waitFor(() =>
+        expect(
+          document.querySelector('[data-testid="code-panel-control"]'),
+        ).not.toBeNull(),
+      );
+      act(() => callbacks.forEach((callback) => callback()));
+
+      // it wrapped: the buttons that have an icon keep the icon, and their
+      // words are their tooltips
+      await waitFor(() =>
+        expect(header.getAttribute("data-compact")).toBe("yes"),
+      );
+
+      const control = document.querySelector(
+        '[data-testid="code-panel-control"]',
+      ) as HTMLElement;
+      const park = document.querySelector(
+        '[data-testid="code-panel-park"]',
+      ) as HTMLElement;
+
+      expect(control.textContent).toBe("");
+      expect(park.textContent).toBe("");
+      expect(control.getAttribute("title")).not.toBe("");
+      expect(control.querySelector("svg")).not.toBeNull();
+
+      // the mode buttons keep their words: they have no icon to stand for them
+      expect(
+        document.querySelector('[data-testid="code-panel-mirror-whole"]')!
+          .textContent,
+      ).toBe("Whole");
+
+      // a header that is much wider and fits on one row has its words back
+      wrapped = false;
+      width = 1400;
+      act(() => callbacks.forEach((callback) => callback()));
+
+      await waitFor(() =>
+        expect(header.getAttribute("data-compact")).toBe("no"),
+      );
+      expect(control.textContent).toBe("Control");
+      expect(park.textContent).toBe("Park");
+    } finally {
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    }
+  });
+});

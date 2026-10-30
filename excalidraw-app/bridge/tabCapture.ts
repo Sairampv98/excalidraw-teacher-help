@@ -253,3 +253,87 @@ export const captureTabRegion = async (
 
 /** Stops the stream now, if there is one. */
 export const releaseTabCapture = release;
+
+/**
+ * The biggest rectangle of an aspect that fits in another, centred (D-362).
+ *
+ * The player fills a full-screen window, and when the screen is not the
+ * player's shape the rest is bars: the picture is the player's own shape,
+ * in the middle.
+ */
+export const fitAspect = (rect: ScreenRect, aspect: number): ScreenRect => {
+  const width = Math.min(rect.width, rect.height * aspect);
+  const height = width / aspect;
+
+  return {
+    left: rect.left + (rect.width - width) / 2,
+    top: rect.top + (rect.height - height) / 2,
+    width,
+    height,
+  };
+};
+
+/** how long the player is left alone in full screen, so its controls go */
+export const FULLSCREEN_SETTLE_MS = 2500;
+
+/**
+ * Shares the tab now, so that nothing is asked while the player is full
+ * screen (D-362). A stream that is there is kept as it is.
+ */
+export const ensureTabShared = async (): Promise<void> => {
+  const current = await open();
+
+  current.timer = setTimeout(release, TAB_IDLE_MS);
+};
+
+/**
+ * The picture of a YouTube player, taken with the player **full screen**
+ * (D-362).
+ *
+ * The player on the canvas is as big as the canvas shows it, so a picture of it
+ * is that many pixels. Full screen it is as big as the screen. The order is:
+ *
+ * - full screen is asked for **first**, in the click that asked for the
+ *   picture - the browser lets only a click do it;
+ * - the tab is shared next, so that nothing is asked while the player is full
+ *   screen (a stream that is already there is used);
+ * - the player is left alone for a moment, so that its controls go away;
+ * - the picture is cut from the frame, in the player's own shape, and full
+ *   screen is left.
+ *
+ * A browser that will not go full screen gets the picture of the player where
+ * it is - the picture is never refused for that.
+ */
+export const captureYoutubePicture = async (
+  frame: HTMLElement,
+  aspect: number | null,
+  settleMs: number = FULLSCREEN_SETTLE_MS,
+): Promise<TabPicture | null> => {
+  const wanted =
+    typeof frame.requestFullscreen === "function"
+      ? frame.requestFullscreen().then(
+          () => true,
+          () => false,
+        )
+      : Promise.resolve(false);
+
+  try {
+    const entered = await wanted;
+
+    await ensureTabShared();
+
+    if (entered && document.fullscreenElement === frame) {
+      await new Promise((resolve) => setTimeout(resolve, settleMs));
+
+      const rect = frame.getBoundingClientRect();
+
+      return await captureTabRegion(aspect ? fitAspect(rect, aspect) : rect);
+    }
+
+    return await captureTabRegion(frame.getBoundingClientRect());
+  } finally {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen().catch(() => undefined);
+    }
+  }
+};

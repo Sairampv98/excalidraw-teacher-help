@@ -31,12 +31,12 @@ import type { ExcalidrawPanelElement } from "@excalidraw/element/types";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
 import ExcalidrawApp from "../App";
-import { TabCaptureError, captureTabRegion } from "../bridge/tabCapture";
+import { TabCaptureError, captureYoutubePicture } from "../bridge/tabCapture";
 import { useScreenshot } from "../bridge/useScreenshot";
 
 vi.mock("../bridge/tabCapture", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../bridge/tabCapture")>()),
-  captureTabRegion: vi.fn(),
+  captureYoutubePicture: vi.fn(),
 }));
 
 const PICTURE = {
@@ -60,7 +60,7 @@ const youtubePanel = (): ExcalidrawPanelElement =>
 
 afterEach(() => {
   act(() => clearAllPendingScreenshots());
-  vi.mocked(captureTabRegion).mockReset();
+  vi.mocked(captureYoutubePicture).mockReset();
   vi.unstubAllGlobals();
 });
 
@@ -79,7 +79,7 @@ describe("the camera of a YouTube panel", () => {
   });
 
   it("AC-413 the camera takes the tab's picture of the player and holds it for the crop window", async () => {
-    vi.mocked(captureTabRegion).mockResolvedValue(PICTURE);
+    vi.mocked(captureYoutubePicture).mockResolvedValue(PICTURE);
 
     const panel = youtubePanel();
     let api: ExcalidrawImperativeAPI | null = null;
@@ -105,9 +105,14 @@ describe("the camera of a YouTube panel", () => {
     });
 
     // the picture is cut from the iframe's own rectangle
-    expect(captureTabRegion).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(captureTabRegion).mock.calls[0][0]).toEqual(
-      getYoutubeSurface(panel.id)!.getBoundingClientRect(),
+    expect(captureYoutubePicture).toHaveBeenCalledTimes(1);
+    // the picture is of the panel's iframe, in the panel's own shape
+    expect(vi.mocked(captureYoutubePicture).mock.calls[0][0]).toBe(
+      getYoutubeSurface(panel.id),
+    );
+    expect(vi.mocked(captureYoutubePicture).mock.calls[0][1]).toBeCloseTo(
+      480 / 270,
+      5,
     );
 
     const pending = getPendingScreenshot(panel.id);
@@ -118,7 +123,7 @@ describe("the camera of a YouTube panel", () => {
   });
 
   it("AC-413 a tab that was not shared is said, and nothing is held", async () => {
-    vi.mocked(captureTabRegion).mockRejectedValue(
+    vi.mocked(captureYoutubePicture).mockRejectedValue(
       new TabCaptureError("not-shared"),
     );
 
@@ -153,7 +158,7 @@ describe("the camera of a YouTube panel", () => {
 describe("the read of a YouTube panel", () => {
   it("AC-413 the read asks which part, with the tab's picture of the player in the window", async () => {
     vi.stubGlobal("Worker", class {});
-    vi.mocked(captureTabRegion).mockResolvedValue(PICTURE);
+    vi.mocked(captureYoutubePicture).mockResolvedValue(PICTURE);
 
     await render(<ExcalidrawApp />);
 
@@ -180,7 +185,7 @@ describe("the read of a YouTube panel", () => {
       ).not.toBeNull(),
     );
 
-    expect(captureTabRegion).toHaveBeenCalledTimes(1);
+    expect(captureYoutubePicture).toHaveBeenCalledTimes(1);
     expect(document.body.innerHTML).toContain(
       "data:image/png;base64,UElDVFVSRQ==",
     );
