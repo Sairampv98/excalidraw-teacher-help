@@ -135,6 +135,10 @@ public class PwCap {
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
   [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
+  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+
+  /// Is the window the one the person is working in (D-371)?
+  public static bool InFront(IntPtr hwnd) { return GetForegroundWindow() == hwnd; }
 
   /// One top-level window: its handle, the process that owns it, its title.
   public class WindowInfo {
@@ -517,7 +521,8 @@ for ($i = 0; ($MaxFrames -le 0) -or ($i -lt $MaxFrames); $i++) {
 
   if (([DateTime]::UtcNow - $perfSince).TotalMilliseconds -ge 1000) {
     $perfAvg = [int]($perfShotSum / [Math]::Max(1, $perfFrames))
-    Write-Perf ('PERF ' + $perfFrames + ' ' + $perfAvg + ' ' + $perfShotMax + ' ' + $perfLoopMax)
+    $perfFront = if ([PwCap]::InFront($hwnd)) { 1 } else { 0 }
+    Write-Perf ('PERF ' + $perfFrames + ' ' + $perfAvg + ' ' + $perfShotMax + ' ' + $perfLoopMax + ' ' + $perfFront)
     $perfSince = [DateTime]::UtcNow
     $perfFrames = 0
     $perfShotSum = 0

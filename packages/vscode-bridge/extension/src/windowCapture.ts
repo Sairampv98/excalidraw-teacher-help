@@ -214,11 +214,15 @@ export interface CapturePerf {
   maxShotMs: number;
   /** the longest one pass of its loop took, in ms */
   maxLoopMs: number;
+  /** was the editor's window the one in front when the second ended? (D-371) */
+  inFront?: boolean;
 }
 
 /** The numbers in a PERF message, or null when it is not one. */
 export const parseCapturePerf = (text: string): CapturePerf | null => {
-  const match = text.match(/^PERF\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$/);
+  const match = text.match(
+    /^PERF\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)(?:\s+([01]))?\s*$/,
+  );
 
   if (!match) {
     return null;
@@ -229,6 +233,8 @@ export const parseCapturePerf = (text: string): CapturePerf | null => {
     avgShotMs: Number(match[2]),
     maxShotMs: Number(match[3]),
     maxLoopMs: Number(match[4]),
+    // an older helper says four numbers, and says nothing about the front
+    ...(match[5] === undefined ? {} : { inFront: match[5] === "1" }),
   };
 };
 

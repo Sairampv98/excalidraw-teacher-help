@@ -284,6 +284,9 @@ export async function activate(
       fps: resolveCaptureFps(configuration.get<number>("captureFps")),
       onPerf: (perf) => perfMonitor.recordHelper(perf),
       onFrame: (frame) => {
+        // only a picture that differs gets here: the key that waited has shown
+        perfMonitor.pictureChanged();
+
         // The picture goes to the MJPEG STREAM and to nothing else (D-85).
         bridgeServer?.publishFrame({
           bytes: frame.bytes,
@@ -702,6 +705,14 @@ export async function activate(
 
         if (verdict.ok) {
           windowInput?.send(verdict.line);
+
+          // a key (or typed text) is timed until the picture next changes
+          if (
+            verdict.line.startsWith("K down") ||
+            verdict.line.startsWith("T ")
+          ) {
+            perfMonitor.keySent();
+          }
         } else if (verdict.why === "limited") {
           noteLimited();
         }

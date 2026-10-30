@@ -25,8 +25,28 @@ export const STALL_LOOP_MS = 800;
 /** the extension host was busy when it kept its timer waiting this long */
 export const HOST_BUSY_MS = 300;
 
+/** a key that waits longer than this for the picture to change is not a measurement */
+export const KEY_GIVE_UP_MS = 15_000;
+
+/** a key whose picture took this long to change was slow (D-371) */
+export const KEY_SLOW_MS = 1000;
+
 interface HelperSecond extends CapturePerf {
   at: number;
+}
+
+interface KeyWait {
+  at: number;
+  ms: number;
+  /** was the editor's window in front when the key went? null: not known */
+  inFront: boolean | null;
+}
+
+/** how long keys took to show, for one group of them (D-371) */
+export interface KeyStats {
+  count: number;
+  medianMs: number;
+  worstMs: number;
 }
 
 interface HostLag {
@@ -58,9 +78,33 @@ export interface PerfReport {
   /** the extension host's lag over the last minute */
   host: { maxMs: number; busySeconds: number };
   stalls: Stall[];
+  /**
+   * How long a key took to show in the picture over the last minute: from the
+   * key being sent to the first picture that differs (D-371).
+   */
+  keys: {
+    all: KeyStats;
+    slow: number;
+    inFront: KeyStats;
+    behind: KeyStats;
+  };
   /** one sentence, for the teacher */
   verdict: string;
 }
+
+const keyStats = (waits: readonly KeyWait[]): KeyStats => {
+  if (!waits.length) {
+    return { count: 0, medianMs: 0, worstMs: 0 };
+  }
+
+  const sorted = waits.map((wait) => wait.ms).sort((a, b) => a - b);
+
+  return {
+    count: sorted.length,
+    medianMs: sorted[Math.floor(sorted.length / 2)],
+    worstMs: sorted[sorted.length - 1],
+  };
+};
 
 /** Who was slow in a second that stalled. */
 export const classifyStall = (
@@ -85,9 +129,21 @@ export const createPerfMonitor = (options: { now?: () => number } = {}) => {
   const now = options.now ?? Date.now;
   const helper: HelperSecond[] = [];
   const lags: HostLag[] = [];
+  const keyWaits: KeyWait[] = [];
+
+  /** when the oldest key that has not shown yet was sent */
+  let keyPendingAt: number | null = null;
+  let keyPendingFront: boolean | null = null;
+
+  /** what the helper last said about the editor being in front */
+  let lastFront: boolean | null = null;
 
   const trim = () => {
     const from = now() - PERF_KEEP_MS;
+
+    while (keyWaits.length && keyWaits[0].at < from) {
+      keyWaits.shift();
+    }
 
     while (helper.length && helper[0].at < from) {
       helper.shift();
@@ -114,6 +170,42 @@ export const createPerfMonitor = (options: { now?: () => number } = {}) => {
     /** the helper's numbers for the second that ended */
     recordHelper: (perf: CapturePerf) => {
       helper.push({ ...perf, at: now() });
+
+      if (perf.inFront !== undefined) {
+        lastFront = perf.inFront;
+      }
+
+      trim();
+    },
+
+    /**
+     * A key went to the editor (D-371). Only the oldest key that has not shown
+     * yet is timed: the question is how long the first of a burst waits.
+     */
+    keySent: () => {
+      if (keyPendingAt === null || now() - keyPendingAt > KEY_GIVE_UP_MS) {
+        keyPendingAt = now();
+        keyPendingFront = lastFront;
+      }
+    },
+
+    /**
+     * A picture that differs from the one before was published (D-371): the
+     * key that was waiting has shown.
+     */
+    pictureChanged: () => {
+      if (keyPendingAt === null) {
+        return;
+      }
+
+      const ms = now() - keyPendingAt;
+
+      if (ms <= KEY_GIVE_UP_MS) {
+        keyWaits.push({ at: now(), ms, inFront: keyPendingFront });
+      }
+
+      keyPendingAt = null;
+      keyPendingFront = null;
       trim();
     },
 
@@ -202,17 +294,46 @@ export const createPerfMonitor = (options: { now?: () => number } = {}) => {
         }
       }
 
+      const keysMinute = keyWaits.filter((wait) => wait.at >= t - 60_000);
+      const keys = {
+        all: keyStats(keysMinute),
+        slow: keysMinute.filter((wait) => wait.ms >= KEY_SLOW_MS).length,
+        inFront: keyStats(keysMinute.filter((wait) => wait.inFront === true)),
+        behind: keyStats(keysMinute.filter((wait) => wait.inFront === false)),
+      };
+
+      if (keys.all.count) {
+        if (!keys.slow) {
+          verdict += `; keys showed in the picture in ${keys.all.medianMs} ms (worst ${keys.all.worstMs} ms)`;
+        } else if (
+          keys.behind.count &&
+          keys.inFront.count &&
+          keys.behind.medianMs >= KEY_SLOW_MS &&
+          keys.inFront.medianMs < KEY_SLOW_MS
+        ) {
+          verdict += `; keys took ${keys.behind.medianMs} ms to show while the editor was behind other windows, but ${keys.inFront.medianMs} ms while it was in front: the editor draws late when it is not in front`;
+        } else {
+          verdict += `; ${keys.slow} of ${keys.all.count} keys took a second or more to show (median ${keys.all.medianMs} ms, worst ${keys.all.worstMs} ms), and being in front made no difference`;
+        }
+      }
+
       return {
         lookedMs: Math.min(PERF_KEEP_MS, helper.length ? t - helper[0].at : 0),
         framesPerSecond,
         shot: { avgMs: shotAvg, maxMs: shotMax },
         host: { maxMs: hostMax, busySeconds },
         stalls,
+        keys,
         verdict,
       };
     },
   };
 };
+
+const keyLine = (stats: KeyStats): string =>
+  stats.count
+    ? `${stats.medianMs} ms typically, ${stats.worstMs} ms at worst (${stats.count} keys)`
+    : "none";
 
 /** The report as lines of text, for the editor's Output panel. */
 export const formatPerfReport = (
@@ -227,6 +348,13 @@ export const formatPerfReport = (
     `  the window drew itself in:    ${report.shot.avgMs} ms on average, ${report.shot.maxMs} ms at worst`,
     `  the extension host was behind: up to ${report.host.maxMs} ms (${report.host.busySeconds} second(s) over ${HOST_BUSY_MS} ms)`,
     `  stalled seconds:              ${report.stalls.length}`,
+    `  a key showed in the picture:  ${
+      report.keys.all.count
+        ? `${report.keys.all.medianMs} ms typically, ${report.keys.all.worstMs} ms at worst (${report.keys.all.count} keys, ${report.keys.slow} took a second or more)`
+        : "no key was sent in the last minute"
+    }`,
+    `    editor in front:            ${keyLine(report.keys.inFront)}`,
+    `    editor behind other windows: ${keyLine(report.keys.behind)}`,
   ];
 
   for (const stall of report.stalls.slice(-8)) {

@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   HOST_BUSY_MS,
+  KEY_GIVE_UP_MS,
   classifyStall,
   createPerfMonitor,
   formatPerfReport,
@@ -211,6 +212,190 @@ describe("who was slow when the picture stalled", () => {
       ),
     ).toBe(true);
     expect(lines[lines.length - 1]).toMatch(/^verdict: /);
+  });
+});
+
+/** one smooth second of the helper, with the editor in front or not */
+const second = (inFront?: boolean) => ({
+  frames: 12,
+  avgShotMs: 20,
+  maxShotMs: 30,
+  maxLoopMs: 80,
+  ...(inFront === undefined ? {} : { inFront }),
+});
+
+describe("how long a key takes to show", () => {
+  it("AC-434 a key is timed from its sending to the next picture that differs, and only the first of a burst is", () => {
+    const { monitor, tick } = monitorWithClock();
+
+    monitor.keySent();
+    tick(100);
+    // the second key of the burst is not timed on its own
+    monitor.keySent();
+    tick(300);
+    monitor.pictureChanged();
+
+    // a picture that changes with no key waiting measures nothing
+    tick(50);
+    monitor.pictureChanged();
+
+    const report = monitor.report();
+
+    expect(report.keys.all).toEqual({ count: 1, medianMs: 400, worstMs: 400 });
+    expect(report.keys.slow).toBe(0);
+    expect(report.verdict).toContain("keys showed in the picture in 400 ms");
+  });
+
+  it("AC-434 a key whose picture never changed is given up, and the next key starts again", () => {
+    const { monitor, tick } = monitorWithClock();
+
+    monitor.keySent();
+    tick(KEY_GIVE_UP_MS + 1000);
+    monitor.keySent();
+    tick(200);
+    monitor.pictureChanged();
+
+    expect(monitor.report().keys.all).toEqual({
+      count: 1,
+      medianMs: 200,
+      worstMs: 200,
+    });
+
+    // a wait that ran past the give-up time is not a measurement at all
+    const stale = monitorWithClock();
+
+    stale.monitor.keySent();
+    stale.tick(KEY_GIVE_UP_MS + 1);
+    stale.monitor.pictureChanged();
+
+    expect(stale.monitor.report().keys.all.count).toBe(0);
+    expect(stale.monitor.report().verdict).not.toContain("keys");
+  });
+
+  it("AC-434 slow keys with the editor behind and fast ones in front are said to be the window's being behind", () => {
+    const { monitor, tick } = monitorWithClock();
+
+    for (let each = 0; each < 3; each++) {
+      monitor.recordHelper(second(false));
+      monitor.keySent();
+      tick(3000);
+      monitor.pictureChanged();
+
+      monitor.recordHelper(second(true));
+      monitor.keySent();
+      tick(120);
+      monitor.pictureChanged();
+    }
+
+    const report = monitor.report();
+
+    expect(report.keys.behind).toEqual({
+      count: 3,
+      medianMs: 3000,
+      worstMs: 3000,
+    });
+    expect(report.keys.inFront).toEqual({
+      count: 3,
+      medianMs: 120,
+      worstMs: 120,
+    });
+    expect(report.keys.slow).toBe(3);
+    expect(report.verdict).toContain(
+      "the editor draws late when it is not in front",
+    );
+
+    const lines = formatPerfReport(report, () => "12:00:00").join("\n");
+
+    expect(lines).toContain("editor in front:");
+    expect(lines).toContain("editor behind other windows:");
+  });
+
+  it("AC-434 slow keys whether or not the editor is in front are said so, and an older helper says nothing about the front", () => {
+    const { monitor, tick } = monitorWithClock();
+
+    for (let each = 0; each < 2; each++) {
+      monitor.recordHelper(second(true));
+      monitor.keySent();
+      tick(2500);
+      monitor.pictureChanged();
+
+      monitor.recordHelper(second(false));
+      monitor.keySent();
+      tick(2500);
+      monitor.pictureChanged();
+    }
+
+    expect(monitor.report().verdict).toContain(
+      "being in front made no difference",
+    );
+
+    // behind is NOT blamed when the keys behind were not the slow ones
+    const mixed = monitorWithClock();
+
+    mixed.monitor.keySent();
+    mixed.tick(3000);
+    mixed.monitor.pictureChanged();
+
+    mixed.monitor.recordHelper(second(true));
+    mixed.monitor.keySent();
+    mixed.tick(100);
+    mixed.monitor.pictureChanged();
+
+    mixed.monitor.recordHelper(second(false));
+    mixed.monitor.keySent();
+    mixed.tick(500);
+    mixed.monitor.pictureChanged();
+
+    expect(mixed.monitor.report().keys.slow).toBe(1);
+    expect(mixed.monitor.report().verdict).not.toContain("draws late");
+    expect(mixed.monitor.report().verdict).toContain(
+      "being in front made no difference",
+    );
+
+    // four numbers only: the front is not known, so no key is counted for it
+    const older = monitorWithClock();
+
+    older.monitor.recordHelper(second());
+    older.monitor.keySent();
+    older.tick(2500);
+    older.monitor.pictureChanged();
+
+    const unknown = older.monitor.report();
+
+    expect(unknown.keys.all.count).toBe(1);
+    expect(unknown.keys.inFront.count).toBe(0);
+    expect(unknown.keys.behind.count).toBe(0);
+  });
+
+  it("AC-434 the helper says whether the editor is in front, the extension times the keys it sends, and old numbers are still read", () => {
+    expect(parseCapturePerf("PERF 12 20 35 90 1")).toEqual({
+      frames: 12,
+      avgShotMs: 20,
+      maxShotMs: 35,
+      maxLoopMs: 90,
+      inFront: true,
+    });
+    expect(parseCapturePerf("PERF 12 20 35 90 0")?.inFront).toBe(false);
+    expect(parseCapturePerf("PERF 12 20 35 90")?.inFront).toBeUndefined();
+    expect(parseCapturePerf("PERF 12 20 35 90 2")).toBeNull();
+
+    const script = readFileSync(
+      join(packageRoot, "extension", "media", "capture.ps1"),
+      "utf8",
+    );
+
+    expect(script).toContain("GetForegroundWindow()");
+    expect(script).toContain("[PwCap]::InFront($hwnd)");
+    expect(script).toContain("' ' + $perfFront)");
+
+    const extension = readFileSync(
+      join(packageRoot, "extension", "src", "extension.ts"),
+      "utf8",
+    );
+
+    // a key is timed when it is sent, and ends at the next picture that differs
+    expect(extension).toContain("perfMonitor.keySent()");
+    expect(extension).toContain("perfMonitor.pictureChanged()");
   });
 });
 
