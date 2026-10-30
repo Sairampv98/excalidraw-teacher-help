@@ -248,6 +248,14 @@ export const useBridgePanel = (
 
   /** The live view as it was last published, so it is published only on a change. */
   const publishedCaptureRef = useRef<PanelCapture | null>(null);
+  /**
+   * The panels the published descriptor has been given to (D-341).
+   *
+   * A panel that appears AFTER the descriptor arrived - the document is
+   * restored after the page has reconnected - has not been given it, and the
+   * descriptor does not change again to give it.
+   */
+  const capturedIdsRef = useRef<Set<string>>(new Set());
 
   /**
    * The panels whose captions were asked for and could not be asked yet (D-129).
@@ -276,6 +284,29 @@ export const useBridgePanel = (
    * It is published **only when the descriptor changes**, so the panel
    * re-renders when the state changes and not on every message.
    */
+  const giveCaptureTo = useCallback(
+    (
+      elements: ReturnType<ExcalidrawImperativeAPI["getSceneElements"]>,
+      capture: PanelCapture,
+    ) => {
+      for (const id of bridgeCodePanelIds(elements)) {
+        if (capturedIdsRef.current.has(id)) {
+          continue;
+        }
+
+        capturedIdsRef.current.add(id);
+
+        setPanelCapture(id, capture);
+
+        // and the presenter gets the same descriptor: it is a second
+        // JavaScript context, so its own registry is empty (D-101). The picture
+        // does not travel - the presenter plays the same stream.
+        publishLiveViewRef.current?.(id, capture);
+      }
+    },
+    [],
+  );
+
   const publishCapture = useCallback(() => {
     const current = apiRef.current;
     const message = captureRef.current;
@@ -292,16 +323,28 @@ export const useBridgePanel = (
     }
 
     publishedCaptureRef.current = capture;
+    capturedIdsRef.current = new Set();
 
-    for (const id of bridgeCodePanelIds(current.getSceneElements())) {
-      setPanelCapture(id, capture);
+    giveCaptureTo(current.getSceneElements(), capture);
+  }, [giveCaptureTo]);
 
-      // and the presenter gets the same descriptor: it is a second
-      // JavaScript context, so its own registry is empty (D-101). The picture
-      // does not travel - the presenter plays the same stream.
-      publishLiveViewRef.current?.(id, capture);
+  /**
+   * Give the descriptor to the panels that have not been given it yet (D-341).
+   *
+   * It runs when the descriptor changes and whenever the scene changes, so a
+   * mirror that comes back with the document after a reload is live at once,
+   * and a mirror that is inserted while the editor is connected is too.
+   */
+  const syncCapture = useCallback(() => {
+    const current = apiRef.current;
+    const capture = publishedCaptureRef.current;
+
+    if (!current || !capture) {
+      return;
     }
-  }, []);
+
+    giveCaptureTo(current.getSceneElements(), capture);
+  }, [giveCaptureTo]);
 
   /**
    * Write the connection TRUTH into every bridge code panel (D-133).
@@ -550,12 +593,13 @@ export const useBridgePanel = (
     // has to learn what is true now.
     const unsubscribe = current.onChange?.(() => {
       writeTruth();
+      syncCapture();
     });
 
     return () => {
       unsubscribe?.();
     };
-  }, [api, writeTruth]);
+  }, [api, writeTruth, syncCapture]);
 
   const onTokenChange = useCallback((next: string) => {
     setToken(next);

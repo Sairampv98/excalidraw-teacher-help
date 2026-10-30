@@ -422,7 +422,7 @@ export const panelMirrorRegionAtPointer = (
  * pointer - slowly at the edge of the rest zone, at full speed at the edge of
  * the window.
  */
-export const FOLLOW_REST_ZONE = 0.5;
+export const FOLLOW_REST_ZONE = 0.7;
 
 /** the most a following area moves in one step, as a share of its own size */
 export const FOLLOW_STEP_MAX = 0.2;
@@ -505,19 +505,8 @@ export interface PanelMirrorPickerPicture extends PanelMirrorPicture {
   src: string;
 }
 
-/**
- * What the picker is for (D-339).
- *
- * - `region`: the teacher chooses what the panel mirrors;
- * - `screenshot`: the teacher crops a picture of the window and says what to
- *   do with it - put it on this page, on a new page, or read its text.
- */
-export type PanelMirrorPickerPurpose = "region" | "screenshot";
-
 /** The picker that is open. */
 export interface PanelMirrorPicker {
-  /** what the picker is for */
-  purpose: PanelMirrorPickerPurpose;
   /** the panel the picker is for */
   panelId: string;
   /** the whole editor's window, as a picture */
@@ -549,10 +538,8 @@ export const openPanelMirrorPicker = (
   panelId: string,
   picture: PanelMirrorPickerPicture,
   region: PanelMirrorRegion | null = null,
-  purpose: PanelMirrorPickerPurpose = "region",
 ): void => {
   pickers.set(panelId, {
-    purpose,
     panelId,
     picture,
     region: normalizePanelMirrorRegion(region),

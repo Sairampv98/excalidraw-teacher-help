@@ -94,6 +94,9 @@ public static class InputEngine {
   [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
+  [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
+  [DllImport("user32.dll")] static extern void SwitchToThisWindow(IntPtr h, bool altTab);
+  [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
   [DllImport("user32.dll")] static extern bool AttachThreadInput(uint a, uint b, bool attach);
   [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
   [DllImport("user32.dll")] static extern bool GetKeyboardState(byte[] s);
@@ -423,6 +426,38 @@ public static class InputEngine {
     Send(i);
   }
 
+  // Take the editor's window to the front (D-342).
+  //
+  // Windows lets only the program that has the foreground - or one that has just
+  // had input - give it to another window, so a helper that was started by the
+  // editor is refused whenever the teacher is working in the browser. The
+  // refusals are answered in turn: the threads are attached to each other; a
+  // key that does nothing (F24) is tapped, which makes this program the one that
+  // has just had input; and the shell's own way of switching to a window is the
+  // last resort.
+  static bool Front() {
+    if (IsIconic(top)) ShowWindow(top, 9);
+    for (int attempt = 0; attempt < 3; attempt++) {
+      IntPtr fg = GetForegroundWindow();
+      uint pid;
+      uint fgThread = fg == IntPtr.Zero ? 0 : GetWindowThreadProcessId(fg, out pid);
+      uint me = GetCurrentThreadId();
+      bool attach = fgThread != me && fgThread != 0;
+      if (attempt == 1) {
+        keybd_event(0x87, 0, 0, UIntPtr.Zero);
+        keybd_event(0x87, 0, 2, UIntPtr.Zero);
+      }
+      if (attach) AttachThreadInput(me, fgThread, true);
+      BringWindowToTop(top);
+      SetForegroundWindow(top);
+      if (attempt == 2) SwitchToThisWindow(top, true);
+      if (attach) AttachThreadInput(me, fgThread, false);
+      Thread.Sleep(40);
+      if (GetForegroundWindow() == top) return true;
+    }
+    return false;
+  }
+
   static bool BeginBurst() {
     if (MonitorFromWindow(top, 0) == IntPtr.Zero) {
       Say("STATUS real input needs the editor's window on a display - bring it back first");
@@ -433,20 +468,9 @@ public static class InputEngine {
       GetCursorPos(out prevCursor);
       burst = true;
     }
-    IntPtr fg = GetForegroundWindow();
-    if (fg != top) {
-      if (IsIconic(top)) ShowWindow(top, 9);
-      uint pid;
-      uint fgThread = GetWindowThreadProcessId(fg, out pid);
-      uint me = GetCurrentThreadId();
-      if (fgThread != me && fgThread != 0) AttachThreadInput(me, fgThread, true);
-      SetForegroundWindow(top);
-      if (fgThread != me && fgThread != 0) AttachThreadInput(me, fgThread, false);
-      Thread.Sleep(30);
-      if (GetForegroundWindow() != top) {
-        Say("STATUS the editor's window would not come to the front");
-        return false;
-      }
+    if (GetForegroundWindow() != top && !Front()) {
+      Say("STATUS the editor's window would not come to the front");
+      return false;
     }
     return true;
   }

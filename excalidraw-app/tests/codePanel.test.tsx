@@ -13,11 +13,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import React from "react";
 
+import { renderHook } from "@testing-library/react";
+
 import { newPanelElement } from "@excalidraw/element";
 import { validateFractionalIndices } from "@excalidraw/element";
 import { FONT_FAMILY } from "@excalidraw/common";
 import { Excalidraw } from "@excalidraw/excalidraw";
 import { codePanelContent, emptyCodePanelState } from "@excalidraw/excalidraw";
+import { clearAllPanelCaptures, getPanelCapture } from "@excalidraw/excalidraw";
 import { readCodePanelState } from "@excalidraw/excalidraw";
 import { withPanelDraft, withPanelView } from "@excalidraw/excalidraw";
 import {
@@ -507,6 +510,98 @@ describe("the app's side of the bridge", () => {
     // a refused connection: the token was wrong, or the extension is not
     // running
     expect(bridgeConnection("reconnecting")).toBe("rejected");
+  });
+
+  it("AC-397 a mirror that comes back with the document after a reload is given the editor's window", async () => {
+    mockClipboard(TEST_TOKEN);
+
+    // The page reconnects at once, and the document is restored a moment later:
+    // the editor's window is announced to a scene with no mirror in it, and the
+    // announcement does not change again (D-341).
+    const listeners: Array<() => void> = [];
+    const state: { elements: ExcalidrawElement[] } = { elements: [] };
+
+    const api = {
+      getSceneElements: () => state.elements,
+      updateScene: (data: { elements?: readonly ExcalidrawElement[] }) => {
+        if (data.elements) {
+          state.elements = [...data.elements];
+        }
+      },
+      onChange: (listener: () => void) => {
+        listeners.push(listener);
+
+        return () => {
+          listeners.splice(listeners.indexOf(listener), 1);
+        };
+      },
+    } as unknown as ExcalidrawImperativeAPI;
+
+    const { result } = renderHook(() => useBridgePanel(api));
+
+    await act(async () => {
+      result.current.bridge.onPasteToken?.();
+    });
+
+    await waitFor(() => expect(FakeSocket.instances.length).toBe(1));
+
+    const socket = lastSocket();
+
+    socket.open();
+
+    await waitFor(() => expect(socket.sent.length).toBe(1));
+
+    act(() => {
+      socket.receive({
+        v: 1,
+        type: "bridge:hello",
+        version: "0.1.0",
+        workspace: "demo",
+        streamUrl: "http://127.0.0.1:47511/s/a-capability/frame",
+      });
+      socket.receive({
+        v: 1,
+        type: "editor:capture",
+        state: "live",
+        seq: 1,
+        width: 1000,
+        height: 500,
+      });
+    });
+
+    // the document comes back: the mirror is in the scene now
+    const mirror = codePanelElement();
+
+    expect(getPanelCapture(mirror.id)).toBeNull();
+
+    act(() => {
+      state.elements = [mirror as unknown as ExcalidrawElement];
+      listeners.forEach((listener) => listener());
+    });
+
+    // and it is live, without anything else having happened
+    expect(getPanelCapture(mirror.id)).toMatchObject({
+      status: "live",
+      streamUrl: "http://127.0.0.1:47511/s/a-capability/frame",
+    });
+
+    // a mirror inserted later is given it too, and one that has it is not
+    // given it again
+    const second = codePanelElement();
+
+    act(() => {
+      state.elements = [
+        mirror as unknown as ExcalidrawElement,
+        second as unknown as ExcalidrawElement,
+      ];
+      listeners.forEach((listener) => listener());
+    });
+
+    expect(getPanelCapture(second.id)?.status).toBe("live");
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
   });
 
   it("AC-87 the bridge identifies the editor it runs in, and the app shows it", async () => {

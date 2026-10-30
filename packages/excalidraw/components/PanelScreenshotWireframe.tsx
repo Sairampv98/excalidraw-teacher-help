@@ -1,6 +1,9 @@
-import React, { useRef, useSyncExternalStore } from "react";
+import React, { useEffect, useRef, useSyncExternalStore } from "react";
 
-import { sceneCoordsToViewportCoords } from "@excalidraw/common";
+import {
+  sceneCoordsToViewportCoords,
+  viewportCoordsToSceneCoords,
+} from "@excalidraw/common";
 
 import type { ExcalidrawPanelElement } from "@excalidraw/element/types";
 
@@ -14,6 +17,7 @@ import {
 import { t } from "../i18n";
 
 import type { PanelCamera } from "../scene/panelContent";
+import type { PanelScreenshot } from "../scene/panelScreenshot";
 
 /**
  * The **wireframe** that stands where a screenshot will land (D-104).
@@ -60,18 +64,47 @@ export const PanelScreenshotWireframe = ({
     getAnyPendingScreenshot,
   );
 
-  /**
-   * The drag in progress.
-   *
-   * The pointer's last position is kept here, not in the store: the store holds
-   * the **picture's** position, and a pointer position is not a picture.
-   */
-  const dragRef = useRef<{
-    pointerId: number;
-    x: number;
-    y: number;
-    moved: boolean;
-  } | null>(null);
+  /** where the pointer was last seen, in the page's own coordinates */
+  const pointerRef = useRef<{ x: number; y: number } | null>(null);
+
+  /** the latest of what the follow needs, read by the listener */
+  const latest = useRef({ pending, camera });
+
+  latest.current = { pending, camera };
+
+  const stage = pending?.stage ?? "crop";
+  const placing = pending ? stage === "place" : false;
+  const pendingId = pending?.panelId ?? null;
+
+  // The pointer is followed all the time, so the rectangle starts under it when
+  // the teacher chooses and not where the picture was taken from (D-339).
+  useEffect(() => {
+    const follow = (event: PointerEvent) => {
+      pointerRef.current = { x: event.clientX, y: event.clientY };
+
+      const { pending: current, camera: view } = latest.current;
+
+      if (!current || (current.stage ?? "crop") !== "place") {
+        return;
+      }
+
+      standUnder(current, view, event.clientX, event.clientY);
+    };
+
+    window.addEventListener("pointermove", follow);
+
+    return () => window.removeEventListener("pointermove", follow);
+  }, []);
+
+  // and it stands under the pointer the moment the placement begins
+  useEffect(() => {
+    const { pending: current, camera: view } = latest.current;
+    const at = pointerRef.current;
+
+    if (placing && current && at) {
+      standUnder(current, view, at.x, at.y);
+    }
+  }, [placing, pendingId]);
 
   if (!pending) {
     return null;
@@ -108,62 +141,14 @@ export const PanelScreenshotWireframe = ({
   const width = pending.canvasWidth * crop.width * zoom;
   const height = pending.canvasHeight * crop.height * zoom;
 
+  // a left click anywhere places the picture where the rectangle stands (D-339)
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    // the wireframe is a control: it takes the pointer, unlike the canvas
+    if (event.button !== 0) {
+      return;
+    }
+
     event.preventDefault();
     event.stopPropagation();
-
-    dragRef.current = {
-      pointerId: event.pointerId,
-      x: event.clientX,
-      y: event.clientY,
-      moved: false,
-    };
-
-    // the capture keeps the drag alive when the pointer leaves the wireframe -
-    // and it is optional, because a browser without it still drags
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-  };
-
-  const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current;
-
-    if (!drag || drag.pointerId !== event.pointerId) {
-      return;
-    }
-
-    const dx = event.clientX - drag.x;
-    const dy = event.clientY - drag.y;
-
-    // a click is not a drag: below this the pointer is still on the same spot
-    if (!drag.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) {
-      return;
-    }
-
-    drag.moved = true;
-    drag.x = event.clientX;
-    drag.y = event.clientY;
-
-    movePendingScreenshot(
-      pending.panelId,
-      pending.x + dx / zoom,
-      pending.y + dy / zoom,
-    );
-  };
-
-  const onPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current;
-
-    dragRef.current = null;
-
-    if (!drag || drag.pointerId !== event.pointerId) {
-      return;
-    }
-
-    // a drag moved the wireframe; it did not place the picture (D-104)
-    if (drag.moved) {
-      return;
-    }
 
     // the wireframe stands where the **cropped part** of the picture lands, so
     // that is the place it reports (D-116, D-139)
@@ -179,29 +164,67 @@ export const PanelScreenshotWireframe = ({
       : t("labels.crop.wireframePicture");
 
   return (
-    <div
-      className="excalidraw__panel-screenshot-wireframe"
-      data-testid="panel-screenshot-wireframe"
-      data-panel-id={pending.panelId}
-      role="button"
-      tabIndex={0}
-      aria-label={label}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      style={{
-        position: "absolute",
-        left: x - camera.offsetLeft,
-        top: y - camera.offsetTop,
-        width,
-        height,
-        pointerEvents: "auto",
-        cursor: "move",
-      }}
-    >
-      <span className="excalidraw__panel-screenshot-wireframe-label">
-        {label}
-      </span>
-    </div>
+    <>
+      {/* the click catcher: the whole canvas, so a click anywhere places it */}
+      <div
+        className="excalidraw__panel-screenshot-wireframe-catcher"
+        data-testid="panel-screenshot-wireframe-catcher"
+        onPointerDown={onPointerDown}
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "100%",
+          pointerEvents: "auto",
+          cursor: "crosshair",
+          // over the interactive canvas, which would take the click
+          zIndex: "var(--zIndex-screenshotWireframe)",
+        }}
+      />
+      <div
+        className="excalidraw__panel-screenshot-wireframe"
+        data-testid="panel-screenshot-wireframe"
+        data-panel-id={pending.panelId}
+        aria-label={label}
+        style={{
+          position: "absolute",
+          left: x - camera.offsetLeft,
+          top: y - camera.offsetTop,
+          width,
+          height,
+          // the rectangle is a hover effect: the pointer goes through it
+          pointerEvents: "none",
+        }}
+      >
+        <span className="excalidraw__panel-screenshot-wireframe-label">
+          {label}
+        </span>
+      </div>
+    </>
+  );
+};
+
+/**
+ * Stand the rectangle's middle under the pointer (D-339).
+ *
+ * The rectangle is the **cropped part** of the picture at the size it will have
+ * on the canvas, so its middle is what follows the pointer, and the picture's
+ * own corner is worked out from it.
+ */
+const standUnder = (
+  pending: PanelScreenshot,
+  camera: PanelCamera,
+  clientX: number,
+  clientY: number,
+) => {
+  const crop = pending.crop ?? WHOLE_PICTURE;
+
+  const at = viewportCoordsToSceneCoords({ clientX, clientY }, camera);
+
+  movePendingScreenshot(
+    pending.panelId,
+    at.x - pending.canvasWidth * (crop.x + crop.width / 2),
+    at.y - pending.canvasHeight * (crop.y + crop.height / 2),
   );
 };

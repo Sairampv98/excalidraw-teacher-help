@@ -457,10 +457,6 @@ import {
 } from "../scene/panelContent";
 import { panelMirrorUpdate, readPanelMirror } from "../scene/panelContent";
 import { INITIAL_PANEL_MIRROR } from "../scene/panelMirror";
-import {
-  getPendingScreenshot,
-  setPendingScreenshotCrop,
-} from "../scene/panelScreenshot";
 
 import { PLAYBACK_PUBLISH_INTERVAL_MS } from "../scene/panelPlayback";
 
@@ -540,7 +536,6 @@ import { findShapeByKey } from "./shapes";
 import UnlockPopup from "./UnlockPopup";
 
 import type { PanelMirror, PanelMirrorRegion } from "../scene/panelMirror";
-import type { PanelScreenshotChoice } from "../scene/panelScreenshot";
 
 import type { VideoPanelEvent } from "./PanelOverlay";
 import type {
@@ -2688,7 +2683,6 @@ class App extends React.Component<AppProps, AppState> {
                               height: this.state.height,
                             }}
                             onChoose={this.choosePanelMirror}
-                            onScreenshot={this.chooseMirrorScreenshot}
                           />
                           {/*
                             The class loop (D-184): the flows marked for class
@@ -4077,56 +4071,6 @@ class App extends React.Component<AppProps, AppState> {
    * follow mode is kept as it was: choosing what is mirrored does not turn
    * the mode on or off.
    */
-  /**
-   * The teacher cropped the window in the screenshot's crop window and chose
-   * what to do with the picture (D-339).
-   *
-   * The host takes the picture; the crop and the choice follow it, so the
-   * picture goes **straight** to the step that is left: the rectangle that
-   * follows the pointer and lands where the teacher clicks, with no page
-   * ribbon in between. The rectangle is on the canvas, so a panel that is full
-   * screen is left first.
-   */
-  private chooseMirrorScreenshot = async (
-    panelId: string,
-    choice: PanelScreenshotChoice,
-    crop: PanelMirrorRegion | null,
-  ) => {
-    const screenshot = this.props.panelScreenshot;
-
-    if (!screenshot?.onCapture) {
-      return;
-    }
-
-    await screenshot.onCapture(panelId);
-
-    // there is no picture when the capture failed, and the host said why
-    if (!getPendingScreenshot(panelId)) {
-      return;
-    }
-
-    if (crop) {
-      setPendingScreenshotCrop(panelId, crop);
-    }
-
-    // the pending picture is on the canvas's side of the screen: leave full
-    // screen so the teacher can see it
-    if (document.fullscreenElement) {
-      try {
-        await document.exitFullscreen?.();
-      } catch {
-        // the browser kept it full screen: the flow goes on all the same
-      }
-    }
-
-    screenshot.onChoice?.(panelId, choice);
-
-    if (choice === "new-page") {
-      // a new page: the page is made when the picture is placed (D-104)
-      screenshot.onPageChoice?.(panelId, null);
-    }
-  };
-
   private choosePanelMirror = (
     panelId: string,
     region: PanelMirrorRegion | null,

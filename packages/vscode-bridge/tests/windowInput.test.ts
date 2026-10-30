@@ -877,3 +877,39 @@ describe("the focus route stays out of the teacher's way", () => {
     expect(helper).toContain("if (burst && quiet > 1500) EndBurst();");
   });
 });
+
+describe("the focus route and the program that has the foreground", () => {
+  it("AC-398 the window is taken to the front when another program has the foreground", () => {
+    const helper = codeOf(readFileSync(inputScriptPath, "utf8"));
+
+    // the way in is one function, tried in turn
+    const front = helper.indexOf("static bool Front() {");
+
+    expect(front).toBeGreaterThan(0);
+
+    const body = helper.slice(
+      front,
+      helper.indexOf("static bool BeginBurst()", front),
+    );
+
+    // the threads are attached to each other, the window is raised, and the
+    // foreground is asked for
+    expect(body).toContain("AttachThreadInput(me, fgThread, true)");
+    expect(body).toContain("BringWindowToTop(top)");
+    expect(body).toContain("SetForegroundWindow(top)");
+
+    // a key that does nothing is tapped on the second try: it makes this program
+    // the one that has just had input, which is what Windows asks for
+    expect(body).toContain("keybd_event(0x87, 0, 0, UIntPtr.Zero)");
+    expect(body).toContain("keybd_event(0x87, 0, 2, UIntPtr.Zero)");
+
+    // and the shell's own way of switching is the last resort
+    expect(body).toContain("SwitchToThisWindow(top, true)");
+
+    // the burst asks for the front through it, and says so when it fails
+    const burst = helper.slice(helper.indexOf("static bool BeginBurst()"));
+
+    expect(burst).toContain("!Front()");
+    expect(burst).toContain("the editor's window would not come to the front");
+  });
+});

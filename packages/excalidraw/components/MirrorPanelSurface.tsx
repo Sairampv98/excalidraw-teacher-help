@@ -610,22 +610,7 @@ export const MirrorPanelSurface = ({
           className="excalidraw__panel-mirror-screenshot"
           data-testid="mirror-panel-screenshot"
           data-panel-id={panel.id}
-          onClick={() => {
-            // the crop window comes first (D-339): the teacher says which part
-            // of the window, and what to do with it, before a picture is taken
-            if (capture?.status === "live") {
-              openPanelMirrorPicker(
-                panel.id,
-                {
-                  src: snapshotUrl(capture.streamUrl),
-                  width: capture.width ?? 0,
-                  height: capture.height ?? 0,
-                },
-                null,
-                "screenshot",
-              );
-            }
-          }}
+          onClick={() => screenshot.onCapture?.(panel.id)}
           title={t("labels.panel.screenshot.button")}
           aria-label={t("labels.panel.screenshot.button")}
           style={tool()}

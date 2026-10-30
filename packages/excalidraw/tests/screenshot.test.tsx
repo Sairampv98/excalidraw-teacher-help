@@ -32,7 +32,7 @@ import {
   snapshotUrl,
 } from "../scene/panelScreenshot";
 import { codePanelContent, emptyCodePanelState } from "../scene/panelContent";
-import { PANEL_CHROME, PANEL_SCALE_PROPERTY } from "../scene/panelChrome";
+import { PANEL_CHROME } from "../scene/panelChrome";
 
 import { API } from "./helpers/api";
 import { act, fireEvent, render, waitFor } from "./test-utils";
@@ -294,29 +294,28 @@ describe("the screenshot of a panel", () => {
 
     await waitFor(() =>
       expect(
-        document.querySelector('[data-testid="panel-screenshot-choices"]'),
+        document.querySelector('[data-testid="panel-screenshot-actions"]'),
       ).not.toBeNull(),
     );
 
-    // exactly three: OCR the screenshot, place on this page, place on a new
-    // page (D-103)
-    const choices = document.querySelectorAll(
-      '[data-testid="panel-screenshot-choices"] button',
-    );
+    // exactly three choices, in the teacher's order: put the picture on this
+    // page, on a new page, read its text (D-103, D-339), and a way out
+    const choices = Array.from(
+      document.querySelectorAll(
+        '[data-testid="panel-screenshot-actions"] button[data-testid^="panel-screenshot-action-"]',
+      ),
+    ).map((button) => button.getAttribute("data-testid"));
 
-    expect(choices).toHaveLength(3);
+    expect(choices).toEqual([
+      "panel-screenshot-action-page",
+      "panel-screenshot-action-new-page",
+      "panel-screenshot-action-ocr",
+    ]);
 
     expect(
-      document.querySelector('[data-testid="panel-screenshot-choice-ocr"]'),
-    ).not.toBeNull();
-    expect(
-      document.querySelector('[data-testid="panel-screenshot-choice-page"]'),
-    ).not.toBeNull();
-    expect(
-      document.querySelector('[data-testid="panel-screenshot-choice-newPage"]'),
+      document.querySelector('[data-testid="panel-screenshot-cancel"]'),
     ).not.toBeNull();
   });
-
   it("AC-145 the screenshot button's inline style keeps its width and cannot be shrunk", async () => {
     // The button collapsed on the owner's screen on 2026-10-22: it measured
     // ZERO pixels wide, because it is a flex item of a tight header, its
@@ -420,14 +419,10 @@ describe("the screenshot of a panel", () => {
     expect(svg).toMatch(/height:\s*calc\(\d+px\s*\/\s*var\(--panel-scale\)\)/);
   });
 
-  it("AC-151 the choice strip's three buttons each have a width and a height", async () => {
-    // The strip's buttons had a height and **no width**, so their width was
-    // decided by their label - and a button the flexbox may shrink is a
-    // choice the teacher cannot read and cannot hit (D-114).
-    //
-    // jsdom cannot lay out a flexbox, so the test asserts the STYLE that
-    // makes the size impossible to lose: every size is the chrome's size, in
-    // the panel's own units (D-92), and the flexbox may not shrink it.
+  it("AC-151 the crop window's buttons are large, and the flexbox may not shrink them", async () => {
+    // A button the flexbox may shrink is a choice the teacher cannot read and
+    // cannot hit (D-114). jsdom cannot lay out a flexbox, so the test asserts
+    // the STYLE that makes the size impossible to lose (D-339).
     const { container } = await render(
       <Excalidraw panelScreenshot={{ onCapture: () => {} }} />,
     );
@@ -437,15 +432,12 @@ describe("the screenshot of a panel", () => {
     API.setAppState({ width: 1000, height: 1000 });
     API.setElements([asElement(panel)]);
 
-    // the panel is on the canvas: the camera is not on the picture any more
-    // (D-135), so the panel itself is what the test waits for
     await waitFor(() =>
       expect(
         container.querySelector('[data-testid="code-panel"]'),
       ).not.toBeNull(),
     );
 
-    // the capture happened
     act(() => {
       setPendingScreenshot({
         panelId: panel.id,
@@ -462,46 +454,29 @@ describe("the screenshot of a panel", () => {
 
     await waitFor(() =>
       expect(
-        container.querySelector('[data-testid="panel-screenshot-choices"]'),
+        container.querySelector('[data-testid="panel-screenshot-actions"]'),
       ).not.toBeNull(),
     );
 
-    const scale = parseFloat(
-      getComputedStyle(
-        container.querySelector('[data-testid="panel"]')!,
-      ).getPropertyValue(PANEL_SCALE_PROPERTY),
-    );
-
     const buttons = container.querySelectorAll(
-      '[data-testid="panel-screenshot-choices"] button',
+      '[data-testid="panel-screenshot-actions"] button',
     );
 
-    expect(buttons).toHaveLength(3);
+    // the three choices and the way out
+    expect(buttons).toHaveLength(4);
 
     for (const button of Array.from(buttons)) {
       const element = button as HTMLElement;
 
-      // a real width: the chrome's width, in the panel's own units
-      expect(parseFloat(element.style.width) * scale).toBeCloseTo(
-        PANEL_CHROME.choiceStripButtonWidth,
-        3,
-      );
-
-      // and a real height
-      expect(parseFloat(element.style.height) * scale).toBeCloseTo(
-        PANEL_CHROME.choiceStripHeight,
-        3,
-      );
-
-      // and the flexbox may not take either of them away
+      expect(parseFloat(element.style.fontSize)).toBeGreaterThanOrEqual(16);
+      expect(parseFloat(element.style.padding)).toBeGreaterThanOrEqual(10);
       expect(element.style.flexShrink).toBe("0");
     }
   });
-
-  it("AC-151 the strip is positioned inside the panel's own rect", async () => {
-    // The strip hangs **on the panel** (D-114): its position is computed from
-    // the panel's own rect, and it is never drawn outside the panel's own
-    // height.
+  it("AC-151 the bar of choices is across the top of the crop window, whatever the panel is", async () => {
+    // The choices used to hang on the panel, which can be clipped or out of
+    // view, and then the teacher had a picture and no way to place it (D-278).
+    // They are on the crop window itself now (D-339).
     const { container } = await render(
       <Excalidraw panelScreenshot={{ onCapture: () => {} }} />,
     );
@@ -511,8 +486,6 @@ describe("the screenshot of a panel", () => {
     API.setAppState({ width: 1000, height: 1000 });
     API.setElements([asElement(panel)]);
 
-    // the panel is on the canvas: the camera is not on the picture any more
-    // (D-135), so the panel itself is what the test waits for
     await waitFor(() =>
       expect(
         container.querySelector('[data-testid="code-panel"]'),
@@ -533,34 +506,30 @@ describe("the screenshot of a panel", () => {
       });
     });
 
-    await waitFor(() =>
-      expect(
-        container.querySelector('[data-testid="panel-screenshot-choices"]'),
-      ).not.toBeNull(),
-    );
+    const bar = (await waitFor(() => {
+      const found = container.querySelector(
+        '[data-testid="panel-screenshot-actions"]',
+      );
 
-    const strip = container.querySelector(
-      '[data-testid="panel-screenshot-choices"]',
-    ) as HTMLElement;
+      expect(found).not.toBeNull();
 
-    const scale = parseFloat(
-      getComputedStyle(
-        container.querySelector('[data-testid="panel"]')!,
-      ).getPropertyValue(PANEL_SCALE_PROPERTY),
-    );
+      return found;
+    })) as HTMLElement;
 
-    const top = parseFloat(strip.style.top);
+    expect(bar.style.position).toBe("absolute");
+    expect(bar.style.top).toBe("0px");
+    expect(bar.style.left).toBe("0px");
+    expect(bar.style.right).toBe("0px");
 
-    // the strip's right edge is the panel's own right edge
-    expect(strip.style.right).toBe("0px");
-
-    // and the strip is inside the panel's own height
-    const boxHeight =
-      (PANEL_CHROME.choiceStripHeight + 2 * PANEL_CHROME.choiceStripPadding) /
-      scale;
-
-    expect(top).toBeGreaterThanOrEqual(0);
-    expect(top + boxHeight).toBeLessThanOrEqual(panel.height);
+    // on the window, and not on the panel
+    expect(
+      container
+        .querySelector('[data-testid="panel-screenshot-focus"]')!
+        .contains(bar),
+    ).toBe(true);
+    expect(
+      container.querySelector('[data-testid="panel"]')!.contains(bar),
+    ).toBe(false);
   });
 
   it("AC-152 a video panel carries a screenshot button", async () => {
@@ -655,9 +624,9 @@ describe("the screenshot of a panel", () => {
     expect(captured).toEqual([panel.id]);
   });
 
-  it("AC-153 a pending screenshot dims the canvas and presents the preview in front", async () => {
-    // The owner's z-axis: the picture comes forward and the canvas behind it
-    // steps back (D-116).
+  it("AC-153 a pending screenshot opens an opaque crop window with the picture in it", async () => {
+    // The picture comes forward, in a window of its own that nothing of the
+    // canvas shows through (D-116, D-339).
     const { container } = await render(
       <Excalidraw panelScreenshot={{ onCapture: () => {} }} />,
     );
@@ -671,7 +640,7 @@ describe("the screenshot of a panel", () => {
       expect(container.querySelector('[data-testid="panel"]')).not.toBeNull(),
     );
 
-    // before the capture there is no focus state: there is no picture to focus
+    // before the capture there is no crop window: there is no picture
     expect(
       container.querySelector('[data-testid="panel-screenshot-focus"]'),
     ).toBeNull();
@@ -690,26 +659,32 @@ describe("the screenshot of a panel", () => {
       });
     });
 
-    await waitFor(() =>
-      expect(
-        container.querySelector('[data-testid="panel-screenshot-focus"]'),
-      ).not.toBeNull(),
-    );
+    const focus = (await waitFor(() => {
+      const found = container.querySelector(
+        '[data-testid="panel-screenshot-focus"]',
+      );
 
-    // the canvas behind steps back: the dimming is there
-    const scrim = container.querySelector(
-      '[data-testid="panel-screenshot-focus-scrim"]',
-    ) as HTMLElement;
+      expect(found).not.toBeNull();
 
-    expect(scrim).not.toBeNull();
-    expect(scrim.style.background).toContain("rgba(0, 0, 0");
+      return found;
+    })) as HTMLElement;
 
-    // and the picture comes forward
-    const preview = container.querySelector(
-      '[data-testid="panel-screenshot-focus-preview"]',
-    );
+    // the window is opaque and over the app's whole chrome
+    expect(focus.style.background).toBe("rgb(17, 17, 19)");
+    expect(focus.style.zIndex).toBe("var(--zIndex-cropWindow)");
 
-    expect(preview).not.toBeNull();
+    // there is no dimming of the canvas, and no dimming of the panel
+    expect(
+      container.querySelector('[data-testid="panel-screenshot-focus-scrim"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-testid="panel-focus-scrim"]'),
+    ).toBeNull();
+
+    // and the picture is in it
+    expect(
+      container.querySelector('[data-testid="panel-screenshot-focus-preview"]'),
+    ).not.toBeNull();
 
     const image = container.querySelector(
       '[data-testid="panel-screenshot-focus-image"]',
@@ -717,7 +692,6 @@ describe("the screenshot of a panel", () => {
 
     expect(image.getAttribute("src")).toBe("data:image/jpeg;base64,AAAA");
   });
-
   it("AC-153 the crop can be reverted once to the uncropped capture", async () => {
     // The owner asked for a cropping tool "that is turned on by default" and a
     // crop that can be reverted "back one step" (D-116).

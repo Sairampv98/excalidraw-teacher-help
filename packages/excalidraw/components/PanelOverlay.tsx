@@ -51,17 +51,9 @@ import {
 import { readVideoPanelState } from "../scene/panelContent";
 import { readPanelPlayback } from "../scene/panelContent";
 import { readYoutubePanelState, youtubeEmbedUrl } from "../scene/panelContent";
-import {
-  PANEL_SCALE_PROPERTY,
-  choiceStripPlacement,
-  panelChrome,
-} from "../scene/panelChrome";
+import { PANEL_SCALE_PROPERTY, panelChrome } from "../scene/panelChrome";
 import { getPanelCapture, subscribePanelCaptures } from "../scene/panelFrames";
-import {
-  getPendingScreenshot,
-  snapshotUrl,
-  subscribePendingScreenshots,
-} from "../scene/panelScreenshot";
+import { snapshotUrl } from "../scene/panelScreenshot";
 import {
   FOLLOW_SIZE_MAX,
   FOLLOW_SIZE_MIN,
@@ -474,103 +466,6 @@ const DEFAULT_CODE_LANGUAGE = "python";
 const THEME_LABELS: Record<PanelEditorTheme, string> = {
   dark: "Dark",
   light: "Light",
-};
-
-/**
- * The **screenshot** button of a panel (D-102) lives in the panel's
- * **properties**, not on the panel's picture (D-135) - see
- * `components/PanelActions.tsx`.
- *
- * The **choice strip** of a screenshot (D-103).
- *
- * Exactly three entries, and they exist **only** after the capture: before it
- * there is no screenshot, and a choice about a picture that was never taken is
- * a choice about nothing. The strip is chrome - it keeps its size on screen at
- * any zoom (D-92) - and it is drawn by the library, like the header.
- *
- * The strip asks the **host** to act: the host owns the bridge, the pages and
- * the files, and the host is the side that can read a picture (D-105).
- */
-const PanelScreenshotChoices = ({
-  panel,
-  chrome,
-  screenshot,
-  top,
-}: {
-  panel: ExcalidrawPanelElement;
-  chrome: PanelChrome;
-  screenshot: PanelScreenshotControls;
-  /** where the strip hangs, in the panel's own units */
-  top: string;
-}) => {
-  const pending = useSyncExternalStore(
-    subscribePendingScreenshots,
-    () => getPendingScreenshot(panel.id),
-    () => getPendingScreenshot(panel.id),
-  );
-
-  if (!pending) {
-    return null;
-  }
-
-  const choice = (
-    name: string,
-    value: "ocr" | "page" | "new-page",
-    label: string,
-  ) => (
-    <button
-      type="button"
-      className="excalidraw__panel-screenshot-choice"
-      data-testid={`panel-screenshot-choice-${name}`}
-      data-panel-id={panel.id}
-      onClick={() => screenshot.onChoice?.(panel.id, value)}
-      style={{
-        // Every size of the chrome comes from `panelChrome.ts` (D-114): the
-        // buttons had a height and no width, so their width was decided by
-        // their label - and a button the flexbox may shrink is a choice the
-        // teacher cannot read.
-        width: chrome.choiceStripButtonWidth,
-        height: chrome.choiceStripHeight,
-        fontSize: chrome.choiceStripFontSize,
-        flexShrink: 0,
-      }}
-    >
-      {label}
-    </button>
-  );
-
-  return (
-    <div
-      className="excalidraw__panel-screenshot-choices"
-      data-testid="panel-screenshot-choices"
-      data-panel-id={panel.id}
-      style={{
-        position: "absolute",
-        top,
-        right: 0,
-        display: "flex",
-        alignItems: "center",
-        // the strip never leaves the panel: it wraps rather than hang over
-        // the panel's own edge
-        flexWrap: "wrap",
-        maxWidth: "100%",
-        gap: chrome.choiceStripGap,
-        padding: chrome.choiceStripPadding,
-        minHeight: chrome.choiceStripBoxHeight,
-      }}
-    >
-      {/*
-        The three choices, in the **owner's order** (D-140): the picture goes
-        on this page, the text is read out of the cropped region, the picture
-        goes on another page. The order is the teacher's own - "the 1st option
-        ... the 2nd option ... and finally the 3rd option" - so the strip reads
-        the way the owner said it.
-      */}
-      {choice("page", "page", t("labels.panel.screenshot.page"))}
-      {choice("ocr", "ocr", t("labels.panel.screenshot.ocr"))}
-      {choice("newPage", "new-page", t("labels.panel.screenshot.newPage"))}
-    </div>
-  );
 };
 
 /**
@@ -3630,38 +3525,6 @@ const Panel = ({
 
   const chrome = useMemo(() => panelChrome(scale), [scale]);
 
-  /**
-   * Whether this panel's picture is waiting to be placed (D-116).
-   *
-   * The focus state dims the panel's **content** while the picture is in
-   * front: the editor steps back, and the panel's own chrome - the camera and
-   * the three choices - does not, so the teacher can still act on the picture
-   * the focus state shows.
-   */
-  const pending = useSyncExternalStore(
-    subscribePendingScreenshots,
-    () => getPendingScreenshot(panel.id),
-    () => getPendingScreenshot(panel.id),
-  );
-
-  /**
-   * Where the screenshot's choice strip hangs, in the panel's own units
-   * (D-114).
-   *
-   * It is computed from the panel's **own rect** - how tall the panel is and
-   * whether it wears a header - and from the chrome's own sizes. Nothing here
-   * is a number typed in at the call site.
-   */
-  const placement = useMemo(
-    () =>
-      choiceStripPlacement({
-        scale,
-        panelHeight: panel.height,
-        hasHeader: panel.panelKind === "code",
-      }),
-    [scale, panel.height, panel.panelKind],
-  );
-
   const transform = useMemo(
     () => panelTransform(panel, elementsMap, camera),
     // `camera` is rebuilt on every app state change; only its fields can change
@@ -3748,29 +3611,6 @@ const Panel = ({
           onConsoleChange={onConsoleChange}
           captions={captions}
         />
-        {pending ? (
-          // the editor steps back while its picture is in focus (D-116)
-          <div
-            className="excalidraw__panel-focus-scrim"
-            data-testid="panel-focus-scrim"
-          />
-        ) : null}
-        {screenshot ? (
-          // The choice strip hangs off the panel's own chrome, and it exists
-          // only after the capture (D-103). Its position is computed from
-          // the panel's own rect (D-114), never guessed.
-          //
-          // The CAMERA is not here: it is a choice about the panel, so it
-          // lives in the panel's properties (D-135). A button drawn on top
-          // of the picture is a button under a YouTube panel's iframe - and
-          // the iframe takes the click.
-          <PanelScreenshotChoices
-            panel={panel}
-            chrome={chrome}
-            screenshot={screenshot}
-            top={placement.top}
-          />
-        ) : null}
       </div>
     </div>
   );

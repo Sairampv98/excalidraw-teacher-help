@@ -2512,7 +2512,7 @@ describe("what is mirrored (D-143)", () => {
 
     expect(panelId).toBe(panel.id);
     expect(mirror.region).toEqual({
-      x: 0.33,
+      x: 0.316667,
       y: 0.1,
       width: 0.5,
       height: 0.4,

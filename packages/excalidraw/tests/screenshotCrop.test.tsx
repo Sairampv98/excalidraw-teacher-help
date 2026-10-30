@@ -322,18 +322,16 @@ describe("the crop of a screenshot", () => {
     expect(cropped.style.height).toBe(`${0.5 * size.height}px`);
   });
 
-  it("AC-176 the wireframe stands above the panels with the canvas dimmed behind it", async () => {
+  it("AC-176 the wireframe stands above the panels, and the crop window above the whole app", async () => {
     // The wireframe is a guide on the canvas: it must not compete with the
-    // panels in the same z-plane (D-140).
+    // panels in the same z-plane (D-140). The crop window is a window of its
+    // own and stands over the app's chrome (D-339).
     const { container } = await renderEditor("place");
 
-    // the canvas behind is dimmed
-    const scrim = container.querySelector(
-      '[data-testid="panel-screenshot-focus-scrim"]',
-    ) as HTMLElement;
-
-    expect(scrim).not.toBeNull();
-    expect(scrim.style.background).toContain("rgba(0, 0, 0");
+    // the canvas is the teacher's now: it is not dimmed
+    expect(
+      container.querySelector('[data-testid="panel-screenshot-focus-scrim"]'),
+    ).toBeNull();
 
     // and the wireframe stands on it
     await waitFor(() =>
@@ -344,24 +342,12 @@ describe("the crop of a screenshot", () => {
 
     const css = stylesheet();
 
-    // the focus state is **over** the panels: the crop handles are live, and
-    // the popup is not behind the panels (D-139, D-140)
-    expect(cssVariable(css, "zIndex-panelFocus")).toBeGreaterThan(
+    // the wireframe is over the panels and over the interactive canvas
+    expect(cssVariable(css, "zIndex-screenshotWireframe")).toBeGreaterThan(
       cssVariable(css, "zIndex-panels")!,
     );
-
-    // and over the interactive canvas, which used to take the pointer and
-    // leave the handles visible and dead (D-139)
-    expect(cssVariable(css, "zIndex-panelFocus")).toBeGreaterThan(
+    expect(cssVariable(css, "zIndex-screenshotWireframe")).toBeGreaterThan(
       cssVariable(css, "zIndex-interactiveCanvas")!,
-    );
-
-    // the wireframe is over the panels as well
-    expect(cssVariable(css, "zIndex-screenshotWireframe")).toBeGreaterThan(
-      cssVariable(css, "zIndex-panels")!,
-    );
-    expect(cssVariable(css, "zIndex-screenshotWireframe")).toBeGreaterThan(
-      cssVariable(css, "zIndex-panelFocus")!,
     );
 
     // and the rules use those planes
@@ -372,14 +358,15 @@ describe("the crop of a screenshot", () => {
       /&__panel-screenshot-focus-preview \{[^}]*z-index: var\(--zIndex-panelFocus\)/,
     );
 
-    // the dimming stays **under** the panels: a panel dims its own content,
-    // and its own chrome - the three choices - stays bright (D-140)
-    expect(cssVariable(css, "zIndex-panelFocusScrim")).toBeLessThan(
-      cssVariable(css, "zIndex-panels")!,
+    // the crop window is over the app's whole chrome: the toolbars are at 100
+    // and the main menu at 110
+    expect(cssVariable(css, "zIndex-cropWindow")).toBeGreaterThan(
+      cssVariable(css, "zIndex-ui-main-menu")!,
     );
-    expect(css).toMatch(
-      /&__panel-screenshot-focus-scrim \{[^}]*z-index: var\(--zIndex-panelFocusScrim\)/,
-    );
+
+    // and nothing of the old dimming is left in the styles
+    expect(css).not.toContain("panel-focus-scrim");
+    expect(css).not.toContain("zIndex-panelFocusScrim");
   });
 });
 
@@ -446,15 +433,20 @@ describe("AC-317 the screenshot can always be placed or left", () => {
   it("AC-317 in the last step only the way out is offered", async () => {
     const { container } = await renderEditor("place");
 
-    const actions = container.querySelector(
-      '[data-testid="panel-screenshot-actions"]',
+    // the hint and the way out - and none of the three choices
+    const focus = container.querySelector(
+      '[data-testid="panel-screenshot-focus"]',
     )!;
 
+    expect(focus.getAttribute("data-stage")).toBe("place");
     expect(
-      actions.querySelector('[data-testid="panel-screenshot-cancel"]'),
+      focus.querySelector('[data-testid="panel-screenshot-place-hint"]'),
     ).not.toBeNull();
     expect(
-      actions.querySelector('[data-testid="panel-screenshot-action-page"]'),
+      focus.querySelector('[data-testid="panel-screenshot-cancel"]'),
+    ).not.toBeNull();
+    expect(
+      focus.querySelector('[data-testid="panel-screenshot-action-page"]'),
     ).toBeNull();
   });
 });
