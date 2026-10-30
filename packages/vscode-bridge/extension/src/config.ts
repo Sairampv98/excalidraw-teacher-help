@@ -167,19 +167,24 @@ export function resolveSessionToken(
  * a second end to end through the helper, the raw capture itself costing
  * about 12 ms a frame).
  *
- * A number that is not a number, or one outside the range, falls back to the
- * default rather than to something that would hammer the machine.
+ * A number that is not a number, or less than one, falls back to the default.
+ * A number above the most there is - sixty - is the most (D-363): it used to
+ * fall back to the default too, so a teacher who asked for 48 got 12 and was
+ * never told. The helper takes the frames as fast as the window can be drawn,
+ * so a number above what the machine can do is the machine's best.
  */
 export const DEFAULT_CAPTURE_FPS = 12;
+
+/** the most frames a second that can be asked for */
+export const MAX_CAPTURE_FPS = 60;
 
 export function resolveCaptureFps(configured?: number): number {
   if (
     typeof configured === "number" &&
     Number.isFinite(configured) &&
-    configured >= 1 &&
-    configured <= 30
+    configured >= 1
   ) {
-    return Math.floor(configured);
+    return Math.min(MAX_CAPTURE_FPS, Math.floor(configured));
   }
 
   return DEFAULT_CAPTURE_FPS;

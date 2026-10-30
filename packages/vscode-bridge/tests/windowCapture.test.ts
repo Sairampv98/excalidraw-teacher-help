@@ -460,7 +460,8 @@ describe("the capture of the editor's own window", () => {
     expect(resolveCaptureFps(undefined)).toBe(12);
     expect(resolveCaptureFps(0)).toBe(12);
     expect(resolveCaptureFps(-4)).toBe(12);
-    expect(resolveCaptureFps(9999)).toBe(12);
+    // a number above the most there is, is the most (D-363)
+    expect(resolveCaptureFps(9999)).toBe(60);
 
     // the helper SHIPS inside the extension, so there is nothing to install
     // and no dependency to add
@@ -865,5 +866,35 @@ describe("the capture follows the window's size (D-355)", () => {
     expect(
       script.indexOf("$current = [PwCap]::ClientRect($hwnd)"),
     ).toBeLessThan(script.indexOf("[PwCap]::Shot($hwnd, $bmp)"));
+  });
+});
+
+describe("the frame rate the teacher asks for (D-363)", () => {
+  it("AC-424 a number above thirty is used, up to sixty, and not turned into twelve", () => {
+    // the owner asked for 48 and got 12: the number was outside the old range
+    expect(resolveCaptureFps(48)).toBe(48);
+    expect(resolveCaptureFps(30)).toBe(30);
+    expect(resolveCaptureFps(60)).toBe(60);
+    expect(resolveCaptureFps(61)).toBe(60);
+    expect(resolveCaptureFps(24.9)).toBe(24);
+
+    // what makes no sense is still the default
+    expect(resolveCaptureFps(Number.NaN)).toBe(12);
+    expect(resolveCaptureFps(0.5)).toBe(12);
+
+    // and the setting says its range
+    const manifest = JSON.parse(
+      readFileSync(
+        join(findPackageRoot(), "extension", "package.json"),
+        "utf8",
+      ),
+    );
+    const setting =
+      manifest.contributes.configuration.properties[
+        "excalidraw-bridge.captureFps"
+      ];
+
+    expect(setting.minimum).toBe(1);
+    expect(setting.maximum).toBe(60);
   });
 });
