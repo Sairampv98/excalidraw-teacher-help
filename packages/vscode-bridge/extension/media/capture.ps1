@@ -332,6 +332,26 @@ function Write-Status([string]$code) {
   }
 }
 
+# Where the time goes (D-370): once a second the helper says how many frames it
+# took, how long the window took to draw itself in them (PrintWindow waits for
+# the window, so a window that is busy shows up here) and the longest the whole
+# loop took. The extension adds its own lag to this, and says who was slow.
+$shotClock = New-Object System.Diagnostics.Stopwatch
+$perfSince = [DateTime]::UtcNow
+$perfFrames = 0
+$perfShotSum = 0
+$perfShotMax = 0
+$perfLoopMax = 0
+
+function Write-Perf([string]$text) {
+  if (-not $headerWritten) { return }
+
+  $payload = [System.Text.Encoding]::UTF8.GetBytes($text)
+  $stream.Write([BitConverter]::GetBytes([int]$payload.Length), 0, 4)
+  $stream.Write($payload, 0, $payload.Length)
+  $stream.Flush()
+}
+
 for ($i = 0; ($MaxFrames -le 0) -or ($i -lt $MaxFrames); $i++) {
   $clock.Restart()
   $now = [DateTime]::UtcNow
@@ -431,7 +451,12 @@ for ($i = 0; ($MaxFrames -le 0) -or ($i -lt $MaxFrames); $i++) {
   # --- the capture ---
   $mem.SetLength(0)
 
-  if (-not [PwCap]::Shot($hwnd, $bmp)) {
+  $shotClock.Restart()
+  $shotOk = [PwCap]::Shot($hwnd, $bmp)
+  $shotClock.Stop()
+  $shotMs = [int]$shotClock.ElapsedMilliseconds
+
+  if (-not $shotOk) {
     # the handle is DEAD: the window was recreated. The window is re-resolved.
     $hwnd = [IntPtr]::Zero
     if ($state -ne 'SHOT_FAILED') {
@@ -481,6 +506,23 @@ for ($i = 0; ($MaxFrames -le 0) -or ($i -lt $MaxFrames); $i++) {
   # news
   if ($state -ne '') {
     $state = ''
+  }
+
+  # the numbers of the second (D-370)
+  $perfFrames++
+  $perfShotSum += $shotMs
+  if ($shotMs -gt $perfShotMax) { $perfShotMax = $shotMs }
+  $loopMs = [int]$clock.ElapsedMilliseconds
+  if ($loopMs -gt $perfLoopMax) { $perfLoopMax = $loopMs }
+
+  if (([DateTime]::UtcNow - $perfSince).TotalMilliseconds -ge 1000) {
+    $perfAvg = [int]($perfShotSum / [Math]::Max(1, $perfFrames))
+    Write-Perf ('PERF ' + $perfFrames + ' ' + $perfAvg + ' ' + $perfShotMax + ' ' + $perfLoopMax)
+    $perfSince = [DateTime]::UtcNow
+    $perfFrames = 0
+    $perfShotSum = 0
+    $perfShotMax = 0
+    $perfLoopMax = 0
   }
 
   $left = $delay - [int]$clock.ElapsedMilliseconds

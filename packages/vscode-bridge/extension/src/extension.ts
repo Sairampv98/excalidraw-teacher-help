@@ -34,6 +34,7 @@ import {
   stopOcrSidecar,
 } from "./ocrEngines";
 import { installIndra, isIndraMissing, pythonForSidecar } from "./indraEnv";
+import { createPerfMonitor, formatPerfReport } from "./perfMonitor";
 import { portConflictMessage } from "./portConflict";
 import { createRunPseudoterminal } from "./pseudoterminal";
 import { createRunner, type Runner } from "./runner";
@@ -281,6 +282,7 @@ export async function activate(
       // the window's title holds the workspace folder's name
       titleLike: workspace,
       fps: resolveCaptureFps(configuration.get<number>("captureFps")),
+      onPerf: (perf) => perfMonitor.recordHelper(perf),
       onFrame: (frame) => {
         // The picture goes to the MJPEG STREAM and to nothing else (D-85).
         bridgeServer?.publishFrame({
@@ -943,6 +945,30 @@ export async function activate(
   let limited = false;
 
   /**
+   * Where the mirror's time goes (D-370): the capture helper's own numbers,
+   * and how far behind its timer this extension host is - the host is the one
+   * thread that every extension of the editor shares, and the mirror's stream
+   * is served from it.
+   */
+  const perfMonitor = createPerfMonitor();
+  const perfChannel = vscode.window.createOutputChannel("Excalidraw Bridge");
+  let lagLast = Date.now();
+  const lagTimer = setInterval(() => {
+    const at = Date.now();
+
+    perfMonitor.recordHostLag(Math.max(0, at - lagLast - 100));
+    lagLast = at;
+  }, 100);
+
+  lagTimer.unref?.();
+  context.subscriptions.push({
+    dispose: () => {
+      clearInterval(lagTimer);
+      perfChannel.dispose();
+    },
+  });
+
+  /**
    * Whether the editor's window was put on the **virtual display** for the
    * focus route (D-350).
    *
@@ -1459,6 +1485,21 @@ export async function activate(
       "excalidraw-bridge.bringBackEditorWindow",
       bringBackByChoice,
     ),
+    // where the mirror's time goes, said in the Output panel (D-370)
+    vscode.commands.registerCommand("excalidraw-bridge.showPerformance", () => {
+      const report = perfMonitor.report();
+
+      perfChannel.clear();
+
+      for (const line of formatPerfReport(report)) {
+        perfChannel.appendLine(line);
+      }
+
+      perfChannel.show(true);
+      void vscode.window.showInformationMessage(
+        `Excalidraw Bridge: ${report.verdict}`,
+      );
+    }),
     // the indra engine installs itself, when the teacher says so (D-353)
     vscode.commands.registerCommand(
       "excalidraw-bridge.installIndraOcr",

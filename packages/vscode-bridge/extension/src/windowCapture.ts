@@ -201,6 +201,37 @@ const STATUS_PREFIX = "STATUS ";
 /** The text a HEADER carries. */
 const HEADER_PREFIX = "HEADER ";
 
+/** The text a PERF carries: the helper's numbers for the second that ended (D-370). */
+const PERF_PREFIX = "PERF ";
+
+/** What the helper measured in one second (D-370). */
+export interface CapturePerf {
+  /** the frames it took */
+  frames: number;
+  /** how long the window took to draw itself, on average, in ms */
+  avgShotMs: number;
+  /** the longest the window took to draw itself, in ms */
+  maxShotMs: number;
+  /** the longest one pass of its loop took, in ms */
+  maxLoopMs: number;
+}
+
+/** The numbers in a PERF message, or null when it is not one. */
+export const parseCapturePerf = (text: string): CapturePerf | null => {
+  const match = text.match(/^PERF\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$/);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    frames: Number(match[1]),
+    avgShotMs: Number(match[2]),
+    maxShotMs: Number(match[3]),
+    maxLoopMs: Number(match[4]),
+  };
+};
+
 /**
  * The reason the panel is told, for each thing the helper can say.
  *
@@ -250,6 +281,8 @@ export interface CaptureReaderOptions {
   onHeader?: (size: CaptureSize) => void;
   /** the helper's first line was not a header: it says what went wrong */
   onLine?: (line: string) => void;
+  /** the helper's numbers for the second that ended (D-370) */
+  onPerf?: (perf: CapturePerf) => void;
 }
 
 /**
@@ -338,6 +371,16 @@ export const createCaptureReader = (options: CaptureReaderOptions) => {
         continue;
       }
 
+      if (text !== null && text.startsWith(PERF_PREFIX)) {
+        // the helper's own numbers: they are not a picture and not a fact
+        const perf = parseCapturePerf(text);
+
+        if (perf) {
+          options.onPerf?.(perf);
+        }
+        continue;
+      }
+
       if (text !== null && text.startsWith(HEADER_PREFIX)) {
         // the window was recreated and it is another size: the reader is told
         // again, in the shape it already knows
@@ -415,6 +458,8 @@ export interface WindowCaptureOptions {
   spawn?: CaptureSpawn;
   /** a frame arrived */
   onFrame: (frame: CaptureFrame) => void;
+  /** the helper's numbers for the second that ended (D-370) */
+  onPerf?: (perf: CapturePerf) => void;
   /** the capture cannot run, and this is why */
   onUnavailable?: (reason: string) => void;
   /**
@@ -492,6 +537,7 @@ export const createWindowCapture = (
   let height = 0;
 
   const reader = createCaptureReader({
+    onPerf: options.onPerf,
     onHeader: (size) => {
       width = size.width;
       height = size.height;

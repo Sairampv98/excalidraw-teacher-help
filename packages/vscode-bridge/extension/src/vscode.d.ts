@@ -319,6 +319,13 @@ declare module "vscode" {
       items: readonly T[],
       options?: { title?: string; placeHolder?: string },
     ): Thenable<T | undefined>;
+    /** a place in the editor's Output panel to write lines to (D-370) */
+    export function createOutputChannel(name: string): {
+      appendLine(line: string): void;
+      clear(): void;
+      show(preserveFocus?: boolean): void;
+      dispose(): void;
+    };
     /** a task that takes time, with a progress notice while it does (D-353) */
     export function withProgress<R>(
       options: {
