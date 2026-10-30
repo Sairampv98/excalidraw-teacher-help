@@ -163,6 +163,13 @@ const SNAPSHOT_ROUTE = new RegExp(
   `^${STREAM_PATH_PREFIX}/([^/]+)/${SNAPSHOT_PATH_SUFFIX}$`,
 );
 
+/**
+ * How much a client may be behind before frames are not written to it (D-338):
+ * about two frames. Past it the client is skipped and gets the newest frame
+ * when its socket drains, so the delay of a slow client is bounded.
+ */
+export const STREAM_BACKLOG_BYTES = 256 * 1024;
+
 export const createMjpegStream = (options: MjpegStreamOptions): MjpegStream => {
   const host = options.host ?? "127.0.0.1";
   const keepAliveMs = options.keepAliveMs ?? STREAM_KEEPALIVE_MS;
@@ -176,6 +183,15 @@ export const createMjpegStream = (options: MjpegStreamOptions): MjpegStream => {
 
   /** when the last frame was published, so a silent stream can be refreshed */
   let lastFrameAt = 0;
+
+  /**
+   * The clients that are behind (D-338): a frame was **not** written to them
+   * because they had not taken the last ones yet. A client that is slow - a
+   * window behind another, a tab that is busy - must see the NEWEST picture
+   * when it catches up and not a queue of old ones, so it is skipped and the
+   * newest frame is sent when its socket drains.
+   */
+  const behind = new Set<ServerResponse>();
 
   /**
    * Write one part of the stream.
@@ -212,6 +228,11 @@ export const createMjpegStream = (options: MjpegStreamOptions): MjpegStream => {
 
     for (const responses of [...capabilities.values()]) {
       for (const res of [...responses]) {
+        if (res.writableLength > STREAM_BACKLOG_BYTES) {
+          behind.add(res);
+          continue;
+        }
+
         writePart(res, frame);
       }
     }
@@ -391,8 +412,16 @@ export const createMjpegStream = (options: MjpegStreamOptions): MjpegStream => {
 
     keepAlive.unref?.();
 
+    // a client that was behind has caught up: it gets the NEWEST frame (D-338)
+    res.on("drain", () => {
+      if (behind.delete(res) && lastFrame) {
+        writePart(res, lastFrame);
+      }
+    });
+
     const cleanup = () => {
       clearInterval(keepAlive);
+      behind.delete(res);
       responses.delete(res);
     };
 

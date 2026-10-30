@@ -74,7 +74,7 @@ export const CAPTURE_SCRIPT_RELATIVE_PATH = join("media", "capture.ps1");
  * 63,591 B, q60 at 0.75 scale **45,091 B**. The mean luminance stays ~232 at
  * every setting, so the picture is still real content.
  */
-export const CAPTURE_QUALITY = 60;
+export const CAPTURE_QUALITY = 70;
 
 /**
  * The scale the picture is drawn at (D-87).
@@ -83,7 +83,7 @@ export const CAPTURE_QUALITY = 60;
  * picture is captured at a fraction too: at 0.75 the JPEG is 45,091 bytes
  * instead of 73,922.
  */
-export const CAPTURE_SCALE = 0.75;
+export const CAPTURE_SCALE = 1;
 
 /** The part of `child_process.ChildProcess` the capture uses. */
 export interface CaptureProcess {

@@ -446,9 +446,9 @@ describe("the capture of the editor's own window", () => {
 
     // the picture's QUALITY and SCALE are the capture's own knobs (D-87)
     expect(args).toContain("-Quality");
-    expect(args[args.indexOf("-Quality") + 1]).toBe("60");
+    expect(args[args.indexOf("-Quality") + 1]).toBe("70");
     expect(args).toContain("-Scale");
-    expect(args[args.indexOf("-Scale") + 1]).toBe("0.75");
+    expect(args[args.indexOf("-Scale") + 1]).toBe("1");
   });
 
   it("AC-105 the capture is configurable", () => {
@@ -457,10 +457,10 @@ describe("the capture of the editor's own window", () => {
     // machine
     expect(resolveCaptureFps(8)).toBe(8);
     expect(resolveCaptureFps(1)).toBe(1);
-    expect(resolveCaptureFps(undefined)).toBe(6);
-    expect(resolveCaptureFps(0)).toBe(6);
-    expect(resolveCaptureFps(-4)).toBe(6);
-    expect(resolveCaptureFps(9999)).toBe(6);
+    expect(resolveCaptureFps(undefined)).toBe(12);
+    expect(resolveCaptureFps(0)).toBe(12);
+    expect(resolveCaptureFps(-4)).toBe(12);
+    expect(resolveCaptureFps(9999)).toBe(12);
 
     // the helper SHIPS inside the extension, so there is nothing to install
     // and no dependency to add
@@ -514,10 +514,10 @@ describe("the capture of the editor's own window", () => {
     expect(script).toContain("Encoder]::Quality");
     expect(script).not.toContain("ImageFormat]::Png");
 
-    // The QUALITY: 60, and it is a parameter of the helper, so it can be
+    // The QUALITY: 70, and it is a parameter of the helper, so it can be
     // changed without editing the script.
-    expect(script).toContain("[int]$Quality = 60");
-    expect(CAPTURE_QUALITY).toBe(60);
+    expect(script).toContain("[int]$Quality = 70");
+    expect(CAPTURE_QUALITY).toBe(70);
 
     // The SIZE: the CLIENT area, not the window. The OS title bar and the
     // borders are not the editor, and they are not in the picture either.
@@ -530,15 +530,41 @@ describe("the capture of the editor's own window", () => {
     // is drawn even when something is on top of it.
     expect(script).toContain("PrintWindow(hwnd, hdc, 3)");
 
-    // The SCALE: 0.75, and the header line reports the SCALED size - the
+    // The SCALE: 1 (the window's own size, D-338), and the header line reports the SCALED size - the
     // size of the picture that is written.
-    expect(script).toContain("[double]$Scale = 0.75");
-    expect(CAPTURE_SCALE).toBe(0.75);
+    expect(script).toContain("[double]$Scale = 1.0");
+    expect(CAPTURE_SCALE).toBe(1);
     expect(script).toContain("HEADER ' + $outW + ' ' + $outH");
 
     // and the length prefix in front of each frame is still four
     // little-endian bytes
     expect(script).toContain("GetBytes([int]$bytes.Length)");
+  });
+
+  it("AC-388 the helper is light on the machine and keeps its frame rate", () => {
+    const script = readFileSync(
+      join(findPackageRoot(), "extension", "media", "capture.ps1"),
+      "utf8",
+    );
+
+    // it works below normal priority: the teacher's own programs, the browser
+    // and the presenter come first
+    expect(script).toContain("ProcessPriorityClass]::BelowNormal");
+    expect(script).toContain("GetCurrentProcess().PriorityClass");
+
+    // the wait is what is left of the frame's time, so the frame rate that is
+    // asked for is the one that is made
+    expect(script).toContain("$clock.Restart()");
+    expect(script).toContain("$delay - [int]$clock.ElapsedMilliseconds");
+
+    // at the window's own size there is no resampling: the picture is saved as
+    // it was taken
+    const direct = script.indexOf("($outW -eq $w) -and ($outH -eq $h)");
+
+    expect(direct).toBeGreaterThan(0);
+    expect(script.slice(direct, direct + 400)).toContain(
+      "$bmp.Save($mem, $codec, $params)",
+    );
   });
 
   it("AC-103 the capture says why it cannot run", async () => {

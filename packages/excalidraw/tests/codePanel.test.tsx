@@ -2498,18 +2498,21 @@ describe("what is mirrored (D-143)", () => {
         height: 200,
       } as DOMRect);
 
-    // the teacher points at the right-hand side of the mirrored region
+    // the teacher points at the right of the middle of the window, still in
+    // the rest zone: the area stays where it is (D-337)
     fireEvent.pointerMove(mirrorWindow, { clientX: 300, clientY: 100 });
+    expect(onChange).not.toHaveBeenCalled();
 
-    // and the region moves: it keeps its size, and its middle is under the
-    // pointer
+    // and near the right edge: the area moves towards the pointer, by a step,
+    // and keeps its size
+    fireEvent.pointerMove(mirrorWindow, { clientX: 380, clientY: 100 });
     expect(onChange).toHaveBeenCalledTimes(1);
 
     const [panelId, mirror] = onChange.mock.calls[0];
 
     expect(panelId).toBe(panel.id);
     expect(mirror.region).toEqual({
-      x: 0.375,
+      x: 0.33,
       y: 0.1,
       width: 0.5,
       height: 0.4,

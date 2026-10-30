@@ -851,3 +851,29 @@ describe("the focus route needs the window on a display (D-336)", () => {
     expect(code).toMatch(/if \(result\.ok\) \{\s*windowInput\?\.send\("R"\);/);
   });
 });
+
+describe("the focus route stays out of the teacher's way", () => {
+  it("AC-390 a hover does not take the pointer, and the window stays in front through a pause", () => {
+    const helper = codeOf(readFileSync(inputScriptPath, "utf8"));
+
+    // a move with no button down is a hover: it is dropped BEFORE the window
+    // is brought forward and before the real pointer is moved
+    const hover = helper.indexOf(
+      'if (action == "move" && !focusPressed) return;',
+    );
+    const burst = helper.indexOf("if (!BeginBurst()) return;", hover);
+    const moved = helper.indexOf("MoveTo(ScreenPixel(x, y));", hover);
+
+    expect(hover).toBeGreaterThan(0);
+    expect(burst).toBeGreaterThan(hover);
+    expect(moved).toBeGreaterThan(burst);
+
+    // a press makes the moves that follow it a drag, and the release ends it
+    expect(helper).toContain("focusPressed = down;");
+    expect(helper).toContain("focusPressed = false;");
+
+    // the window stays in front through a pause in the typing, and the
+    // pointer is given back after a longer one
+    expect(helper).toContain("if (burst && quiet > 1500) EndBurst();");
+  });
+});

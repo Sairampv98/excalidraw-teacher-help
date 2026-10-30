@@ -170,7 +170,7 @@ export function resolveSessionToken(
  * A number that is not a number, or one outside the range, falls back to the
  * default rather than to something that would hammer the machine.
  */
-export const DEFAULT_CAPTURE_FPS = 6;
+export const DEFAULT_CAPTURE_FPS = 12;
 
 export function resolveCaptureFps(configured?: number): number {
   if (

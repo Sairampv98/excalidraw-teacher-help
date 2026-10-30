@@ -674,6 +674,7 @@ export {
   normalizePanelMirrorRegion,
   panelMirrorCrop,
   panelMirrorRegionAtPointer,
+  panelMirrorRegionNudge,
   WHOLE_WINDOW,
 } from "./scene/panelMirror";
 

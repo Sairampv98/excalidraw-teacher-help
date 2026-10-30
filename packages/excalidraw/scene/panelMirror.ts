@@ -414,6 +414,71 @@ export const panelMirrorRegionAtPointer = (
 };
 
 /**
+ * The share of the window, around its middle, in which the pointer leaves a
+ * following area where it is (D-337).
+ *
+ * The pointer is at rest inside it, so a small window does not make the area
+ * jump with every move of the hand. Outside it the area moves towards the
+ * pointer - slowly at the edge of the rest zone, at full speed at the edge of
+ * the window.
+ */
+export const FOLLOW_REST_ZONE = 0.5;
+
+/** the most a following area moves in one step, as a share of its own size */
+export const FOLLOW_STEP_MAX = 0.2;
+
+/**
+ * The region one step further along, when the pointer is outside the rest zone
+ * (D-337).
+ *
+ * The area keeps its size. It is the pointer's **distance** from the rest zone
+ * that sets the speed - and never the pointer's place - so the same movement
+ * of the hand does the same thing in a small panel as in a large one, and the
+ * area does not swing from one side of the window to the other.
+ */
+export const panelMirrorRegionNudge = (
+  region: PanelMirrorRegion,
+  pointer: { x: number; y: number },
+  window: { left: number; top: number; width: number; height: number },
+): PanelMirrorRegion => {
+  const rest = FOLLOW_REST_ZONE / 2;
+
+  const along = (within: number, at: number, size: number) => {
+    const offset = within - 0.5;
+    const beyond = Math.abs(offset) - rest;
+
+    if (beyond <= 0) {
+      return at;
+    }
+
+    // 0 at the edge of the rest zone, 1 at the edge of the window
+    const speed = Math.min(beyond / (0.5 - rest), 1);
+
+    return Math.min(
+      Math.max(at + Math.sign(offset) * speed * FOLLOW_STEP_MAX * size, 0),
+      1 - size,
+    );
+  };
+
+  const withinX =
+    window.width > 0
+      ? Math.min(Math.max((pointer.x - window.left) / window.width, 0), 1)
+      : 0.5;
+
+  const withinY =
+    window.height > 0
+      ? Math.min(Math.max((pointer.y - window.top) / window.height, 0), 1)
+      : 0.5;
+
+  return {
+    x: roundMirrorPlace(along(withinX, region.x, region.width)),
+    y: roundMirrorPlace(along(withinY, region.y, region.height)),
+    width: roundMirrorPlace(region.width),
+    height: roundMirrorPlace(region.height),
+  };
+};
+
+/**
  * The **picker**: the teacher's own control for what is mirrored (D-143).
  *
  * It shows the **whole** editor's window - the same picture a screenshot gives
@@ -440,8 +505,19 @@ export interface PanelMirrorPickerPicture extends PanelMirrorPicture {
   src: string;
 }
 
+/**
+ * What the picker is for (D-339).
+ *
+ * - `region`: the teacher chooses what the panel mirrors;
+ * - `screenshot`: the teacher crops a picture of the window and says what to
+ *   do with it - put it on this page, on a new page, or read its text.
+ */
+export type PanelMirrorPickerPurpose = "region" | "screenshot";
+
 /** The picker that is open. */
 export interface PanelMirrorPicker {
+  /** what the picker is for */
+  purpose: PanelMirrorPickerPurpose;
   /** the panel the picker is for */
   panelId: string;
   /** the whole editor's window, as a picture */
@@ -473,8 +549,10 @@ export const openPanelMirrorPicker = (
   panelId: string,
   picture: PanelMirrorPickerPicture,
   region: PanelMirrorRegion | null = null,
+  purpose: PanelMirrorPickerPurpose = "region",
 ): void => {
   pickers.set(panelId, {
+    purpose,
     panelId,
     picture,
     region: normalizePanelMirrorRegion(region),

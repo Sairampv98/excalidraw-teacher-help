@@ -1260,7 +1260,7 @@ export type PanelOcrControls = {
  */
 export type PanelScreenshotControls = {
   /** the teacher asked for a screenshot of this panel */
-  onCapture?: (panelId: string) => void;
+  onCapture?: (panelId: string) => unknown;
   /** the teacher made a choice in the strip */
   onChoice?: (panelId: string, choice: PanelScreenshotChoice) => void;
   /**

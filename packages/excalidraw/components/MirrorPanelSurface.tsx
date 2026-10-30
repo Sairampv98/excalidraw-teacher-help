@@ -19,7 +19,7 @@ import {
   openPanelMirrorPicker,
   panelMirrorCrop,
   panelMirrorMode,
-  panelMirrorRegionAtPointer,
+  panelMirrorRegionNudge,
   resizePanelMirrorRegion,
   withPanelMirrorMode,
 } from "../scene/panelMirror";
@@ -87,7 +87,7 @@ const Fade = ({ children }: { children: React.ReactNode }) => {
   );
 };
 
-/** how often the following area moves with the pointer (D-143) */
+/** how often the following area takes a step towards the pointer (D-337) */
 const FOLLOW_INTERVAL_MS = 120;
 
 /** the colour of the dot that says how the connection stands */
@@ -215,6 +215,12 @@ export const MirrorPanelSurface = ({
   /** the window the region is shown through, for the pointer (D-143, D-324) */
   const windowRef = useRef<HTMLDivElement | null>(null);
   const lastFollowRef = useRef(0);
+  /** where the pointer is over the window, while it is over it (D-337) */
+  const followPointerRef = useRef<{ x: number; y: number } | null>(null);
+  /** the latest mirror, for the steps that are taken while the pointer rests */
+  const mirrorRef = useRef(mirror);
+
+  mirrorRef.current = mirror;
 
   /**
    * The teacher chose a mode (D-322).
@@ -273,48 +279,81 @@ export const MirrorPanelSurface = ({
     },
   });
 
+  // Control has been turned on: the window takes the keyboard at once, so the
+  // teacher does not have to click it first (D-337)
+  const wasControlOn = useRef(false);
+
+  useEffect(() => {
+    if (controlOn && !wasControlOn.current) {
+      windowRef.current?.focus({ preventScroll: true });
+    }
+
+    wasControlOn.current = controlOn;
+  }, [controlOn]);
+
   /**
-   * The pointer moved inside the mirrored region (D-143): a following area keeps
-   * its size and moves so that its middle is under the pointer. It stands still
-   * while a button is down, so a drag does not run away from the pointer.
+   * A step of the following area towards the pointer (D-143, D-337).
+   *
+   * The area keeps its size and stands still while the pointer is in the rest
+   * zone; outside it, it moves towards the pointer, faster the further out the
+   * pointer is. It stands still while a button is down, so a drag does not run
+   * away from the pointer.
    */
-  const onFollowMove = (event: React.PointerEvent<HTMLDivElement>) => {
+  const followStep = () => {
+    const current = mirrorRef.current;
+    const pointer = followPointerRef.current;
+
     if (
       isReadOnly ||
-      !mirror.follow ||
-      !mirror.region ||
+      !current.follow ||
+      !current.region ||
+      !pointer ||
       !windowRef.current ||
       surface.isPressed()
     ) {
       return;
     }
 
-    const now = Date.now();
-
-    if (now - lastFollowRef.current < FOLLOW_INTERVAL_MS) {
-      return;
-    }
-
-    lastFollowRef.current = now;
-
     const rect = windowRef.current.getBoundingClientRect();
-    const next = panelMirrorRegionAtPointer(
-      mirror.region,
-      { x: event.clientX, y: event.clientY },
-      {
-        left: rect.left,
-        top: rect.top,
-        width: rect.width,
-        height: rect.height,
-      },
-    );
+    const next = panelMirrorRegionNudge(current.region, pointer, {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+    });
 
-    if (next.x === mirror.region.x && next.y === mirror.region.y) {
+    if (next.x === current.region.x && next.y === current.region.y) {
       return;
     }
 
-    onMirrorChange?.(panel.id, { ...mirror, region: next });
+    lastFollowRef.current = Date.now();
+    onMirrorChange?.(panel.id, { ...current, region: next });
   };
+
+  const onFollowMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    followPointerRef.current = { x: event.clientX, y: event.clientY };
+
+    if (Date.now() - lastFollowRef.current >= FOLLOW_INTERVAL_MS) {
+      followStep();
+    }
+  };
+
+  // The pointer rests outside the rest zone and the area goes on moving: a step
+  // is taken every interval while the pointer is over the window (D-337)
+  const followOn = !isReadOnly && mirror.follow && mirror.region !== null;
+
+  useEffect(() => {
+    if (!followOn) {
+      followPointerRef.current = null;
+      return undefined;
+    }
+
+    const timer = window.setInterval(followStep, FOLLOW_INTERVAL_MS);
+
+    return () => window.clearInterval(timer);
+    // the step reads the latest mirror from its ref
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [followOn]);
 
   // ----------------------------------------------------------------- styles
 
@@ -571,7 +610,22 @@ export const MirrorPanelSurface = ({
           className="excalidraw__panel-mirror-screenshot"
           data-testid="mirror-panel-screenshot"
           data-panel-id={panel.id}
-          onClick={() => screenshot.onCapture?.(panel.id)}
+          onClick={() => {
+            // the crop window comes first (D-339): the teacher says which part
+            // of the window, and what to do with it, before a picture is taken
+            if (capture?.status === "live") {
+              openPanelMirrorPicker(
+                panel.id,
+                {
+                  src: snapshotUrl(capture.streamUrl),
+                  width: capture.width ?? 0,
+                  height: capture.height ?? 0,
+                },
+                null,
+                "screenshot",
+              );
+            }
+          }}
           title={t("labels.panel.screenshot.button")}
           aria-label={t("labels.panel.screenshot.button")}
           style={tool()}
@@ -858,6 +912,9 @@ export const MirrorPanelSurface = ({
       onPointerMove={(event) => {
         onFollowMove(event);
         surface.handlers.onPointerMove(event);
+      }}
+      onPointerLeave={() => {
+        followPointerRef.current = null;
       }}
       // the view takes the keyboard when it is clicked, and only while Control
       // is on (D-323)

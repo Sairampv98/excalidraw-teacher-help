@@ -60,9 +60,9 @@
 param(
   [string]$ProcessName = 'Code',
   [string]$TitleLike = '',
-  [int]$Fps = 6,
-  [int]$Quality = 60,
-  [double]$Scale = 0.75,
+  [int]$Fps = 12,
+  [int]$Quality = 70,
+  [double]$Scale = 1.0,
   [int]$MaxFrames = 0
 )
 
@@ -264,6 +264,14 @@ function Test-Empty([System.Drawing.Bitmap]$bitmap) {
 
 if ($Scale -le 0) { $Scale = 1.0 }
 
+# The helper works for the picture, not for the machine: it runs BELOW normal
+# priority, so the teacher's own programs, the browser and the presenter come
+# first when the machine is busy (D-338).
+try {
+  [System.Diagnostics.Process]::GetCurrentProcess().PriorityClass =
+    [System.Diagnostics.ProcessPriorityClass]::BelowNormal
+} catch { }
+
 # 24 bits per pixel: the JPEG encoder has no alpha channel, and a 32bpp
 # bitmap makes GDI+ fail with a generic error.
 $format = [System.Drawing.Imaging.PixelFormat]::Format24bppRgb
@@ -281,6 +289,11 @@ $params.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter(
 $stream = [Console]::OpenStandardOutput()
 $delay = [int](1000 / $Fps)
 if ($delay -lt 1) { $delay = 1 }
+
+# The time a frame took, so the wait is what is LEFT of the frame's time and
+# not a whole frame's time on top of the work (D-338): a helper asked for 12
+# frames a second then makes 12, and not 5.
+$clock = [System.Diagnostics.Stopwatch]::StartNew()
 
 # the JPEG's bytes, on their way out
 $mem = New-Object System.IO.MemoryStream
@@ -320,6 +333,7 @@ function Write-Status([string]$code) {
 }
 
 for ($i = 0; ($MaxFrames -le 0) -or ($i -lt $MaxFrames); $i++) {
+  $clock.Restart()
   $now = [DateTime]::UtcNow
 
   # --- the window, RE-RESOLVED whenever it is not usable (D-112) ---
@@ -422,19 +436,25 @@ for ($i = 0; ($MaxFrames -le 0) -or ($i -lt $MaxFrames); $i++) {
     continue
   }
 
-  # the downscale: a bilinear DrawImage into the smaller bitmap
-  $gfx = [System.Drawing.Graphics]::FromImage($scaled)
-  try {
-    $gfx.InterpolationMode =
-      [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBilinear
-    $gfx.PixelOffsetMode =
-      [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-    $gfx.DrawImage($bmp, 0, 0, $outW, $outH)
-  } finally {
-    $gfx.Dispose()
-  }
+  if (($outW -eq $w) -and ($outH -eq $h)) {
+    # the window's own size: nothing to scale, and the resampling is the most
+    # expensive thing the helper does (D-338)
+    $bmp.Save($mem, $codec, $params)
+  } else {
+    # the downscale: a bilinear DrawImage into the smaller bitmap
+    $gfx = [System.Drawing.Graphics]::FromImage($scaled)
+    try {
+      $gfx.InterpolationMode =
+        [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBilinear
+      $gfx.PixelOffsetMode =
+        [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+      $gfx.DrawImage($bmp, 0, 0, $outW, $outH)
+    } finally {
+      $gfx.Dispose()
+    }
 
-  $scaled.Save($mem, $codec, $params)
+    $scaled.Save($mem, $codec, $params)
+  }
   $bytes = $mem.ToArray()
   $stream.Write([BitConverter]::GetBytes([int]$bytes.Length), 0, 4)
   $stream.Write($bytes, 0, $bytes.Length)
@@ -446,7 +466,8 @@ for ($i = 0; ($MaxFrames -le 0) -or ($i -lt $MaxFrames); $i++) {
     $state = ''
   }
 
-  Start-Sleep -Milliseconds $delay
+  $left = $delay - [int]$clock.ElapsedMilliseconds
+  if ($left -gt 0) { Start-Sleep -Milliseconds $left }
 }
 
 $stream.Flush()

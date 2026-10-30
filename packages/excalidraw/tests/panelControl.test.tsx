@@ -641,18 +641,18 @@ describe("a point of the view is a point of the window (D-324)", () => {
       button: 0,
       pointerId: 1,
     });
-    fireEvent.pointerMove(view, { clientX: 300, clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(view, { clientX: 380, clientY: 100, pointerId: 1 });
 
     expect(onChange).not.toHaveBeenCalled();
 
     // the button is let go: the region follows again
     fireEvent.pointerUp(view, {
-      clientX: 300,
+      clientX: 380,
       clientY: 100,
       button: 0,
       pointerId: 1,
     });
-    fireEvent.pointerMove(view, { clientX: 300, clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(view, { clientX: 380, clientY: 100, pointerId: 1 });
 
     expect(onChange).toHaveBeenCalledTimes(1);
   });
@@ -850,7 +850,9 @@ describe("Control is the teacher's switch, and the mouse goes through it (D-323)
       '[data-testid="code-panel-live-window"]',
     ) as HTMLElement;
 
-    expect(view.getAttribute("data-control")).toBe("on");
+    // and it has the keyboard at once, with no click on it (D-337)
+    expect(view.getAttribute("data-control")).toBe("engaged");
+    expect(document.activeElement).toBe(view);
     expect(view.getAttribute("tabindex")).toBe("0");
 
     // the way the input goes in is said, with its reason

@@ -124,6 +124,9 @@ public static class InputEngine {
   static int lastDownTick = 0, lastDownX = 0, lastDownY = 0;
   static char lastDownButton = ' ';
   static bool burst = false;
+  // a button of the mouse is down on the focus route: only then does a move
+  // have to drag the real pointer
+  static bool focusPressed = false;
   static IntPtr prevForeground = IntPtr.Zero;
   static POINT prevCursor;
   static int focusMods = 0;
@@ -451,6 +454,7 @@ public static class InputEngine {
   static void EndBurst() {
     if (!burst) return;
     FocusMods(0);
+    focusPressed = false;
     if (prevForeground != IntPtr.Zero && prevForeground != top && IsWindow(prevForeground)) {
       SetForegroundWindow(prevForeground);
     }
@@ -474,11 +478,17 @@ public static class InputEngine {
   }
 
   static void PointerFocus(string action, double x, double y, char button, int mods) {
+    // A move with no button down is a HOVER, and on this route a hover would
+    // take the teacher's real pointer out of the page they are working in
+    // and into the editor, again for every move they make. The window is not
+    // brought forward for it either (D-337).
+    if (action == "move" && !focusPressed) return;
     if (!BeginBurst()) return;
     FocusMods(mods);
     MoveTo(ScreenPixel(x, y));
     if (action == "move") return;
     bool down = action == "down";
+    focusPressed = down;
     uint flag = button == 'r' ? (down ? 0x0008u : 0x0010u) : (button == 'm' ? (down ? 0x0020u : 0x0040u) : (down ? 0x0002u : 0x0004u));
     SendMouse(flag, 0, 0, 0);
   }
@@ -576,7 +586,9 @@ public static class InputEngine {
   static void Idle() {
     double quiet = (DateTime.UtcNow - lastEvent).TotalMilliseconds;
     if (appliedMods != 0 && quiet > 250) SyncMods(0);
-    if (burst && quiet > 600) EndBurst();
+    // the window stays in front through a pause in the typing and the pointer
+    // is given back after it, so a burst is not paid for again at every word
+    if (burst && quiet > 1500) EndBurst();
     // Without the way in (none), and on the focus route (a window that is
     // parked in the meantime is on no display any more), the window is looked
     // at again every two seconds: the background route does not care where the

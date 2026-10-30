@@ -10,6 +10,7 @@
  * issued in the `bridge:hello` (D-86).
  */
 
+import { EventEmitter } from "node:events";
 import { get as httpGet } from "node:http";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -24,9 +25,16 @@ import {
   type BridgeServer,
   type BridgeServerOptions,
 } from "../extension/src/bridge";
-import { snapshotPath } from "../extension/src/stream";
+import {
+  STREAM_BACKLOG_BYTES,
+  createMjpegStream,
+  snapshotPath,
+  streamPath,
+} from "../extension/src/stream";
 
 import { RawWsClient } from "./helpers/rawWsClient";
+
+import type { IncomingMessage, ServerResponse } from "node:http";
 
 // A fixture, not a credential: the name says so, and the kit's secret scan
 // recognises a `test-` prefixed value as the placeholder it is.
@@ -443,5 +451,69 @@ describe("the MJPEG stream", () => {
 
     expect(neverIssued.status).toBe(404);
     expect(neverIssued.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+});
+
+describe("a client that is behind", () => {
+  it("AC-389 is skipped, and gets the newest frame when its socket drains", () => {
+    const stream = createMjpegStream({ port: () => 1 });
+    const capability = stream.createCapability();
+
+    // a response that only remembers what was written to it
+    class FakeResponse extends EventEmitter {
+      writableLength = 0;
+      writableEnded = false;
+      destroyed = false;
+      written: string[] = [];
+      writeHead() {
+        return this;
+      }
+      flushHeaders() {}
+      write(chunk: string | Buffer) {
+        this.written.push(chunk.toString("latin1"));
+        return true;
+      }
+      end() {}
+      destroy() {}
+    }
+
+    const res = new FakeResponse();
+
+    stream.handle(
+      { url: streamPath(capability), headers: {} } as IncomingMessage,
+      res as unknown as ServerResponse,
+    );
+
+    const frame = (seq: number) => ({
+      seq,
+      bytes: Buffer.from(`frame-${seq}`),
+    });
+    const has = (seq: number) => res.written.includes(`frame-${seq}`);
+
+    // a client that keeps up gets every frame
+    stream.publish(frame(1));
+    expect(has(1)).toBe(true);
+
+    // a client that is behind gets none: its delay does not grow with the
+    // frames it has not taken
+    res.writableLength = STREAM_BACKLOG_BYTES + 1;
+    stream.publish(frame(2));
+    stream.publish(frame(3));
+    expect(has(2)).toBe(false);
+    expect(has(3)).toBe(false);
+
+    // and when it has caught up it gets the NEWEST frame, and not the ones
+    // it missed
+    res.writableLength = 0;
+    res.emit("drain");
+    expect(has(3)).toBe(true);
+    expect(has(2)).toBe(false);
+
+    // a client that was not behind is not sent a frame it already has
+    const before = res.written.length;
+    res.emit("drain");
+    expect(res.written.length).toBe(before);
+
+    stream.close();
   });
 });

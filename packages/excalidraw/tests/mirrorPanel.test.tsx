@@ -17,6 +17,21 @@ import type {
 import { Excalidraw } from "../index";
 import { codePanelContent, emptyCodePanelState } from "../scene/panelContent";
 import { mirrorPanelView } from "../scene/mirrorPanelView";
+import {
+  clearPendingScreenshot,
+  getPendingScreenshot,
+  setPendingScreenshot,
+} from "../scene/panelScreenshot";
+import {
+  closePanelMirrorPicker,
+  getAnyPanelMirrorPicker,
+  setPanelMirrorPickerRegion,
+} from "../scene/panelMirror";
+import {
+  FOLLOW_REST_ZONE,
+  FOLLOW_STEP_MAX,
+  panelMirrorRegionNudge,
+} from "../scene/panelMirror";
 import { clearAllPanelCaptures, setPanelCapture } from "../scene/panelFrames";
 
 import { API } from "./helpers/api";
@@ -254,11 +269,18 @@ describe("the tools of the VS Code mirror", () => {
     expect(camera).not.toBeNull();
     expect(read).not.toBeNull();
 
-    // and they work: the host is asked for the picture and for the read
+    // and they work: the camera opens the crop window (the picture is taken
+    // when the teacher has chosen, AC-392) and the host is asked for the read
     fireEvent.click(camera!);
+
+    await waitFor(() =>
+      expect(getAnyPanelMirrorPicker()?.purpose).toBe("screenshot"),
+    );
+    expect(onCapture).not.toHaveBeenCalled();
+    closePanelMirrorPicker(panel.id);
+
     fireEvent.click(read!);
 
-    expect(onCapture).toHaveBeenCalledWith(panel.id);
     expect(onOcr).toHaveBeenCalledWith(panel.id);
 
     // the header also carries the mode, the control, the park and the full
@@ -313,5 +335,449 @@ describe("the tools of the VS Code mirror", () => {
     expect(
       actions.querySelector('[data-testid="panel-bridge-token"]'),
     ).toBeNull();
+  });
+});
+
+describe("the following area", () => {
+  const region = { x: 0.25, y: 0.25, width: 0.5, height: 0.5 };
+  const view = (width: number, height: number) => ({
+    left: 0,
+    top: 0,
+    width,
+    height,
+  });
+
+  it("AC-387 the following area rests while the pointer is near the middle, and moves by a step outside", () => {
+    // in the rest zone - the middle half of the window - nothing moves
+    expect(
+      panelMirrorRegionNudge(region, { x: 200, y: 100 }, view(400, 200)),
+    ).toEqual(region);
+    expect(
+      panelMirrorRegionNudge(region, { x: 300, y: 150 }, view(400, 200)),
+    ).toEqual(region);
+    // anywhere in it, not only in the middle and on its edge
+    for (const x of [130, 170, 230, 270]) {
+      expect(
+        panelMirrorRegionNudge(region, { x, y: 120 }, view(400, 200)),
+      ).toEqual(region);
+    }
+    expect(FOLLOW_REST_ZONE).toBe(0.5);
+
+    // at the edge of the window the area moves by the biggest step, towards the
+    // pointer, and keeps its size
+    const right = panelMirrorRegionNudge(
+      region,
+      { x: 400, y: 100 },
+      view(400, 200),
+    );
+
+    expect(right.x).toBeCloseTo(region.x + FOLLOW_STEP_MAX * region.width, 3);
+    expect(right.y).toBe(region.y);
+    expect(right.width).toBe(region.width);
+    expect(right.height).toBe(region.height);
+
+    const left = panelMirrorRegionNudge(
+      region,
+      { x: 0, y: 100 },
+      view(400, 200),
+    );
+
+    expect(left.x).toBeCloseTo(region.x - FOLLOW_STEP_MAX * region.width, 3);
+
+    // between the rest zone and the edge the step is smaller
+    const part = panelMirrorRegionNudge(
+      region,
+      { x: 350, y: 100 },
+      view(400, 200),
+    );
+
+    expect(part.x).toBeGreaterThan(region.x);
+    expect(part.x).toBeLessThan(right.x);
+
+    // the same movement of the hand does the same in a small window as in a
+    // large one: the pointer's distance sets the speed and not its place
+    expect(
+      panelMirrorRegionNudge(region, { x: 80, y: 40 }, view(80, 40)),
+    ).toEqual(
+      panelMirrorRegionNudge(region, { x: 1600, y: 800 }, view(1600, 800)),
+    );
+
+    // and the area stays inside the window
+    const against = panelMirrorRegionNudge(
+      { x: 0.49, y: 0.1, width: 0.5, height: 0.4 },
+      { x: 400, y: 100 },
+      view(400, 200),
+    );
+
+    expect(against.x + against.width).toBeLessThanOrEqual(1);
+  });
+
+  it("AC-391 turning Control on gives the window the keyboard at once", async () => {
+    const panel = mirror();
+
+    await render(
+      <Excalidraw
+        panelBridge={bridge("connected", "connected")}
+        panelControl={{
+          onToggle: vi.fn(),
+          onInput: vi.fn(),
+          onWindow: vi.fn(),
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    const control = {
+      enabled: false,
+      route: "background" as const,
+      reason: "",
+    };
+
+    act(() => {
+      setPanelCapture(panel.id, { ...live, control });
+    });
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-live-window"]'),
+      ).not.toBeNull(),
+    );
+
+    const view = document.querySelector(
+      '[data-testid="code-panel-live-window"]',
+    ) as HTMLElement;
+
+    expect(document.activeElement).not.toBe(view);
+
+    // the extension says Control is on: the window has the keyboard, with no
+    // click on it
+    act(() => {
+      setPanelCapture(panel.id, {
+        ...live,
+        control: { ...control, enabled: true },
+      });
+    });
+
+    await waitFor(() => expect(document.activeElement).toBe(view));
+    expect(view.getAttribute("data-control")).toBe("engaged");
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
+  });
+});
+
+describe("the screenshot of the mirror", () => {
+  const SIZE = { width: 1000, height: 500 };
+
+  const liveWindow: PanelCapture = { ...live, ...SIZE };
+
+  /** a host that takes the picture the way the app does, and says what it was asked */
+  const host = () => {
+    const onCapture = vi.fn(async (panelId: string) => {
+      setPendingScreenshot({
+        panelId,
+        source: "editor",
+        dataURL: "data:image/png;base64,AAAA",
+        width: SIZE.width,
+        height: SIZE.height,
+        x: 0,
+        y: 0,
+        canvasWidth: 400,
+        canvasHeight: 200,
+      });
+    });
+
+    return { onCapture, onChoice: vi.fn(), onPageChoice: vi.fn() };
+  };
+
+  const openCropWindow = async (screenshot: ReturnType<typeof host>) => {
+    const panel = mirror();
+
+    await render(
+      <Excalidraw
+        panelBridge={bridge("connected", "connected")}
+        panelScreenshot={screenshot}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    act(() => {
+      setPanelCapture(panel.id, liveWindow);
+    });
+
+    const camera = (await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="mirror-panel-screenshot"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found;
+    })) as HTMLElement;
+
+    fireEvent.click(camera);
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="panel-mirror-picker"]'),
+      ).not.toBeNull(),
+    );
+
+    return panel;
+  };
+
+  const press = (testId: string) =>
+    fireEvent.click(document.querySelector(`[data-testid="${testId}"]`)!);
+
+  const finish = (panelId: string) => {
+    act(() => {
+      closePanelMirrorPicker(panelId);
+      clearPendingScreenshot(panelId);
+      clearAllPanelCaptures();
+    });
+  };
+
+  it("AC-392 the camera opens the crop window with the three things to do, and takes no picture yet", async () => {
+    const screenshot = host();
+
+    const panel = await openCropWindow(screenshot);
+
+    // the crop window is the part picker's, with the choices of a screenshot
+    expect(getAnyPanelMirrorPicker()?.purpose).toBe("screenshot");
+
+    for (const testId of [
+      "panel-mirror-picker-insert",
+      "panel-mirror-picker-new-page",
+      "panel-mirror-picker-read",
+      "panel-mirror-picker-cancel",
+    ]) {
+      expect(
+        document.querySelector(`[data-testid="${testId}"]`),
+      ).not.toBeNull();
+    }
+
+    expect(
+      document.querySelector('[data-testid="panel-mirror-picker-insert"]')!
+        .textContent,
+    ).toBe("Insert into this page");
+    expect(
+      document.querySelector('[data-testid="panel-mirror-picker-new-page"]')!
+        .textContent,
+    ).toBe("New page");
+
+    // it is not the part picker: nothing here changes what the panel mirrors
+    expect(
+      document.querySelector('[data-testid="panel-mirror-picker-apply"]'),
+    ).toBeNull();
+
+    // and no picture has been taken: the teacher has not chosen yet
+    expect(screenshot.onCapture).not.toHaveBeenCalled();
+
+    // the read says what it will read: the whole window, or the crop
+    const read = document.querySelector(
+      '[data-testid="panel-mirror-picker-read"]',
+    )!;
+
+    expect(read.getAttribute("data-crop")).toBe("whole");
+    expect(read.textContent).toBe("Read the text of the whole window");
+
+    act(() => {
+      setPanelMirrorPickerRegion(panel.id, {
+        x: 0.1,
+        y: 0.1,
+        width: 0.5,
+        height: 0.5,
+      });
+    });
+
+    await waitFor(() =>
+      expect(
+        document
+          .querySelector('[data-testid="panel-mirror-picker-read"]')!
+          .getAttribute("data-crop"),
+      ).toBe("crop"),
+    );
+    expect(
+      document.querySelector('[data-testid="panel-mirror-picker-read"]')!
+        .textContent,
+    ).toBe("Read the text of the crop");
+
+    finish(panel.id);
+  });
+
+  it("AC-393 Insert takes the picture with the crop on it and goes straight to the rectangle", async () => {
+    const screenshot = host();
+    const panel = await openCropWindow(screenshot);
+    const region = { x: 0.1, y: 0.2, width: 0.5, height: 0.5 };
+
+    act(() => {
+      setPanelMirrorPickerRegion(panel.id, region);
+    });
+
+    press("panel-mirror-picker-insert");
+
+    // the picture is taken, the crop is on it, and the choice is the next step
+    await waitFor(() =>
+      expect(screenshot.onChoice).toHaveBeenCalledWith(panel.id, "page"),
+    );
+    expect(screenshot.onCapture).toHaveBeenCalledWith(panel.id);
+    expect(getPendingScreenshot(panel.id)?.crop).toEqual(region);
+
+    // no page ribbon: nothing asks which page
+    expect(screenshot.onPageChoice).not.toHaveBeenCalled();
+
+    // and the crop window is gone
+    expect(getAnyPanelMirrorPicker()).toBeNull();
+
+    finish(panel.id);
+  });
+
+  it("AC-393 New page asks for a new page at once, and the read reads the crop", async () => {
+    const newPage = host();
+    const panel = await openCropWindow(newPage);
+
+    press("panel-mirror-picker-new-page");
+
+    await waitFor(() =>
+      expect(newPage.onChoice).toHaveBeenCalledWith(panel.id, "new-page"),
+    );
+    // a new page needs no ribbon: it is made when the picture is placed
+    expect(newPage.onPageChoice).toHaveBeenCalledWith(panel.id, null);
+
+    finish(panel.id);
+  });
+
+  it("AC-393 the read is asked for with the crop on the picture", async () => {
+    const screenshot = host();
+    const panel = await openCropWindow(screenshot);
+    const region = { x: 0.3, y: 0.3, width: 0.4, height: 0.4 };
+
+    act(() => {
+      setPanelMirrorPickerRegion(panel.id, region);
+    });
+
+    press("panel-mirror-picker-read");
+
+    await waitFor(() =>
+      expect(screenshot.onChoice).toHaveBeenCalledWith(panel.id, "ocr"),
+    );
+    expect(getPendingScreenshot(panel.id)?.crop).toEqual(region);
+
+    finish(panel.id);
+  });
+
+  it("AC-394 a panel that is full screen is left before the rectangle, because the rectangle is on the canvas", async () => {
+    const screenshot = host();
+    const exit = vi.fn(async () => undefined);
+    const element = document.createElement("div");
+
+    document.body.appendChild(element);
+
+    Object.defineProperty(document, "fullscreenElement", {
+      configurable: true,
+      get: () => element,
+    });
+    Object.defineProperty(document, "exitFullscreen", {
+      configurable: true,
+      value: exit,
+    });
+
+    let id = "";
+
+    try {
+      const panel = await openCropWindow(screenshot);
+
+      id = panel.id;
+
+      // the crop window is drawn into the full-screen element (D-334)
+      await waitFor(() =>
+        expect(
+          element.querySelector('[data-testid="panel-mirror-picker"]'),
+        ).not.toBeNull(),
+      );
+
+      press("panel-mirror-picker-insert");
+
+      await waitFor(() =>
+        expect(screenshot.onChoice).toHaveBeenCalledWith(panel.id, "page"),
+      );
+
+      expect(exit).toHaveBeenCalledTimes(1);
+      expect(exit.mock.invocationCallOrder[0]).toBeLessThan(
+        screenshot.onChoice.mock.invocationCallOrder[0],
+      );
+    } finally {
+      // @ts-expect-error the test's own stand-ins are taken off again
+      delete document.fullscreenElement;
+      // @ts-expect-error the test's own stand-ins are taken off again
+      delete document.exitFullscreen;
+      element.remove();
+      finish(id);
+    }
+  });
+
+  it("AC-395 cancelling a crop window changes nothing", async () => {
+    const screenshot = host();
+    const onChange = vi.fn();
+    const panel = mirror();
+
+    await render(
+      <Excalidraw
+        panelBridge={bridge("connected", "connected")}
+        panelScreenshot={screenshot}
+        panelMirror={{ onChange }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    act(() => {
+      setPanelCapture(panel.id, liveWindow);
+    });
+
+    // the part picker, and Cancel in it: the panel keeps mirroring what it
+    // mirrored - the window is not made whole by it
+    const part = (await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="code-panel-mirror-region"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found;
+    })) as HTMLElement;
+
+    fireEvent.click(part);
+
+    await waitFor(() =>
+      expect(getAnyPanelMirrorPicker()?.purpose).toBe("region"),
+    );
+
+    press("panel-mirror-picker-cancel");
+
+    expect(getAnyPanelMirrorPicker()).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+
+    // and Cancel in a screenshot's crop window takes no picture
+    fireEvent.click(
+      document.querySelector('[data-testid="mirror-panel-screenshot"]')!,
+    );
+
+    await waitFor(() =>
+      expect(getAnyPanelMirrorPicker()?.purpose).toBe("screenshot"),
+    );
+
+    press("panel-mirror-picker-cancel");
+
+    expect(getAnyPanelMirrorPicker()).toBeNull();
+    expect(screenshot.onCapture).not.toHaveBeenCalled();
+
+    finish(panel.id);
   });
 });

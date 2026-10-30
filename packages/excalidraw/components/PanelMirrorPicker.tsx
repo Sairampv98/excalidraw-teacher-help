@@ -15,6 +15,7 @@ import { t } from "../i18n";
 import { moveCropEdge } from "./PanelScreenshotFocus";
 
 import type { PanelMirrorRegion } from "../scene/panelMirror";
+import type { PanelScreenshotChoice } from "../scene/panelScreenshot";
 
 /**
  * The element that is full screen right now, or null (D-334).
@@ -54,6 +55,7 @@ export const PanelMirrorPicker = ({
   panels,
   viewport,
   onChoose,
+  onScreenshot,
 }: {
   /** the panels on the canvas: a picker whose panel is gone goes with it */
   panels: readonly ExcalidrawPanelElement[];
@@ -61,6 +63,15 @@ export const PanelMirrorPicker = ({
   viewport: { width: number; height: number };
   /** the teacher made a choice */
   onChoose?: (panelId: string, region: PanelMirrorRegion | null) => void;
+  /**
+   * The teacher made a choice for a screenshot (D-339): what to do with the
+   * picture, and the part of the window they cropped (`null` is all of it).
+   */
+  onScreenshot?: (
+    panelId: string,
+    choice: PanelScreenshotChoice,
+    crop: PanelMirrorRegion | null,
+  ) => void;
 }) => {
   const picker = useSyncExternalStore(
     subscribePanelMirrorPickers,
@@ -258,6 +269,23 @@ export const PanelMirrorPicker = ({
     onChoose?.(open.panelId, next);
   };
 
+  /** the picker is left and nothing is chosen: the panel mirrors what it did */
+  const cancel = () => closePanelMirrorPicker(open.panelId);
+
+  /** what the teacher does with the picture (D-339) */
+  const screenshot = (choice: PanelScreenshotChoice) => {
+    closePanelMirrorPicker(open.panelId);
+
+    onScreenshot?.(open.panelId, choice, region);
+  };
+
+  const isScreenshot = open.purpose === "screenshot";
+
+  // a crop that is the whole window is no crop at all
+  const cropped =
+    region !== null &&
+    (region.x > 0 || region.y > 0 || region.width < 1 || region.height < 1);
+
   const node = (
     <div
       className="excalidraw__panel-mirror-picker"
@@ -387,6 +415,9 @@ export const PanelMirrorPicker = ({
           top: pictureTop + displayHeight + 16,
           transform: "translateX(-50%)",
           display: "flex",
+          flexWrap: "wrap",
+          justifyContent: "center",
+          maxWidth: room.width * 0.9,
           alignItems: "center",
           gap: 6,
           padding: 6,
@@ -394,29 +425,77 @@ export const PanelMirrorPicker = ({
           ["--panel-scale" as string]: 1,
         }}
       >
-        <button
-          type="button"
-          className="excalidraw__panel-mirror-picker-choice"
-          data-testid="panel-mirror-picker-apply"
-          onClick={() => choose(region)}
-          style={{ flexShrink: 0 }}
-        >
-          {t("labels.mirror.apply")}
-        </button>
-        <button
-          type="button"
-          className="excalidraw__panel-mirror-picker-choice"
-          data-testid="panel-mirror-picker-whole"
-          onClick={() => choose(null)}
-          style={{ flexShrink: 0 }}
-        >
-          {t("labels.mirror.wholeWindow")}
-        </button>
+        {isScreenshot ? (
+          <>
+            <span
+              data-testid="panel-mirror-picker-hint"
+              style={{
+                flexBasis: "100%",
+                textAlign: "center",
+                color: "#fff",
+                fontSize: 14,
+              }}
+            >
+              {t("labels.mirror.screenshotHint")}
+            </span>
+            <button
+              type="button"
+              className="excalidraw__panel-mirror-picker-choice"
+              data-testid="panel-mirror-picker-insert"
+              onClick={() => screenshot("page")}
+              style={{ flexShrink: 0 }}
+            >
+              {t("labels.mirror.insert")}
+            </button>
+            <button
+              type="button"
+              className="excalidraw__panel-mirror-picker-choice"
+              data-testid="panel-mirror-picker-new-page"
+              onClick={() => screenshot("new-page")}
+              style={{ flexShrink: 0 }}
+            >
+              {t("labels.mirror.newPage")}
+            </button>
+            <button
+              type="button"
+              className="excalidraw__panel-mirror-picker-choice"
+              data-testid="panel-mirror-picker-read"
+              data-crop={cropped ? "crop" : "whole"}
+              onClick={() => screenshot("ocr")}
+              style={{ flexShrink: 0 }}
+            >
+              {cropped
+                ? t("labels.mirror.readCrop")
+                : t("labels.mirror.readWhole")}
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="excalidraw__panel-mirror-picker-choice"
+              data-testid="panel-mirror-picker-apply"
+              onClick={() => choose(region)}
+              style={{ flexShrink: 0 }}
+            >
+              {t("labels.mirror.apply")}
+            </button>
+            <button
+              type="button"
+              className="excalidraw__panel-mirror-picker-choice"
+              data-testid="panel-mirror-picker-whole"
+              onClick={() => choose(null)}
+              style={{ flexShrink: 0 }}
+            >
+              {t("labels.mirror.wholeWindow")}
+            </button>
+          </>
+        )}
         <button
           type="button"
           className="excalidraw__panel-mirror-picker-choice"
           data-testid="panel-mirror-picker-cancel"
-          onClick={() => choose(null)}
+          onClick={cancel}
           style={{ flexShrink: 0 }}
         >
           {t("labels.mirror.cancel")}
