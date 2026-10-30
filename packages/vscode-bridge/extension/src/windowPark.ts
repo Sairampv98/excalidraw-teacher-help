@@ -560,7 +560,18 @@ export const createWindowPark = (options: WindowParkOptions): WindowPark => {
 
     const was = parked.get(ruleKey(rule));
 
-    if (!was && !isParkedPlace(window.x, window.y)) {
+    // A window on the virtual display with no facts kept - the extension was
+    // restarted while it was there, or the editor started there because it
+    // remembers where it was closed - is lost to the teacher, so it comes back
+    // to the primary display as well (D-356).
+    const onVirtual =
+      !was &&
+      !isParkedPlace(window.x, window.y) &&
+      (await displays()).some(
+        (display) => display.virtual && isOnDisplay(window, display),
+      );
+
+    if (!was && !onVirtual && !isParkedPlace(window.x, window.y)) {
       // nothing was parked, and the window is where a window is
       return {
         ok: true,

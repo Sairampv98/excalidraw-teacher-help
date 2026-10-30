@@ -6,7 +6,7 @@
  * lint reads this file and fails if a row id is missing.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import React from "react";
 
@@ -176,7 +176,10 @@ describe("the crop of an image", () => {
 });
 
 describe("the crop window of an image", () => {
-  const mount = async (crop: Record<string, number> | null = null) => {
+  const mount = async (
+    crop: Record<string, number> | null = null,
+    onRead?: (element: unknown, region: unknown) => void,
+  ) => {
     const image = element({
       x: 100,
       y: 100,
@@ -193,7 +196,7 @@ describe("the crop window of an image", () => {
     await render(
       <ExcalidrawAPIProvider>
         <Excalidraw initialData={{ elements: [image as never] }} />
-        <ImageCropMode />
+        <ImageCropMode onRead={onRead as never} />
       </ExcalidrawAPIProvider>,
     );
 
@@ -342,7 +345,7 @@ describe("the crop window of an image", () => {
     expect(same.width).toBe(200);
   });
 
-  it("AC-405 Reset and Enter bring a cropped picture back whole", async () => {
+  it("AC-405 Reset takes the crop off the picture at once, and Enter applies the box", async () => {
     const image = await mount({
       x: 100,
       y: 50,
@@ -360,11 +363,31 @@ describe("the crop window of an image", () => {
       ).not.toBeNull(),
     );
 
-    // Reset puts the box on the whole picture, and Enter applies it
+    // Enter applies the box as it stands: the crop is the same one
+    fireEvent.keyDown(window, { key: "Enter" });
+
+    expect(document.querySelector('[data-testid="image-crop"]')).toBeNull();
+
+    const kept = window.h.elements.find(
+      (candidate) => candidate.id === image.id,
+    ) as unknown as { width: number; crop: { width: number } | null };
+
+    expect(kept.crop?.width).toBeCloseTo(500, 5);
+    expect(kept.width).toBeCloseTo(200, 5);
+
+    // Reset does not wait for Apply: the whole picture is put back and the
+    // window is left
+    act(() => openImageCrop(image.id));
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="image-crop"]'),
+      ).not.toBeNull(),
+    );
+
     fireEvent.click(
       document.querySelector('[data-testid="image-crop-reset"]') as HTMLElement,
     );
-    fireEvent.keyDown(window, { key: "Enter" });
 
     expect(document.querySelector('[data-testid="image-crop"]')).toBeNull();
 
@@ -374,5 +397,42 @@ describe("the crop window of an image", () => {
 
     expect(whole.crop).toBeNull();
     expect(whole.width).toBeCloseTo(400, 5);
+  });
+
+  it("AC-419 the crop window reads the text of the part the box is on", async () => {
+    const onRead = vi.fn();
+    const image = await mount(
+      {
+        x: 100.4,
+        y: 50.6,
+        width: 500,
+        height: 250,
+        naturalWidth: 1000,
+        naturalHeight: 500,
+      },
+      onRead,
+    );
+
+    act(() => openImageCrop(image.id));
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="image-crop-read"]'),
+      ).not.toBeNull(),
+    );
+
+    fireEvent.click(
+      document.querySelector('[data-testid="image-crop-read"]') as HTMLElement,
+    );
+
+    // the part, in the picture's own pixels, whole numbers - and the window is left
+    expect(onRead).toHaveBeenCalledTimes(1);
+    expect(onRead.mock.calls[0][1]).toEqual({
+      x: 100,
+      y: 51,
+      width: 500,
+      height: 250,
+    });
+    expect(document.querySelector('[data-testid="image-crop"]')).toBeNull();
   });
 });

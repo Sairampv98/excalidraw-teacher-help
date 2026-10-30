@@ -684,6 +684,53 @@ const ExcalidrawWrapper = () => {
   );
 
   /**
+   * Reads the text of the part of a picture that the crop window's box is on
+   * (D-358): the teacher has already said which part, so nothing is asked.
+   */
+  const readImagePart = useCallback(
+    async (
+      element: ExcalidrawImageElement,
+      region: { x: number; y: number; width: number; height: number },
+    ) => {
+      const current = excalidrawAPI;
+
+      if (!current || !element.fileId) {
+        return;
+      }
+
+      const file = current.getFiles()[element.fileId];
+
+      if (!file) {
+        return;
+      }
+
+      const natural = await imageNaturalSize(file.dataURL);
+
+      const result = await readOcr({
+        place: false,
+        image: {
+          dataURL: file.dataURL,
+          width: natural.width || element.width,
+          height: natural.height || element.height,
+        },
+        region,
+        ...chosenReadEngine(),
+        placement: {
+          x: element.x,
+          y: element.y,
+          width: element.width,
+          height: element.height,
+        },
+        pageId: element.pageId,
+        strokeColor: current.getAppState().currentItemStrokeColor,
+      });
+
+      showRead(result);
+    },
+    [excalidrawAPI, readOcr, showRead],
+  );
+
+  /**
    * Reads the **panel** the teacher picked: its poster, or the frame the
    * video is showing right now (D-59).
    *
@@ -1813,7 +1860,7 @@ const ExcalidrawWrapper = () => {
         <MediaCropMode />
 
         {/* the crop window of every other picture and GIF (D-348) */}
-        <ImageCropMode />
+        <ImageCropMode onRead={readImagePart} />
 
         <ShareDialog
           collabAPI={collabAPI}

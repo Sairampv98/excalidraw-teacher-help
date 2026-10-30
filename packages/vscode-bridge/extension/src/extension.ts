@@ -1472,8 +1472,23 @@ export async function activate(
   );
 
   // Whether the window is parked is read now, so that a window that was
-  // parked before the extension restarted is said to be (D-328).
-  void refreshWindowState();
+  // parked before the extension restarted is said to be (D-328). A window that
+  // the editor itself started on the virtual display - it opens where it was
+  // closed - is brought to the main display: nobody can reach it there
+  // (D-356).
+  void (async () => {
+    if (process.platform === "win32" && workspace) {
+      try {
+        if ((await windowPark.virtualState(editorRule)).on) {
+          await windowPark.bringBack(editorRule);
+        }
+      } catch {
+        // the window may not be there yet: it is read again below
+      }
+    }
+
+    await refreshWindowState();
+  })();
 }
 
 export function deactivate(): Promise<void> | void {

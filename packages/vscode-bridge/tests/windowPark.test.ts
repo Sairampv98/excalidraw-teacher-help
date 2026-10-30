@@ -807,3 +807,54 @@ describe("the teacher's own button for the virtual display (D-351)", () => {
     );
   });
 });
+
+describe("a window on the virtual display cannot be lost (D-356)", () => {
+  it("AC-416 a window on the virtual display with no facts kept comes back to the primary display", async () => {
+    const helper = fakeHelper({
+      windows: [{ ...ON_A_DISPLAY, x: 2000, y: 100, width: 800, height: 600 }],
+      displays: [REAL_DISPLAY, VIRTUAL_DISPLAY],
+      workArea: { x: 0, y: 0, width: 1920, height: 1040 },
+    });
+    const park = createWindowPark({
+      scriptPath: "window.ps1",
+      run: helper.run,
+    });
+
+    const back = await park.bringBack(RULE);
+
+    expect(back.ok).toBe(true);
+
+    const [place] = placeCalls(helper.calls);
+    const x = Number(place[place.indexOf("-X") + 1]);
+    const y = Number(place[place.indexOf("-Y") + 1]);
+    const width = Number(place[place.indexOf("-Width") + 1]);
+    const height = Number(place[place.indexOf("-Height") + 1]);
+
+    // inside the primary display, and not on the virtual one
+    expect(x).toBeGreaterThanOrEqual(0);
+    expect(x + width).toBeLessThanOrEqual(1920);
+    expect(y + height).toBeLessThanOrEqual(1040);
+
+    // a window on a real display with no facts is left where it is
+    const real = fakeHelper({
+      windows: [ON_A_DISPLAY],
+      displays: [REAL_DISPLAY, VIRTUAL_DISPLAY],
+    });
+    const stays = createWindowPark({
+      scriptPath: "window.ps1",
+      run: real.run,
+    });
+    const answer = await stays.bringBack(RULE);
+
+    expect(answer.reason).toContain("already on a display");
+    expect(placeCalls(real.calls)).toHaveLength(0);
+  });
+
+  it("AC-416 the extension brings a window the editor started on the virtual display to the main display", () => {
+    const source = codeOf(read("extension", "src", "extension.ts"));
+
+    expect(source).toMatch(
+      /\(await windowPark\.virtualState\(editorRule\)\)\.on[\s\S]*await windowPark\.bringBack\(editorRule\)[\s\S]*await refreshWindowState\(\)/,
+    );
+  });
+});

@@ -847,3 +847,23 @@ describe("the capture of the editor's own window", () => {
     }
   });
 });
+
+describe("the capture follows the window's size (D-355)", () => {
+  it("AC-417 a window whose size changed is measured again before the picture is taken", () => {
+    const script = readFileSync(
+      join(findPackageRoot(), "extension", "media", "capture.ps1"),
+      "utf8",
+    );
+
+    // the client size is read on every frame, and a size that is not the one
+    // the bitmaps were made for sends the helper back to measure the window
+    expect(script).toMatch(
+      /\$current = \[PwCap\]::ClientRect\(\$hwnd\)\s*if \(\(\$current\[2\] -ne \$w\) -or \(\$current\[3\] -ne \$h\)\) \{\s*\$hwnd = \[IntPtr\]::Zero[\s\S]*?continue/,
+    );
+
+    // and that happens before the window is drawn into the bitmap
+    expect(
+      script.indexOf("$current = [PwCap]::ClientRect($hwnd)"),
+    ).toBeLessThan(script.indexOf("[PwCap]::Shot($hwnd, $bmp)"));
+  });
+});

@@ -411,6 +411,23 @@ for ($i = 0; ($MaxFrames -le 0) -or ($i -lt $MaxFrames); $i++) {
     continue
   }
 
+  # --- the window's size, looked at on EVERY frame (D-355) ---
+  #
+  # A window that is resized - dragged, maximised, or moved to a display with
+  # another scale, which is what the virtual display is - has a new client
+  # size, and the bitmaps were made for the old one: the editor is drawn into
+  # a bitmap that does not fit it (stale margins, a picture of the wrong
+  # size), and the pointer's place, which is a fraction of the live client
+  # area, lands somewhere else in it. A size that changed is a window that is
+  # measured again, and the reader is told the new size.
+  $current = [PwCap]::ClientRect($hwnd)
+
+  if (($current[2] -ne $w) -or ($current[3] -ne $h)) {
+    $hwnd = [IntPtr]::Zero
+    $nextResolveAt = [DateTime]::MinValue
+    continue
+  }
+
   # --- the capture ---
   $mem.SetLength(0)
 

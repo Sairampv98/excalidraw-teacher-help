@@ -574,17 +574,22 @@ public static class InputEngine {
     if (top == IntPtr.Zero || route == "none") return;
     lastEvent = DateTime.UtcNow;
     bool background = route == "background";
+    // On the focus route the KEYBOARD is real input - it goes to the window in
+    // front - but the mouse is posted to the window's page as on the other
+    // route (D-355): a real click has to take the teacher's own pointer to the
+    // editor's window and bring it back, and that was what made clicks bad.
+    bool postMouse = background || (routeSetting == "focus" && render != IntPtr.Zero);
     switch (f[0]) {
       case "P": {
         char button = f.Length > 4 && f[4].Length > 0 ? f[4][0] : 'l';
         int mods = f.Length > 5 ? int.Parse(f[5], CultureInfo.InvariantCulture) : 0;
-        if (background) PointerBackground(f[1], Num(f[2]), Num(f[3]), button, mods);
+        if (postMouse) PointerBackground(f[1], Num(f[2]), Num(f[3]), button, mods);
         else PointerFocus(f[1], Num(f[2]), Num(f[3]), button, mods);
         break;
       }
       case "W": {
         int mods = int.Parse(f[5], CultureInfo.InvariantCulture);
-        if (background) WheelBackground(Num(f[1]), Num(f[2]), Num(f[3]), Num(f[4]), mods);
+        if (postMouse) WheelBackground(Num(f[1]), Num(f[2]), Num(f[3]), Num(f[4]), mods);
         else WheelFocus(Num(f[1]), Num(f[2]), Num(f[3]), Num(f[4]), mods);
         break;
       }

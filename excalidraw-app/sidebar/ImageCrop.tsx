@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { isImageElement, mediaOf, newElementWith } from "@excalidraw/element";
 import { CaptureUpdateAction, useExcalidrawAPI } from "@excalidraw/excalidraw";
 
+import type { ExcalidrawImageElement } from "@excalidraw/element/types";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
 import {
@@ -92,9 +93,11 @@ const dragPart = (
 const ImageCropScreen = ({
   api,
   elementId,
+  onRead,
 }: {
   api: ExcalidrawImperativeAPI;
   elementId: string;
+  onRead?: (element: ExcalidrawImageElement, region: ImagePart) => void;
 }) => {
   const element = api
     .getSceneElements()
@@ -172,26 +175,36 @@ const ImageCropScreen = ({
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
 
+  // a part of the picture is put on the element, and the window is left
+  const applyPart = useCallback(
+    (next: ImagePart) => {
+      if (!image || !natural) {
+        return;
+      }
+
+      const updates = imageCropUpdates(image, next, natural);
+
+      api.updateScene({
+        elements: api
+          .getSceneElementsIncludingDeleted()
+          .map((candidate) =>
+            candidate.id === image.id
+              ? newElementWith(candidate, updates)
+              : candidate,
+          ),
+        captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+      });
+
+      closeImageCrop();
+    },
+    [api, image, natural],
+  );
+
   const apply = useCallback(() => {
-    if (!image || !natural || !part) {
-      return;
+    if (part) {
+      applyPart(part);
     }
-
-    const updates = imageCropUpdates(image, part, natural);
-
-    api.updateScene({
-      elements: api
-        .getSceneElementsIncludingDeleted()
-        .map((candidate) =>
-          candidate.id === image.id
-            ? newElementWith(candidate, updates)
-            : candidate,
-        ),
-      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
-    });
-
-    closeImageCrop();
-  }, [api, image, natural, part]);
+  }, [applyPart, part]);
 
   // Enter applies, as it does in the crop window of a poster
   useEffect(() => {
@@ -298,8 +311,10 @@ const ImageCropScreen = ({
         <button
           type="button"
           data-testid="image-crop-reset"
+          // Reset takes the crop off the picture at once: the whole picture
+          // is put back and the window is left (D-359)
           onClick={() =>
-            setPart({
+            applyPart({
               x: 0,
               y: 0,
               width: natural.width,
@@ -310,6 +325,24 @@ const ImageCropScreen = ({
           Reset
         </button>
         <span className="media-crop__spacer" />
+        {onRead ? (
+          <button
+            type="button"
+            data-testid="image-crop-read"
+            onClick={() => {
+              // the text of the part the box is on (D-358)
+              onRead(image, {
+                x: Math.round(part.x),
+                y: Math.round(part.y),
+                width: Math.round(part.width),
+                height: Math.round(part.height),
+              });
+              closeImageCrop();
+            }}
+          >
+            Read the text
+          </button>
+        ) : null}
         <button
           type="button"
           data-testid="image-crop-cancel"
@@ -448,7 +481,12 @@ const ImageCropScreen = ({
  * instead): the canvas's own in-place crop was drawn under the panels, which is
  * what the teacher saw as a layer under the canvas.
  */
-export const ImageCropMode = () => {
+export const ImageCropMode = ({
+  onRead,
+}: {
+  /** reads the text of a part of a picture (D-358) */
+  onRead?: (element: ExcalidrawImageElement, region: ImagePart) => void;
+}) => {
   const api = useExcalidrawAPI();
   const elementId = useImageCropElement();
 
@@ -506,5 +544,12 @@ export const ImageCropMode = () => {
     return null;
   }
 
-  return <ImageCropScreen key={elementId} api={api} elementId={elementId} />;
+  return (
+    <ImageCropScreen
+      key={elementId}
+      api={api}
+      elementId={elementId}
+      onRead={onRead}
+    />
+  );
 };

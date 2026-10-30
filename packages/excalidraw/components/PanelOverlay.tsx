@@ -3217,10 +3217,6 @@ const YoutubePanelSurface = ({
       ? t("labels.panel.youtube.captionsFromApi")
       : tier === "public"
       ? t("labels.panel.youtube.captionsFromPublic")
-      : tier === "none"
-      ? // the reason says it all — "no captions: the API key is not set" — and
-        // it is only shown on its own when it is missing
-        state?.reason || t("labels.panel.youtube.noCaptions")
       : null;
 
   return (

@@ -913,3 +913,26 @@ describe("the focus route and the program that has the foreground", () => {
     expect(burst).toContain("the editor's window would not come to the front");
   });
 });
+
+describe("the mouse on the focus route takes nothing (D-355)", () => {
+  it("AC-418 the mouse is posted to the page while the keyboard stays real input", () => {
+    const helper = codeOf(readFileSync(inputScriptPath, "utf8"));
+
+    // on the focus route the pointer and the wheel are posted to the window's
+    // page when it has one: no real pointer to carry over, no window to bring
+    // forward for a click
+    expect(helper).toContain(
+      'bool postMouse = background || (routeSetting == "focus" && render != IntPtr.Zero);',
+    );
+    expect(helper).toContain("if (postMouse) PointerBackground(");
+    expect(helper).toContain("if (postMouse) WheelBackground(");
+
+    // the keyboard is still real input on that route
+    expect(helper).toContain("else KeyFocus(down, vk, ch, mods);");
+    expect(helper).toContain("else TextFocus(text);");
+
+    // and a window with no page to post to keeps the real pointer
+    expect(helper).toContain("else PointerFocus(");
+    expect(helper).toContain("else WheelFocus(");
+  });
+});
