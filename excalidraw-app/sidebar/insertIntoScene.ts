@@ -1553,6 +1553,81 @@ const placeCodeCard = (
 export const CODE_CARD_PADDING = CODE_PADDING;
 
 /**
+ * A code card as elements, with its top-left corner at (0, 0), and not put on
+ * the scene: the card frame and the text of the code, in one group. The same
+ * card `insertCodeIntoScene` builds - for a caller that decides the page and the
+ * place itself, as the assistant's tool does (D-407).
+ *
+ * The highlighting is best-effort, as it is there: a language that is not known
+ * gives the plain monospace text on the same card.
+ */
+export const buildCodeCard = async (rawCode: string, language?: string) => {
+  const lines = await highlightCode(rawCode, language);
+  const groupId = randomId();
+  let runs: ExcalidrawTextElement[];
+  let contentWidth: number;
+  let contentHeight: number;
+
+  if (!lines) {
+    const body = newTextElement({
+      text: wrapCode(rawCode, CODE_MAX_CHARS),
+      fontFamily: FONT_FAMILY.Cascadia,
+      fontSize: CODE_FONT_SIZE,
+      autoResize: true,
+      textAlign: "left",
+      verticalAlign: "top",
+      strokeColor: CODE_TEXT,
+      x: 0,
+      y: 0,
+      groupIds: [groupId],
+    });
+
+    runs = [body];
+    contentWidth = body.width;
+    contentHeight = body.height;
+  } else {
+    const rows = layoutCode(lines, { maxColumns: CODE_MAX_CHARS });
+    const charWidth = codeCharWidth();
+    const lineHeight = CODE_FONT_SIZE * getLineHeight(FONT_FAMILY.Cascadia);
+
+    runs = codeRuns(rows, charWidth, lineHeight, groupId);
+    contentWidth = codeCardColumns(rows) * charWidth;
+    contentHeight = rows.length * lineHeight;
+  }
+
+  const card = newElement({
+    type: "rectangle",
+    x: -CODE_PADDING,
+    y: -CODE_PADDING,
+    width: contentWidth + CODE_PADDING * 2,
+    height: contentHeight + CODE_PADDING * 2,
+    strokeColor: CODE_BORDER,
+    backgroundColor: CODE_BG,
+    fillStyle: "solid",
+    strokeWidth: 1,
+    strokeStyle: "solid",
+    roughness: 0,
+    opacity: 100,
+    roundness: { type: 3 },
+    groupIds: [groupId],
+  });
+
+  // the card's top-left is (0, 0)
+  const elements = [card, ...runs].map((element) => ({
+    ...element,
+    x: element.x + CODE_PADDING,
+    y: element.y + CODE_PADDING,
+  }));
+
+  return {
+    elements,
+    width: card.width,
+    height: card.height,
+    highlighted: !!lines,
+  };
+};
+
+/**
  * Copying code and pasting it into Excalidraw normally lands as a plain text
  * element: the clipboard only ever carried the source text, and the library's
  * paste path has no way to know it was code. So the source is stashed here as

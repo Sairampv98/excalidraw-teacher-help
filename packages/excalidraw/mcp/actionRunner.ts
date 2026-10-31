@@ -1,8 +1,9 @@
 /**
- * Running an editor action on a set of elements, as the properties panel does
- * (D-402): the panel's controls work on the **selection**, so the elements the
- * assistant names are treated as the selection for the length of the action, and
- * the person's own selection is put back afterwards.
+ * Running editor actions as the panels do (D-402, D-403): the properties panel's
+ * controls work on the **selection**, and the page panel's on the **open page**,
+ * so the elements or the page the assistant names are treated as the selection or
+ * the open page for the length of the action, and what the person had is put back
+ * afterwards.
  *
  * Several actions in one call are chained on the same elements, then applied
  * once - one change of the scene, so one undo step (D-399).
@@ -31,24 +32,58 @@ const SELECTION_KEYS = [
   "selectedLinearElement",
 ] as const;
 
-export const applyActionsToIds = async (
+export const applyActions = async (
   app: McpApp,
-  ids: readonly string[],
   steps: readonly McpActionStep[],
   {
+    ids,
+    groups = false,
     keepSelection = true,
     keepDefaults = true,
-  }: { keepSelection?: boolean; keepDefaults?: boolean } = {},
+  }: {
+    /** the elements to act on, as though they were selected */
+    ids?: readonly string[];
+    /** whole groups are selected, as clicking a member of a group does */
+    groups?: boolean;
+    /** the person's own selection is put back */
+    keepSelection?: boolean;
+    /** the style the person's next elements get is left as it was */
+    keepDefaults?: boolean;
+  } = {},
 ) => {
   const before = app.state;
+  const selected: Record<string, true> = Object.fromEntries(
+    (ids ?? []).map((id) => [id, true as const]),
+  );
+  const selectedGroupIds: Record<string, true> = {};
+
+  if (ids && groups) {
+    // the outermost group of each element named, and everything in it
+    const live = app.scene.getNonDeletedElements();
+
+    for (const element of live) {
+      if (selected[element.id] && element.groupIds.length) {
+        selectedGroupIds[element.groupIds[element.groupIds.length - 1]] = true;
+      }
+    }
+
+    for (const element of live) {
+      if (element.groupIds.some((group) => selectedGroupIds[group])) {
+        selected[element.id] = true;
+      }
+    }
+  }
+
   const virtual: AppState = {
     ...before,
-    selectedElementIds: Object.fromEntries(
-      ids.map((id) => [id, true as const]),
-    ),
-    selectedGroupIds: {},
-    editingGroupId: null,
-    selectedLinearElement: null,
+    ...(ids
+      ? {
+          selectedElementIds: selected,
+          selectedGroupIds,
+          editingGroupId: null,
+          selectedLinearElement: null,
+        }
+      : {}),
   };
 
   let elements: readonly OrderedExcalidrawElement[] =
@@ -78,7 +113,7 @@ export const applyActionsToIds = async (
 
   const appState: Partial<AppState> = { ...state };
 
-  if (keepSelection) {
+  if (keepSelection && ids) {
     for (const key of SELECTION_KEYS) {
       (appState as Record<string, unknown>)[key] = before[key];
     }
@@ -100,3 +135,11 @@ export const applyActionsToIds = async (
     captureUpdate: CaptureUpdateAction.IMMEDIATELY,
   });
 };
+
+/** the elements named are the selection for the action */
+export const applyActionsToIds = (
+  app: McpApp,
+  ids: readonly string[],
+  steps: readonly McpActionStep[],
+  options: { keepSelection?: boolean; keepDefaults?: boolean } = {},
+) => applyActions(app, steps, { ...options, ids });

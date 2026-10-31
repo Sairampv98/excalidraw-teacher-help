@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 
+import { useExcalidrawAPI } from "@excalidraw/excalidraw";
 import { useApp } from "@excalidraw/excalidraw/components/App";
 import { createMcpClient } from "@excalidraw/excalidraw/mcp/client";
 import {
@@ -11,8 +12,17 @@ import { runMcpTool } from "@excalidraw/excalidraw/mcp/runner";
 import type { McpClient } from "@excalidraw/excalidraw/mcp/client";
 
 import type { McpApp } from "@excalidraw/excalidraw/mcp/common";
+import type { McpRunContext } from "@excalidraw/excalidraw/mcp/runner";
 
 import { appJotaiStore, useAtomValue } from "../app-jotai";
+
+import {
+  keepDeletedPage,
+  listDeletedPages,
+  restoreDeletedPage,
+} from "../pages/pageTrash";
+
+import { createAppTools } from "./appTools";
 
 import {
   assistantAllowAtom,
@@ -52,11 +62,54 @@ export const describeAssistantChange = (
 };
 
 /**
+ * What only the app can do for the page tools: the store of deleted pages, which
+ * keeps a page in the browser's storage so it can come back after a reload (D-280).
+ */
+const pageHooks = (apiRef: {
+  current: ReturnType<typeof useExcalidrawAPI>;
+}): NonNullable<McpRunContext["hooks"]> => ({
+  keepDeletedPage: async (pageId) => {
+    const api = apiRef.current;
+
+    if (api) {
+      await keepDeletedPage(api, api.getAppState().pages ?? [], pageId);
+    }
+  },
+  listDeletedPages: async () =>
+    (await listDeletedPages()).map((entry) => ({
+      id: entry.id,
+      name: entry.page.name,
+      deletedAt: entry.deletedAt,
+      elements: entry.elements.length,
+    })),
+  restoreDeletedPage: async (id) => {
+    const api = apiRef.current;
+    const entry = (await listDeletedPages()).find((each) => each.id === id);
+
+    if (!api || !entry) {
+      return null;
+    }
+
+    const pageId = await restoreDeletedPage(api, entry);
+    const pages = api.getAppState().pages ?? [];
+    const index = pages.findIndex((page) => page.id === pageId);
+
+    return { page: index + 1, id: pageId, name: entry.page.name };
+  },
+});
+
+/**
  * Keeps the link to the assistant's server while the app is open and the person
  * has paired (D-397). It draws nothing.
  */
 export const AssistantLink = () => {
   const app = useApp() as unknown as McpApp;
+  const api = useExcalidrawAPI();
+  const apiRef = useRef(api);
+
+  apiRef.current = api;
+  // the tools that need what only the app has: its stickers, tables and code cards
+  const appToolsRef = useRef(createAppTools(() => apiRef.current));
   const code = useAtomValue(assistantCodeAtom);
   const enabled = useAtomValue(assistantEnabledAtom);
   const allow = useAtomValue(assistantAllowAtom);
@@ -90,6 +143,8 @@ export const AssistantLink = () => {
           allowChanges: allowRef.current,
           app: ASSISTANT_APP_NAME,
           features: FEATURES,
+          hooks: pageHooks(apiRef),
+          appTools: appToolsRef.current,
         });
 
         if (outcome.ok) {

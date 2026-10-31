@@ -6,7 +6,10 @@
 
 import { isTextElement } from "@excalidraw/element";
 
-import type { ExcalidrawElement } from "@excalidraw/element/types";
+import type {
+  ExcalidrawElement,
+  ExcalidrawTextElement,
+} from "@excalidraw/element/types";
 
 import { getPageRectAtIndex, normalizePage } from "../scene/pages";
 
@@ -29,6 +32,14 @@ export class McpToolError extends Error {
     this.code = code;
   }
 }
+
+/** the texts among some elements */
+export const textsOf = (
+  elements: readonly ExcalidrawElement[],
+): ExcalidrawTextElement[] =>
+  elements.filter((element) =>
+    isTextElement(element),
+  ) as ExcalidrawTextElement[];
 
 export const fail = (code: McpErrorCode, message: string): never => {
   throw new McpToolError(code, message);

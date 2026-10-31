@@ -5,7 +5,39 @@
  * throws is an answer, never a silence.
  */
 
+import {
+  bindArrow,
+  checkPage,
+  duplicateElementsTool,
+  listActions,
+  mermaidToDiagram,
+  runAction,
+  styleText,
+} from "./arrangeTools";
+import {
+  exportScene,
+  findText,
+  getStats,
+  insertDocument,
+  setCanvas,
+  setTool,
+  setView,
+} from "./canvasTools";
 import { createElements, deleteElements, updateElements } from "./elementTools";
+import {
+  addPage,
+  applyPageLook,
+  clearPage,
+  deletePageTool,
+  describePageLook,
+  listDeletedPages,
+  movePage,
+  renamePage,
+  restorePage,
+  scalePage,
+  setInk,
+  setPage,
+} from "./pageTools";
 import { describeProperties, setProperties } from "./propertyTools";
 import {
   describeCapabilities,
@@ -16,6 +48,7 @@ import {
 } from "./readTools";
 import { McpToolError } from "./common";
 import { mcpToolByName } from "./toolSpecs";
+import { libraryInsert, libraryList } from "./libraryTools";
 import { goToPage, screenshot, selectElements } from "./viewTools";
 
 import type { McpApp } from "./common";
@@ -43,6 +76,35 @@ export const MCP_HANDLERS: Record<string, Handler> = {
   delete_elements: (app, args) => deleteElements(app, args),
   describe_properties: (app, args) => describeProperties(app, args),
   set_properties: (app, args) => setProperties(app, args),
+  add_page: (app, args) => addPage(app, args),
+  rename_page: (app, args) => renamePage(app, args),
+  move_page: (app, args) => movePage(app, args),
+  delete_page: (app, args, context) => deletePageTool(app, args, context),
+  clear_page: (app, args) => clearPage(app, args),
+  list_deleted_pages: (app, args, context) =>
+    listDeletedPages(app, args, context),
+  restore_page: (app, args, context) => restorePage(app, args, context),
+  set_page: (app, args) => setPage(app, args),
+  scale_page_content: (app, args) => scalePage(app, args),
+  describe_page_look: (app, args) => describePageLook(app, args),
+  apply_page_look: (app, args) => applyPageLook(app, args),
+  set_ink: (app, args) => setInk(app, args),
+  list_actions: () => listActions(),
+  run_action: (app, args) => runAction(app, args),
+  duplicate_elements: (app, args) => duplicateElementsTool(app, args),
+  style_text: (app, args) => styleText(app, args),
+  bind_arrow: (app, args) => bindArrow(app, args),
+  mermaid_to_diagram: (app, args) => mermaidToDiagram(app, args),
+  check_page: (app, args) => checkPage(app, args),
+  set_canvas: (app, args) => setCanvas(app, args),
+  set_view: (app, args) => setView(app, args),
+  set_tool: (app, args) => setTool(app, args),
+  find_text: (app, args) => findText(app, args),
+  get_stats: (app, args) => getStats(app, args),
+  export_scene: (app, args) => exportScene(app, args),
+  insert_document: (app, args) => insertDocument(app, args),
+  library_list: (app) => libraryList(app),
+  library_insert: (app, args) => libraryInsert(app, args),
   select_elements: (app, args) => selectElements(app, args),
   go_to_page: (app, args) => goToPage(app, args),
   screenshot: (app, args) => screenshot(app, args),
@@ -59,9 +121,8 @@ export const runMcpTool = async (
   context: McpRunContext,
 ): Promise<McpRunOutcome> => {
   const spec = mcpToolByName(name);
-  const handler = MCP_HANDLERS[name];
 
-  if (!spec || !handler) {
+  if (!spec) {
     return {
       ok: false,
       error: {
@@ -78,6 +139,22 @@ export const runMcpTool = async (
         code: "changes-not-allowed",
         message:
           "Allow changes is off in the whiteboard's Assistant panel, so this tool cannot change anything. Ask the person to turn it on.",
+      },
+    };
+  }
+
+  // a tool that needs what only the app has is the app's to give (D-407)
+  const appTool = spec.app ? context.appTools?.[name] : undefined;
+  const handler: Handler | undefined = spec.app
+    ? appTool && ((forApp, forArgs) => appTool(forArgs, forApp))
+    : MCP_HANDLERS[name];
+
+  if (!handler) {
+    return {
+      ok: false,
+      error: {
+        code: "failed",
+        message: `This build of the whiteboard does not have ${name}.`,
       },
     };
   }

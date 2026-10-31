@@ -1033,8 +1033,11 @@ describe("the limits and the guards", () => {
 
 describe("the tools and their definitions", () => {
   it("AC-466 every tool has a handler and every handler a tool, and each one says what it takes", () => {
+    // the tools that need the app are its to handle (D-407)
     expect(Object.keys(MCP_HANDLERS).sort()).toEqual(
-      MCP_TOOLS.map((tool) => tool.name).sort(),
+      MCP_TOOLS.filter((tool) => !tool.app)
+        .map((tool) => tool.name)
+        .sort(),
     );
 
     const names = new Set<string>();

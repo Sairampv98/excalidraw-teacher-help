@@ -6,6 +6,7 @@
 import { getBoundTextElement } from "@excalidraw/element";
 
 import { paperOf } from "../scene/paper";
+import { getPageSizePresetForPage } from "../scene/pages";
 
 import {
   allPages,
@@ -26,13 +27,31 @@ import { MCP_MAX_ELEMENTS_PER_CALL, MCP_TOOLS } from "./toolSpecs";
 
 import type { McpApp } from "./common";
 
+/** the handlers of the tools that need what only the app has (D-407) */
+export type McpAppTools = Record<
+  string,
+  (args: unknown, app: McpApp) => unknown | Promise<unknown>
+>;
+
 export type McpRunContext = {
+  /** the app's own tools: the sticker catalogue, the table and the code card */
+  appTools?: McpAppTools;
   /** whether the assistant may change the scene (D-399) */
   allowChanges: boolean;
   /** the app's name and version */
   app: string;
   /** what the page can do besides the canvas tools */
   features: string[];
+  /** what only the app can do: the store of deleted pages (D-403) */
+  hooks?: {
+    keepDeletedPage?: (pageId: string) => Promise<void>;
+    listDeletedPages?: () => Promise<
+      { id: string; name: string; deletedAt: number; elements: number }[]
+    >;
+    restoreDeletedPage?: (
+      id: string,
+    ) => Promise<{ page: number; id: string; name: string } | null>;
+  };
 };
 
 const LIST_CAP = 2000;
@@ -63,6 +82,7 @@ export const listPages = (app: McpApp) => {
       id: page.id,
       name: page.name,
       ...pageSizeOf(page),
+      sizePreset: getPageSizePresetForPage(page)?.id ?? null,
       frame: page.frame === true,
       pageNumber: page.number === true,
       paper: paperOf(page),
