@@ -1,6 +1,8 @@
 # AGENTS.md
 
-**Read [HANDOVER.md](./HANDOVER.md) first.** It has the full picture: project layout, the verification gate, the Windows→WSL migration checklist, the map of this fork's custom features, and the traps that have already cost time here.
+**A new session reads [docs/next.md](./docs/next.md) first**: where the work stands, the work queue in order, and the rules that always apply.
+
+**Then read [HANDOVER.md](./HANDOVER.md).** (It is the 2026-10-19 handover of the move to another harness; the queue is in `docs/next.md`.) It has the full picture: project layout, the verification gate, the Windows→WSL migration checklist, the map of this fork's custom features, and the traps that have already cost time here.
 
 This file is the short version, for harnesses that only read `AGENTS.md` (opencode and most other CLI agents). `CLAUDE.md` covers the same ground for Claude Code.
 
