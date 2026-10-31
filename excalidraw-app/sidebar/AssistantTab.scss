@@ -1,0 +1,109 @@
+/**
+ * The Assistant tab (D-398) - the sidebar's own look, as the Flow tab has it.
+ */
+.assistant-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  font-size: 0.8125rem;
+  color: var(--text-primary-color, var(--icon-fill-color));
+}
+
+.assistant-tab__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.assistant-tab__intro,
+.assistant-tab__hint {
+  margin: 0;
+  opacity: 0.75;
+}
+
+.assistant-tab__status {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--color-surface-low, rgb(0 0 0 / 5%));
+
+  &[data-status="connected"] {
+    background: var(--color-success-lighter, rgb(46 160 67 / 15%));
+  }
+
+  &[data-status="refused"] {
+    background: var(--color-danger-lighter, rgb(224 49 49 / 15%));
+  }
+}
+
+.assistant-tab__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  input {
+    padding: 6px 8px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    letter-spacing: 0.08em;
+  }
+}
+
+.assistant-tab__buttons {
+  display: flex;
+  gap: 6px;
+
+  button {
+    padding: 5px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: default;
+    }
+  }
+}
+
+.assistant-tab__switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.assistant-tab__heading {
+  margin: 8px 0 0;
+  font-size: 0.8125rem;
+}
+
+.assistant-tab__activity {
+  margin: 0;
+  padding-left: 18px;
+
+  li[data-ok="false"] {
+    color: var(--color-danger, #e03131);
+  }
+}
+
+.assistant-tab__command {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--color-surface-low, rgb(0 0 0 / 5%));
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: all;
+}

@@ -186,6 +186,7 @@ import { usePresenterBroadcaster } from "./presenter/usePresenterBroadcaster";
 import "./index.scss";
 
 import { AppSidebar } from "./components/AppSidebar";
+import { AssistantLink } from "./assistant/AssistantLink";
 import { usePageAutoFit, useSidebarWidth } from "./sidebar/useSidebarLayout";
 import { handleCodePaste } from "./sidebar/insertIntoScene";
 import { panelCopyControls } from "./sidebar/panelCopy";
@@ -1881,6 +1882,8 @@ const ExcalidrawWrapper = () => {
             }
           }}
         />
+
+        <AssistantLink />
 
         <AppSidebar
           width={sidebarWidth}

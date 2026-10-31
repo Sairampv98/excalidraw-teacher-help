@@ -15,6 +15,10 @@ interface ImportMetaEnv {
   // extension. The session token is NOT part of it (D-50).
   VITE_APP_BRIDGE_URL: string;
 
+  // the assistant's MCP server: the websocket URL of the server on this
+  // machine. The pairing code is NOT part of it (D-398).
+  VITE_APP_MCP_URL: string;
+
   // set this only if using the collaboration workflow we use on excalidraw.com
   VITE_APP_PORTAL_URL: string;
   VITE_APP_AI_BACKEND: string;
