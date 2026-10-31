@@ -617,6 +617,52 @@ describe("the export panel", () => {
     );
   });
 
+  it("AC-456 the bar's buttons are in rows by what they do, and the bar never reaches past the editor", async () => {
+    await chartWithBar();
+
+    const bar = screen.getByTestId("flow-bar");
+    const rowOf = (testid: string) =>
+      screen.getByTestId(testid).closest(".excalidraw__flow-bar-row");
+    const rowWith = (label: string) =>
+      [...bar.querySelectorAll(".excalidraw__flow-bar-row")].find((row) =>
+        [...row.querySelectorAll("button")].some(
+          (button) => button.textContent?.trim() === label,
+        ),
+      );
+
+    // playing, arranging and choosing, and passing the chart on, are three rows
+    const playing = rowWith("Play");
+    const arranging = rowOf("flow-bar-select-arrows");
+    const passing = rowOf("flow-bar-export");
+
+    expect(playing).toBeTruthy();
+    expect(rowWith("Present steps")).toBe(playing);
+    expect(rowWith("Lay this out")).toBe(arranging);
+    expect(rowOf("flow-bar-select-nodes")).toBe(arranging);
+    expect(rowWith("Edit chart")).toBe(passing);
+    expect(rowWith("Look")).toBe(passing);
+    expect(new Set([playing, arranging, passing]).size).toBe(3);
+
+    // the bar is as wide as the editor, at most: it wraps there
+    const editorWidth = h.state.width;
+
+    expect(parseFloat(bar.style.maxWidth)).toBeLessThanOrEqual(editorWidth);
+    expect(parseFloat(bar.style.maxWidth)).toBeGreaterThan(0);
+  });
+
+  it("AC-456 a bar that was put somewhere wraps before the editor's edge, not past it", async () => {
+    localStorage.setItem(
+      "excalidraw-flow-bar-place",
+      JSON.stringify({ x: 400, y: 100, collapsed: false }),
+    );
+    await chartWithBar();
+
+    const bar = screen.getByTestId("flow-bar");
+
+    expect(bar.hasAttribute("data-flow-bar-placed")).toBe(true);
+    expect(parseFloat(bar.style.maxWidth)).toBe(h.state.width - 400 - 8);
+  });
+
   it("AC-454 Select nodes selects every node of the chart with its words and no arrow, also from a selection of arrows", async () => {
     await chartWithBar();
 

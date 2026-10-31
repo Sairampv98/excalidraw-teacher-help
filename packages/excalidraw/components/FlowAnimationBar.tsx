@@ -339,9 +339,18 @@ export const FlowAnimationBar = ({
     };
   };
 
+  // the bar wraps inside the editor, whatever is docked beside it (D-395)
   const style = placed
-    ? { left: placed.x, top: placed.y }
-    : { left: follow.left, top: follow.top };
+    ? {
+        left: placed.x,
+        top: placed.y,
+        maxWidth: Math.max(240, viewport.width - placed.x - 8),
+      }
+    : {
+        left: follow.left,
+        top: follow.top,
+        maxWidth: Math.max(240, viewport.width - 16),
+      };
 
   const playing = state.active && state.mode === "play";
   const presenting = state.active && state.mode === "present";
@@ -462,6 +471,28 @@ export const FlowAnimationBar = ({
         >
           {presenting ? "Stop presenting" : "Present steps"}
         </button>
+        {running && (
+          <button
+            type="button"
+            className="excalidraw__flow-bar-stop"
+            data-testid="flow-bar-stop"
+            title="Stop the animation (Esc)"
+            onClick={stopFlowEverything}
+          >
+            Stop {runningLabel.toLowerCase()}
+          </button>
+        )}
+        <button
+          type="button"
+          className="excalidraw__flow-bar-collapse"
+          aria-label="Collapse the animation bar into a pill"
+          title="Minimise - the animation keeps running; Stop ends it"
+          onClick={() => remember({ ...place, collapsed: true })}
+        >
+          <CollapseIcon />
+        </button>
+      </div>
+      <div className="excalidraw__flow-bar-row">
         <button
           type="button"
           onClick={() =>
@@ -478,17 +509,6 @@ export const FlowAnimationBar = ({
             }
           >
             {t("labels.flowAnimationResetLayout")}
-          </button>
-        )}
-        {running && (
-          <button
-            type="button"
-            className="excalidraw__flow-bar-stop"
-            data-testid="flow-bar-stop"
-            title="Stop the animation (Esc)"
-            onClick={stopFlowEverything}
-          >
-            Stop {runningLabel.toLowerCase()}
           </button>
         )}
         <button
@@ -531,6 +551,8 @@ export const FlowAnimationBar = ({
         >
           Select nodes
         </button>
+      </div>
+      <div className="excalidraw__flow-bar-row">
         <button
           type="button"
           data-testid="flow-bar-export"
@@ -554,15 +576,6 @@ export const FlowAnimationBar = ({
           onClick={() => setLookOpen((open) => !open)}
         >
           Look
-        </button>
-        <button
-          type="button"
-          className="excalidraw__flow-bar-collapse"
-          aria-label="Collapse the animation bar into a pill"
-          title="Minimise - the animation keeps running; Stop ends it"
-          onClick={() => remember({ ...place, collapsed: true })}
-        >
-          <CollapseIcon />
         </button>
       </div>
 

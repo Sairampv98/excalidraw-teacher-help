@@ -65,7 +65,7 @@ export const flightTarget = ({
   const centreX = box.x + box.width / 2;
   const centreY = box.y + box.height / 2;
 
-  return clampCameraToPage({
+  const clamped = clampCameraToPage({
     scrollX: viewport.width / (2 * zoom) - centreX,
     scrollY: viewport.height / (2 * zoom) - centreY,
     zoom: zoom as NormalizedZoomValue,
@@ -74,6 +74,25 @@ export const flightTarget = ({
     pageRect,
     maxZoom,
   });
+
+  // A step that is not on the page - a node dragged or made larger past the page's
+  // edge, a chart that lies across it - cannot be kept on the page: the clamp
+  // would pull the view to the page and leave the step to one side (D-394). On an
+  // axis where the step itself is not inside the page, the step is centred.
+  const outsideX =
+    box.x < pageRect.x || box.x + box.width > pageRect.x + pageRect.width;
+  const outsideY =
+    box.y < pageRect.y || box.y + box.height > pageRect.y + pageRect.height;
+
+  return {
+    zoom: clamped.zoom,
+    scrollX: outsideX
+      ? viewport.width / (2 * clamped.zoom) - centreX
+      : clamped.scrollX,
+    scrollY: outsideY
+      ? viewport.height / (2 * clamped.zoom) - centreY
+      : clamped.scrollY,
+  };
 };
 
 /** the scene point at the middle of the view */
