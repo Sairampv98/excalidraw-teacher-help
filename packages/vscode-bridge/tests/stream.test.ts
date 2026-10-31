@@ -203,6 +203,9 @@ afterEach(async () => {
   }
 });
 
+/** the boundary and the header that open every part of the stream (D-372) */
+const OPEN_PART = "--frame\r\nContent-Type: image/jpeg\r\n\r\n";
+
 describe("the MJPEG stream", () => {
   it("AC-113 the extension serves the frames as MJPEG on its own HTTP server", async () => {
     const server = await startServer();
@@ -236,23 +239,72 @@ describe("the MJPEG stream", () => {
 
     // The LAST frame goes out immediately, so a panel that opens the live
     // view is never blank.
-    await until(() => stream.body.includes("X-Seq: 1"));
+    await until(() => stream.body.includes(picture.toString("binary")));
 
-    // and the part is the boundary, the JPEG's headers and the bytes
-    expect(stream.body).toContain("--frame\r\nContent-Type: image/jpeg\r\n");
-    expect(stream.body).toContain(`Content-Length: ${picture.length}\r\n`);
-    expect(stream.body).toContain("X-Seq: 1\r\n\r\n");
-    expect(stream.body).toContain(picture.toString("binary"));
+    // and the part is the boundary, the JPEG's header and the bytes
+    expect(stream.body.startsWith(OPEN_PART)).toBe(true);
 
     // a NEW frame reaches the stream that is already open
     const second = jpeg(2);
     server.publishFrame({ bytes: second, seq: 2 });
 
-    await until(() => stream.body.includes("X-Seq: 2"));
-
-    expect(stream.body).toContain(second.toString("binary"));
+    await until(() => stream.body.includes(second.toString("binary")));
 
     stream.close();
+  });
+
+  it("AC-435 a picture is followed at once by the start of the next part, so the browser shows it without waiting", async () => {
+    const server = await startServer();
+    const client = await connect(server);
+
+    auth(client);
+
+    const hello = await helloOf(client);
+    const streamUrl = (hello as { streamUrl?: string }).streamUrl!;
+
+    const first = jpeg(11);
+
+    server.publishFrame({ bytes: first, seq: 1 });
+
+    const stream = await openStream(streamUrl);
+
+    // The picture ends with the next part's boundary AND header: a browser
+    // shows a part only once it has seen the start of the next one, and a
+    // still editor sends no next picture for seconds (D-372).
+    await until(() =>
+      stream.body.endsWith(`${first.toString("binary")}\r\n${OPEN_PART}`),
+    );
+
+    // the same for a picture that arrives later, and the header is not
+    // written twice in front of it
+    const second = jpeg(12);
+
+    server.publishFrame({ bytes: second, seq: 2 });
+
+    await until(() =>
+      stream.body.endsWith(`${second.toString("binary")}\r\n${OPEN_PART}`),
+    );
+
+    expect(
+      stream.body.endsWith(
+        `${first.toString("binary")}\r\n${OPEN_PART}${second.toString(
+          "binary",
+        )}\r\n${OPEN_PART}`,
+      ),
+    ).toBe(true);
+
+    // a stream that opens later starts with the header, once
+    const late = await openStream(streamUrl);
+
+    await until(() =>
+      late.body.endsWith(`${second.toString("binary")}\r\n${OPEN_PART}`),
+    );
+
+    expect(late.body.startsWith(OPEN_PART)).toBe(true);
+    expect(late.body.split(OPEN_PART).length - 1).toBe(2);
+
+    stream.close();
+    late.close();
   });
 
   it("AC-115 the stream endpoint refuses a request without the connection's capability, and two connections get different capabilities", async () => {

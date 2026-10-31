@@ -193,28 +193,43 @@ export const createMjpegStream = (options: MjpegStreamOptions): MjpegStream => {
    */
   const behind = new Set<ServerResponse>();
 
+  /** the streams whose first part's header has been written (D-372) */
+  const opened = new WeakSet<ServerResponse>();
+
   /**
    * Write one part of the stream.
    *
-   * A part is the boundary, the JPEG's headers and the bytes:
+   * The stream is the JPEGs one after the other, and **each part's header is
+   * already open when the picture before it ends**:
    *
-   *   --frame\r\nContent-Type: image/jpeg\r\nContent-Length: <n>\r\n
-   *   X-Seq: <seq>\r\n\r\n<bytes>\r\n
+   *   --frame\r\nContent-Type: image/jpeg\r\n\r\n<bytes>\r\n
+   *   --frame\r\nContent-Type: image/jpeg\r\n\r\n<bytes>\r\n
+   *   --frame\r\nContent-Type: image/jpeg\r\n\r\n
+   *
+   * A browser shows a part of a multipart image only once it has seen the
+   * start of the NEXT part - the boundary alone is not enough, and neither is
+   * a Content-Length (D-372). A picture written the usual way (its own header,
+   * then its bytes) therefore stayed unseen until the next picture came, and
+   * the next picture of a still editor is the keep-alive five seconds later:
+   * a typed digit showed seconds late, and at once when the editor's window
+   * was brought to the front, because that changes the picture.
    */
   const writePart = (res: ServerResponse, frame: MjpegFrame): boolean => {
     if (res.writableEnded || res.destroyed) {
       return false;
     }
 
+    const header = `--${MJPEG_BOUNDARY}\r\nContent-Type: image/jpeg\r\n\r\n`;
+
     try {
-      res.write(
-        `--${MJPEG_BOUNDARY}\r\n` +
-          `Content-Type: image/jpeg\r\n` +
-          `Content-Length: ${frame.bytes.length}\r\n` +
-          `X-Seq: ${frame.seq}\r\n\r\n`,
-      );
+      if (!opened.has(res)) {
+        res.write(header);
+        opened.add(res);
+      }
+
       res.write(frame.bytes);
-      res.write("\r\n");
+      // the end of this picture, and the start of the next one
+      res.write(`\r\n${header}`);
       return true;
     } catch {
       // the client is gone
@@ -403,7 +418,7 @@ export const createMjpegStream = (options: MjpegStreamOptions): MjpegStream => {
 
     const keepAlive = setInterval(() => {
       // The picture has not changed for long enough: re-send the last frame,
-      // with the same X-Seq, so the browser's watchdog does not give up on a
+      // so the browser's watchdog does not give up on a
       // silent stream.
       if (lastFrame && Date.now() - lastFrameAt >= keepAliveMs) {
         writePart(res, lastFrame);
