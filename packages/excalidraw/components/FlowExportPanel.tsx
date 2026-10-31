@@ -19,6 +19,7 @@ import {
   exportSizeOf,
   fpsChoicesOf,
   frameCountOf,
+  sizeHint,
 } from "../scene/flowExport/plan";
 import { FlowExportStopped } from "../scene/flowExport/runner";
 
@@ -93,6 +94,8 @@ type Props = {
   graph: FlowGraph;
   elements: readonly ExcalidrawElement[];
   onClose: () => void;
+  /** in the flow of a window, and not floating over the bar (D-388) */
+  inline?: boolean;
 };
 
 /**
@@ -100,7 +103,13 @@ type Props = {
  * (D-374 to D-379). It says what the file will be before it is made, offers
  * only what this browser can write, shows how far it is, and can be stopped.
  */
-export const FlowExportPanel = ({ app, graph, elements, onClose }: Props) => {
+export const FlowExportPanel = ({
+  app,
+  graph,
+  elements,
+  onClose,
+  inline,
+}: Props) => {
   const state = useAtomValue(flowAnimationStateAtom);
   const [options, setOptions] = useState<FlowExportOptions>(() => ({
     ...readOptions(),
@@ -252,7 +261,9 @@ export const FlowExportPanel = ({ app, graph, elements, onClose }: Props) => {
 
   return (
     <div
-      className="excalidraw__flow-export"
+      className={`excalidraw__flow-export${
+        inline ? " excalidraw__flow-export--inline" : ""
+      }`}
       data-testid="flow-export-panel"
       role="dialog"
       aria-label="Export the animation"
@@ -371,6 +382,15 @@ export const FlowExportPanel = ({ app, graph, elements, onClose }: Props) => {
             size.width
           }x${size.height}`}
       </p>
+
+      {!options.camera && chart && sizeHint(size) && (
+        <p
+          className="excalidraw__flow-export-hint"
+          data-testid="flow-export-hint"
+        >
+          {sizeHint(size)}
+        </p>
+      )}
 
       {unavailable && (
         <p

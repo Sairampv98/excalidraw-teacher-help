@@ -261,3 +261,33 @@ export const paletteSampleCount = (stepCount: number): number =>
  */
 export const startOffsetMs = (durationMs: number): number =>
   Math.max(0, Math.min(400, Math.floor(durationMs / 2)));
+
+/** the most a file may grow to while it is being made, in bytes (D-387) */
+export const FLOW_EXPORT_MAX_BYTES = 512 * 1024 * 1024;
+
+/** what is said when a file grows past the most it may be (D-387) */
+export const tooLargeMessage = (maxBytes = FLOW_EXPORT_MAX_BYTES): string =>
+  `The file has grown past ${Math.round(
+    maxBytes / (1024 * 1024),
+  )} MB, so the export was stopped. Choose a smaller size, a lower frame rate or a shorter chart.`;
+
+/** the shortest side, in pixels, below which a picture is too small to read (D-386) */
+export const FLOW_EXPORT_MIN_SIDE = 240;
+
+/**
+ * A word for the person when the picture would come out too narrow or too low to
+ * read - a chart of a hundred boxes in a column, in the chart's own shape,
+ * is a picture 92 pixels wide - or `null` when it is fine (D-386).
+ */
+export const sizeHint = (size: {
+  width: number;
+  height: number;
+}): string | null => {
+  if (Math.min(size.width, size.height) >= FLOW_EXPORT_MIN_SIDE) {
+    return null;
+  }
+
+  const shape = size.height > size.width ? "tall" : "wide";
+
+  return `The picture would be only ${size.width}x${size.height}: this chart is very ${shape}, so its boxes would be tiny. Fly the camera to each step, choose a larger size, or choose 16:9, square or portrait.`;
+};

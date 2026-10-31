@@ -362,6 +362,8 @@ export type GifEncoder = {
   addFrame: (indexes: Uint8Array, delayCs: number) => void;
   /** the whole file */
   finish: () => Uint8Array;
+  /** how many bytes the file is, so far */
+  size: () => number;
 };
 
 /**
@@ -434,6 +436,7 @@ export const createGifEncoder = (options: {
 
       return out.result();
     },
+    size: () => out.length,
   };
 };
 

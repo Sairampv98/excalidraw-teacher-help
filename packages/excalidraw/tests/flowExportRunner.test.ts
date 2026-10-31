@@ -259,6 +259,72 @@ describe("running an export", () => {
     expect(order.slice(0, 2)).toEqual([`prepare ${START}`, `read ${START}`]);
   });
 
+  it("AC-449 a file that grows past the most it may is stopped, in every format, and says so", async () => {
+    // a GIF: its palette alone is more than this
+    await expect(
+      runFlowExport({
+        ...base,
+        format: "gif",
+        fps: 10,
+        maxBytes: 60,
+        source: makeSource().source,
+        onProgress: () => undefined,
+      }),
+    ).rejects.toThrow(/grown past/);
+
+    // a WebP: the first picture is more than this
+    await expect(
+      runFlowExport({
+        ...base,
+        format: "webp",
+        fps: 10,
+        maxBytes: 10,
+        source: makeSource().source,
+        onProgress: () => undefined,
+      }),
+    ).rejects.toThrow(/grown past/);
+
+    // an MP4: the encoder tells what it has made, and the second report is too much
+    const reports: number[] = [];
+
+    await expect(
+      runFlowExport({
+        ...base,
+        format: "mp4",
+        fps: 10,
+        maxBytes: 150,
+        source: makeSource().source,
+        video: {
+          support: async () => ({ supported: true }),
+          encode: async (options) => {
+            for (let i = 0; i < 5; i++) {
+              reports.push(i);
+              options.addBytes(100);
+            }
+
+            return Uint8Array.from([1]);
+          },
+        },
+        onProgress: () => undefined,
+      }),
+    ).rejects.toThrow(/grown past/);
+
+    // it stopped at the second report
+    expect(reports).toEqual([0, 1]);
+
+    // a file within the limit is made as before
+    const bytes = await runFlowExport({
+      ...base,
+      format: "webp",
+      fps: 10,
+      maxBytes: 10_000_000,
+      source: makeSource().source,
+      onProgress: () => undefined,
+    });
+
+    expect(bytes.length).toBeGreaterThan(0);
+  });
+
   it("AC-441 without a background the GIF has a transparent index and the pictures use it", async () => {
     const { source } = makeSource({ alpha: 0 });
 

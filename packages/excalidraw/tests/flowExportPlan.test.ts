@@ -22,8 +22,11 @@ import {
   frameDelaysMs,
   frameTimeMs,
   gifDelays,
+  FLOW_EXPORT_MAX_BYTES,
   paletteSampleCount,
   placeChart,
+  sizeHint,
+  tooLargeMessage,
   stepAt,
 } from "../scene/flowExport/plan";
 
@@ -171,6 +174,31 @@ describe("the options of an export", () => {
     expect(paletteSampleCount(6)).toBe(12);
     expect(paletteSampleCount(12)).toBe(24);
     expect(paletteSampleCount(100)).toBe(24);
+  });
+
+  it("AC-449 a picture too narrow or too low to read is said, with what to do, and a good one is not", () => {
+    // a chart of a hundred boxes in a column, in its own shape
+    const tall = sizeHint({ width: 92, height: 720 });
+
+    expect(tall).toContain("92x720");
+    expect(tall).toContain("very tall");
+    expect(tall).toMatch(/camera/);
+
+    expect(sizeHint({ width: 720, height: 120 })).toContain("very wide");
+
+    // the least that is fine, and ordinary pictures
+    expect(sizeHint({ width: 240, height: 720 })).toBeNull();
+    expect(sizeHint({ width: 720, height: 334 })).toBeNull();
+    expect(sizeHint({ width: 239, height: 720 })).not.toBeNull();
+  });
+
+  it("AC-449 a file may grow to half a gigabyte, and the message says so", () => {
+    expect(FLOW_EXPORT_MAX_BYTES).toBe(512 * 1024 * 1024);
+    expect(tooLargeMessage()).toContain("512 MB");
+    expect(tooLargeMessage(10 * 1024 * 1024)).toContain("10 MB");
+    expect(tooLargeMessage()).toMatch(
+      /smaller size, a lower frame rate or a shorter chart/,
+    );
   });
 
   it("AC-441 only MP4 is without a transparent background, and says why", () => {

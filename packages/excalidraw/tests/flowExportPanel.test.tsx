@@ -22,6 +22,7 @@ import { editorJotaiStore } from "../editor-jotai";
 import { Excalidraw } from "../index";
 import { buildFlowPreset } from "../scene/flowPresets";
 import { FlowExportStopped } from "../scene/flowExport/runner";
+import { openFlowScriptEditor } from "../components/FlowScriptEditorState";
 
 import { API } from "./helpers/api";
 import { act, fireEvent, render, screen, waitFor } from "./test-utils";
@@ -318,6 +319,91 @@ describe("the export panel", () => {
     fireEvent.click(screen.getByTestId("flow-export-go"));
     await screen.findByTestId("flow-export-stop");
     expect(box().disabled).toBe(true);
+  });
+
+  it("AC-449 the panel says when the picture would be too narrow to read, unless the camera is on", async () => {
+    await openPanel();
+
+    // the chart is a long row of four: at 480 pixels it is a strip
+    fireEvent.change(screen.getByTestId("flow-export-size"), {
+      target: { value: "480" },
+    });
+
+    const note = screen.getByTestId("flow-export-note").textContent!;
+    const [, w, h] = note.match(/(\d+)x(\d+)$/)!.map(Number);
+
+    expect(Math.min(w, h)).toBeLessThan(240);
+
+    const hint = screen.getByTestId("flow-export-hint").textContent!;
+
+    expect(hint).toContain(`${w}x${h}`);
+    expect(hint).toContain(h > w ? "very tall" : "very wide");
+
+    // the camera is the answer the hint gives: with it on, there is no hint
+    fireEvent.click(screen.getByTestId("flow-export-camera"));
+    expect(screen.queryByTestId("flow-export-hint")).toBeNull();
+    fireEvent.click(screen.getByTestId("flow-export-camera"));
+    expect(screen.queryByTestId("flow-export-hint")).not.toBeNull();
+
+    // a square picture is never too narrow
+    fireEvent.change(screen.getByTestId("flow-export-shape"), {
+      target: { value: "square" },
+    });
+    expect(screen.queryByTestId("flow-export-hint")).toBeNull();
+  });
+
+  it("AC-448 the Edit chart window has the export too: the same panel, for the chart that is being edited", async () => {
+    await chartWithBar();
+
+    const container = h.elements.find(
+      (element) => !element.isDeleted && element.boundElements?.length,
+    )!;
+
+    act(() => {
+      openFlowScriptEditor(container.id);
+    });
+
+    const editor = await screen.findByTestId("flow-editor");
+
+    // the window has the Fit choice and the export, side by side with Apply
+    expect(editor.querySelector('select[aria-label="Fit mode"]')).toBeTruthy();
+    expect(screen.queryByTestId("flow-export-panel")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("flow-editor-export"));
+
+    const panel = await screen.findByTestId("flow-export-panel");
+
+    // it is in the window, in the flow of it, and not floating over the bar
+    expect(editor.contains(panel)).toBe(true);
+    expect(panel.className).toContain("excalidraw__flow-export--inline");
+    expect(
+      screen.getByTestId("flow-editor-export").getAttribute("aria-expanded"),
+    ).toBe("true");
+
+    // the window is taller with the panel in it than the screen may be: it scrolls
+    expect(editor.style.overflowY).toBe("auto");
+    expect(parseFloat(editor.style.maxHeight)).toBeGreaterThanOrEqual(240);
+    expect(parseFloat(editor.style.maxHeight)).toBeLessThanOrEqual(
+      h.state.height,
+    );
+
+    // it exports the chart that is edited: its four steps
+    exportMock.mockResolvedValue({
+      blob: new Blob([new Uint8Array(10)], { type: "image/gif" }),
+      filename: "chart.gif",
+      width: 720,
+      height: 340,
+    });
+    fireEvent.click(screen.getByTestId("flow-export-go"));
+    await waitFor(() => expect(exportMock).toHaveBeenCalledTimes(1));
+
+    expect(exportMock.mock.calls[0][0].steps).toHaveLength(4);
+    expect(exportMock.mock.calls[0][0].options.format).toBe("gif");
+
+    // it closes, and opens again
+    await screen.findByTestId("flow-export-saved");
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByTestId("flow-export-panel")).toBeNull();
   });
 
   it("AC-442 it exports what was chosen, shows how far it is, saves the file and says where", async () => {

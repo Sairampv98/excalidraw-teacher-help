@@ -19,8 +19,10 @@ import {
   frameDelaysMs,
   frameTimeMs,
   gifDelays,
+  FLOW_EXPORT_MAX_BYTES,
   paletteSampleCount,
   startOffsetMs,
+  tooLargeMessage,
 } from "./plan";
 import { assembleAnimatedWebp } from "./webp";
 
@@ -57,6 +59,8 @@ export type FlowVideoEncoder = {
     height: number;
     fps: number;
     count: number;
+    /** says how many bytes of the file have been made; throws when it is too large (D-387) */
+    addBytes: (bytes: number) => void;
     /** gets the source ready for a moment; awaited before `frameAt` is asked */
     prepare: (timeMs: number) => Promise<void>;
     /** the picture at a moment, for the encoder to take */
@@ -81,6 +85,8 @@ export type FlowExportRun = {
   onProgress: (done: number, total: number) => void;
   /** whether the person pressed stop */
   isStopped: () => boolean;
+  /** the most the file may grow to; the limit of D-387 when not given */
+  maxBytes?: number;
 };
 
 export class FlowExportStopped extends Error {
@@ -113,6 +119,13 @@ export const runFlowExport = async (
   const startMs = startOffsetMs(run.durationMs);
   const timeOf = (index: number) => frameTimeMs(index, run.fps) + startMs;
   const prepare = async (timeMs: number) => run.source.prepare?.(timeMs);
+  const maxBytes = run.maxBytes ?? FLOW_EXPORT_MAX_BYTES;
+  // a file that grows without end would end the page: it is stopped, and said
+  const grew = (bytes: number) => {
+    if (bytes > maxBytes) {
+      throw new Error(tooLargeMessage(maxBytes));
+    }
+  };
 
   const check = () => {
     if (run.isStopped()) {
@@ -158,6 +171,7 @@ export const runFlowExport = async (
         indexPicture(rgba, palette, transparentIndex),
         delays[i],
       );
+      grew(encoder.size());
       run.onProgress(i + 1, count);
 
       if (i % 3 === 2) {
@@ -171,6 +185,7 @@ export const runFlowExport = async (
   if (run.format === "webp") {
     const delays = frameDelaysMs(count, run.fps);
     const frames: { bytes: Uint8Array; durationMs: number }[] = [];
+    let written = 0;
 
     for (let i = 0; i < count; i++) {
       check();
@@ -184,6 +199,8 @@ export const runFlowExport = async (
       }
 
       frames.push({ bytes, durationMs: delays[i] });
+      written += bytes.length;
+      grew(written);
       run.onProgress(i + 1, count);
 
       if (i % 3 === 2) {
@@ -205,12 +222,17 @@ export const runFlowExport = async (
   }
 
   let done = 0;
+  let made = 0;
 
   return run.video.encode({
     width,
     height,
     fps: run.fps,
     count,
+    addBytes: (bytes) => {
+      made += bytes;
+      grew(made);
+    },
     prepare: (timeMs) => prepare(timeMs + startMs),
     frameAt: (timeMs) => run.source.canvasAt(timeMs + startMs),
     onProgress: () => {

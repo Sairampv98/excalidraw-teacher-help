@@ -86,6 +86,7 @@ export const createVideoEncoder = (): FlowVideoEncoder | null => {
       height,
       fps,
       count,
+      addBytes,
       prepare,
       frameAt,
       onProgress,
@@ -114,6 +115,13 @@ export const createVideoEncoder = (): FlowVideoEncoder | null => {
 
           chunk.copyTo(data);
           samples.push({ data, duration: 0, key: chunk.type === "key" });
+
+          // a file that grows past the most it may is stopped (D-387)
+          try {
+            addBytes(data.length);
+          } catch (error) {
+            failure = error as Error;
+          }
         },
         error: (error) => {
           failure = error;
