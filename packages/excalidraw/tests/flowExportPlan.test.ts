@@ -22,6 +22,7 @@ import {
   frameDelaysMs,
   frameTimeMs,
   gifDelays,
+  paletteSampleCount,
   placeChart,
   stepAt,
 } from "../scene/flowExport/plan";
@@ -162,6 +163,14 @@ describe("the options of an export", () => {
     expect(clampFps("mp4", 60)).toBe(60);
     expect(clampFps("webp", 12)).toBe(10);
     expect(clampFps("webp", Number.NaN)).toBe(15);
+  });
+
+  it("AC-441 a GIF's colours are chosen from two pictures for each step, never fewer than eight or more than twenty-four", () => {
+    expect(paletteSampleCount(1)).toBe(8);
+    expect(paletteSampleCount(4)).toBe(8);
+    expect(paletteSampleCount(6)).toBe(12);
+    expect(paletteSampleCount(12)).toBe(24);
+    expect(paletteSampleCount(100)).toBe(24);
   });
 
   it("AC-441 only MP4 is without a transparent background, and says why", () => {

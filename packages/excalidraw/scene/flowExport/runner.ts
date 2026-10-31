@@ -19,6 +19,7 @@ import {
   frameDelaysMs,
   frameTimeMs,
   gifDelays,
+  paletteSampleCount,
 } from "./plan";
 import { assembleAnimatedWebp } from "./webp";
 
@@ -83,9 +84,6 @@ export class FlowExportStopped extends Error {
 /** lets the page breathe: other work and the progress bar happen between pictures */
 const breathe = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-/** how many pictures of the run are looked at to choose a GIF's colours */
-const PALETTE_SAMPLES = 8;
-
 export const runFlowExport = async (
   run: FlowExportRun,
 ): Promise<Uint8Array> => {
@@ -113,8 +111,10 @@ export const runFlowExport = async (
     // the colours come from a few pictures spread over the run
     const samples: Uint8ClampedArray[] = [];
 
-    for (let i = 0; i < PALETTE_SAMPLES; i++) {
-      const index = Math.floor((i * count) / PALETTE_SAMPLES);
+    const sampleCount = paletteSampleCount(run.stepCount);
+
+    for (let i = 0; i < sampleCount; i++) {
+      const index = Math.floor((i * count) / sampleCount);
 
       samples.push(run.source.rgba(frameTimeMs(index, run.fps)));
     }

@@ -12,6 +12,7 @@ import type { ExcalidrawElement } from "@excalidraw/element/types";
 import { getPapersForExport } from "../../data";
 import { restoreAppState } from "../../data/restore";
 import { exportToCanvas } from "../export";
+import { arrowLooksFor, elementForCanvas } from "../flowArrowLooks";
 import { chartScaleOf } from "../flowScale";
 
 import { createFrameSource, createVideoEncoder } from "./browser";
@@ -75,6 +76,13 @@ export const exportFlowAnimation = async (input: {
   const withBackground =
     options.format === "mp4" ? true : options.withBackground;
 
+  // the arrows the look hides or recolours are given to the canvas as the
+  // animation gives them: without, or in the colour
+  const looks = new Map(arrowLooksFor(graph, animation));
+  const drawn = chart.elements
+    .map((element) => elementForCanvas(element, looks))
+    .filter((element): element is ExcalidrawElement => element !== null);
+
   const size = exportSizeOf(chart.box, options.shape, options.longest);
   const place = placeChart(chart.box, size);
 
@@ -97,7 +105,7 @@ export const exportFlowAnimation = async (input: {
   );
 
   const base = await exportToCanvas(
-    chart.elements as never,
+    drawn as never,
     { ...restored, offsetTop: 0, offsetLeft: 0, width: 0, height: 0 },
     files,
     {
@@ -106,7 +114,7 @@ export const exportFlowAnimation = async (input: {
       pageRect: rect,
       // the page's paper is part of the background, and goes with it
       pagePapers: withBackground
-        ? getPapersForExport(chart.elements as never, restored)
+        ? getPapersForExport(drawn as never, restored)
         : [],
       framePapers: true,
     },

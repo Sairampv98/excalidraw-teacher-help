@@ -20,39 +20,10 @@ import { FLOW_LOOK_DEFAULTS } from "../scene/flowLook";
 import { flowMarksFor } from "../scene/flowStyles";
 
 import { API } from "./helpers/api";
+import { recorder } from "./helpers/recordingContext";
 
 import type { FlowFrameScene } from "../scene/flowExport/compose";
 import type { FlowGraph, FlowStep } from "../scene/flowOrder";
-
-/** a 2D context that remembers every call and every property it was given */
-const recorder = () => {
-  const log: unknown[][] = [];
-  const state: Record<string, unknown> = {};
-  const ctx = new Proxy(
-    {},
-    {
-      get: (_target, name) => {
-        if (typeof name !== "string") {
-          return undefined;
-        }
-
-        return name in state
-          ? state[name]
-          : (...args: unknown[]) => {
-              log.push([name, ...args]);
-            };
-      },
-      set: (_target, name, value) => {
-        log.push([`set:${String(name)}`, value]);
-        state[String(name)] = value;
-
-        return true;
-      },
-    },
-  ) as unknown as CanvasRenderingContext2D;
-
-  return { ctx, log };
-};
 
 const rect = (id: string, x: number, y: number, extra: object = {}) => ({
   id,

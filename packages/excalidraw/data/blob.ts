@@ -18,6 +18,7 @@ import {
   growPagesToFitContent,
   translateContentForPageLayout,
 } from "../scene";
+import { isAnimatedWebpBytes } from "../scene/animatedImages";
 import { decodeSvgBase64Payload } from "../scene/export";
 
 import { DEFAULT_PAGE_ID } from "../types";
@@ -413,6 +414,19 @@ export const resizeImageFile = async (
 ): Promise<File> => {
   // SVG files shouldn't a can't be resized
   if (file.type === MIME_TYPES.svg) {
+    return file;
+  }
+
+  // An animated image is never resized: the resize draws it once, and what comes
+  // out is one picture (D-382). It is kept as it is, and the size limit of the
+  // file still applies to it.
+  if (
+    file.type === MIME_TYPES.gif ||
+    (file.type === MIME_TYPES.webp &&
+      isAnimatedWebpBytes(
+        new Uint8Array(await blobToArrayBuffer(file.slice(0, 33))),
+      ))
+  ) {
     return file;
   }
 

@@ -242,3 +242,11 @@ export const exportProblem = (options: {
 
   return null;
 };
+
+/**
+ * How many pictures of the run are looked at to choose a GIF's colours: two for
+ * each step, so the highlight of every step is among them, and never fewer than
+ * eight or more than twenty-four.
+ */
+export const paletteSampleCount = (stepCount: number): number =>
+  Math.min(24, Math.max(8, Math.floor(stepCount) * 2));

@@ -122,6 +122,25 @@ describe("running an export", () => {
     expect(times.every((time) => time >= 0 && time < 1000)).toBe(true);
   });
 
+  it("AC-441 a chart of many steps has its colours looked at in every step, two pictures each", async () => {
+    const { source, times } = makeSource();
+
+    await runFlowExport({
+      ...base,
+      stepCount: 6,
+      format: "gif",
+      fps: 10,
+      source,
+      onProgress: () => undefined,
+    });
+
+    // six steps of half a second: thirty pictures, and twelve to choose the colours
+    expect(times).toHaveLength(12 + 30);
+    expect(times.slice(0, 12)).toEqual([
+      0, 200, 500, 700, 1000, 1200, 1500, 1700, 2000, 2200, 2500, 2700,
+    ]);
+  });
+
   it("AC-441 without a background the GIF has a transparent index and the pictures use it", async () => {
     const { source } = makeSource({ alpha: 0 });
 

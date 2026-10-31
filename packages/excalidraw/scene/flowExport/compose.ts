@@ -10,13 +10,20 @@
  * so a test can read what was drawn.
  */
 
-import type { ElementsMap } from "@excalidraw/element/types";
+import { getFontFamilyString, getVerticalOffset } from "@excalidraw/common";
+
+import type {
+  ElementsMap,
+  ExcalidrawElement,
+  ExcalidrawTextElement,
+} from "@excalidraw/element/types";
 
 import { arrowsFor } from "../../components/FlowAnimationOverlay";
 import { FLOW_FOCUS_MARGIN, flowFocusScale } from "../flowAnimation";
 import {
   highlightBoxOf,
   highlightShapeOf,
+  nodeHighlightParts,
   stepHoldsMedia,
 } from "../flowHighlight";
 import {
@@ -190,6 +197,167 @@ export const highlightIn = (sinceStepMs: number): number => {
 export const pulseGlow = (sinceStepMs: number): number =>
   0.5 - 0.5 * Math.cos((2 * Math.PI * sinceStepMs) / FLOW_PULSE_MS);
 
+/** the box of an element, and the shape of its outline, as the overlay lays them out */
+const outlineOf = (
+  element: ExcalidrawElement | null | undefined,
+  fallback: FlowStep["box"],
+) => ({
+  box: element ? highlightBoxOf(element) : fallback,
+  shape: element
+    ? highlightShapeOf(element)
+    : { kind: "rect" as const, radius: 0, angle: 0 },
+});
+
+/**
+ * What every part of a highlight shares: it comes in from below over 400 ms,
+ * is turned about the part's own centre, and - for a focus - is a margin larger
+ * than the part. The callback draws in a box that is centred on the origin.
+ */
+const inPlace = (
+  ctx: CanvasRenderingContext2D,
+  scene: FlowFrameScene,
+  box: FlowStep["box"],
+  angle: number,
+  sinceStepMs: number,
+  draw: (
+    drawBox: FlowStep["box"],
+    grown: { x: number; y: number },
+    came: number,
+  ) => void,
+) => {
+  const came = highlightIn(sinceStepMs);
+
+  ctx.save();
+  ctx.translate(0, 12 * (1 - came));
+  ctx.globalAlpha = came;
+  ctx.translate(box.x + box.width / 2, box.y + box.height / 2);
+  ctx.rotate(angle);
+
+  const own = {
+    x: -box.width / 2,
+    y: -box.height / 2,
+    width: box.width,
+    height: box.height,
+  };
+  const grown =
+    scene.nodeStyle === "focus"
+      ? flowFocusScale(own, FLOW_FOCUS_MARGIN)
+      : { x: 1, y: 1 };
+
+  draw(own, grown, came);
+  ctx.restore();
+};
+
+/** the outline of a node, or the rectangle on a label's box: a wash and a line */
+const drawOutline = (
+  ctx: CanvasRenderingContext2D,
+  scene: FlowFrameScene,
+  where: ReturnType<typeof outlineOf>,
+  options: { color: string; glow: boolean; wash: boolean },
+  sinceStepMs: number,
+  scale: number,
+) => {
+  inPlace(
+    ctx,
+    scene,
+    where.box,
+    where.shape.angle,
+    sinceStepMs,
+    (own, grown, came) => {
+      const drawBox = {
+        x: own.x * grown.x,
+        y: own.y * grown.y,
+        width: own.width * grown.x,
+        height: own.height * grown.y,
+      };
+
+      traceShape(ctx, where.shape, drawBox);
+
+      // a neon outline has no wash: it is a tube
+      if (options.wash && !options.glow) {
+        ctx.globalAlpha = came * 0.18;
+        ctx.fillStyle = options.color;
+        ctx.fill();
+      }
+
+      ctx.globalAlpha = came;
+      ctx.lineWidth = OUTLINE_STROKE;
+      ctx.strokeStyle = options.glow ? neonCore(options.color) : options.color;
+
+      if (options.glow) {
+        ctx.shadowColor = options.color;
+        ctx.shadowBlur = blurOf(14, scale);
+      } else if (scene.nodeStyle === "pulse") {
+        ctx.shadowColor = options.color;
+        ctx.shadowBlur = blurOf(8 * pulseGlow(sinceStepMs), scale);
+      }
+
+      ctx.stroke();
+    },
+  );
+};
+
+/** the letters of a label, drawn again in the colour of the highlight */
+const drawLetters = (
+  ctx: CanvasRenderingContext2D,
+  scene: FlowFrameScene,
+  label: ExcalidrawTextElement,
+  options: { color: string; glow: boolean },
+  sinceStepMs: number,
+  scale: number,
+) => {
+  const box = highlightBoxOf(label);
+  const lines = label.text.replace(/\r\n?/g, "\n").split("\n");
+  const lineHeightPx = label.fontSize * label.lineHeight;
+  const verticalOffset = getVerticalOffset(
+    label.fontFamily,
+    label.fontSize,
+    lineHeightPx,
+  );
+
+  inPlace(
+    ctx,
+    scene,
+    box,
+    label.angle ?? 0,
+    sinceStepMs,
+    (own, grown, came) => {
+      // the letters are drawn in the label's own box, as the canvas draws them
+      ctx.scale(grown.x, grown.y);
+      ctx.translate(own.x, own.y);
+      ctx.font = `${label.fontSize}px ${getFontFamilyString({
+        fontFamily: label.fontFamily,
+      })}`;
+      ctx.textBaseline = "alphabetic";
+      ctx.textAlign =
+        label.textAlign === "center"
+          ? "center"
+          : label.textAlign === "right"
+          ? "right"
+          : "left";
+
+      const x =
+        label.textAlign === "center"
+          ? box.width / 2
+          : label.textAlign === "right"
+          ? box.width
+          : 0;
+
+      ctx.globalAlpha = came;
+      ctx.fillStyle = options.glow ? neonCore(options.color) : options.color;
+
+      if (options.glow) {
+        ctx.shadowColor = options.color;
+        ctx.shadowBlur = blurOf(10, scale);
+      }
+
+      lines.forEach((line, index) => {
+        ctx.fillText(line, x, index * lineHeightPx + verticalOffset);
+      });
+    },
+  );
+};
+
 const drawHighlight = (
   ctx: CanvasRenderingContext2D,
   scene: FlowFrameScene,
@@ -201,67 +369,97 @@ const drawHighlight = (
     return;
   }
 
-  const container = scene.elementsMap.get(step.containerId);
-  const box = container ? highlightBoxOf(container) : step.box;
-  const shape = container
-    ? highlightShapeOf(container)
-    : { kind: "rect" as const, radius: 0, angle: 0 };
-  const color = colorOr(scene.look.nodeColor, FLOW_ACCENT_HEX);
+  // what the highlight is put on: the shape, the label's box, the label's letters
+  const parts = nodeHighlightParts(
+    step,
+    scene.elementsMap,
+    scene.look.nodeTarget,
+  );
+  const nodeColor = colorOr(scene.look.nodeColor, FLOW_ACCENT_HEX);
+  const textColor = colorOr(
+    scene.look.textColor ?? scene.look.nodeColor,
+    FLOW_ACCENT_HEX,
+  );
   const media = stepHoldsMedia(step, scene.elementsMap);
-  const came = highlightIn(sinceStepMs);
 
-  ctx.save();
-
-  // the highlight comes in from below, as the overlay's does
-  ctx.translate(0, 12 * (1 - came));
-  ctx.globalAlpha = came;
-
-  // rotated about the centre, as the node is
-  const cx = box.x + box.width / 2;
-  const cy = box.y + box.height / 2;
-
-  ctx.translate(cx, cy);
-  ctx.rotate(shape.angle);
-
-  // the focus is a margin round the box; a pulse leaves the size alone
-  let drawBox = {
-    x: -box.width / 2,
-    y: -box.height / 2,
-    width: box.width,
-    height: box.height,
-  };
-
-  if (scene.nodeStyle === "focus") {
-    const grown = flowFocusScale(drawBox, FLOW_FOCUS_MARGIN);
-
-    drawBox = {
-      x: drawBox.x * grown.x,
-      y: drawBox.y * grown.y,
-      width: drawBox.width * grown.x,
-      height: drawBox.height * grown.y,
-    };
+  if (parts.outline) {
+    drawOutline(
+      ctx,
+      scene,
+      outlineOf(parts.outline, step.box),
+      { color: nodeColor, glow: scene.look.glowShape, wash: !media },
+      sinceStepMs,
+      scale,
+    );
   }
 
-  traceShape(ctx, shape, drawBox);
-
-  ctx.globalAlpha = came * (media ? 0 : 0.18);
-  ctx.fillStyle = color;
-  ctx.fill();
-
-  ctx.globalAlpha = came;
-  ctx.lineWidth = OUTLINE_STROKE;
-  ctx.strokeStyle = scene.look.glowShape ? neonCore(color) : color;
-
-  if (scene.look.glowShape) {
-    ctx.shadowColor = color;
-    ctx.shadowBlur = blurOf(14, scale);
-  } else if (scene.nodeStyle === "pulse") {
-    ctx.shadowColor = color;
-    ctx.shadowBlur = blurOf(8 * pulseGlow(sinceStepMs), scale);
+  if (parts.box) {
+    drawOutline(
+      ctx,
+      scene,
+      outlineOf(parts.box, step.box),
+      { color: textColor, glow: scene.look.glowText, wash: true },
+      sinceStepMs,
+      scale,
+    );
   }
 
-  ctx.stroke();
-  ctx.restore();
+  if (parts.letters) {
+    drawLetters(
+      ctx,
+      scene,
+      parts.letters,
+      { color: textColor, glow: scene.look.glowText },
+      sinceStepMs,
+      scale,
+    );
+  }
+};
+
+/**
+ * The arrows of the flow as neon tubes (the look's neon arrows): a thin bright
+ * core with a halo in the arrow's colour. The canvas does not draw them then.
+ */
+const drawArrowTubes = (
+  ctx: CanvasRenderingContext2D,
+  scene: FlowFrameScene,
+  step: FlowStep,
+  scale: number,
+) => {
+  const color = colorOr(
+    scene.look.arrowColor ?? scene.look.markColor,
+    FLOW_ACCENT_HEX,
+  );
+
+  for (const arrow of arrowsFor(
+    "marching",
+    scene.graph,
+    step,
+    scene.elementsMap,
+  )) {
+    // three halos, one over another, as three drop shadows in a row
+    for (const halo of [2, 6, 14]) {
+      ctx.save();
+      ctx.beginPath();
+
+      arrow.path.forEach((point, i) => {
+        if (i === 0) {
+          ctx.moveTo(point.x, point.y);
+        } else {
+          ctx.lineTo(point.x, point.y);
+        }
+      });
+
+      ctx.lineWidth = 3;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = neonCore(color);
+      ctx.shadowColor = color;
+      ctx.shadowBlur = blurOf(halo, scale);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
 };
 
 /**
@@ -304,6 +502,11 @@ export const drawFlowFrame = (
     transform.offsetX,
     transform.offsetY,
   );
+
+  // the arrows as neon tubes, under what travels along them
+  if (scene.look.glowArrow) {
+    drawArrowTubes(ctx, scene, step, transform.scale);
+  }
 
   const arrows = arrowsFor(
     scene.arrowStyle,
