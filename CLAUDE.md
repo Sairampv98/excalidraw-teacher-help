@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+**A new session reads [docs/next.md](./docs/next.md) first**: where the work stands, the work queue in order, and the rules that always apply.
+
 ## Project Structure
 
 Excalidraw is a **monorepo** with a clear separation between the core library and the application:
