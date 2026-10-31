@@ -6,6 +6,7 @@ import type { FlowPresetId } from "@excalidraw/excalidraw/scene/flowScript";
 
 import {
   FIT_MODE_GUIDE,
+  FLOW_ANIMATED_EXAMPLE,
   FLOW_GUIDE,
   GUIDE_OF_LAYOUT,
   SHAPE_MARKS,
@@ -16,6 +17,11 @@ type FlowGuideProps = {
   customs: readonly FlowCustomPreset[];
   /** puts a preset's example into the script box and goes back to the chart */
   onUse: (presetId: string, example: string) => void;
+  /**
+   * puts the animated example into the script box, sets the arrows' animation
+   * the example is made to show, and goes back to the chart (D-380)
+   */
+  onUseAnimated: (example: typeof FLOW_ANIMATED_EXAMPLE) => void;
   onBack: () => void;
 };
 
@@ -29,6 +35,7 @@ export const FlowGuide = ({
   presets,
   customs,
   onUse,
+  onUseAnimated,
   onBack,
 }: FlowGuideProps) => (
   <div className="flow-guide" data-testid="flow-guide">
@@ -43,6 +50,32 @@ export const FlowGuide = ({
       A script is the words of a chart: one line for each part. Pick a kind of
       chart below to see what its lines mean.
     </p>
+
+    <section
+      className="flow-guide__animated"
+      data-guide-section="animated"
+      data-testid="flow-guide-animated"
+    >
+      <h4>{FLOW_ANIMATED_EXAMPLE.title}</h4>
+      <p>
+        A chart that moves: boxes that call a gateway, the gateway that calls
+        the services, and dashes that run along every arrow. It is a network
+        chart, so you can change any line and it still works.
+      </p>
+      <pre className="flow-guide__example">{FLOW_ANIMATED_EXAMPLE.script}</pre>
+      <ol>
+        {FLOW_ANIMATED_EXAMPLE.steps.map((step) => (
+          <li key={step}>{step}</li>
+        ))}
+      </ol>
+      <button
+        type="button"
+        aria-label="Use this animated example"
+        onClick={() => onUseAnimated(FLOW_ANIMATED_EXAMPLE)}
+      >
+        Use this animated example
+      </button>
+    </section>
 
     {presets.map((preset) => {
       const custom = customs.find((c) => c.id === preset.id);

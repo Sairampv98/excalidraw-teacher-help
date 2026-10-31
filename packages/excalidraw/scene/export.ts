@@ -204,6 +204,11 @@ export const exportToCanvas = async (
      * under it, and the picture grows to hold them whole.
      */
     pagePapers = [],
+    /**
+     * Draw the papers even when a `pageRect` frames the picture: an animation
+     * export frames the chart itself and still shows the page it is on.
+     */
+    framePapers = false,
   }: {
     exportBackground: boolean;
     exportPadding?: number;
@@ -212,6 +217,7 @@ export const exportToCanvas = async (
     pageRect?: PageRect | null;
     pageDecoration?: PageDecoration | null;
     pagePapers?: readonly PagePaperDraw[];
+    framePapers?: boolean;
   },
   createCanvas: (
     width: number,
@@ -296,7 +302,8 @@ export const exportToCanvas = async (
       shouldCacheIgnoreZoom: false,
       theme: appState.exportWithDarkMode ? THEME.DARK : THEME.LIGHT,
       currentPageDecoration: pageDecoration,
-      currentPagePapers: pageRect || exportingFrame ? null : pagePapers,
+      currentPagePapers:
+        exportingFrame || (pageRect && !framePapers) ? null : pagePapers,
     },
     renderConfig: {
       canvasBackgroundColor: viewBackgroundColor,

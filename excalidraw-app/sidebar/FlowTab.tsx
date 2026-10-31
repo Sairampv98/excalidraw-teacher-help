@@ -8,6 +8,7 @@ import {
   useExcalidrawAPI,
 } from "@excalidraw/excalidraw";
 import { randomId, randomInteger } from "@excalidraw/common";
+import { updateFlowAnimationSettings } from "@excalidraw/excalidraw/components/FlowAnimationState";
 import { FlowPreview } from "@excalidraw/excalidraw/components/FlowPreview";
 import { openFlowScriptEditor } from "@excalidraw/excalidraw/components/FlowScriptEditorState";
 import { checkFlowScript } from "@excalidraw/excalidraw/scene/flowCheck";
@@ -386,6 +387,17 @@ export const FlowTab = () => {
               choose(id);
               setScript(example);
               setEdited(true);
+              setView("chart");
+            }}
+            onUseAnimated={(example) => {
+              choose(example.preset);
+              setScript(example.script);
+              setEdited(true);
+              // the animation the example is made to show (D-380)
+              updateFlowAnimationSettings({
+                arrowStyle: example.arrowStyle,
+                nodeStyle: example.nodeStyle,
+              });
               setView("chart");
             }}
           />

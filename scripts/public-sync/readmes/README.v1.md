@@ -6,7 +6,7 @@ A **modified Excalidraw**: a fork that adds the things a teacher needs when a VS
 
 > ### This release is superseded
 >
-> `version-1` is the **first public release**, kept as it was published. It is **no longer maintained**, and several of the features it lists **did not work when they were tested in a browser**. The repaired code is in [`main`](../../tree/main), the second release; the first release with only its repairs, as it was before that, is the [`v1.1`](../../tree/v1.1) branch.
+> `v1` is the **first public release**, kept as it was published. It is **no longer maintained**, and several of the features it lists **did not work when they were tested in a browser**. The repaired code is in [`main`](../../tree/main), the second release; the first release with only its repairs, as it was before that, is the [`v1.1`](../../tree/v1.1) branch.
 >
 > What did not work in this release:
 >
@@ -52,7 +52,7 @@ The [clips](clips/index.html) show each of these working. The long version, with
 
 ## The branches of this repository
 
-`main` holds the current release - the second one - `dev` is where the next is prepared and follows `main`, `dev-draft` is where contributors commit, `v1.1` is the first release with its repairs, and `version-1` - this branch - is the first release, kept as it was published.
+`main` holds the current release - the second one - `dev` is where the next is prepared and follows `main`, `dev-draft` is where contributors commit, `v1.1` is the first release with its repairs, and `v1` - this branch - is the first release, kept as it was published.
 
 ## Getting started
 

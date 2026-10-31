@@ -17,36 +17,35 @@ Statuses used below: `DONE`, `NEXT`, `HELD` (the owner decided to wait; do not s
 
 ## Where things stand (2026-10-31)
 
-- **Private `main`: `ac08982`** (wave 9a merged and pushed to both private remotes: `github` = `Sairampv98/excalidraw-teacher-help`, private; `origin` = `D:\excalidraw-backup\excalidraw-teacher-help.git`).
+- **Private `main`: `5d160c4`** before wave 9b (the commit that merged this file; wave 9a is under it; the merge of wave 9b is the next commit on `main`). Pushed to both private remotes: `github` = `Sairampv98/excalidraw-teacher-help`, private; `origin` = `D:\excalidraw-backup\excalidraw-teacher-help.git`).
 - **Public repository `Sairampv98/excalidraw-classroom`** (remote `github-public`, local clone `C:\Users\user\Desktop\NITTE - C\excalidraw-public`): pushed on 2026-10-29 with `main` 9265307, `dev` 160107b, `v1` 0ca4125, `v1.1` 1d2ec7f, `dev-draft` 21a0ffe. That is the scrubbed private tree **up to `31fac56`**. Wave 9a and everything after it is **not** mirrored. The `approve-first-push` marker was **not** created, so the hooks do not push `dev` by themselves.
 - **Wave 9a (VS Code mirror control): DONE.** The canvas controls the editor's window (Whole / Part / Follow, park or virtual display, screenshots, OCR, presenter). Two things worth knowing:
   - The mirror's live picture is a multipart image in an `<img>`; **Chrome shows each part only when the next part's header arrives**, so the stream writes the next header behind every picture (`packages/vscode-bridge/extension/src/stream.ts`). Never go back to "boundary + headers + bytes" per picture.
   - The virtual display must use the **same Windows scaling as the main display** (150% on the owner's machine), or VS Code looks smaller there and the zoom follows back to main.
   - Diagnostics: the command "Excalidraw Bridge: Show where the mirror's time goes" reports frame rate, window draw time, extension-host lag, and how long keys take to show (in front or behind other windows).
-- **Wave 9b browser setup is parked**, see `HELD` below. Its branch `task/wave9b-browser-setup` (worktree `..\excalidraw.worktrees\wave9b-browser-setup`) holds the finished engine and nothing else. **Its task id says 9b but it belongs to v3**: the owner renamed the order on 2026-10-31 (the kit has no rename or abandon command).
+- **Two tasks have 9b in their name; keep them apart.** `wave9b-small-fixes` is the wave that was built after 9a (see below, `DONE`). `wave9b-browser-setup` is the **browser-based editor setup**, parked, and belongs to v3: its branch `task/wave9b-browser-setup` (worktree `..\excalidraw.worktrees\wave9b-browser-setup`) holds the finished engine and nothing else (the kit has no rename or abandon command, so the id keeps saying 9b).
 
 ## Work queue
 
-### W9b - Small fixes - NEXT
+### W9b - Small fixes - DONE
 
-Task id to use: `wave9b-small-fixes`. Show the SPEC rows first.
+Task `wave9b-small-fixes` (SPEC rows D-374 to D-381, AC-437 to AC-444).
 
-1. **Chart export as GIF, animated WebP and MP4**, each with or without the canvas background (the page's paper and colour). Decisions to put into SPEC rows before building:
-   - What is exported: one chart's animation loop (or the selection / the page), at a chosen size and frame rate, and for how long.
-   - "Without background" is transparent in GIF (one bit of alpha) and WebP (full alpha); **MP4 cannot hold transparency**, so say what MP4 does (always the background, or a chosen solid colour).
-   - **There is no encoder in the repository** (only `fflate` and `pako` are installed) and no new dependency is allowed without a SPEC decision: decide between a small own GIF encoder, WebP built from canvas `toBlob("image/webp")` frames inside an animated-WebP container, and MP4 through WebCodecs `VideoEncoder` plus a small own muxer (or `MediaRecorder`).
-   - The flow animation is a DOM/SVG overlay driven by JavaScript (`packages/excalidraw/components/FlowAnimationOverlay.tsx`, `FlowAnimationState.ts`, `scene/flowAnimation.ts`), not canvas pixels. Frames must come from **stepping the animation's own clock** and compositing the page canvas plus the overlay, never by recording in real time, so the file is exact and the same on every machine.
-   - Earlier note from the owner (wave 7w): they said "webp" first.
-2. **README drafts** in `scripts/public-sync/readmes/`: they still say `version-1` (the public branch is `v1`) and still describe the virtual display of the old design; update them for wave 9a (parking and the virtual display as they are now). The clip `11-park-and-control.mp4` named in `docs/VERIFY.md` is not recorded.
+1. **Export a chart's animation as a GIF, an animated WebP or an MP4.** The **Export** button of the animation bar opens a panel (`components/FlowExportPanel.tsx`): format, **frames a second** (5 to 60; a GIF has no 60), size (longest side 480 to 1920), shape (the chart's own, 16:9, square, portrait 9:16), with or without the page's background (an MP4 always has it). MP4 and WebP are offered **only after the browser has been asked** whether it can write them (`VideoEncoder.isConfigSupported`, a canvas WebP probe). The code is in `packages/excalidraw/scene/flowExport/`: `plan.ts` (the timeline, the options, the rules), `compose.ts` (one picture of one moment), `gif.ts`, `webp.ts` and `mp4.ts` (our own encoders, no dependency), `runner.ts` (the run, with progress and stop), `browser.ts` (the canvas, the WebP writer, the video encoder), `chart.ts` (what of the page is exported) and `exportAnimation.ts` (the pieces put together). `scene/export.ts` got one option, `framePapers`, so a framed export can still draw the page's paper.
+   - **Each picture is made from its moment, not from the screen**: the step comes from the animation's own clock and the marks from `flowMarksFor`, the very function the overlay draws with. A picture does **not** draw the highlight of the text, the neon of whole arrows, an arrow hidden by the look, or the camera's flight (D-374); drawing them is a possible follow-up.
+   - Checked in a real Chrome against the running app and read by the real `ffprobe` and `ffmpeg`: the GIF (90 pictures, exactly 6.0 s), the animated WebP (90 pictures) and the MP4 (H.264 High, 180 pictures, 6.0 s) all open; the GIF and WebP corners have alpha 0 without a background and the MP4's is opaque.
+2. **A worked example in the Flow tab's guide** (`excalidraw-app/sidebar/guideText.ts`, `FlowGuide.tsx`): _An animated gateway chart_, a network script of ten boxes and eight arrows; its button fills the script and sets the arrows to **Marching dashes** and the shapes to **Focus**.
+3. **README drafts** in `scripts/public-sync/readmes/`: the first release's branch is `v1` (its draft is now `README.v1.md`), and the READMEs and the feature list tell how the editor's window is handled today (control from the canvas, parking, the virtual display and its scale, a window that cannot be lost). The clip `11-park-and-control.mp4` named in `docs/VERIFY.md` is still not recorded.
 
-Dropped from this wave by the owner on 2026-10-31: relative images in markdown, OCR of a box drawn on a PDF, the Python "page crash" report. (`DROPPED`.)
+Dropped from this wave by the owner on 2026-10-31: relative images in markdown, OCR of a box drawn on a PDF, the Python "page crash" report. (`DROPPED`.) The scaling reminder in the setup helper moved to v3.
 
-### W9c - MCP server - NEXT (after W9b)
+### W9c - MCP server - NEXT
 
-Task id: `wave9c-mcp-server`. Show the SPEC rows first.
+Show the SPEC rows first. The owner wants **all functionality**, which is large: the proposal is three tasks of their own, each with its own gate - **9c-1 canvas tools**, **9c-2 local media and documents**, **9c-3 flow charts, slides and export** (or one task `wave9c-mcp-server` if the owner prefers).
 
 - `packages/mcp-server`, **stdio**, using `@modelcontextprotocol/sdk` (approved as a dependency by the owner earlier).
-- It reuses the VS Code bridge channel (`packages/vscode-bridge`), generates **slide pages from a class script**, and can **insert pages anywhere**.
+- **What it must do** (the owner, 2026-10-31): **create** and **edit** - including changing the **position and dimensions** of containers, **cropping** and styles and text; **delete**; **modify existing structures**; **pages** (insert anywhere); **slides generated from a class script**; **insert external resources from the local filesystem** - images, GIFs, videos; **open markdown and PDF files** from the local filesystem; **read them with vision** if the model has it, and by text or OCR if it has not; and **insert parts of them into the canvas**.
+- Design notes from the groundwork: the MCP server is a separate program, so the **page connects to it**, the way the page connects to the VS Code bridge (`packages/vscode-bridge/bridge/src/protocol.ts` and `client.ts` are the model: loopback only, a capability token, an origin check). The page already exposes what the tools need (`updateScene`, `addFiles`, `getSceneElements`, `scrollToContent` on the imperative API). Every change goes through the app's own history so **Ctrl+Z undoes what the AI did**. A client does not reliably say whether its model can see, so give **both** ways to read a document (page images and extracted text or OCR) and let the model choose. **Local files**: only inside folders the owner lists; refuse any other path and any link out of them. The new animation export (wave 9b) can be a tool too.
 - A related folder exists on the owner's disk, `C:\Users\user\Desktop\NITTE - C\TINS-MCP` (an MCP server for the TINS method, not for this project); look at it for the shape of a working server before designing.
 
 ### Release v2 on the public repository - NEXT (after W9c)

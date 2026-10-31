@@ -229,3 +229,44 @@ export const FIT_MODE_GUIDE: { name: string; says: string }[] = [
     says: "The chart stays in one piece at a readable size, even if it is bigger than the page.",
   },
 ];
+
+/**
+ * The worked example of an animated chart (D-380): a gateway chart, in the look
+ * of the infographics a class is shown - boxes on the left that call a gateway,
+ * and the gateway that calls the services on the right, with dashes running
+ * along the arrows. It is a network script, so it is one more example the
+ * studio already knows how to read; what it adds is the arrow animation it
+ * switches on and the way to a file.
+ */
+export const FLOW_ANIMATED_EXAMPLE: {
+  title: string;
+  preset: FlowPresetId;
+  /** the arrow animation the example is made to show */
+  arrowStyle: "marching";
+  /** what the shapes do while a step is current */
+  nodeStyle: "focus";
+  script: string;
+  /** the steps from the script to a file, in plain words */
+  steps: string[];
+} = {
+  title: "An animated gateway chart",
+  preset: "network",
+  arrowStyle: "marching",
+  nodeStyle: "focus",
+  script: [
+    "Apps and agents -> LLM gateway",
+    "LLM gateway -> OpenAI",
+    "LLM gateway -> Anthropic",
+    "LLM gateway -> Usage and cost",
+    "Web and mobile -> API gateway",
+    "API gateway -> Orders service",
+    "API gateway -> Users service",
+    "API gateway -> Payments service",
+  ].join("\n"),
+  steps: [
+    "Press Use this animated example: the script is filled in, and the arrows are set to Marching dashes.",
+    "Press Insert chart. Select the chart and the animation bar appears.",
+    "Press Play: a step lights up at a time, and dashes run along the arrows.",
+    "Press Export in the bar to save the animation as a GIF, a WebP or an MP4. Choose the frames a second, the size, and whether it has the page's background.",
+  ],
+};

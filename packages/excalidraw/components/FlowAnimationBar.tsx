@@ -47,6 +47,7 @@ import { presetLook } from "../scene/flowPalette";
 import { openFlowScriptEditor } from "./FlowScriptEditorState";
 
 import { FlowColorPad, FlowColorPresets } from "./FlowColorPad";
+import { FlowExportPanel } from "./FlowExportPanel";
 import {
   DEFAULT_FLOW_STEP_DURATION_MS,
   flowAnimationStateAtom,
@@ -147,6 +148,8 @@ export const FlowAnimationBar = ({
   const preview = useAtomValue(flowClassPreviewAtom);
 
   const [lookOpen, setLookOpen] = useState(false);
+  // the panel that exports the animation as a file (D-374)
+  const [exportOpen, setExportOpen] = useState(false);
   const [place, setPlace] = useState<FlowBarPlace>(readFlowBarPlace);
   const [dragging, setDragging] = useState(false);
 
@@ -396,6 +399,14 @@ export const FlowAnimationBar = ({
       // scene, so nothing under it is deselected
       onPointerDown={(event) => event.stopPropagation()}
     >
+      {exportOpen && (
+        <FlowExportPanel
+          app={app}
+          graph={graph}
+          elements={elements}
+          onClose={() => setExportOpen(false)}
+        />
+      )}
       <div className="excalidraw__flow-bar-row">
         <button
           type="button"
@@ -469,6 +480,15 @@ export const FlowAnimationBar = ({
             Stop {runningLabel.toLowerCase()}
           </button>
         )}
+        <button
+          type="button"
+          data-testid="flow-bar-export"
+          aria-expanded={exportOpen}
+          title="Export the animation as a GIF, WebP or MP4"
+          onClick={() => setExportOpen((open) => !open)}
+        >
+          Export
+        </button>
         <button
           type="button"
           className="excalidraw__flow-bar-edit-script"
