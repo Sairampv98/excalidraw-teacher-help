@@ -14,7 +14,11 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FLOW_EXPORT_STORAGE_KEY } from "../components/FlowExportPanel";
-import { updateFlowAnimationSettings } from "../components/FlowAnimationState";
+import {
+  flowAnimationStateAtom,
+  updateFlowAnimationSettings,
+} from "../components/FlowAnimationState";
+import { editorJotaiStore } from "../editor-jotai";
 import { Excalidraw } from "../index";
 import { buildFlowPreset } from "../scene/flowPresets";
 import { FlowExportStopped } from "../scene/flowExport/runner";
@@ -103,7 +107,7 @@ beforeEach(() => {
     .spyOn(HTMLAnchorElement.prototype, "click")
     .mockImplementation(() => undefined);
   act(() => {
-    updateFlowAnimationSettings({ durationMs: 1200 });
+    updateFlowAnimationSettings({ durationMs: 1200, camera: false });
   });
 });
 
@@ -265,6 +269,57 @@ describe("the export panel", () => {
     );
   });
 
+  it("AC-447 the panel can fly the camera to each step, starting from the bar's own setting, and the choice is the export's alone", async () => {
+    // the bar's camera is off: so is the panel's
+    await openPanel();
+
+    const box = () =>
+      screen.getByTestId("flow-export-camera") as HTMLInputElement;
+
+    expect(box().checked).toBe(false);
+    expect(box().disabled).toBe(false);
+
+    // the bar's camera is on: a panel opened now starts with it on
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    act(() => {
+      updateFlowAnimationSettings({ camera: true });
+    });
+    fireEvent.click(screen.getByTestId("flow-bar-export"));
+    await screen.findByTestId("flow-export-panel");
+
+    expect(box().checked).toBe(true);
+
+    // turned off here, it is off in the export and still on in the bar
+    fireEvent.click(box());
+    expect(box().checked).toBe(false);
+
+    exportMock.mockResolvedValue({
+      blob: new Blob([new Uint8Array(10)], { type: "image/gif" }),
+      filename: "chart.gif",
+      width: 720,
+      height: 340,
+    });
+    fireEvent.click(screen.getByTestId("flow-export-go"));
+    await waitFor(() => expect(exportMock).toHaveBeenCalledTimes(1));
+
+    expect(exportMock.mock.calls[0][0].options.camera).toBe(false);
+    expect(editorJotaiStore.get(flowAnimationStateAtom).camera).toBe(true);
+
+    // turned on, it is on in the export
+    await screen.findByTestId("flow-export-saved");
+    fireEvent.click(box());
+    fireEvent.click(screen.getByTestId("flow-export-go"));
+    await waitFor(() => expect(exportMock).toHaveBeenCalledTimes(2));
+
+    expect(exportMock.mock.calls[1][0].options.camera).toBe(true);
+
+    // it cannot be changed while the export works
+    exportMock.mockImplementationOnce(() => new Promise(() => undefined));
+    fireEvent.click(screen.getByTestId("flow-export-go"));
+    await screen.findByTestId("flow-export-stop");
+    expect(box().disabled).toBe(true);
+  });
+
   it("AC-442 it exports what was chosen, shows how far it is, saves the file and says where", async () => {
     await openPanel();
 
@@ -300,6 +355,7 @@ describe("the export panel", () => {
         longest: 480,
         shape: "chart",
         withBackground: false,
+        camera: false,
       },
       animation: { durationMs: 1200 },
     });

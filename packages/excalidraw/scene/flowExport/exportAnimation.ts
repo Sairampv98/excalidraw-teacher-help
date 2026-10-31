@@ -16,6 +16,7 @@ import { arrowLooksFor, elementForCanvas } from "../flowArrowLooks";
 import { chartScaleOf } from "../flowScale";
 
 import { createFrameSource, createVideoEncoder } from "./browser";
+import { flightTransformAt, sceneRectOf } from "./camera";
 import { chartToExport } from "./chart";
 import { FLOW_EXPORT_FORMATS, exportSizeOf, placeChart } from "./plan";
 import { runFlowExport } from "./runner";
@@ -35,6 +36,8 @@ export type FlowExportOptions = {
   shape: FlowExportShape;
   /** on the page's own background, or without one (MP4 always has it) */
   withBackground: boolean;
+  /** the picture flies to each step, as the view does with the camera on (D-385) */
+  camera: boolean;
 };
 
 /** the animation as it is set now: the bar's own settings */
@@ -86,14 +89,6 @@ export const exportFlowAnimation = async (input: {
   const size = exportSizeOf(chart.box, options.shape, options.longest);
   const place = placeChart(chart.box, size);
 
-  // the part of the page the picture is: the chart, centred, with its margin
-  const rect = {
-    x: -place.offsetX / place.scale,
-    y: -place.offsetY / place.scale,
-    width: size.width / place.scale,
-    height: size.height / place.scale,
-  };
-
   const restored = restoreAppState(
     {
       ...appState,
@@ -104,31 +99,43 @@ export const exportFlowAnimation = async (input: {
     null,
   );
 
-  const base = await exportToCanvas(
-    drawn as never,
-    { ...restored, offsetTop: 0, offsetLeft: 0, width: 0, height: 0 },
-    files,
-    {
-      exportBackground: withBackground,
-      viewBackgroundColor: restored.viewBackgroundColor,
-      pageRect: rect,
-      // the page's paper is part of the background, and goes with it
-      pagePapers: withBackground
-        ? getPapersForExport(drawn as never, restored)
-        : [],
-      framePapers: true,
-    },
-    (width: number, height: number) => {
-      const canvas = document.createElement("canvas");
+  // the page's paper is part of the background, and goes with it
+  const pagePapers = withBackground
+    ? getPapersForExport(drawn as never, restored)
+    : [];
 
-      canvas.width = size.width;
-      canvas.height = size.height;
-      void width;
-      void height;
+  /**
+   * The chart as the canvas draws it, seen by a camera: the part of the page the
+   * picture is, and the scale. With the camera still it is drawn once; with a
+   * camera that flies it is drawn again for every picture (D-385).
+   */
+  const renderBase = (camera: {
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+  }) =>
+    exportToCanvas(
+      drawn as never,
+      { ...restored, offsetTop: 0, offsetLeft: 0, width: 0, height: 0 },
+      files,
+      {
+        exportBackground: withBackground,
+        viewBackgroundColor: restored.viewBackgroundColor,
+        pageRect: sceneRectOf(camera, size),
+        pagePapers,
+        framePapers: true,
+      },
+      () => {
+        const canvas = document.createElement("canvas");
 
-      return { canvas, scale: place.scale };
-    },
-  );
+        canvas.width = size.width;
+        canvas.height = size.height;
+
+        return { canvas, scale: camera.scale };
+      },
+    );
+
+  const base = options.camera ? null : await renderBase(place);
 
   const elementsMap = arrayToMap(elements);
 
@@ -147,6 +154,19 @@ export const exportFlowAnimation = async (input: {
     },
     transform: place,
     size,
+    flight: options.camera
+      ? {
+          transformAt: (timeMs) =>
+            flightTransformAt({
+              steps,
+              durationMs: animation.durationMs,
+              timeMs,
+              picture: size,
+              chart: chart.box,
+            }),
+          renderBase,
+        }
+      : undefined,
   });
 
   const bytes = await runFlowExport({

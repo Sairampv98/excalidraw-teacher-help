@@ -13,6 +13,8 @@ import { pointFrom } from "@excalidraw/math";
 
 import { getDefaultAppState } from "../appState";
 import { drawFlowFrame } from "../scene/flowExport/compose";
+import { createFrameSource } from "../scene/flowExport/browser";
+import { sceneRectOf } from "../scene/flowExport/camera";
 import { exportFlowAnimation } from "../scene/flowExport/exportAnimation";
 import { FLOW_LOOK_DEFAULTS, neonCore } from "../scene/flowLook";
 
@@ -22,15 +24,33 @@ import { recorder } from "./helpers/recordingContext";
 import type { FlowFrameScene } from "../scene/flowExport/compose";
 import type { FlowGraph, FlowStep } from "../scene/flowOrder";
 
-const captured: { elements: readonly { id: string; strokeColor: string }[] }[] =
-  [];
+const captured: {
+  elements: readonly { id: string; strokeColor: string }[];
+  options?: {
+    pageRect?: { x: number; y: number; width: number; height: number };
+  };
+  scale?: number;
+}[] = [];
 
 vi.mock("../scene/export", () => ({
-  exportToCanvas: vi.fn(async (elements: never) => {
-    captured.push({ elements });
+  exportToCanvas: vi.fn(
+    async (
+      elements: never,
+      _appState: never,
+      _files: never,
+      options: never,
+      createCanvas?: (
+        w: number,
+        h: number,
+      ) => { canvas: HTMLCanvasElement; scale: number },
+    ) => {
+      const made = createCanvas?.(0, 0);
 
-    return document.createElement("canvas");
-  }),
+      captured.push({ elements, options, scale: made?.scale });
+
+      return made?.canvas ?? document.createElement("canvas");
+    },
+  ),
 }));
 
 vi.mock("../scene/flowExport/runner", async (importOriginal) => ({
@@ -359,7 +379,7 @@ describe("the arrows the canvas is given", () => {
     return { elements: [container, other, line], line };
   };
 
-  const run = async (look: Partial<FlowFrameScene["look"]>) => {
+  const run = async (look: Partial<FlowFrameScene["look"]>, camera = false) => {
     captured.length = 0;
 
     const { elements } = chart();
@@ -408,15 +428,17 @@ describe("the arrows the canvas is given", () => {
         format: "gif",
         fps: 10,
         longest: 480,
-        shape: "chart",
+        // a square picture, so the camera has somewhere to go on a wide chart
+        shape: camera ? "square" : "chart",
         withBackground: true,
+        camera,
       },
       name: "chart",
       onProgress: () => undefined,
       isStopped: () => false,
     });
 
-    return captured[0].elements;
+    return captured[0]?.elements ?? [];
   };
 
   beforeEach(() => {
@@ -458,5 +480,54 @@ describe("the arrows the canvas is given", () => {
     await run({ arrowColor: "#1971c2", hideArrow: false });
 
     expect(JSON.stringify(elements[2])).toBe(before);
+  });
+
+  it("AC-447 without the camera the chart is drawn once, and the source has no flight", async () => {
+    vi.mocked(createFrameSource).mockClear();
+    await run({}, false);
+
+    const options = vi.mocked(createFrameSource).mock.calls[0][0];
+
+    expect(options.flight).toBeUndefined();
+    expect(options.base).not.toBeNull();
+    expect(captured).toHaveLength(1);
+  });
+
+  it("AC-447 with the camera nothing is drawn up front: each camera has the chart drawn as it sees it", async () => {
+    vi.mocked(createFrameSource).mockClear();
+    await run({}, true);
+
+    const options = vi.mocked(createFrameSource).mock.calls[0][0];
+
+    expect(options.base).toBeNull();
+    expect(captured).toHaveLength(0);
+
+    const flight = options.flight!;
+
+    // the camera is a function of the moment: it moves, and it comes back
+    const first = flight.transformAt(0);
+    const later = flight.transformAt(1500);
+
+    expect(later).not.toEqual(first);
+    expect(flight.transformAt(0)).toEqual(first);
+    // one round is two steps of one second
+    expect(flight.transformAt(2000).scale).toBeCloseTo(first.scale, 9);
+
+    // the chart is drawn for that camera: the part of the page it sees, at its scale
+    await flight.renderBase(later);
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0].options?.pageRect).toEqual(
+      sceneRectOf(later, options.size),
+    );
+    expect(captured[0].scale).toBe(later.scale);
+
+    // and drawn again for the next one
+    await flight.renderBase(first);
+
+    expect(captured).toHaveLength(2);
+    expect(captured[1].options?.pageRect).toEqual(
+      sceneRectOf(first, options.size),
+    );
   });
 });

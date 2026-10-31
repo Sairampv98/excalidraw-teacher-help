@@ -250,3 +250,14 @@ export const exportProblem = (options: {
  */
 export const paletteSampleCount = (stepCount: number): number =>
   Math.min(24, Math.max(8, Math.floor(stepCount) * 2));
+
+/**
+ * Where in the run the first picture is taken: far enough into the first step
+ * that its highlight has come in (D-384). A file that is looked at as one
+ * picture - a thumbnail, a viewer that does not play it - then shows the chart
+ * lit, and not the plain chart a highlight has not yet reached. The run is
+ * still one whole round of the steps, and a round is the same wherever it
+ * starts, so the file loops with no jump.
+ */
+export const startOffsetMs = (durationMs: number): number =>
+  Math.max(0, Math.min(400, Math.floor(durationMs / 2)));

@@ -20,6 +20,7 @@ import {
   frameTimeMs,
   gifDelays,
   paletteSampleCount,
+  startOffsetMs,
 } from "./plan";
 import { assembleAnimatedWebp } from "./webp";
 
@@ -28,6 +29,12 @@ import type { FlowExportFormat } from "./plan";
 /** where the pictures come from */
 export type FlowFrameSource = {
   size: { width: number; height: number };
+  /**
+   * Gets the source ready for the picture at `timeMs`: a camera that flies has
+   * the page drawn again as it is seen from there (D-385). Optional: a source
+   * whose view does not move has nothing to do.
+   */
+  prepare?: (timeMs: number) => Promise<void>;
   /** the picture at `timeMs`, drawn, for the video encoder to take */
   canvasAt: (timeMs: number) => CanvasImageSource;
   /** the picture at `timeMs`, as red, green, blue, alpha for each pixel */
@@ -50,6 +57,8 @@ export type FlowVideoEncoder = {
     height: number;
     fps: number;
     count: number;
+    /** gets the source ready for a moment; awaited before `frameAt` is asked */
+    prepare: (timeMs: number) => Promise<void>;
     /** the picture at a moment, for the encoder to take */
     frameAt: (timeMs: number) => CanvasImageSource;
     onProgress: () => void;
@@ -100,6 +109,10 @@ export const runFlowExport = async (
   const lengthMs = exportLengthMs(run.stepCount, run.durationMs);
   const count = frameCountOf(lengthMs, run.fps);
   const { width, height } = run.source.size;
+  // the first picture is taken once the highlight has come in (D-384)
+  const startMs = startOffsetMs(run.durationMs);
+  const timeOf = (index: number) => frameTimeMs(index, run.fps) + startMs;
+  const prepare = async (timeMs: number) => run.source.prepare?.(timeMs);
 
   const check = () => {
     if (run.isStopped()) {
@@ -116,7 +129,8 @@ export const runFlowExport = async (
     for (let i = 0; i < sampleCount; i++) {
       const index = Math.floor((i * count) / sampleCount);
 
-      samples.push(run.source.rgba(frameTimeMs(index, run.fps)));
+      await prepare(timeOf(index));
+      samples.push(run.source.rgba(timeOf(index)));
     }
 
     const transparent = !run.withBackground;
@@ -136,7 +150,9 @@ export const runFlowExport = async (
     for (let i = 0; i < count; i++) {
       check();
 
-      const rgba = run.source.rgba(frameTimeMs(i, run.fps));
+      await prepare(timeOf(i));
+
+      const rgba = run.source.rgba(timeOf(i));
 
       encoder.addFrame(
         indexPicture(rgba, palette, transparentIndex),
@@ -159,7 +175,9 @@ export const runFlowExport = async (
     for (let i = 0; i < count; i++) {
       check();
 
-      const bytes = await run.source.webp(frameTimeMs(i, run.fps));
+      await prepare(timeOf(i));
+
+      const bytes = await run.source.webp(timeOf(i));
 
       if (!bytes) {
         throw new Error("This browser cannot write WebP pictures.");
@@ -193,7 +211,8 @@ export const runFlowExport = async (
     height,
     fps: run.fps,
     count,
-    frameAt: (timeMs) => run.source.canvasAt(timeMs),
+    prepare: (timeMs) => prepare(timeMs + startMs),
+    frameAt: (timeMs) => run.source.canvasAt(timeMs + startMs),
     onProgress: () => {
       done += 1;
       run.onProgress(done, count);

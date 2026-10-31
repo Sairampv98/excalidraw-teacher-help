@@ -39,6 +39,7 @@ const DEFAULT_OPTIONS: FlowExportOptions = {
   longest: FLOW_EXPORT_DEFAULT_SIZE,
   shape: "chart",
   withBackground: true,
+  camera: false,
 };
 
 /** what the browser's storage holds, kept to what is valid; never throws */
@@ -68,6 +69,8 @@ const readOptions = (): FlowExportOptions => {
         typeof stored.withBackground === "boolean"
           ? stored.withBackground
           : DEFAULT_OPTIONS.withBackground,
+      // the camera is the bar's own setting each time the panel opens
+      camera: false,
     };
   } catch {
     return DEFAULT_OPTIONS;
@@ -99,7 +102,10 @@ type Props = {
  */
 export const FlowExportPanel = ({ app, graph, elements, onClose }: Props) => {
   const state = useAtomValue(flowAnimationStateAtom);
-  const [options, setOptions] = useState<FlowExportOptions>(readOptions);
+  const [options, setOptions] = useState<FlowExportOptions>(() => ({
+    ...readOptions(),
+    camera: state.camera,
+  }));
   const [webp, setWebp] = useState<boolean | null>(null);
   const [video, setVideo] = useState<
     { supported: true } | { supported: false; reason: string } | null
@@ -340,6 +346,20 @@ export const FlowExportPanel = ({ app, graph, elements, onClose }: Props) => {
         {!background.transparent && (
           <em data-testid="flow-export-background-note">{background.reason}</em>
         )}
+      </label>
+
+      <label
+        className="excalidraw__flow-export-check"
+        title="The picture zooms to each step, as the view does when the camera is on"
+      >
+        <input
+          type="checkbox"
+          data-testid="flow-export-camera"
+          checked={options.camera}
+          disabled={running}
+          onChange={(event) => change({ camera: event.target.checked })}
+        />
+        <span>Fly the camera to each step</span>
       </label>
 
       <p

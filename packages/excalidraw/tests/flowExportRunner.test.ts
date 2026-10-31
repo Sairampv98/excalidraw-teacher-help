@@ -9,6 +9,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import { startOffsetMs } from "../scene/flowExport/plan";
 import { FlowExportStopped, runFlowExport } from "../scene/flowExport/runner";
 
 import { decodeGif } from "./helpers/gifDecode";
@@ -38,14 +39,26 @@ const stillWebp = (fill: number) => {
 const WIDTH = 8;
 const HEIGHT = 4;
 
+/** the first picture is taken this far into the run, once the highlight is in (D-384) */
+const START = startOffsetMs(500);
+
 /** a source whose picture is a colour that depends on the moment */
 const makeSource = (options: { alpha?: number; webp?: boolean } = {}) => {
   const times: number[] = [];
+  const log: string[] = [];
   const source: FlowFrameSource = {
     size: { width: WIDTH, height: HEIGHT },
-    canvasAt: vi.fn(() => ({} as CanvasImageSource)),
+    prepare: async (timeMs) => {
+      log.push(`prepare ${timeMs}`);
+    },
+    canvasAt: vi.fn((timeMs: number) => {
+      log.push(`read ${timeMs}`);
+
+      return {} as CanvasImageSource;
+    }),
     rgba: (timeMs) => {
       times.push(timeMs);
+      log.push(`read ${timeMs}`);
 
       const pixels = new Uint8ClampedArray(WIDTH * HEIGHT * 4);
       const level = Math.floor(timeMs / 50) % 200;
@@ -60,7 +73,7 @@ const makeSource = (options: { alpha?: number; webp?: boolean } = {}) => {
       options.webp === false ? null : stillWebp(timeMs % 250),
   };
 
-  return { source, times };
+  return { source, times, log };
 };
 
 const base = {
@@ -115,11 +128,18 @@ describe("running an export", () => {
     // eight pictures to choose the colours, then the ten of the run
     expect(times).toHaveLength(18);
     // the colours are chosen from pictures spread over the whole run
-    expect(times.slice(0, 8)).toEqual([0, 100, 200, 300, 500, 600, 700, 800]);
-    expect(times.slice(8)).toEqual([
-      0, 100, 200, 300, 400, 500, 600, 700, 800, 900,
-    ]);
-    expect(times.every((time) => time >= 0 && time < 1000)).toBe(true);
+    expect(times.slice(0, 8)).toEqual(
+      [0, 100, 200, 300, 500, 600, 700, 800].map((time) => time + START),
+    );
+    expect(times.slice(8)).toEqual(
+      [0, 100, 200, 300, 400, 500, 600, 700, 800, 900].map(
+        (time) => time + START,
+      ),
+    );
+    // one whole round, taken from the start offset on
+    expect(times.every((time) => time >= START && time < 1000 + START)).toBe(
+      true,
+    );
   });
 
   it("AC-441 a chart of many steps has its colours looked at in every step, two pictures each", async () => {
@@ -136,9 +156,107 @@ describe("running an export", () => {
 
     // six steps of half a second: thirty pictures, and twelve to choose the colours
     expect(times).toHaveLength(12 + 30);
-    expect(times.slice(0, 12)).toEqual([
-      0, 200, 500, 700, 1000, 1200, 1500, 1700, 2000, 2200, 2500, 2700,
+    expect(times.slice(0, 12)).toEqual(
+      [0, 200, 500, 700, 1000, 1200, 1500, 1700, 2000, 2200, 2500, 2700].map(
+        (time) => time + START,
+      ),
+    );
+  });
+
+  it("AC-447 the first picture is taken once the highlight has come in, and the file is still one whole round", async () => {
+    // a step of 1.2 s: 0.4 s in, where the highlight is fully there
+    expect(startOffsetMs(1200)).toBe(400);
+
+    const { source, times } = makeSource();
+
+    await runFlowExport({
+      ...base,
+      stepCount: 4,
+      durationMs: 1200,
+      format: "gif",
+      fps: 10,
+      source,
+      onProgress: () => undefined,
+    });
+
+    // four steps of 1.2 s at ten a second: 48 pictures, the first at 0.4 s
+    const run = times.slice(times.length - 48);
+
+    expect(run[0]).toBe(400);
+    expect(run[47]).toBeCloseTo(400 + 4700, 6);
+    // a round is the same wherever it starts: the file ends where it began
+    expect(run[47] + 100 - run[0]).toBe(4800);
+  });
+
+  it("AC-447 each moment is got ready before it is read, for every format", async () => {
+    // a GIF: the colours first, then the run
+    const gif = makeSource();
+
+    await runFlowExport({
+      ...base,
+      format: "gif",
+      fps: 10,
+      source: gif.source,
+      onProgress: () => undefined,
+    });
+
+    for (let i = 0; i < gif.log.length; i += 2) {
+      const time = gif.log[i].split(" ")[1];
+
+      expect(gif.log[i]).toBe(`prepare ${time}`);
+      expect(gif.log[i + 1]).toBe(`read ${time}`);
+    }
+
+    // a WebP
+    const webp = makeSource();
+
+    await runFlowExport({
+      ...base,
+      format: "webp",
+      fps: 10,
+      source: webp.source,
+      onProgress: () => undefined,
+    });
+
+    expect(
+      webp.log.filter((entry) => entry.startsWith("prepare")),
+    ).toHaveLength(10);
+    expect(webp.log[0]).toBe(`prepare ${START}`);
+
+    // an MP4: the encoder is given the way to get ready, and the start is added
+    const mp4 = makeSource();
+    const order: string[] = [];
+
+    await runFlowExport({
+      ...base,
+      format: "mp4",
+      fps: 10,
+      source: mp4.source,
+      video: {
+        support: async () => ({ supported: true }),
+        encode: async (options) => {
+          for (let i = 0; i < options.count; i++) {
+            const time = (i * 1000) / options.fps;
+
+            await options.prepare(time);
+            order.push(`prepare ${time + START}`);
+            options.frameAt(time);
+            order.push(`read ${time + START}`);
+          }
+
+          return Uint8Array.from([9]);
+        },
+      },
+      onProgress: () => undefined,
+    });
+
+    expect(mp4.log.slice(0, 4)).toEqual([
+      `prepare ${START}`,
+      `read ${START}`,
+      `prepare ${START + 100}`,
+      `read ${START + 100}`,
     ]);
+    expect(order.slice(0, 2)).toEqual([`prepare ${START}`, `read ${START}`]);
   });
 
   it("AC-441 without a background the GIF has a transparent index and the pictures use it", async () => {

@@ -86,6 +86,7 @@ export const createVideoEncoder = (): FlowVideoEncoder | null => {
       height,
       fps,
       count,
+      prepare,
       frameAt,
       onProgress,
       isStopped,
@@ -130,6 +131,9 @@ export const createVideoEncoder = (): FlowVideoEncoder | null => {
         if (failure) {
           throw failure;
         }
+
+        // a camera that flies has the page drawn as it sees it from there
+        await prepare((i * 1000) / fps);
 
         const frame = new VideoFrame(frameAt((i * 1000) / fps), {
           timestamp: Math.round((i * 1_000_000) / fps),
@@ -188,14 +192,25 @@ export const createVideoEncoder = (): FlowVideoEncoder | null => {
  * The pictures of an animation drawn on one canvas: `base` is the chart's own
  * picture (or none, for a transparent background), and each moment is the
  * marks and the highlight drawn over it.
+ *
+ * With a `flight` the view moves (D-385): before a moment is drawn the camera
+ * for it is worked out and the chart is drawn again as that camera sees it.
  */
 export const createFrameSource = (options: {
   base: CanvasImageSource | null;
   scene: FlowFrameScene;
   transform: FlowFrameTransform;
   size: { width: number; height: number };
+  flight?: {
+    transformAt: (timeMs: number) => FlowFrameTransform;
+    renderBase: (
+      transform: FlowFrameTransform,
+    ) => Promise<CanvasImageSource | null>;
+  };
 }): FlowFrameSource => {
-  const { base, scene, transform, size } = options;
+  const { scene, size, flight } = options;
+  let base = options.base;
+  let transform = options.transform;
   const canvas = document.createElement("canvas");
 
   canvas.width = size.width;
@@ -215,6 +230,12 @@ export const createFrameSource = (options: {
 
   return {
     size,
+    prepare: flight
+      ? async (timeMs) => {
+          transform = flight.transformAt(timeMs);
+          base = await flight.renderBase(transform);
+        }
+      : undefined,
     canvasAt: draw,
     rgba: (timeMs) => {
       draw(timeMs);
