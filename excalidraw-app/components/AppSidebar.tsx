@@ -5,6 +5,7 @@ import { useExcalidrawSetAppState } from "@excalidraw/excalidraw/components/App"
 import { useUIAppState } from "@excalidraw/excalidraw/context/ui-appState";
 
 import { FilesTab } from "../sidebar/FilesTab";
+import { AssistantTab } from "../sidebar/AssistantTab";
 import { FlowTab } from "../sidebar/FlowTab";
 import { SidebarHeaderSlotContext } from "../sidebar/headerSlot";
 import { installSidebarRelease } from "../sidebar/sidebarRelease";
@@ -14,6 +15,8 @@ import { useAutoFitPageOnResize } from "../sidebar/useSidebarLayout";
 const FILES_TAB = "files";
 /** the flow studio: presets for a chart, filled from a script (D-161) */
 const FLOW_TAB = "flow";
+/** the assistant: pairing with the AI that works on the board (D-398) */
+const ASSISTANT_TAB = "assistant";
 /** the one sidebar in this build; matches `DEFAULT_SIDEBAR.name` */
 const SIDEBAR_NAME = "default";
 
@@ -82,6 +85,41 @@ const FlowIcon = () => (
       strokeWidth="1.6"
       strokeLinecap="round"
       strokeLinejoin="round"
+    />
+  </svg>
+);
+
+/** a small robot head - "the assistant" */
+const AssistantIcon = () => (
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    aria-hidden="true"
+  >
+    <rect
+      x="4"
+      y="8"
+      width="16"
+      height="11"
+      rx="2.5"
+      stroke="currentColor"
+      strokeWidth="1.6"
+    />
+    <path
+      d="M12 8V4.5M10.5 4.5h3"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+    />
+    <circle cx="9" cy="13" r="1.3" fill="currentColor" />
+    <circle cx="15" cy="13" r="1.3" fill="currentColor" />
+    <path
+      d="M9.5 16.2h5"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
     />
   </svg>
 );
@@ -175,7 +213,8 @@ export const AppSidebar = ({
     if (
       openSidebar?.name === SIDEBAR_NAME &&
       openSidebar.tab !== FILES_TAB &&
-      openSidebar.tab !== FLOW_TAB
+      openSidebar.tab !== FLOW_TAB &&
+      openSidebar.tab !== ASSISTANT_TAB
     ) {
       setAppState({ openSidebar: { name: SIDEBAR_NAME, tab: FILES_TAB } });
     }
@@ -204,6 +243,9 @@ export const AppSidebar = ({
           </Sidebar.TabTrigger>
           <Sidebar.TabTrigger tab={FLOW_TAB} title="Flow">
             <FlowIcon />
+          </Sidebar.TabTrigger>
+          <Sidebar.TabTrigger tab={ASSISTANT_TAB} title="Assistant">
+            <AssistantIcon />
           </Sidebar.TabTrigger>
 
           {/* not a tab — a switch for how the canvas reacts to resizing */}
@@ -238,6 +280,9 @@ export const AppSidebar = ({
         </Sidebar.Tab>
         <Sidebar.Tab tab={FLOW_TAB}>
           <FlowTab />
+        </Sidebar.Tab>
+        <Sidebar.Tab tab={ASSISTANT_TAB}>
+          <AssistantTab />
         </Sidebar.Tab>
       </DefaultSidebar>
 
