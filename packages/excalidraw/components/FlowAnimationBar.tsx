@@ -44,9 +44,12 @@ import { t } from "../i18n";
 
 import { presetLook } from "../scene/flowPalette";
 
+import { chartToExport } from "../scene/flowExport/chart";
+
 import { openFlowScriptEditor } from "./FlowScriptEditorState";
 
 import { FlowColorPad, FlowColorPresets } from "./FlowColorPad";
+
 import { FlowExportPanel } from "./FlowExportPanel";
 import {
   DEFAULT_FLOW_STEP_DURATION_MS,
@@ -71,6 +74,12 @@ type FlowAnimationBarProps = {
   /** every element on the canvas: the flow is found among them (D-180) */
   elements: readonly ExcalidrawElement[];
   elementsMap: ElementsMap;
+  /**
+   * Changes whenever the scene does, as a node resized in place does not change
+   * the list of elements (D-389): the flow is read again then, so the sizes of
+   * its steps are the ones they have now.
+   */
+  sceneNonce?: number;
   selectedElementIds: AppState["selectedElementIds"];
   camera: FlowAnimationCamera;
   viewport: FlowViewport;
@@ -139,6 +148,7 @@ export const FlowAnimationBar = ({
   app,
   elements,
   elementsMap,
+  sceneNonce,
   selectedElementIds,
   camera,
   viewport,
@@ -163,7 +173,8 @@ export const FlowAnimationBar = ({
 
   const selectedFlow = useMemo(
     () => flowOfSelection(selectedElementIds, elements, elementsMap),
-    [selectedElementIds, elements, elementsMap],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedElementIds, elements, elementsMap, sceneNonce],
   );
 
   // a flow that is playing stays the bar's flow whatever is selected (D-180)
@@ -480,6 +491,27 @@ export const FlowAnimationBar = ({
             Stop {runningLabel.toLowerCase()}
           </button>
         )}
+        <button
+          type="button"
+          data-testid="flow-bar-select-arrows"
+          title="Select every arrow of this chart, to change them all at once: the arrowheads, a dashed line"
+          onClick={() => {
+            // the chart's own arrows, whatever else is selected now (D-392)
+            const arrows = (
+              chartToExport(graph, graph.steps, elements)?.elements ?? []
+            ).filter((element) => element.type === "arrow");
+
+            app.api.updateScene({
+              appState: {
+                selectedElementIds: Object.fromEntries(
+                  arrows.map((arrow) => [arrow.id, true as const]),
+                ),
+              },
+            });
+          }}
+        >
+          Select arrows
+        </button>
         <button
           type="button"
           data-testid="flow-bar-export"

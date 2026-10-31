@@ -18,6 +18,38 @@ export type FlowExportChart = {
   box: FlowBox;
 };
 
+/**
+ * The steps with their boxes as their elements are now (D-389). A step's box is
+ * read when the chart is read, and a node can be resized or moved after that: the
+ * camera has to fly to what is on the page, and not to what was there.
+ */
+export const refreshSteps = (
+  steps: readonly FlowStep[],
+  elements: readonly ExcalidrawElement[],
+): FlowStep[] => {
+  const byId = new Map(elements.map((element) => [element.id, element]));
+
+  return steps.map((step) => {
+    const parts = step.elementIds
+      .map((id) => byId.get(id))
+      .filter(
+        (element): element is ExcalidrawElement =>
+          !!element && !element.isDeleted,
+      );
+
+    if (!parts.length) {
+      return step;
+    }
+
+    const [minX, minY, maxX, maxY] = getCommonBounds(parts);
+
+    return {
+      ...step,
+      box: { x: minX, y: minY, width: maxX - minX, height: maxY - minY },
+    };
+  });
+};
+
 export const chartToExport = (
   graph: FlowGraph,
   steps: readonly FlowStep[],

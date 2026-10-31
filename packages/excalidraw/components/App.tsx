@@ -2751,6 +2751,9 @@ class App extends React.Component<AppProps, AppState> {
                           <FlowAnimationBar
                             app={this}
                             elements={this.scene.getNonDeletedElements()}
+                            // a node resized in place is the same list of
+                            // elements: only the scene says it changed (D-389)
+                            sceneNonce={this.scene.getSceneNonce()}
                             elementsMap={allElementsMap}
                             selectedElementIds={this.state.selectedElementIds}
                             hidden={this.state.viewModeEnabled}

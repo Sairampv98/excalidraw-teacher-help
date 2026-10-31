@@ -17,11 +17,17 @@ import { chartScaleOf } from "../flowScale";
 
 import { createFrameSource, createVideoEncoder } from "./browser";
 import { flightTransformAt, sceneRectOf } from "./camera";
-import { chartToExport } from "./chart";
+import { chartToExport, refreshSteps } from "./chart";
 import { FLOW_EXPORT_FORMATS, exportSizeOf, placeChart } from "./plan";
+import {
+  animatedFileIdsOf,
+  atMoment,
+  loadAnimatedMedia,
+  mediaStateAt,
+} from "./media";
 import { runFlowExport } from "./runner";
 
-import type { AppState, BinaryFiles } from "../../types";
+import type { AppClassProperties, AppState, BinaryFiles } from "../../types";
 import type { FlowLook } from "../flowLook";
 import type { FlowGraph, FlowStep } from "../flowOrder";
 import type { FlowArrowStyle, FlowNodeStyle } from "../flowStyles";
@@ -68,7 +74,9 @@ export const exportFlowAnimation = async (input: {
   onProgress: (done: number, total: number) => void;
   isStopped: () => boolean;
 }): Promise<FlowExportResult> => {
-  const { graph, steps, elements, appState, files, animation, options } = input;
+  const { graph, elements, appState, files, animation, options } = input;
+  // the steps as they are on the page now, not as they were when the chart was read
+  const steps = refreshSteps(input.steps, elements);
   const chart = chartToExport(graph, steps, elements);
 
   if (!chart) {
@@ -104,26 +112,40 @@ export const exportFlowAnimation = async (input: {
     ? getPapersForExport(drawn as never, restored)
     : [];
 
+  // the GIFs and animated WebPs of the chart, read frame by frame, so each
+  // picture of the file shows the frame that belongs to it (D-391)
+  const media = await loadAnimatedMedia(animatedFileIdsOf(drawn, files), files);
+  // the pictures the canvas has loaded, kept from one picture of the file to
+  // the next, so only a frame it has not seen is loaded
+  const imageCache: AppClassProperties["imageCache"] = new Map();
+
   /**
    * The chart as the canvas draws it, seen by a camera: the part of the page the
-   * picture is, and the scale. With the camera still it is drawn once; with a
-   * camera that flies it is drawn again for every picture (D-385).
+   * picture is, and the scale. With the camera still and nothing moving in it it
+   * is drawn once; otherwise it is drawn again when a picture needs it (D-385,
+   * D-391).
    */
-  const renderBase = (camera: {
-    scale: number;
-    offsetX: number;
-    offsetY: number;
-  }) =>
-    exportToCanvas(
-      drawn as never,
+  const renderBase = async (
+    camera: {
+      scale: number;
+      offsetX: number;
+      offsetY: number;
+    },
+    timeMs = 0,
+  ) => {
+    const moment = await atMoment(drawn, files, media, timeMs);
+
+    return exportToCanvas(
+      moment.elements as never,
       { ...restored, offsetTop: 0, offsetLeft: 0, width: 0, height: 0 },
-      files,
+      moment.files,
       {
         exportBackground: withBackground,
         viewBackgroundColor: restored.viewBackgroundColor,
         pageRect: sceneRectOf(camera, size),
         pagePapers,
         framePapers: true,
+        imageCache,
       },
       () => {
         const canvas = document.createElement("canvas");
@@ -134,8 +156,9 @@ export const exportFlowAnimation = async (input: {
         return { canvas, scale: camera.scale };
       },
     );
+  };
 
-  const base = options.camera ? null : await renderBase(place);
+  const base = options.camera || media.length ? null : await renderBase(place);
 
   const elementsMap = arrayToMap(elements);
 
@@ -154,19 +177,25 @@ export const exportFlowAnimation = async (input: {
     },
     transform: place,
     size,
-    flight: options.camera
-      ? {
-          transformAt: (timeMs) =>
-            flightTransformAt({
-              steps,
-              durationMs: animation.durationMs,
-              timeMs,
-              picture: size,
-              chart: chart.box,
-            }),
-          renderBase,
-        }
-      : undefined,
+    view:
+      options.camera || media.length
+        ? {
+            transformAt: options.camera
+              ? (timeMs) =>
+                  flightTransformAt({
+                    steps,
+                    durationMs: animation.durationMs,
+                    timeMs,
+                    picture: size,
+                    chart: chart.box,
+                  })
+              : undefined,
+            stateAt: media.length
+              ? (timeMs) => mediaStateAt(media, timeMs)
+              : undefined,
+            renderBase,
+          }
+        : undefined,
   });
 
   const bytes = await runFlowExport({

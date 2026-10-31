@@ -262,6 +262,12 @@ export const paletteSampleCount = (stepCount: number): number =>
 export const startOffsetMs = (durationMs: number): number =>
   Math.max(0, Math.min(400, Math.floor(durationMs / 2)));
 
+/** the length of a step in an export, kept to what a step can be (D-390) */
+export const clampStepMs = (value: number): number =>
+  Number.isFinite(value)
+    ? Math.min(60_000, Math.max(100, Math.round(value)))
+    : 1200;
+
 /** the most a file may grow to while it is being made, in bytes (D-387) */
 export const FLOW_EXPORT_MAX_BYTES = 512 * 1024 * 1024;
 

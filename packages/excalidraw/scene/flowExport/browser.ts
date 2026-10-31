@@ -201,24 +201,29 @@ export const createVideoEncoder = (): FlowVideoEncoder | null => {
  * picture (or none, for a transparent background), and each moment is the
  * marks and the highlight drawn over it.
  *
- * With a `flight` the view moves (D-385): before a moment is drawn the camera
- * for it is worked out and the chart is drawn again as that camera sees it.
+ * With a `view` the chart is drawn again as a moment needs it: where the camera
+ * is (D-385, `transformAt`) and which frame each moving picture shows (D-391,
+ * `stateAt`, a word that changes when one of them goes on). A moment whose
+ * camera and pictures are what the last one had is not drawn again.
  */
 export const createFrameSource = (options: {
   base: CanvasImageSource | null;
   scene: FlowFrameScene;
   transform: FlowFrameTransform;
   size: { width: number; height: number };
-  flight?: {
-    transformAt: (timeMs: number) => FlowFrameTransform;
+  view?: {
+    transformAt?: (timeMs: number) => FlowFrameTransform;
+    stateAt?: (timeMs: number) => string;
     renderBase: (
       transform: FlowFrameTransform,
+      timeMs: number,
     ) => Promise<CanvasImageSource | null>;
   };
 }): FlowFrameSource => {
-  const { scene, size, flight } = options;
+  const { scene, size, view } = options;
   let base = options.base;
   let transform = options.transform;
+  let drawnFor: string | null = null;
   const canvas = document.createElement("canvas");
 
   canvas.width = size.width;
@@ -238,10 +243,19 @@ export const createFrameSource = (options: {
 
   return {
     size,
-    prepare: flight
+    prepare: view
       ? async (timeMs) => {
-          transform = flight.transformAt(timeMs);
-          base = await flight.renderBase(transform);
+          const next = view.transformAt?.(timeMs) ?? transform;
+          const key = `${next.scale}/${next.offsetX}/${next.offsetY}|${
+            view.stateAt?.(timeMs) ?? ""
+          }`;
+
+          transform = next;
+
+          if (key !== drawnFor) {
+            base = await view.renderBase(transform, timeMs);
+            drawnFor = key;
+          }
         }
       : undefined,
     canvasAt: draw,

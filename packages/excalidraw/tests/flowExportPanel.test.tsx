@@ -108,7 +108,12 @@ beforeEach(() => {
     .spyOn(HTMLAnchorElement.prototype, "click")
     .mockImplementation(() => undefined);
   act(() => {
-    updateFlowAnimationSettings({ durationMs: 1200, camera: false });
+    updateFlowAnimationSettings({
+      durationMs: 1200,
+      camera: false,
+      nodeStyle: "focus",
+      arrowStyle: "none",
+    });
   });
 });
 
@@ -404,6 +409,251 @@ describe("the export panel", () => {
     await screen.findByTestId("flow-export-saved");
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(screen.queryByTestId("flow-export-panel")).toBeNull();
+  });
+
+  it("AC-451 the panel says what the file animates, starts from the bar's settings, and changes the file and not the bar", async () => {
+    act(() => {
+      updateFlowAnimationSettings({
+        nodeStyle: "pulse",
+        arrowStyle: "marching",
+        durationMs: 2000,
+      });
+    });
+    await openPanel();
+
+    const nodes = () =>
+      screen.getByTestId("flow-export-nodes") as HTMLSelectElement;
+    const arrows = () =>
+      screen.getByTestId("flow-export-arrows") as HTMLSelectElement;
+    const step = () =>
+      screen.getByTestId("flow-export-step") as HTMLInputElement;
+
+    // the bar's own settings to begin with, and the choices there are
+    expect(nodes().value).toBe("pulse");
+    expect(arrows().value).toBe("marching");
+    expect(step().value).toBe("2000");
+    expect([...nodes().options].map((option) => option.value)).toEqual([
+      "none",
+      "focus",
+      "pulse",
+    ]);
+    expect([...arrows().options].map((option) => option.value)).toEqual([
+      "none",
+      "beam",
+      "marching",
+      "pipe",
+      "token",
+    ]);
+
+    // four steps of two seconds
+    expect(screen.getByTestId("flow-export-note").textContent).toMatch(
+      /^8.0 s,/,
+    );
+
+    // changed here: the file's, and not the bar's
+    fireEvent.change(nodes(), { target: { value: "focus" } });
+    fireEvent.change(arrows(), { target: { value: "token" } });
+    fireEvent.change(step(), { target: { value: "500" } });
+    expect(screen.getByTestId("flow-export-note").textContent).toMatch(
+      /^2.0 s,/,
+    );
+
+    exportMock.mockResolvedValue({
+      blob: new Blob([new Uint8Array(10)], { type: "image/gif" }),
+      filename: "chart.gif",
+      width: 720,
+      height: 340,
+    });
+    fireEvent.click(screen.getByTestId("flow-export-go"));
+    await waitFor(() => expect(exportMock).toHaveBeenCalledTimes(1));
+
+    expect(exportMock.mock.calls[0][0].animation).toMatchObject({
+      nodeStyle: "focus",
+      arrowStyle: "token",
+      durationMs: 500,
+    });
+
+    const bar = editorJotaiStore.get(flowAnimationStateAtom);
+
+    expect(bar.nodeStyle).toBe("pulse");
+    expect(bar.arrowStyle).toBe("marching");
+    expect(bar.durationMs).toBe(2000);
+
+    // a step is kept to what a step can be
+    await screen.findByTestId("flow-export-saved");
+    fireEvent.change(step(), { target: { value: "5" } });
+    expect(step().value).toBe("100");
+    fireEvent.change(step(), { target: { value: "999999" } });
+    expect(step().value).toBe("60000");
+  });
+
+  it("AC-451 a file in which nothing is animated is said to be one picture, unless something is", async () => {
+    await openPanel();
+
+    const set = (testid: string, value: string) =>
+      fireEvent.change(screen.getByTestId(testid), { target: { value } });
+
+    // the nodes are lit by default: nothing to say
+    expect(screen.queryByTestId("flow-export-still")).toBeNull();
+
+    set("flow-export-nodes", "none");
+    expect(screen.getByTestId("flow-export-still").textContent).toMatch(
+      /one picture/,
+    );
+
+    // something along the arrows, or the camera, is an animation
+    set("flow-export-arrows", "beam");
+    expect(screen.queryByTestId("flow-export-still")).toBeNull();
+    set("flow-export-arrows", "none");
+    expect(screen.getByTestId("flow-export-still")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("flow-export-camera"));
+    expect(screen.queryByTestId("flow-export-still")).toBeNull();
+  });
+
+  it("AC-453 a GIF in the chart is said to play in the file where the browser can read its frames, and counts as an animation", async () => {
+    await render(<Excalidraw handleKeyboardGlobally={true} />);
+
+    act(() => {
+      h.setState({ width: 1400, height: 900 });
+    });
+
+    const built = buildFlowPreset("process", "Plan\nTeach\nReview\nPractise", {
+      seed: 7,
+      chartId: "c1",
+    });
+
+    if (!built.ok) {
+      throw new Error(built.error);
+    }
+
+    const gif = API.createElement({
+      type: "image",
+      id: "gif-node",
+      x: 0,
+      y: 400,
+      width: 80,
+      height: 80,
+      fileId: "gif1" as never,
+      status: "saved",
+    });
+
+    // the media of the first node, as a node holds a GIF: it is of the chart
+    Object.assign(gif, {
+      customData: {
+        flow: { chartId: "c1" },
+        media: {
+          of: built.elements.find((e) => e.type === "rectangle")!.id,
+          shape: "rectangle",
+          radius: 0,
+        },
+      },
+    });
+
+    API.setElements([...built.elements, gif]);
+    act(() => {
+      h.app.addFiles([
+        {
+          id: "gif1" as never,
+          mimeType: "image/gif",
+          dataURL: "data:image/gif;base64,R0lGODlhAQABAAAAACw=" as never,
+          created: 1,
+        },
+      ]);
+      API.setSelectedElements(
+        [...built.elements, gif].filter((e) => e.type !== "arrow"),
+      );
+    });
+    await screen.findByTestId("flow-bar");
+    fireEvent.click(screen.getByTestId("flow-bar-export"));
+    await screen.findByTestId("flow-export-panel");
+
+    const set = (testid: string, value: string) =>
+      fireEvent.change(screen.getByTestId(testid), { target: { value } });
+
+    try {
+      // no decoder here: each GIF is one picture, and nothing moves with nothing else on
+      vi.stubGlobal("ImageDecoder", undefined);
+      set("flow-export-nodes", "none");
+      expect(screen.getByTestId("flow-export-media").textContent).toMatch(
+        /cannot read the frames/,
+      );
+      expect(screen.getByTestId("flow-export-still")).toBeTruthy();
+
+      // a decoder: the GIF plays, and that is an animation
+      vi.stubGlobal("ImageDecoder", class {});
+      // a new render reads it: change a choice
+      set("flow-export-arrows", "beam");
+      set("flow-export-arrows", "none");
+      expect(screen.getByTestId("flow-export-media").textContent).toMatch(
+        /play in the file/,
+      );
+      expect(screen.queryByTestId("flow-export-still")).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("AC-452 Select arrows selects every arrow of the chart and nothing else, so they can be changed at once", async () => {
+    await chartWithBar();
+
+    const arrows = h.elements.filter(
+      (element) => !element.isDeleted && element.type === "arrow",
+    );
+
+    // four boxes, three arrows; the boxes are what is selected now
+    expect(arrows).toHaveLength(3);
+    expect(arrows.some((arrow) => h.state.selectedElementIds[arrow.id])).toBe(
+      false,
+    );
+
+    fireEvent.click(screen.getByTestId("flow-bar-select-arrows"));
+
+    await waitFor(() =>
+      expect(
+        Object.keys(h.state.selectedElementIds)
+          .filter((id) => h.state.selectedElementIds[id])
+          .sort(),
+      ).toEqual(arrows.map((arrow) => arrow.id).sort()),
+    );
+  });
+
+  it("AC-450 a node that was made bigger after the chart was read is the size it is now, for the camera", async () => {
+    await openPanel();
+
+    const container = h.elements.find(
+      (element) =>
+        !element.isDeleted &&
+        element.type === "rectangle" &&
+        !!element.boundElements?.length,
+    )!;
+
+    // resized in place, as a drag on its handle does: the list of elements is
+    // the same list, and only the scene says that it changed
+    Object.assign(container, {
+      width: 900,
+      height: 400,
+      version: container.version + 1,
+    });
+
+    act(() => {
+      h.app.scene.triggerUpdate();
+    });
+
+    exportMock.mockResolvedValue({
+      blob: new Blob([new Uint8Array(10)], { type: "image/gif" }),
+      filename: "chart.gif",
+      width: 720,
+      height: 340,
+    });
+    fireEvent.click(screen.getByTestId("flow-export-go"));
+    await waitFor(() => expect(exportMock).toHaveBeenCalledTimes(1));
+
+    const step = exportMock.mock.calls[0][0].steps.find(
+      (each) => each.containerId === container.id,
+    )!;
+
+    expect(step.box.width).toBeGreaterThanOrEqual(900);
+    expect(step.box.height).toBeGreaterThan(399);
   });
 
   it("AC-442 it exports what was chosen, shows how far it is, saves the file and says where", async () => {

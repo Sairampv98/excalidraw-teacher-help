@@ -379,10 +379,16 @@ describe("the arrows the canvas is given", () => {
     return { elements: [container, other, line], line };
   };
 
-  const run = async (look: Partial<FlowFrameScene["look"]>, camera = false) => {
+  const run = async (
+    look: Partial<FlowFrameScene["look"]>,
+    camera = false,
+    change?: (elements: ReturnType<typeof chart>["elements"]) => void,
+  ) => {
     captured.length = 0;
 
     const { elements } = chart();
+
+    change?.(elements);
 
     await exportFlowAnimation({
       graph: {
@@ -482,13 +488,45 @@ describe("the arrows the canvas is given", () => {
     expect(JSON.stringify(elements[2])).toBe(before);
   });
 
-  it("AC-447 without the camera the chart is drawn once, and the source has no flight", async () => {
+  it("AC-450 the steps the export uses are their sizes on the page now, whatever the steps it was given said", async () => {
+    vi.mocked(createFrameSource).mockClear();
+
+    // the first node was made bigger after the chart was read: the steps that
+    // are given still say 100 by 100
+    await run({}, true, (elements) => {
+      Object.assign(elements[0], {
+        width: 600,
+        height: 300,
+        version: elements[0].version + 1,
+      });
+    });
+
+    const options = vi.mocked(createFrameSource).mock.calls[0][0];
+
+    expect(options.scene.steps[0].box.width).toBeGreaterThanOrEqual(600);
+    expect(options.scene.steps[0].box.height).toBeGreaterThan(299);
+    // a step that was not changed is as it was
+    expect(options.scene.steps[1].box.width).toBe(100);
+
+    // and the camera flies to the bigger node: it sees it from further away
+    const bigger = options.view!.transformAt!(1000 - 0.001);
+
+    vi.mocked(createFrameSource).mockClear();
+    await run({}, true);
+
+    const was = vi.mocked(createFrameSource).mock.calls[0][0].view!
+      .transformAt!(1000 - 0.001);
+
+    expect(bigger.scale).toBeLessThan(was.scale);
+  });
+
+  it("AC-447 without the camera the chart is drawn once, and the source has no view", async () => {
     vi.mocked(createFrameSource).mockClear();
     await run({}, false);
 
     const options = vi.mocked(createFrameSource).mock.calls[0][0];
 
-    expect(options.flight).toBeUndefined();
+    expect(options.view).toBeUndefined();
     expect(options.base).not.toBeNull();
     expect(captured).toHaveLength(1);
   });
@@ -502,7 +540,10 @@ describe("the arrows the canvas is given", () => {
     expect(options.base).toBeNull();
     expect(captured).toHaveLength(0);
 
-    const flight = options.flight!;
+    const flight = {
+      transformAt: options.view!.transformAt!,
+      renderBase: options.view!.renderBase,
+    };
 
     // the camera is a function of the moment: it moves, and it comes back
     const first = flight.transformAt(0);
@@ -514,7 +555,7 @@ describe("the arrows the canvas is given", () => {
     expect(flight.transformAt(2000).scale).toBeCloseTo(first.scale, 9);
 
     // the chart is drawn for that camera: the part of the page it sees, at its scale
-    await flight.renderBase(later);
+    await flight.renderBase(later, 0);
 
     expect(captured).toHaveLength(1);
     expect(captured[0].options?.pageRect).toEqual(
@@ -523,7 +564,7 @@ describe("the arrows the canvas is given", () => {
     expect(captured[0].scale).toBe(later.scale);
 
     // and drawn again for the next one
-    await flight.renderBase(first);
+    await flight.renderBase(first, 0);
 
     expect(captured).toHaveLength(2);
     expect(captured[1].options?.pageRect).toEqual(

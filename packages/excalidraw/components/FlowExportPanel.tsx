@@ -6,6 +6,7 @@ import { useAtomValue } from "../editor-jotai";
 import { chartToExport } from "../scene/flowExport/chart";
 import { webpSupport, createVideoEncoder } from "../scene/flowExport/browser";
 import { exportFlowAnimation } from "../scene/flowExport/exportAnimation";
+import { animatedFileIdsOf, canReadFrames } from "../scene/flowExport/media";
 import {
   FLOW_EXPORT_DEFAULT_FPS,
   FLOW_EXPORT_DEFAULT_SIZE,
@@ -14,6 +15,7 @@ import {
   FLOW_EXPORT_SIZES,
   backgroundChoicesOf,
   clampFps,
+  clampStepMs,
   exportLengthMs,
   exportProblem,
   exportSizeOf,
@@ -22,6 +24,7 @@ import {
   sizeHint,
 } from "../scene/flowExport/plan";
 import { FlowExportStopped } from "../scene/flowExport/runner";
+import { FLOW_ARROW_STYLES, FLOW_NODE_STYLES } from "../scene/flowStyles";
 
 import { flowAnimationStateAtom } from "./FlowAnimationState";
 
@@ -115,6 +118,13 @@ export const FlowExportPanel = ({
     ...readOptions(),
     camera: state.camera,
   }));
+  // what is animated in the file: the bar's settings to begin with, and the
+  // export's own from then on - the bar is not changed (D-390)
+  const [animation, setAnimation] = useState(() => ({
+    nodeStyle: state.nodeStyle,
+    arrowStyle: state.arrowStyle,
+    durationMs: state.durationMs,
+  }));
   const [webp, setWebp] = useState<boolean | null>(null);
   const [video, setVideo] = useState<
     { supported: true } | { supported: false; reason: string } | null
@@ -140,13 +150,26 @@ export const FlowExportPanel = ({
     [chart, options.shape, options.longest],
   );
 
-  const lengthMs = exportLengthMs(steps.length, state.durationMs);
+  const lengthMs = exportLengthMs(steps.length, animation.durationMs);
   const frames = frameCountOf(lengthMs, options.fps);
   const problem = exportProblem({
     stepCount: steps.length,
-    durationMs: state.durationMs,
+    durationMs: animation.durationMs,
     fps: options.fps,
   });
+  // the GIFs and animated WebPs in the chart: they play in the file where this
+  // browser can read their frames (D-391)
+  const movingPictures = useMemo(
+    () => (chart ? animatedFileIdsOf(chart.elements, app.files).length : 0),
+    [chart, app.files],
+  );
+  const picturesPlay = movingPictures > 0 && canReadFrames();
+  // nothing moves: no highlight, nothing along the arrows, no camera, no GIF
+  const nothingMoves =
+    animation.nodeStyle === "none" &&
+    animation.arrowStyle === "none" &&
+    !options.camera &&
+    !picturesPlay;
   const background = backgroundChoicesOf(options.format);
   const running = progress !== null;
 
@@ -227,7 +250,7 @@ export const FlowExportPanel = ({
         elements,
         appState: app.state,
         files: app.files,
-        animation: state,
+        animation: { ...state, ...animation },
         options,
         name: app.state.name || "animation",
         onProgress: (done, total) => setProgress({ done, total }),
@@ -286,6 +309,67 @@ export const FlowExportPanel = ({
             {format.label}
           </button>
         ))}
+      </div>
+
+      <div className="excalidraw__flow-export-row">
+        <label>
+          <span>Nodes</span>
+          <select
+            data-testid="flow-export-nodes"
+            value={animation.nodeStyle}
+            disabled={running}
+            onChange={(event) =>
+              setAnimation((current) => ({
+                ...current,
+                nodeStyle: event.target.value as typeof current.nodeStyle,
+              }))
+            }
+          >
+            {FLOW_NODE_STYLES.map((style) => (
+              <option key={style.id} value={style.id}>
+                {style.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Arrows</span>
+          <select
+            data-testid="flow-export-arrows"
+            value={animation.arrowStyle}
+            disabled={running}
+            onChange={(event) =>
+              setAnimation((current) => ({
+                ...current,
+                arrowStyle: event.target.value as typeof current.arrowStyle,
+              }))
+            }
+          >
+            {FLOW_ARROW_STYLES.map((style) => (
+              <option key={style.id} value={style.id}>
+                {style.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Step (ms)</span>
+          <input
+            type="number"
+            data-testid="flow-export-step"
+            min={100}
+            max={60000}
+            step={100}
+            value={animation.durationMs}
+            disabled={running}
+            onChange={(event) =>
+              setAnimation((current) => ({
+                ...current,
+                durationMs: clampStepMs(Number(event.target.value)),
+              }))
+            }
+          />
+        </label>
       </div>
 
       <div className="excalidraw__flow-export-row">
@@ -382,6 +466,27 @@ export const FlowExportPanel = ({
             size.width
           }x${size.height}`}
       </p>
+
+      {nothingMoves && (
+        <p
+          className="excalidraw__flow-export-hint"
+          data-testid="flow-export-still"
+        >
+          Nothing is animated: the file would be one picture. Choose a highlight
+          for the nodes, something along the arrows, or the camera.
+        </p>
+      )}
+
+      {movingPictures > 0 && (
+        <p
+          className="excalidraw__flow-export-hint"
+          data-testid="flow-export-media"
+        >
+          {picturesPlay
+            ? "The GIFs in the chart play in the file."
+            : "This browser cannot read the frames of the GIFs: each one shows a single picture in the file."}
+        </p>
+      )}
 
       {!options.camera && chart && sizeHint(size) && (
         <p
