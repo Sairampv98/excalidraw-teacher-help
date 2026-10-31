@@ -187,7 +187,6 @@ export const exportFlowAnimation = async (input: {
                     durationMs: animation.durationMs,
                     timeMs,
                     picture: size,
-                    chart: chart.box,
                   })
               : undefined,
             stateAt: media.length

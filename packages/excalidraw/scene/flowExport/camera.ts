@@ -14,16 +14,14 @@
 
 import { MAX_ZOOM } from "@excalidraw/common";
 
-import {
-  FLOW_CAMERA_PADDING,
-  FLOW_FLIGHT_MS,
-  cameraAt,
-  flightTarget,
-} from "../flowCamera";
+import { FLOW_FLIGHT_MS, cameraAt, flightTarget } from "../flowCamera";
 
 import { stepAt } from "./plan";
 
 import type { FlowBox } from "../flowOrder";
+
+/** the page of a flight in a file: large enough that no step is near its edge */
+const FLOW_CAMERA_ROOM = 1e9;
 
 /** scene units to pixels: `x * scale + offsetX` (the shape the pictures are drawn with) */
 export type FlowCameraTransform = {
@@ -51,21 +49,24 @@ export const flightTransformAt = ({
   durationMs,
   timeMs,
   picture,
-  chart,
 }: {
   steps: readonly { box: FlowBox }[];
   durationMs: number;
   timeMs: number;
   /** the picture, in pixels: the view the camera looks through */
   picture: { width: number; height: number };
-  /** the chart's box: the camera does not leave it, with the padding */
-  chart: FlowBox;
 }): FlowCameraTransform => {
+  // The live flight stays on the page the chart is on, and a page has room round
+  // the chart, so the view is in the middle of a step even for the first and the
+  // last. A file has no page: held to the chart and its padding, the first and
+  // the last step were left at the edge of the picture and the file did not show
+  // what the person saw (D-396). So nothing holds it: the page is as large as
+  // the numbers go, and the step is always in the middle.
   const pageRect = {
-    x: chart.x - FLOW_CAMERA_PADDING,
-    y: chart.y - FLOW_CAMERA_PADDING,
-    width: chart.width + 2 * FLOW_CAMERA_PADDING,
-    height: chart.height + 2 * FLOW_CAMERA_PADDING,
+    x: -FLOW_CAMERA_ROOM,
+    y: -FLOW_CAMERA_ROOM,
+    width: 2 * FLOW_CAMERA_ROOM,
+    height: 2 * FLOW_CAMERA_ROOM,
   };
 
   const target = (index: number) =>

@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { flightTarget } from "../scene/flowCamera";
 import { flightTransformAt, sceneRectOf } from "../scene/flowExport/camera";
 import { placeChart, startOffsetMs } from "../scene/flowExport/plan";
 
@@ -24,7 +25,7 @@ const steps = [
 const chart = { x: 0, y: 100, width: 940, height: 80 };
 
 const at = (timeMs: number, durationMs = 1200) =>
-  flightTransformAt({ steps, durationMs, timeMs, picture: PICTURE, chart });
+  flightTransformAt({ steps, durationMs, timeMs, picture: PICTURE });
 
 /** where a scene point is in the picture */
 const project = (
@@ -107,6 +108,33 @@ describe("the camera that flies to each step", () => {
     expect(middle.y).toBeCloseTo(PICTURE.height / 2, 0);
   });
 
+  it("AC-457 every step arrives in the middle of the picture - the first and the last too - as it does in the view", () => {
+    steps.forEach((step, index) => {
+      const camera = at((index + 1) * 1200 - 0.001);
+      const middle = project(camera, {
+        x: step.box.x + step.box.width / 2,
+        y: step.box.y + step.box.height / 2,
+      });
+
+      expect(middle.x).toBeCloseTo(PICTURE.width / 2, 3);
+      expect(middle.y).toBeCloseTo(PICTURE.height / 2, 3);
+    });
+  });
+
+  it("AC-457 the camera is the live camera's: the same zoom and the same view for a step as the flight gives where nothing holds it", () => {
+    const viewport = PICTURE;
+    const big = { x: -1e8, y: -1e8, width: 2e8, height: 2e8 };
+
+    steps.forEach((step, index) => {
+      const live = flightTarget({ box: step.box, viewport, pageRect: big });
+      const file = at((index + 1) * 1200 - 0.001);
+
+      expect(file.scale).toBeCloseTo(live.zoom, 9);
+      expect(file.offsetX).toBeCloseTo(live.scrollX * live.zoom, 3);
+      expect(file.offsetY).toBeCloseTo(live.scrollY * live.zoom, 3);
+    });
+  });
+
   it("AC-447 takes the shorter of a second and a half and the step, so it always arrives", () => {
     // a long step: the flight takes its second and a half, and the camera then rests
     const settled = at(3000 + 1500, 3000);
@@ -128,7 +156,6 @@ describe("the camera that flies to each step", () => {
         durationMs: 1200,
         timeMs: t,
         picture: PICTURE,
-        chart: steps[0].box,
       });
 
     expect(one(0)).toEqual(one(777));
