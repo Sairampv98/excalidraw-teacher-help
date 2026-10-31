@@ -39,7 +39,7 @@ Task `wave9b-small-fixes` (SPEC rows D-374 to D-396, AC-437 to AC-457).
 
 Dropped from this wave by the owner on 2026-10-31: relative images in markdown, OCR of a box drawn on a PDF, the Python "page crash" report. (`DROPPED`.) The scaling reminder in the setup helper moved to v3.
 
-### W9c - MCP server - IN PROGRESS
+### W9c - MCP server - NEXT (9c-1 is built and gated; 9c-2 and 9c-3 are still to do)
 
 **9c-1 (task `wave9c-1-canvas-tools`, SPEC rows D-397 to D-407, AC-458 to AC-484) is built; it waits for the owner to try it, then `kit merge wave9c-1-canvas-tools`.** The owner approved the three-wave plan on 2026-11-01 (the full list is `docs/mcp-coverage.md`, made from the code by `node scripts/mcpCoverage.mjs`).
 
