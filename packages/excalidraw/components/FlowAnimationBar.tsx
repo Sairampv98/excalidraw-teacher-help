@@ -514,6 +514,25 @@ export const FlowAnimationBar = ({
         </button>
         <button
           type="button"
+          data-testid="flow-bar-select-nodes"
+          title="Select every node of this chart, to change them all at once: the colour, the shape, the size"
+          onClick={() => {
+            // the chart's own nodes with their words and pictures, and no arrow (D-393)
+            const ids = new Set(graph.steps.flatMap((step) => step.elementIds));
+
+            app.api.updateScene({
+              appState: {
+                selectedElementIds: Object.fromEntries(
+                  [...ids].map((id) => [id, true as const]),
+                ),
+              },
+            });
+          }}
+        >
+          Select nodes
+        </button>
+        <button
+          type="button"
           data-testid="flow-bar-export"
           aria-expanded={exportOpen}
           title="Export the animation as a GIF, WebP or MP4"

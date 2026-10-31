@@ -617,6 +617,36 @@ describe("the export panel", () => {
     );
   });
 
+  it("AC-454 Select nodes selects every node of the chart with its words and no arrow, also from a selection of arrows", async () => {
+    await chartWithBar();
+
+    const selected = () =>
+      Object.keys(h.state.selectedElementIds)
+        .filter((id) => h.state.selectedElementIds[id])
+        .sort();
+    const live = h.elements.filter((element) => !element.isDeleted);
+    const nodes = live
+      .filter((element) => element.type !== "arrow")
+      .map((element) => element.id)
+      .sort();
+
+    // the arrows are what is selected, as after Select arrows: the bar stays
+    fireEvent.click(screen.getByTestId("flow-bar-select-arrows"));
+    await waitFor(() =>
+      expect(selected()).toEqual(
+        live
+          .filter((element) => element.type === "arrow")
+          .map((element) => element.id)
+          .sort(),
+      ),
+    );
+
+    fireEvent.click(await screen.findByTestId("flow-bar-select-nodes"));
+
+    await waitFor(() => expect(selected()).toEqual(nodes));
+    expect(nodes.length).toBeGreaterThanOrEqual(4);
+  });
+
   it("AC-450 a node that was made bigger after the chart was read is the size it is now, for the camera", async () => {
     await openPanel();
 
