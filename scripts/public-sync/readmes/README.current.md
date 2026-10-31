@@ -28,7 +28,7 @@ A **modified Excalidraw**: a fork that adds the things a teacher needs when a VS
 | **OCR** | **Choose the area, then read**, wherever a page is read: the machine picks the engine it can actually run - _indra_ with the bridge, _tesseract_ (in the browser) without it - and tells you which one it used; a picker, with the speed measured for each, lets you choose. The text is shown first and can be pasted as a code block, as text, or **where it was** on the page. |
 | **The presenter view** | A second window for the projector: the same canvas, full screen, following you. |
 | **Pages** | A page has a **frame** you can toggle, a **page number** in its footer, and a **size** from presets (A4, Letter, 16:9, 4:3, 1920×1080) — and the export honours it. |
-| **The virtual display** | Move the editor's window onto a **virtual display** for the projector, and bring it back — but only when **you** choose to. |
+| **Control, parking and the virtual display** | Drive the editor's window from the canvas; park it out of the way or move it onto a **virtual display** for the projector, and bring it back — only when **you** choose to. |
 | **YouTube captions** | Three tiers, and the panel says which tier answered. |
 | **Flow studio** | Charts built from a script: presets (process, decision, steps, network, cycle, tiers, integration), arrowless layouts (list, grid, matrix, pyramid, funnel, timeline, target, venn, hierarchy), an animation with a look of its own, a class loop and a step-by-step presenter. |
 | **The emoji and GIF bar** | A floating bar of emoji, stickers and GIFs to drop on the canvas; it folds into a round button. |
@@ -48,7 +48,7 @@ The [clips](clips/index.html) show each of these working. The long version, with
 | `dev` | Where the next release is prepared. It follows `main` and the maintainer's work; pull requests go here. |
 | `dev-draft` | Where contributors commit. Open a pull request from `dev-draft` to `dev`. |
 | `v1.1` | The first release with its repairs, as it was before the second release. |
-| `version-1` | The first release, kept as it was published. It is **superseded**. |
+| `v1` | The first release, kept as it was published. It is **superseded**. |
 
 When a release is replaced by the next one, the one that goes is kept as a branch of its own (`v2` is the first of them), with a README that says so.
 
@@ -249,13 +249,13 @@ _indra_ is a Python package, so it cannot run inside a web page: it runs in a sm
 
 ---
 
-## The virtual display and the input panel
+## The editor's window: control, parking and the virtual display
 
-The extension can put a window on a **virtual display** — a second screen the projector sees, so the students see the editor and you see something else.
+The mirror shows the editor's own window, live, and the canvas can **control** it when you choose: the mouse, the wheel and the keyboard go into the real window. There are three views - the **whole** window, a **part** you pick, and a part that **follows** the pointer. The input reaches the window **without bringing it forward**; where that does not work it goes **with the focus**, and the panel says which of the two it is on.
 
-- **Moving the editor's own window is an option you choose**, never something that happens by default. The presenter placement is unchanged.
-- A window that was moved can be **brought back**, with its maximised state restored.
-- If a virtual display driver is installed but **not attached**, the panel says so and names the click that attaches it — it never claims there is no display when there is one.
+- **Parking.** The editor's window can be **parked**: kept out of the way, off every screen, with the mirror still showing it and still controlling it. Nothing parks it unless you ask.
+- **The virtual display.** Where the machine has a virtual display, one button moves the editor's window onto it and one brings it back to the main display. Give the virtual display the **same Windows scale** as the main display, or the editor looks smaller there and the zoom follows it back.
+- **A window cannot be lost.** A window that was moved is **brought back** with its place restored. A window found on a screen that no longer exists is brought to the main display when the editor starts, and a one-file **rescue** script brings it back when the editor cannot be reached at all.
 - Every placement reports the **measured** rectangle. A move that did not happen is never reported as one that did.
 
 ---
@@ -282,7 +282,7 @@ This is a hobby project. These are the real limitations, not the pleasant ones.
 - **The first use needs a connection.** The in-browser Python, the PDF reader and the in-browser OCR are each downloaded from a public CDN the first time they are used.
 - **Go, Java, C and C++ are not available in the browser editor yet.** They run from VS Code when the bridge is connected and the language is installed on the machine.
 - **Bold and italic are drawn by thickening and leaning the letters**, not by another face of the font: the letters keep their width, so nothing moves, and the look is close to - not the same as - a font's own bold.
-- **The virtual display needs a virtual display driver** installed and **attached** (on Windows, the driver's own control panel — _Extend_).
+- **The virtual display needs a virtual display driver** installed and **attached** (on Windows, the driver's own control panel — _Extend_), and the same Windows scale as the main display.
 - **The OCR speed depends on the machine** and on the region you read.
 - **The clips were recorded on one machine, on one browser.** They are a demonstration, not a benchmark.
 - There is **no test for the recorder** — the extension finds the editor's window by rule, but an editor that titles itself unusually can defeat it.

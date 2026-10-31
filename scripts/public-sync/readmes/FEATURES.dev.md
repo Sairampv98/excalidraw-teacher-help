@@ -108,11 +108,11 @@ A page is a **page**, not just a rectangle of canvas.
 - The camera is **not locked to the page**: content outside the page can be reached, and a **Back to this page** button returns to it.
 - A **size** from presets: A4 portrait and landscape, Letter portrait and landscape, 16:9, 4:3 and the project's own 1920×1080. A preset fixes the page's shape, and because a page may only grow, the shape is scaled up to the minimum page size - so the **exported** image comes out in the preset's shape.
 
-## The virtual display and the input panel
+## The editor's window and the input panel
 
-- The virtual display is **reported** the way a teacher needs it: if a driver is installed but **not attached**, the panel names it and names the click that attaches it (on Windows, the driver's own control panel - _Extend_).
-- Moving **your own** window onto the virtual display is an **option you choose**. It is never on by default, and the presenter's placement is unchanged.
-- A window that was moved can be **brought back**, with its maximised state restored.
+- The mirror shows the editor's window live, and the canvas can **control** it when you choose - mouse, wheel and keyboard - in three views: the **whole** window, a **part** you pick, and a part that **follows** the pointer.
+- The editor's window can be **parked**, off every screen, and keeps working there. Where the machine has a virtual display, a button moves the window onto it and a button brings it back; give that display the **same Windows scale** as the main one.
+- A window cannot be lost: a moved window is **brought back** with its place restored, a window on a screen that no longer exists is brought to the main display at start, and a one-file **rescue** script brings it back when the editor cannot be reached.
 - Every placement reports the **measured** rectangle. A move that did not happen is never reported as one that did.
 - The **input panel** lets the teacher send commands to the app without taking the focus away from their editor - and the teacher's own keystrokes are never stolen.
 

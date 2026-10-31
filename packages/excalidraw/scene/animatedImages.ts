@@ -16,12 +16,65 @@ import type { BinaryFiles } from "../types";
  * freezes a GIF on its first frame — it only appears to move while you happen
  * to be dragging something.
  *
- * These helpers decide *whether* to keep repainting. Only GIFs qualify: an
- * animated WebP would work the same way, but a still WebP is common enough
- * that repainting for every one of them would cost more than it is worth.
+ * These helpers decide *whether* to keep repainting. A GIF always qualifies. A
+ * WebP qualifies only when its own header says it is animated (D-382): a still
+ * WebP is common enough that repainting for every one of them would cost more
+ * than it is worth.
  */
 export const isAnimatedImageMimeType = (mimeType: string | undefined) =>
   mimeType === MIME_TYPES.gif;
+
+/**
+ * Whether the first bytes of a file are those of an **animated WebP**: a RIFF
+ * file of the WEBP kind whose extended header (`VP8X`) has the animation flag
+ * (D-382). Thirty-three bytes are enough; fewer, or any other file, are not.
+ */
+export const isAnimatedWebpBytes = (bytes: ArrayLike<number>): boolean => {
+  const text = (from: number) =>
+    String.fromCharCode(
+      bytes[from],
+      bytes[from + 1],
+      bytes[from + 2],
+      bytes[from + 3],
+    );
+
+  return (
+    bytes.length >= 21 &&
+    text(0) === "RIFF" &&
+    text(8) === "WEBP" &&
+    text(12) === "VP8X" &&
+    (bytes[20] & 0x02) !== 0
+  );
+};
+
+/** the same for a data URL, reading only the start of it */
+export const isAnimatedWebpDataUrl = (dataURL: string | undefined): boolean => {
+  if (!dataURL) {
+    return false;
+  }
+
+  const comma = dataURL.indexOf(",");
+
+  if (comma < 0 || !dataURL.slice(0, comma).endsWith(";base64")) {
+    return false;
+  }
+
+  try {
+    // forty-four characters are thirty-three bytes
+    const head = atob(dataURL.slice(comma + 1, comma + 45));
+
+    return isAnimatedWebpBytes(Array.from(head, (c) => c.charCodeAt(0)));
+  } catch {
+    return false;
+  }
+};
+
+/** whether a file is an image that moves: a GIF, or a WebP that is animated */
+export const isAnimatedImageFile = (
+  file: { mimeType?: string; dataURL?: string } | undefined,
+): boolean =>
+  isAnimatedImageMimeType(file?.mimeType) ||
+  (file?.mimeType === MIME_TYPES.webp && isAnimatedWebpDataUrl(file.dataURL));
 
 /**
  * `fileId`s of every animated image currently in the scene.
@@ -40,7 +93,7 @@ export const animatedImageFileIds = (
     if (
       isImageElement(element) &&
       element.fileId != null &&
-      isAnimatedImageMimeType(files[element.fileId]?.mimeType)
+      isAnimatedImageFile(files[element.fileId])
     ) {
       fileIds.add(element.fileId);
     }
@@ -76,5 +129,5 @@ export const getAnimatedImageElements = (
     (element): element is ExcalidrawImageElement =>
       isImageElement(element) &&
       element.fileId != null &&
-      isAnimatedImageMimeType(files[element.fileId]?.mimeType),
+      isAnimatedImageFile(files[element.fileId]),
   );

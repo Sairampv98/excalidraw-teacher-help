@@ -19,7 +19,7 @@ The project itself is described in the [README of `main`](../../tree/main#readme
 | `dev` | Follows `main` and the maintainer's work; pull requests go here. |
 | `dev-draft` | This branch. It is brought back in line with `dev` after each pull request is taken - pull before you start. |
 | `v1.1` | The first release with its repairs. |
-| `version-1` | The first release, kept as it was published. Superseded. |
+| `v1` | The first release, kept as it was published. Superseded. |
 
 ## Licence
 

@@ -44,9 +44,13 @@ import { t } from "../i18n";
 
 import { presetLook } from "../scene/flowPalette";
 
+import { chartToExport } from "../scene/flowExport/chart";
+
 import { openFlowScriptEditor } from "./FlowScriptEditorState";
 
 import { FlowColorPad, FlowColorPresets } from "./FlowColorPad";
+
+import { FlowExportPanel } from "./FlowExportPanel";
 import {
   DEFAULT_FLOW_STEP_DURATION_MS,
   flowAnimationStateAtom,
@@ -70,6 +74,12 @@ type FlowAnimationBarProps = {
   /** every element on the canvas: the flow is found among them (D-180) */
   elements: readonly ExcalidrawElement[];
   elementsMap: ElementsMap;
+  /**
+   * Changes whenever the scene does, as a node resized in place does not change
+   * the list of elements (D-389): the flow is read again then, so the sizes of
+   * its steps are the ones they have now.
+   */
+  sceneNonce?: number;
   selectedElementIds: AppState["selectedElementIds"];
   camera: FlowAnimationCamera;
   viewport: FlowViewport;
@@ -138,6 +148,7 @@ export const FlowAnimationBar = ({
   app,
   elements,
   elementsMap,
+  sceneNonce,
   selectedElementIds,
   camera,
   viewport,
@@ -147,6 +158,8 @@ export const FlowAnimationBar = ({
   const preview = useAtomValue(flowClassPreviewAtom);
 
   const [lookOpen, setLookOpen] = useState(false);
+  // the panel that exports the animation as a file (D-374)
+  const [exportOpen, setExportOpen] = useState(false);
   const [place, setPlace] = useState<FlowBarPlace>(readFlowBarPlace);
   const [dragging, setDragging] = useState(false);
 
@@ -160,7 +173,8 @@ export const FlowAnimationBar = ({
 
   const selectedFlow = useMemo(
     () => flowOfSelection(selectedElementIds, elements, elementsMap),
-    [selectedElementIds, elements, elementsMap],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedElementIds, elements, elementsMap, sceneNonce],
   );
 
   // a flow that is playing stays the bar's flow whatever is selected (D-180)
@@ -325,9 +339,18 @@ export const FlowAnimationBar = ({
     };
   };
 
+  // the bar wraps inside the editor, whatever is docked beside it (D-395)
   const style = placed
-    ? { left: placed.x, top: placed.y }
-    : { left: follow.left, top: follow.top };
+    ? {
+        left: placed.x,
+        top: placed.y,
+        maxWidth: Math.max(240, viewport.width - placed.x - 8),
+      }
+    : {
+        left: follow.left,
+        top: follow.top,
+        maxWidth: Math.max(240, viewport.width - 16),
+      };
 
   const playing = state.active && state.mode === "play";
   const presenting = state.active && state.mode === "present";
@@ -396,6 +419,14 @@ export const FlowAnimationBar = ({
       // scene, so nothing under it is deselected
       onPointerDown={(event) => event.stopPropagation()}
     >
+      {exportOpen && (
+        <FlowExportPanel
+          app={app}
+          graph={graph}
+          elements={elements}
+          onClose={() => setExportOpen(false)}
+        />
+      )}
       <div className="excalidraw__flow-bar-row">
         <button
           type="button"
@@ -440,6 +471,28 @@ export const FlowAnimationBar = ({
         >
           {presenting ? "Stop presenting" : "Present steps"}
         </button>
+        {running && (
+          <button
+            type="button"
+            className="excalidraw__flow-bar-stop"
+            data-testid="flow-bar-stop"
+            title="Stop the animation (Esc)"
+            onClick={stopFlowEverything}
+          >
+            Stop {runningLabel.toLowerCase()}
+          </button>
+        )}
+        <button
+          type="button"
+          className="excalidraw__flow-bar-collapse"
+          aria-label="Collapse the animation bar into a pill"
+          title="Minimise - the animation keeps running; Stop ends it"
+          onClick={() => remember({ ...place, collapsed: true })}
+        >
+          <CollapseIcon />
+        </button>
+      </div>
+      <div className="excalidraw__flow-bar-row">
         <button
           type="button"
           onClick={() =>
@@ -458,17 +511,57 @@ export const FlowAnimationBar = ({
             {t("labels.flowAnimationResetLayout")}
           </button>
         )}
-        {running && (
-          <button
-            type="button"
-            className="excalidraw__flow-bar-stop"
-            data-testid="flow-bar-stop"
-            title="Stop the animation (Esc)"
-            onClick={stopFlowEverything}
-          >
-            Stop {runningLabel.toLowerCase()}
-          </button>
-        )}
+        <button
+          type="button"
+          data-testid="flow-bar-select-arrows"
+          title="Select every arrow of this chart, to change them all at once: the arrowheads, a dashed line"
+          onClick={() => {
+            // the chart's own arrows, whatever else is selected now (D-392)
+            const arrows = (
+              chartToExport(graph, graph.steps, elements)?.elements ?? []
+            ).filter((element) => element.type === "arrow");
+
+            app.api.updateScene({
+              appState: {
+                selectedElementIds: Object.fromEntries(
+                  arrows.map((arrow) => [arrow.id, true as const]),
+                ),
+              },
+            });
+          }}
+        >
+          Select arrows
+        </button>
+        <button
+          type="button"
+          data-testid="flow-bar-select-nodes"
+          title="Select every node of this chart, to change them all at once: the colour, the shape, the size"
+          onClick={() => {
+            // the chart's own nodes with their words and pictures, and no arrow (D-393)
+            const ids = new Set(graph.steps.flatMap((step) => step.elementIds));
+
+            app.api.updateScene({
+              appState: {
+                selectedElementIds: Object.fromEntries(
+                  [...ids].map((id) => [id, true as const]),
+                ),
+              },
+            });
+          }}
+        >
+          Select nodes
+        </button>
+      </div>
+      <div className="excalidraw__flow-bar-row">
+        <button
+          type="button"
+          data-testid="flow-bar-export"
+          aria-expanded={exportOpen}
+          title="Export the animation as a GIF, WebP or MP4"
+          onClick={() => setExportOpen((open) => !open)}
+        >
+          Export
+        </button>
         <button
           type="button"
           className="excalidraw__flow-bar-edit-script"
@@ -483,15 +576,6 @@ export const FlowAnimationBar = ({
           onClick={() => setLookOpen((open) => !open)}
         >
           Look
-        </button>
-        <button
-          type="button"
-          className="excalidraw__flow-bar-collapse"
-          aria-label="Collapse the animation bar into a pill"
-          title="Minimise - the animation keeps running; Stop ends it"
-          onClick={() => remember({ ...place, collapsed: true })}
-        >
-          <CollapseIcon />
         </button>
       </div>
 

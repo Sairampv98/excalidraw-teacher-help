@@ -16,6 +16,7 @@ import { convertScript } from "../scene/flowConvert";
 import { applyFlowScript } from "../scene/flowApply";
 import { isBuiltInPreset } from "../scene/flowChart";
 import { resolveChart } from "../scene/flowChartOf";
+import { flowOfSelection } from "../scene/flowSelection";
 import {
   BUILT_IN_OF_LAYOUT,
   buildSettingsOfCustom,
@@ -35,7 +36,7 @@ import {
 import { flowPagesOf, planChartPages } from "../scene/flowPagesFor";
 import { flowKindPreview } from "../scene/flowPreview";
 import { listFlowPresets } from "../scene/flowPresets";
-import { FLOW_FIT_MODES } from "../scene/flowChart";
+import { FLOW_FIT_MODES, chartElementsOf } from "../scene/flowChart";
 import {
   FLOW_NODE_SHAPES,
   parseFlowScript,
@@ -59,6 +60,7 @@ import {
   setFlowScriptDraft,
 } from "./FlowScriptEditorState";
 
+import { FlowExportPanel } from "./FlowExportPanel";
 import { FlowPreview } from "./FlowPreview";
 
 import "./FlowScriptEditor.scss";
@@ -242,6 +244,8 @@ const EditorPanel = ({
   } | null>(null);
   const [place, setPlace] = useState(readFlowEditorPlace);
   const [dragging, setDragging] = useState(false);
+  // the export of the chart's animation, in this window too (D-388)
+  const [exportOpen, setExportOpen] = useState(false);
 
   const panelRef = useRef<HTMLDivElement | null>(null);
   const pressRef = useRef<Press | null>(null);
@@ -559,6 +563,24 @@ const EditorPanel = ({
     };
   }, []);
 
+  // the chart as it stands on the page, to be exported (D-388): its own
+  // elements are what is animated, whatever is selected
+  const exportGraph = exportOpen
+    ? flowOfSelection(
+        Object.fromEntries(
+          (chart.legacy
+            ? chart.legacyElementIds
+            : chartElementsOf(
+                chart.chartId,
+                app.scene.getNonDeletedElements(),
+              ).map((element) => element.id)
+          ).map((id) => [id, true]),
+        ),
+        app.scene.getNonDeletedElements(),
+        app.scene.getNonDeletedElementsMap(),
+      )
+    : null;
+
   // what the host app adds to the panel (D-247)
   const Extra = useAtomValue(flowEditorExtraAtom);
 
@@ -584,7 +606,14 @@ const EditorPanel = ({
       data-testid="flow-editor"
       data-dragging={dragging ? "" : undefined}
       data-flow-editor-placed={placed ? "" : undefined}
-      style={{ left: at.x, top: at.y, width: FLOW_EDITOR_SIZE.width }}
+      style={{
+        left: at.x,
+        top: at.y,
+        width: FLOW_EDITOR_SIZE.width,
+        // with the export open the window is taller than the screen: it scrolls
+        maxHeight: Math.max(240, viewport.height - at.y - 8),
+        overflowY: "auto",
+      }}
       // the panel is not part of the canvas: a click on it is not a click on the scene
       onPointerDown={(event) => event.stopPropagation()}
     >
@@ -777,6 +806,16 @@ const EditorPanel = ({
         >
           Apply
         </button>
+        <button
+          type="button"
+          className="excalidraw__flow-editor-export"
+          data-testid="flow-editor-export"
+          aria-expanded={exportOpen}
+          title="Export the chart's animation as a GIF, WebP or MP4"
+          onClick={() => setExportOpen((open) => !open)}
+        >
+          Export animation
+        </button>
         {message && (
           <p
             className="excalidraw__flow-editor-message"
@@ -787,6 +826,21 @@ const EditorPanel = ({
           </p>
         )}
       </div>
+
+      {exportOpen &&
+        (exportGraph ? (
+          <FlowExportPanel
+            inline
+            app={app}
+            graph={exportGraph}
+            elements={app.scene.getNonDeletedElements()}
+            onClose={() => setExportOpen(false)}
+          />
+        ) : (
+          <p data-testid="flow-editor-export-empty">
+            There is nothing to animate in this chart yet.
+          </p>
+        ))}
     </div>
   );
 };

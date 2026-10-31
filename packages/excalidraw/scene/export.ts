@@ -65,7 +65,13 @@ import { renderSceneToSvg } from "../renderer/staticSvgScene";
 
 import type { RenderableElementsMap } from "./types";
 
-import type { AppState, BinaryFiles, PageDecoration, PageRect } from "../types";
+import type {
+  AppClassProperties,
+  AppState,
+  BinaryFiles,
+  PageDecoration,
+  PageRect,
+} from "../types";
 import type { PagePaperDraw } from "./paper";
 
 const truncateText = (element: ExcalidrawTextElement, maxWidth: number) => {
@@ -204,6 +210,17 @@ export const exportToCanvas = async (
      * under it, and the picture grows to hold them whole.
      */
     pagePapers = [],
+    /**
+     * Draw the papers even when a `pageRect` frames the picture: an animation
+     * export frames the chart itself and still shows the page it is on.
+     */
+    framePapers = false,
+    /**
+     * The pictures that are already loaded, kept from an export to the next: an
+     * animation export draws the page again for every picture and must not load
+     * every picture of it again each time. Only what is not in it is loaded.
+     */
+    imageCache: existingImageCache,
   }: {
     exportBackground: boolean;
     exportPadding?: number;
@@ -212,6 +229,8 @@ export const exportToCanvas = async (
     pageRect?: PageRect | null;
     pageDecoration?: PageDecoration | null;
     pagePapers?: readonly PagePaperDraw[];
+    framePapers?: boolean;
+    imageCache?: AppClassProperties["imageCache"];
   },
   createCanvas: (
     width: number,
@@ -268,10 +287,10 @@ export const exportToCanvas = async (
   const defaultAppState = getDefaultAppState();
 
   const { imageCache } = await updateImageCache({
-    imageCache: new Map(),
-    fileIds: getInitializedImageElements(elementsForRender).map(
-      (element) => element.fileId,
-    ),
+    imageCache: existingImageCache ?? new Map(),
+    fileIds: getInitializedImageElements(elementsForRender)
+      .map((element) => element.fileId)
+      .filter((fileId) => !existingImageCache?.has(fileId)),
     files,
   });
 
@@ -296,7 +315,8 @@ export const exportToCanvas = async (
       shouldCacheIgnoreZoom: false,
       theme: appState.exportWithDarkMode ? THEME.DARK : THEME.LIGHT,
       currentPageDecoration: pageDecoration,
-      currentPagePapers: pageRect || exportingFrame ? null : pagePapers,
+      currentPagePapers:
+        exportingFrame || (pageRect && !framePapers) ? null : pagePapers,
     },
     renderConfig: {
       canvasBackgroundColor: viewBackgroundColor,

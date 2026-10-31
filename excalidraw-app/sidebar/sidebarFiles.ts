@@ -61,7 +61,7 @@ export type ScanResult = {
   rootName: string | null;
 };
 
-/** renderable by an Excalidraw image element (GIF animates, AVIF/WebP don't) */
+/** renderable by an Excalidraw image element (a GIF and an animated WebP animate, AVIF does not) */
 const IMAGE_EXTENSIONS = new Set([
   "png",
   "jpg",

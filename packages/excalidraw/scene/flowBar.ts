@@ -26,13 +26,13 @@ export const FLOW_BAR_MARGIN = 8;
 export const FLOW_BAR_GAP = 12;
 
 /** about how wide the bar is at most, in pixels: it wraps below this width */
-export const FLOW_BAR_WIDTH = 440;
+export const FLOW_BAR_WIDTH = 520;
 
-/** about how tall the bar is, in pixels: two rows of controls */
-export const FLOW_BAR_HEIGHT = 112;
+/** about how tall the bar is, in pixels: three rows of buttons and two of choices (D-395) */
+export const FLOW_BAR_HEIGHT = 166;
 
 /** how much taller the bar is while its Look section is open (D-196) */
-export const FLOW_BAR_LOOK_EXTRA = 230;
+export const FLOW_BAR_LOOK_EXTRA = 184;
 
 /** about how tall a collapsed bar - a pill - is, in pixels (D-198) */
 export const FLOW_BAR_PILL_HEIGHT = 32;
