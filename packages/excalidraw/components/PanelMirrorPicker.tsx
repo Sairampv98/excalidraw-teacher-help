@@ -1,4 +1,5 @@
 import React, { useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 
 import type { ExcalidrawPanelElement } from "@excalidraw/element/types";
 
@@ -12,6 +13,7 @@ import {
 import { t } from "../i18n";
 
 import { moveCropEdge } from "./PanelScreenshotFocus";
+import { useFullscreenElement } from "./useFullscreenElement";
 
 import type { PanelMirrorRegion } from "../scene/panelMirror";
 
@@ -49,6 +51,10 @@ export const PanelMirrorPicker = ({
     getAnyPanelMirrorPicker,
     getAnyPanelMirrorPicker,
   );
+
+  // A panel that is full screen is all the browser shows, so the picker is drawn
+  // INTO it - and it fits the screen the panel fills (D-334).
+  const fullscreen = useFullscreenElement();
 
   /**
    * The drag of the crop.
@@ -103,16 +109,23 @@ export const PanelMirrorPicker = ({
    * sees the editor's window as it is - big enough to crop, small enough to
    * leave room around it.
    */
+  const room = fullscreen
+    ? {
+        width: fullscreen.clientWidth || viewport.width,
+        height: fullscreen.clientHeight || viewport.height,
+      }
+    : viewport;
+
   const fit = Math.min(
-    (viewport.width * 0.9) / pictureWidth,
-    (viewport.height * 0.8) / pictureHeight,
+    (room.width * 0.9) / pictureWidth,
+    (room.height * 0.8) / pictureHeight,
   );
 
   const displayWidth = pictureWidth * fit;
   const displayHeight = pictureHeight * fit;
 
-  const pictureLeft = (viewport.width - displayWidth) / 2;
-  const pictureTop = (viewport.height - displayHeight) / 2;
+  const pictureLeft = (room.width - displayWidth) / 2;
+  const pictureTop = (room.height - displayHeight) / 2;
 
   /** the crop, in the picture's own fractions */
   const region = open.region;
@@ -229,7 +242,10 @@ export const PanelMirrorPicker = ({
     onChoose?.(open.panelId, next);
   };
 
-  return (
+  /** the picker is left and nothing is chosen: the panel mirrors what it did */
+  const cancel = () => closePanelMirrorPicker(open.panelId);
+
+  const node = (
     <div
       className="excalidraw__panel-mirror-picker"
       data-testid="panel-mirror-picker"
@@ -358,6 +374,9 @@ export const PanelMirrorPicker = ({
           top: pictureTop + displayHeight + 16,
           transform: "translateX(-50%)",
           display: "flex",
+          flexWrap: "wrap",
+          justifyContent: "center",
+          maxWidth: room.width * 0.9,
           alignItems: "center",
           gap: 6,
           padding: 6,
@@ -387,7 +406,7 @@ export const PanelMirrorPicker = ({
           type="button"
           className="excalidraw__panel-mirror-picker-choice"
           data-testid="panel-mirror-picker-cancel"
-          onClick={() => choose(null)}
+          onClick={cancel}
           style={{ flexShrink: 0 }}
         >
           {t("labels.mirror.cancel")}
@@ -395,6 +414,8 @@ export const PanelMirrorPicker = ({
       </div>
     </div>
   );
+
+  return fullscreen ? createPortal(node, fullscreen) : node;
 };
 
 /** the eight handles of the crop: the four corners and the four edges */

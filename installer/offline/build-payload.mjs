@@ -499,52 +499,6 @@ export const resolveJava = async (arch) => {
   };
 };
 
-/**
- * The virtual display driver.
- *
- * Two packages: the DRIVER-ONLY one for the machine's architecture (about
- * 0.1 MB) and the CONTROL one (about 68 MB), which is what a teacher uses to
- * put the monitor into Extend. The driver needs administrator rights and a
- * reboot, so the setup says both plainly.
- */
-export const resolveDisplayDriver = async (arch) => {
-  const release = await fetchJson(
-    "https://api.github.com/repos/itsmikethetech/Virtual-Display-Driver/releases/latest",
-  );
-  const driverName =
-    arch === "arm64"
-      ? "VirtualDisplayDriver-ARM64.Driver.Only.zip"
-      : "VirtualDisplayDriver-x86.Driver.Only.zip";
-  const driver = release.assets.find((entry) => entry.name === driverName);
-  const control = release.assets.find(
-    (entry) => entry.name === "VDD.Control." + release.tag_name + ".zip",
-  );
-
-  if (!driver) {
-    throw new Error("the virtual display driver release has no " + driverName);
-  }
-
-  const found = [
-    {
-      role: "display-driver",
-      name: driver.name,
-      version: release.tag_name,
-      url: driver.browser_download_url,
-    },
-  ];
-
-  if (control) {
-    found.push({
-      role: "display-control",
-      name: control.name,
-      version: release.tag_name,
-      url: control.browser_download_url,
-    });
-  }
-
-  return found;
-};
-
 /** The extension - built by the project's own script. */
 export const resolveExtension = (outDir) => {
   const manifest = JSON.parse(
@@ -729,10 +683,6 @@ const main = async () => {
 
   if (wanted("java")) {
     artifacts.push(await resolveJava(args.arch));
-  }
-
-  if (wanted("display-driver")) {
-    artifacts.push(...(await resolveDisplayDriver(args.arch)));
   }
 
   const extension = resolveExtension(outDir);

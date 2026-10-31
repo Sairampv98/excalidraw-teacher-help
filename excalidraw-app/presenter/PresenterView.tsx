@@ -52,6 +52,9 @@ const PRESENTER_UNRESPONSIVE_MS = 4000;
 const PRESENTER_HINT_TIMEOUT_MS = 9000;
 
 /** retry a file request after this long (image may still be uploading) */
+/** when the scene is looked for after it was put on the canvas (D-344) */
+const SCENE_CHECK_MS = [300, 1200, 3000];
+
 const FILE_REQUEST_RETRY_MS = 4000;
 
 /** how often the presenter's canvas is re-measured while it settles on mount */
@@ -265,6 +268,36 @@ export const PresenterView = () => {
       // whatever camera the editor has (D-281)
       if (focusPanelIdRef.current) {
         applyFocus();
+      }
+
+      // A window that has just opened settles itself AFTER the editor's scene
+      // has been put on it, and the settling can empty the canvas - and the
+      // editor does not send the scene again until something in it changes
+      // (D-344). So the scene is looked for a moment later, and put back if it
+      // is not there.
+      const expected = scene.elements.filter(
+        (element) => !element.isDeleted,
+      ).length;
+
+      for (const wait of SCENE_CHECK_MS) {
+        window.setTimeout(() => {
+          const current = apiRef.current;
+          const latest = lastSceneRef.current;
+
+          if (
+            !current ||
+            current.isDestroyed ||
+            latest !== scene ||
+            current.getSceneElements().length >= expected
+          ) {
+            return;
+          }
+
+          current.updateScene({
+            elements: scene.elements as readonly OrderedExcalidrawElement[],
+            captureUpdate: CaptureUpdateAction.NEVER,
+          });
+        }, wait);
       }
     },
     [measureViewport, applyFocus],

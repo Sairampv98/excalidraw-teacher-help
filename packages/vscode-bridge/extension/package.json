@@ -67,20 +67,28 @@
         "title": "Excalidraw Bridge: Open the presenter's input panel"
       },
       {
-        "command": "excalidraw-bridge.placePresenterOnVirtualDisplay",
-        "title": "Excalidraw Bridge: Put the presenter's window on the virtual display"
+        "command": "excalidraw-bridge.chooseInputRoute",
+        "title": "Excalidraw Bridge: Choose how the canvas types into the editor"
       },
       {
-        "command": "excalidraw-bridge.placeEditorOnVirtualDisplay",
-        "title": "Excalidraw Bridge: Put the editor's window on the virtual display"
+        "command": "excalidraw-bridge.parkEditorWindow",
+        "title": "Excalidraw Bridge: Park the editor's window out of sight"
       },
       {
-        "command": "excalidraw-bridge.bringBackEditorToPrimaryDisplay",
-        "title": "Excalidraw Bridge: Bring the editor's window back to this screen"
+        "command": "excalidraw-bridge.bringBackEditorWindow",
+        "title": "Excalidraw Bridge: Bring the editor's window back"
       },
       {
-        "command": "excalidraw-bridge.bringBackPresenterToPrimaryDisplay",
-        "title": "Excalidraw Bridge: Bring the presenter's window back to this screen"
+        "command": "excalidraw-bridge.showPerformance",
+        "title": "Excalidraw Bridge: Show where the mirror's time goes"
+      },
+      {
+        "command": "excalidraw-bridge.installIndraOcr",
+        "title": "Excalidraw Bridge: Install the indra OCR engine"
+      },
+      {
+        "command": "excalidraw-bridge.moveEditorWindowToVirtualScreen",
+        "title": "Excalidraw Bridge: Move the editor's window to the virtual screen"
       }
     ],
     "configuration": {
@@ -97,8 +105,20 @@
         },
         "excalidraw-bridge.captureFps": {
           "type": "number",
-          "default": 6,
-          "description": "How many frames a second the panel's live view of this editor's window takes. Six a second is enough to read by. Without the capture the panel falls back to the mirrored text and says why."
+          "default": 12,
+          "minimum": 1,
+          "maximum": 60,
+          "description": "How many frames a second the panel's live view of this editor's window takes, at most (1 to 60) - a window that does not change costs nothing. Twelve a second reads smoothly and keeps the machine free; twenty-four to thirty feel closer to typing in the editor itself and cost more. How many you really get is how fast the window can be drawn - a big window may not reach sixty. Without the capture the panel falls back to the mirrored text and says why."
+        },
+        "excalidraw-bridge.inputRoute": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "background",
+            "focus"
+          ],
+          "default": "auto",
+          "description": "How the canvas's mouse and keyboard reach this editor's window when Control is on. background posts the input to the window's own page and never takes your focus; focus brings the window to the front for a moment and uses real input (it needs the window on a display); auto uses background where the window has a page to post to, and focus where it has not."
         },
         "excalidraw-bridge.ocrEngine": {
           "type": "string",

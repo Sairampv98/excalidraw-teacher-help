@@ -14,13 +14,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderHook } from "@testing-library/react";
 
+import { PANEL_KEY_CODES } from "@excalidraw/excalidraw";
+
+import { BRIDGE_KEY_CODES } from "../../packages/vscode-bridge/bridge/src/protocol";
 import {
   BRIDGE_SESSION_KEY,
+  bridgeConnection,
   createBridgeSession,
   readSessionToken,
   writeSessionToken,
 } from "../bridge/bridgeSession";
+import { toPanelCapture } from "../bridge/codePanel";
 import { useBridgePanel } from "../bridge/useBridgePanel";
+
+import type { BridgeInputEvent } from "../../packages/vscode-bridge/bridge/src/protocol";
 
 /**
  * A token that is **obviously** not a secret: the kit's secret scanner
@@ -263,5 +270,228 @@ describe("the app's bridge session", () => {
 
     expect(sessionStorage.getItem(BRIDGE_SESSION_KEY)).toBe(null);
     expect(readSessionToken()).toBe("");
+  });
+});
+
+/** The messages a socket was sent, read. */
+const sentMessages = (socket: FakeSocket) =>
+  socket.sent.map((frame) => JSON.parse(frame) as Record<string, unknown>);
+
+describe("the control of the editor's window over the session (D-323, D-327, D-328)", () => {
+  const EVENT: BridgeInputEvent = {
+    kind: "pointer",
+    action: "down",
+    x: 0.5,
+    y: 0.25,
+    button: "left",
+    mods: 0,
+  };
+
+  it("AC-375 the session sends the control, the input and the window messages", async () => {
+    mockClipboard(TEST_TOKEN);
+
+    const app = session();
+
+    await app.pasteToken();
+
+    const socket = FakeSocket.instances[FakeSocket.instances.length - 1];
+
+    socket.open();
+    socket.sent.length = 0;
+
+    expect(app.setControl(true)).toBe(true);
+    expect(app.sendInput(EVENT)).toBe(true);
+    expect(app.windowAction("park")).toBe(true);
+    expect(app.windowAction("bring-back")).toBe(true);
+    expect(app.setControl(false)).toBe(true);
+
+    expect(sentMessages(socket)).toEqual([
+      { v: 1, type: "editor:control", enabled: true },
+      { v: 1, type: "editor:input", event: EVENT },
+      { v: 1, type: "editor:window", action: "park" },
+      { v: 1, type: "editor:window", action: "bring-back" },
+      { v: 1, type: "editor:control", enabled: false },
+    ]);
+
+    // the token is never in them: the session is authorised by the first frame
+    expect(socket.sent.join("")).not.toContain(TEST_TOKEN);
+
+    // and the panel's own hook sends them the same way
+    FakeSocket.instances = [];
+
+    const { result } = renderHook(() => useBridgePanel(null));
+    const hooked = FakeSocket.instances[0];
+
+    hooked.open();
+    hooked.sent.length = 0;
+
+    result.current.panelControl.onToggle?.("panel-1", true);
+    result.current.panelControl.onInput?.("panel-1", EVENT);
+    result.current.panelControl.onWindow?.("panel-1", "park");
+
+    expect(sentMessages(hooked)).toEqual([
+      { v: 1, type: "editor:control", enabled: true },
+      { v: 1, type: "editor:input", event: EVENT },
+      { v: 1, type: "editor:window", action: "park" },
+    ]);
+  });
+
+  it("AC-375 nothing is queued while there is no connection", async () => {
+    mockClipboard(TEST_TOKEN);
+
+    // a session that has never connected: there is nobody to tell
+    const never = session();
+
+    expect(never.setControl(true)).toBe(false);
+    expect(never.sendInput(EVENT)).toBe(false);
+    expect(never.windowAction("park")).toBe(false);
+
+    // a session that was connected and is not any more
+    const app = session();
+
+    await app.pasteToken();
+
+    const first = FakeSocket.instances[FakeSocket.instances.length - 1];
+
+    first.open();
+    app.disconnect();
+
+    expect(app.setControl(true)).toBe(false);
+    expect(app.sendInput(EVENT)).toBe(false);
+    expect(app.windowAction("bring-back")).toBe(false);
+
+    // and when it connects again, none of what was refused is sent: a control
+    // that is switched on when the bridge comes back is a control the teacher
+    // did not ask for
+    app.connect();
+
+    const second = FakeSocket.instances[FakeSocket.instances.length - 1];
+
+    second.open();
+
+    expect(
+      sentMessages(second).filter((message) =>
+        String(message.type).startsWith("editor:"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("AC-375 a lost connection puts Control off", () => {
+    const stream = "http://127.0.0.1:47511/s/a-capability/frame";
+    const message = {
+      v: 1,
+      type: "editor:capture",
+      state: "live",
+      seq: 4,
+      width: 1282,
+      height: 674,
+      control: {
+        enabled: true,
+        route: "background",
+        reason: "input goes to the editor's window without taking the focus",
+      },
+      parked: true,
+    } as const;
+
+    // while the connection stands the panel says what the extension says
+    expect(toPanelCapture(message, stream)).toMatchObject({
+      status: "live",
+      control: { enabled: true, route: "background" },
+      parked: true,
+    });
+
+    // The connection is lost: the stream's URL dies with it. There is no live
+    // view, so there is no control - the panel offers none, and the extension
+    // turned it off when the connection ended (D-327).
+    const lost = toPanelCapture(message, null);
+
+    expect(lost.status).toBe("unavailable");
+    expect("control" in lost).toBe(false);
+    expect("parked" in lost).toBe(false);
+
+    // and a changed control is a changed live view: the panel is told
+    const sameStream = {
+      ...message,
+      control: { ...message.control, enabled: false },
+    };
+
+    expect(toPanelCapture(sameStream, stream)).toMatchObject({
+      control: { enabled: false },
+    });
+  });
+
+  it("AC-375 the descriptor's control state reaches the panel", () => {
+    const stream = "http://127.0.0.1:47511/s/a-capability/frame";
+
+    // an extension that predates the control says nothing of it: the panel's
+    // descriptor says nothing of it either, and the panel offers none
+    const old = toPanelCapture(
+      { v: 1, type: "editor:capture", state: "live", seq: 1 },
+      stream,
+    );
+
+    expect(old).toEqual({ status: "live", streamUrl: stream });
+
+    const parked = toPanelCapture(
+      {
+        v: 1,
+        type: "editor:capture",
+        state: "live",
+        seq: 1,
+        control: { enabled: false, route: "focus", reason: "real input" },
+        parked: true,
+      },
+      stream,
+    );
+
+    expect(parked).toEqual({
+      status: "live",
+      streamUrl: stream,
+      control: { enabled: false, route: "focus", reason: "real input" },
+      parked: true,
+    });
+
+    // the key table is the same on both sides: a key the panel may send is a
+    // key the protocol accepts, and the other way round
+    expect([...PANEL_KEY_CODES].sort()).toEqual([...BRIDGE_KEY_CODES].sort());
+  });
+});
+
+describe("a token the extension refuses, in the app (D-333)", () => {
+  it("AC-380 the app shows a refused token as rejected", async () => {
+    mockClipboard(TEST_TOKEN);
+
+    const states: string[] = [];
+    const app = createBridgeSession({
+      url: BRIDGE_URL,
+      WebSocketImpl: FakeSocket,
+      onStateChange: (state) =>
+        states.push(`${state.status}:${state.connection}`),
+    });
+
+    await app.pasteToken();
+
+    const socket = FakeSocket.instances[FakeSocket.instances.length - 1];
+
+    socket.open();
+
+    // the extension answers the wrong token with its own close code
+    socket.onclose?.({ code: 1008 });
+
+    expect(app.getState().status).toBe("refused");
+    expect(app.getState().connection).toBe("rejected");
+    expect(bridgeConnection("refused")).toBe("rejected");
+
+    // the sentence the panel shows says what to do, and does not say the
+    // extension is missing
+    expect(app.getState().message).toContain("did not accept this token");
+    expect(app.getState().message).not.toMatch(/is the extension running/i);
+
+    // and the app does not open a second socket with the same token
+    const opened = FakeSocket.instances.length;
+
+    await new Promise((resolve) => setTimeout(resolve, 700));
+
+    expect(FakeSocket.instances.length).toBe(opened);
   });
 });

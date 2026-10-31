@@ -1,6 +1,8 @@
-import type { BridgeMessage } from "../../bridge/src/protocol";
-
-import type { BridgeMirrorRegion } from "../../bridge/src/protocol";
+import type {
+  BridgeControlState,
+  BridgeMessage,
+  BridgeMirrorRegion,
+} from "../../bridge/src/protocol";
 
 /**
  * The capture's **state**, as the protocol carries it.
@@ -55,6 +57,19 @@ export interface CaptureStatePublisher {
    * now - and so a panel that connects later learns the choice.
    */
   setMirror: (mirror: CaptureMirror) => void;
+  /**
+   * What the control says: whether it is on, the route its input takes and why
+   * (D-323, D-326). It is part of the descriptor, so a panel that connects
+   * later learns it.
+   */
+  setControl: (control: BridgeControlState) => void;
+  /** whether the editor's window is parked off every display (D-328) */
+  setParked: (parked: boolean) => void;
+  /**
+   * whether the editor's window is on the virtual display, and whether the
+   * machine has one (D-351)
+   */
+  setVirtual: (virtual: { on: boolean; available: boolean }) => void;
   /** the state as it stands, or null when nothing has been published yet */
   readonly state: CaptureState | null;
 }
@@ -86,6 +101,15 @@ export const createCaptureStatePublisher = (
   /** the picture's own size, as the last frame said it. */
   let size: CaptureSize | null = null;
 
+  /** the control: off until the teacher turns it on (D-323) */
+  let control: BridgeControlState | null = null;
+
+  /** is the editor's window parked? (D-328) */
+  let parked = false;
+
+  /** is it on the virtual display, and is there one? (D-351) */
+  let virtual = { on: false, available: false };
+
   /** the last frame's number: the seq a re-published state carries. */
   let seq = 0;
 
@@ -101,6 +125,10 @@ export const createCaptureStatePublisher = (
       ...(mirror.region ? { region: mirror.region } : {}),
       ...(mirror.follow ? { follow: true } : {}),
       ...(size ? { width: size.width, height: size.height } : {}),
+      ...(control ? { control } : {}),
+      ...(parked ? { parked: true } : {}),
+      ...(virtual.on ? { virtual: true } : {}),
+      ...(virtual.available ? { virtualAvailable: true } : {}),
     });
   };
 
@@ -152,6 +180,47 @@ export const createCaptureStatePublisher = (
       // the choice is published again, so the descriptor says what is mirrored
       // now (D-143)
       send(state);
+    },
+
+    setControl: (next: BridgeControlState) => {
+      if (
+        control?.enabled === next.enabled &&
+        control.route === next.route &&
+        control.reason === next.reason
+      ) {
+        // the same thing again is not a change: nothing is published for it
+        return;
+      }
+
+      control = next;
+
+      if (state) {
+        send(state);
+      }
+    },
+
+    setParked: (next: boolean) => {
+      if (parked === next) {
+        return;
+      }
+
+      parked = next;
+
+      if (state) {
+        send(state);
+      }
+    },
+
+    setVirtual: (next: { on: boolean; available: boolean }) => {
+      if (virtual.on === next.on && virtual.available === next.available) {
+        return;
+      }
+
+      virtual = next;
+
+      if (state) {
+        send(state);
+      }
     },
 
     get state(): CaptureState | null {

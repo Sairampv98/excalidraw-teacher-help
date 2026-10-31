@@ -27,11 +27,6 @@
   // could not be pressed. It is a small, transient control, and it stays below
   // the context menu, the popups, the menus and the dialogs.
   --zIndex-flowBar: 80;
-  // the **dimming** of the canvas behind a screenshot in focus (D-116): it is
-  // BELOW the panels on purpose - a panel dims its own content (see
-  // `__panel-focus-scrim`) and its own chrome - the three choices - stays
-  // bright, so the teacher can still act on the picture in front (D-140)
-  --zIndex-panelFocusScrim: 2;
   // the **focus state** of a screenshot (D-116, D-140): the picture comes
   // forward **over the panels** and over the interactive canvas. The owner
   // called the clash out - the panels were in the same z-plane as the popup -
@@ -52,6 +47,10 @@
   // were visible and dead (D-151). The picker sits above the app's chrome, in
   // the same plane as the context menu.
   --zIndex-panelPicker: 90;
+  // the **crop window** of a screenshot (D-339): a window of its own, over the
+  // app's whole chrome - the toolbars at 100 and the main menu at 110 - so
+  // nothing of the app shows through it
+  --zIndex-cropWindow: 200;
 
   --zIndex-ui-bottom: 60;
   --zIndex-ui-context-menu: 90;
@@ -700,36 +699,13 @@ body.excalidraw-cursor-resize * {
     z-index: var(--zIndex-screenshotWireframe);
   }
 
-  // The **focus state** of a screenshot (D-116, D-140).
-  //
-  // It is **two** planes: the dimming steps the **canvas** back, and the
-  // picture comes **forward** - over the panels, which is where the owner saw
-  // the clash (D-140).
-  //
-  // The root itself is not a z-plane of its own: the dimming has to stay
-  // **under** the panels (a panel dims its own content, and its chrome - the
-  // three choices - stays bright), while the picture has to be **over** them.
-  &__panel-screenshot-focus-scrim {
-    z-index: var(--zIndex-panelFocusScrim);
-  }
-
+  // The **crop window** of a screenshot (D-339): a window of its own, drawn over
+  // the whole app (`--zIndex-cropWindow`), so there is no dimming of the canvas
+  // or of a panel to keep in a plane of its own any more.
   // The picture in front, with the crop on it: it is above the panels and above
   // the interactive canvas, so the crop handles are live (D-139).
   &__panel-screenshot-focus-preview {
     z-index: var(--zIndex-panelFocus);
-  }
-
-  // The dimming of a panel's **own content**, while a picture is in focus: the
-  // editor steps back, and the panel's chrome - the camera and the three
-  // choices - does not (D-116).
-  &__panel-focus-scrim {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.55);
-    pointer-events: none;
   }
 
   &__panel-screenshot-wireframe-label {

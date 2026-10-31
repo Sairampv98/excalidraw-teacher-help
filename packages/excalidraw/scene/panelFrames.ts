@@ -31,6 +31,7 @@
  * the text mirror - the same fallback a panel without a bridge shows.
  */
 
+import type { PanelControlState } from "./panelControl";
 import type { PanelMirrorRegion } from "./panelMirror";
 
 /**
@@ -67,6 +68,19 @@ export interface PanelCaptureLive {
    */
   width?: number;
   height?: number;
+  /**
+   * The **control** of the window: whether it is on, the way its input goes in
+   * and why (D-323, D-326). It is the extension's own state, so every panel
+   * says the same thing. Absent from an extension that predates the control,
+   * and the panel then offers none.
+   */
+  control?: PanelControlState;
+  /** whether the editor's window is **parked** off every display (D-328) */
+  parked?: boolean;
+  /** whether the editor's window is on the **virtual display** (D-351) */
+  virtual?: boolean;
+  /** whether the machine has a virtual display to put it on (D-351) */
+  virtualAvailable?: boolean;
 }
 
 /**

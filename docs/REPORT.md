@@ -61,14 +61,13 @@ The app was checked at: not checked - no address was given
 | VSCodium | installed, 1.91.0 or newer | 1.140.06880 | PASS |
 | the extension, in VS Code | excalidraw-teacher-help.excalidraw-bridge | listed | PASS |
 | the extension, in VSCodium | excalidraw-teacher-help.excalidraw-bridge | listed | PASS |
-| the extension's helpers, in VS Code | media\capture.ps1, media\virtual-display.ps1, media\ocr_sidecar.py | all three are there | PASS |
-| the extension's helpers, in VSCodium | media\capture.ps1, media\virtual-display.ps1, media\ocr_sidecar.py | all three are there | PASS |
-| the virtual display driver | installed and attached | Virtual Display Driver (1920 x 1080) | PASS |
+| the extension's helpers, in VS Code | media\capture.ps1, media\window.ps1, media\input.ps1, media\ocr_sidecar.py | all four are there | PASS |
+| the extension's helpers, in VSCodium | media\capture.ps1, media\window.ps1, media\input.ps1, media\ocr_sidecar.py | all four are there | PASS |
 | the bridge | listening on 47511 | not listening - no editor is running, and the bridge only listens while one is | MISSING |
 | the app | HTTP 200 at the address it is served from | not checked - no address was given | NOT CHECKED |
 | the offline payload's hashes | every file in manifest.json matches | 3 of 3 files match | PASS |
 
-PASS 11   FAIL 0   MISSING 1   NOT CHECKED 1
+PASS 10   FAIL 0   MISSING 1   NOT CHECKED 1
 ```
 
 Paste the whole block, between the three backticks, into your report. If you serve the app yourself, run the check with the address so the **the app** row is checked too:

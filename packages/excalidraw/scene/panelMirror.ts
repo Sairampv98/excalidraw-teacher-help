@@ -129,6 +129,143 @@ export const isSamePanelMirrorRegion = (
   );
 };
 
+/**
+ * The three ways to look at the editor's window (D-322).
+ *
+ *  - **whole**: the window as a screenshot gives it - the default;
+ *  - **part**: the region the teacher drew on the whole window, kept until
+ *    they draw another;
+ *  - **follow**: a region of the chosen size that moves with the pointer.
+ *
+ * The mode is not stored on its own: it is what the panel's mirror says (no
+ * region is the whole window, a region is a part, a region that follows is a
+ * follow), so the protocol, the payload and the descriptor stay as they were.
+ */
+export type PanelMirrorMode = "whole" | "part" | "follow";
+
+/**
+ * The region a follow starts with when none was drawn: 60% of the window's
+ * width and height, centred.
+ *
+ * It is big enough to read a screen of code in, and small enough for the pointer
+ * to have somewhere to move it to. The teacher sets the size they want
+ * ({@link resizePanelMirrorRegion}); this is only where it starts.
+ */
+export const DEFAULT_FOLLOW_REGION: PanelMirrorRegion = {
+  x: 0.2,
+  y: 0.2,
+  width: 0.6,
+  height: 0.6,
+};
+
+/** The smallest and the biggest share of the window a follow may take. */
+export const FOLLOW_SIZE_MIN = 0.2;
+export const FOLLOW_SIZE_MAX = 0.9;
+
+/** One step of the follow's size control. */
+export const FOLLOW_SIZE_STEP = 0.05;
+
+/**
+ * The region at another size, around the same middle (D-322).
+ *
+ * `width` is the new share of the window's width, between
+ * {@link FOLLOW_SIZE_MIN} and {@link FOLLOW_SIZE_MAX}. The region keeps its
+ * **shape** - the height changes with the width - so a region the teacher drew
+ * is still that shape at another size, and the part of the picture it shows is
+ * never stretched. A region that would reach outside the window is pulled
+ * back inside it.
+ */
+export const resizePanelMirrorRegion = (
+  region: PanelMirrorRegion,
+  width: number,
+): PanelMirrorRegion => {
+  const wanted = Math.min(Math.max(width, FOLLOW_SIZE_MIN), FOLLOW_SIZE_MAX);
+  // the shape is kept, and the region never gets taller than the window
+  const scale = Math.min(wanted / region.width, 1 / region.height);
+  const nextWidth = region.width * scale;
+  const nextHeight = region.height * scale;
+  const middleX = region.x + region.width / 2;
+  const middleY = region.y + region.height / 2;
+
+  return (
+    normalizePanelMirrorRegion({
+      x: middleX - nextWidth / 2,
+      y: middleY - nextHeight / 2,
+      width: nextWidth,
+      height: nextHeight,
+    }) ?? region
+  );
+};
+
+/** The mode a mirror is in. */
+export const panelMirrorMode = (mirror: PanelMirror): PanelMirrorMode =>
+  !mirror.region ? "whole" : mirror.follow ? "follow" : "part";
+
+/**
+ * The mirror in another mode (D-322).
+ *
+ * **Whole** forgets the region and the follow; **part** keeps the region and
+ * stops following (with no region there is nothing to keep, and the mirror
+ * stays whole - the picker is what draws one); **follow** keeps the region and
+ * follows, and starts with {@link DEFAULT_FOLLOW_REGION} when there is none.
+ */
+export const withPanelMirrorMode = (
+  mirror: PanelMirror,
+  mode: PanelMirrorMode,
+): PanelMirror => {
+  switch (mode) {
+    case "whole":
+      return { region: null, follow: false };
+    case "part":
+      return mirror.region
+        ? { region: mirror.region, follow: false }
+        : { region: null, follow: false };
+    case "follow":
+      return { region: mirror.region ?? DEFAULT_FOLLOW_REGION, follow: true };
+  }
+};
+
+/**
+ * A pointer's place in the box of the view, as fractions of the box (D-324).
+ *
+ * A place outside the box is held on its edge: a drag that leaves the view is
+ * still a drag, and it ends at the edge. A box with no size has no places, so
+ * its middle is the answer.
+ */
+export const panelPointInView = (
+  box: { left: number; top: number; width: number; height: number },
+  point: { x: number; y: number },
+): { x: number; y: number } => ({
+  x:
+    box.width > 0
+      ? Math.min(Math.max((point.x - box.left) / box.width, 0), 1)
+      : 0.5,
+  y:
+    box.height > 0
+      ? Math.min(Math.max((point.y - box.top) / box.height, 0), 1)
+      : 0.5,
+});
+
+/**
+ * A place in the view, as a place in the **whole window** (D-324).
+ *
+ * The view shows a region of the window (the whole of it when there is no
+ * region), so a place in the view goes through the region: the view's corners
+ * are the region's corners. What comes out is a fraction of the whole window,
+ * which is the same place whatever size the window is.
+ */
+export const panelPointToWindow = (
+  region: PanelMirrorRegion | null,
+  place: { x: number; y: number },
+): { x: number; y: number } => {
+  const shown = region ?? WHOLE_WINDOW;
+
+  return {
+    x: roundMirrorPlace(shown.x + place.x * shown.width),
+    y: roundMirrorPlace(shown.y + place.y * shown.height),
+  };
+};
+
 /** The picture the region is a part of: the whole window's own size. */
 export interface PanelMirrorPicture {
   /** the picture's own width, in its own pixels */
@@ -271,6 +408,71 @@ export const panelMirrorRegionAtPointer = (
     y: roundMirrorPlace(
       Math.min(Math.max(centreY - region.height / 2, 0), 1 - region.height),
     ),
+    width: roundMirrorPlace(region.width),
+    height: roundMirrorPlace(region.height),
+  };
+};
+
+/**
+ * The share of the window, around its middle, in which the pointer leaves a
+ * following area where it is (D-337).
+ *
+ * The pointer is at rest inside it, so a small window does not make the area
+ * jump with every move of the hand. Outside it the area moves towards the
+ * pointer - slowly at the edge of the rest zone, at full speed at the edge of
+ * the window.
+ */
+export const FOLLOW_REST_ZONE = 0.7;
+
+/** the most a following area moves in one step, as a share of its own size */
+export const FOLLOW_STEP_MAX = 0.2;
+
+/**
+ * The region one step further along, when the pointer is outside the rest zone
+ * (D-337).
+ *
+ * The area keeps its size. It is the pointer's **distance** from the rest zone
+ * that sets the speed - and never the pointer's place - so the same movement
+ * of the hand does the same thing in a small panel as in a large one, and the
+ * area does not swing from one side of the window to the other.
+ */
+export const panelMirrorRegionNudge = (
+  region: PanelMirrorRegion,
+  pointer: { x: number; y: number },
+  window: { left: number; top: number; width: number; height: number },
+): PanelMirrorRegion => {
+  const rest = FOLLOW_REST_ZONE / 2;
+
+  const along = (within: number, at: number, size: number) => {
+    const offset = within - 0.5;
+    const beyond = Math.abs(offset) - rest;
+
+    if (beyond <= 0) {
+      return at;
+    }
+
+    // 0 at the edge of the rest zone, 1 at the edge of the window
+    const speed = Math.min(beyond / (0.5 - rest), 1);
+
+    return Math.min(
+      Math.max(at + Math.sign(offset) * speed * FOLLOW_STEP_MAX * size, 0),
+      1 - size,
+    );
+  };
+
+  const withinX =
+    window.width > 0
+      ? Math.min(Math.max((pointer.x - window.left) / window.width, 0), 1)
+      : 0.5;
+
+  const withinY =
+    window.height > 0
+      ? Math.min(Math.max((pointer.y - window.top) / window.height, 0), 1)
+      : 0.5;
+
+  return {
+    x: roundMirrorPlace(along(withinX, region.x, region.width)),
+    y: roundMirrorPlace(along(withinY, region.y, region.height)),
     width: roundMirrorPlace(region.width),
     height: roundMirrorPlace(region.height),
   };

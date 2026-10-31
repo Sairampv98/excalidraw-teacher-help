@@ -1,65 +1,59 @@
-# The virtual display helper: the displays on this machine, and the window
-# that goes on one of them.
+# The window helper: finds the editor's window by rule, moves it WITHOUT taking
+# the focus, and measures what the move did (D-328).
 #
 # The extension spawns this and reads its stdout. Every line is ONE json
 # object, so the reader never has to guess where a record ends:
 #
-#   -Mode Enumerate          one object per display on the machine
-#   -Mode Find               one object: the window the RULE finds
-#   -Mode Place              one object: what the placement did
+#   -Mode Find       one object: the window the RULE finds
+#   -Mode Place      one object: what the placement did
+#   -Mode Primary    one object: the work area of the primary display
+#   -Mode Displays   one object: every display on the machine, and which are virtual
 #
 # WHY a helper and not a library: the extension has NO runtime dependency of
 # its own, and PowerShell is on every Windows machine - the same reason the
 # capture helper (capture.ps1) is a PowerShell script.
 #
-# WHY the displays are enumerated and not guessed: the teacher may have NO
-# virtual display at all, and the feature has to say so plainly and fall back
-# to the desktop (D-145). A silent failure is not an option, and a crash is
-# not an option either - so every mode answers with a fact.
+# WHAT it is for: PARKING. The teacher's editor goes far off every display, and
+# it keeps working there - measured on this machine, a VS Code window at
+# -30000,-30000 kept drawing its frames to PrintWindow, took every kind of input
+# and saved its file. So no virtual display driver is needed (D-329), and none
+# is used.
 #
-# WHY an adapter with NO current mode is still reported (D-146): a virtual
-# display driver can be INSTALLED and its monitor DETACHED - VDD Control keeps
-# a monitor detached until the teacher sets its mode to Extend, and until then
-# the monitor is not part of the desktop's coordinate space, so no window can
-# be placed on it. Skipping that adapter made the tool say "there is no virtual
-# display" to a teacher who had already installed one. The rule: **a driver
-# that is installed but not attached is still a fact, and the fact names the
-# click.** So a VIRTUAL adapter with no mode is reported as a detached virtual
-# display, with the reason that says what to do. An adapter with no mode that
-# is NOT virtual (the other outputs of the same GPU) is not a display at all,
-# and it is still not reported.
+# WHY the process is DPI aware: a window's place is read and written in pixels,
+# and a process that is not DPI aware reads and writes VIRTUALISED ones - the
+# window would be parked at -30000 of one scale and measured at another, and
+# the places the input helper delivers to would not be the places in the
+# window. Every helper of the extension uses the real pixels.
 #
-# WHY the window is found BY RULE (D-112, D-113): the presenter's window is
-# NOT remembered by its handle. The handle changes when the browser recreates
-# its window, and `MainWindowHandle` is 0 for a hidden or a minimised one.
-# The rule is the window's TITLE - the presenter names its own window
-# "Excalidraw - Presenter view" - and the lookup does not care whether the
-# window is in front: a window on a virtual display is found exactly like a
-# window on the desktop.
+# WHY the window is found BY RULE (D-112, D-113): the window is NOT remembered
+# by its handle. The handle changes when the editor recreates its window, and
+# `MainWindowHandle` is 0 for a hidden or a minimised one. The rule is the
+# editor's process and its TITLE - the workspace folder's name is in it - and the
+# lookup does not care whether the window is in front: a window that is parked
+# is found exactly like a window on the desktop.
 #
 # WHY the placement does not activate the window: SWP_NOACTIVATE. The teacher
-# is typing in their editor while the presenter's window moves to the virtual
-# display, and a window that grabs the focus while it moves takes their
-# keystrokes away. The rule: **the presenter's window may move, and it may
-# never take the focus.**
+# is typing in their editor while their window is parked, and a window that
+# grabs the focus while it moves takes their keystrokes away. The rule: **the
+# window may move, and it may never take the focus** (D-147).
 #
-# WHY the placement is MEASURED and not believed (D-147): SetWindowPos returns
+# WHY the placement is MEASURED and not believed (D-150): SetWindowPos returns
 # TRUE on a MAXIMISED window and the window does not move - Windows puts it
 # back to the work area of the display it was on. A tool that believes the
-# return value tells the teacher their window is on the projector when it is
-# not. So a maximised window is un-maximised first (by the style route, which
-# never activates anything), the rect is READ BACK afterwards, and the answer
-# is the measured one. The rule: **a move that did not happen is never
+# return value tells the teacher their window is parked when it is not. So a
+# maximised window is un-maximised first (SW_RESTORE, which never activates a
+# window that is not minimised), the rect is READ BACK afterwards, and the
+# answer is the measured one. The rule: **a move that did not happen is never
 # reported as one.**
 #
 # WHY a window can come BACK (D-149): the feature is not a one-way door. The
-# same helper puts a window back on the primary display, and -Maximise puts
-# the window back into the maximised state it was in before it moved.
+# same helper puts a window back, and -Maximise puts it back into the maximised
+# state it was in before it was parked.
 #
-# Arguments: -Mode <Enumerate|Find|Place> -TitleLike <substring>
-#            -ProcessName <name> -Handle <n> -X -Y -Width -Height
+# Arguments: -Mode <Find|Place|Primary|Displays> -TitleLike <substring>
+#            -ProcessName <name> -Handle <n> -X -Y -Width -Height -Maximise
 param(
-  [ValidateSet('Enumerate', 'Find', 'Place')][string]$Mode = 'Enumerate',
+  [ValidateSet('Find', 'Place', 'Primary', 'Displays')][string]$Mode = 'Find',
   [string]$TitleLike = '',
   [string]$ProcessName = '',
   [long]$Handle = 0,
@@ -78,61 +72,9 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
 
-public class VdCap {
+public class WinPark {
   [StructLayout(LayoutKind.Sequential)]
   public struct RECT { public int Left, Top, Right, Bottom; }
-
-  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-  public struct DISPLAY_DEVICE {
-    public int cb;
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string DeviceName;
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceString;
-    public int StateFlags;
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceID;
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceKey;
-  }
-
-  // DEVMODEW, exactly as the SDK declares it: the union after dmFields is
-  // spelled out, because a struct that does not match the native one is
-  // refused by the OS - and a refused mode means no resolution at all.
-  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-  public struct DEVMODE {
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmDeviceName;
-    public short dmSpecVersion;
-    public short dmDriverVersion;
-    public short dmSize;
-    public short dmDriverExtra;
-    public int dmFields;
-    public int dmPositionX;
-    public int dmPositionY;
-    public int dmDisplayOrientation;
-    public int dmDisplayFixedOutput;
-    public short dmColor;
-    public short dmDuplex;
-    public short dmYResolution;
-    public short dmTTOption;
-    public short dmCollate;
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmFormName;
-    public short dmLogPixels;
-    public int dmBitsPerPel;
-    public int dmPelsWidth;
-    public int dmPelsHeight;
-    public int dmDisplayFlags;
-    public int dmDisplayFrequency;
-    public int dmICMMethod;
-    public int dmICMIntent;
-    public int dmMediaType;
-    public int dmDitherType;
-    public int dmReserved1;
-    public int dmReserved2;
-    public int dmPanningWidth;
-    public int dmPanningHeight;
-  }
-
-  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-  static extern bool EnumDisplayDevices(string lpDevice, uint iDevNum, ref DISPLAY_DEVICE device, uint flags);
-  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-  static extern bool EnumDisplaySettings(string deviceName, int modeNum, ref DEVMODE dm);
 
   public delegate bool EnumProc(IntPtr hwnd, IntPtr lParam);
   [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc proc, IntPtr lParam);
@@ -147,60 +89,88 @@ public class VdCap {
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")]
   static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+  [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr context);
+  [DllImport("user32.dll")] static extern bool SystemParametersInfo(uint action, uint param, out RECT rect, uint flags);
 
-  /// The display devices the OS reports for one adapter.
-  public static DISPLAY_DEVICE[] DisplayDevices(string adapter) {
-    List<DISPLAY_DEVICE> found = new List<DISPLAY_DEVICE>();
-    for (uint i = 0; i < 64; i++) {
-      DISPLAY_DEVICE device = new DISPLAY_DEVICE();
-      device.cb = Marshal.SizeOf(typeof(DISPLAY_DEVICE));
-      if (!EnumDisplayDevices(adapter, i, ref device, 0)) break;
-      found.Add(device);
-    }
-    return found.ToArray();
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  public struct DISPLAY_DEVICE {
+    public int cb;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string DeviceName;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceString;
+    public int StateFlags;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceID;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceKey;
   }
 
-  /// Every display ADAPTER on the machine.
-  ///
-  /// It is its own method because the adapter list is enumerated with a NULL
-  /// device name, and PowerShell turns a null into an empty string on the way
-  /// in - and an empty device name enumerates nothing at all.
-  public static DISPLAY_DEVICE[] Adapters() {
-    List<DISPLAY_DEVICE> found = new List<DISPLAY_DEVICE>();
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  public struct MONITORINFOEX {
+    public int cbSize;
+    public RECT rcMonitor;
+    public RECT rcWork;
+    public int dwFlags;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string szDevice;
+  }
+
+  public delegate bool MonitorProc(IntPtr monitor, IntPtr hdc, ref RECT rect, IntPtr data);
+  [DllImport("user32.dll")]
+  static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr clip, MonitorProc proc, IntPtr data);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+  static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFOEX info);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+  static extern bool EnumDisplayDevices(string device, uint index, ref DISPLAY_DEVICE found, uint flags);
+
+  public class DisplayInfo {
+    public string Device;
+    public string Adapter;
+    public bool Virtual;
+    public bool Primary;
+    public int X, Y, Width, Height;
+  }
+
+  /// Every display that is part of the desktop, in real pixels, and whether its
+  /// adapter says it is a virtual one (an indirect display driver names itself in
+  /// its description, its id or its key).
+  public static DisplayInfo[] Displays() {
+    Dictionary<string, string> adapters = new Dictionary<string, string>();
+
     for (uint i = 0; i < 64; i++) {
       DISPLAY_DEVICE device = new DISPLAY_DEVICE();
       device.cb = Marshal.SizeOf(typeof(DISPLAY_DEVICE));
       if (!EnumDisplayDevices(null, i, ref device, 0)) break;
-      found.Add(device);
+      adapters[device.DeviceName] = device.DeviceString + " | " + device.DeviceID + " | " + device.DeviceKey;
     }
+
+    List<DisplayInfo> found = new List<DisplayInfo>();
+
+    EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, delegate(IntPtr monitor, IntPtr hdc, ref RECT rect, IntPtr data) {
+      MONITORINFOEX info = new MONITORINFOEX();
+      info.cbSize = Marshal.SizeOf(typeof(MONITORINFOEX));
+
+      if (GetMonitorInfo(monitor, ref info)) {
+        string text;
+        if (!adapters.TryGetValue(info.szDevice, out text)) text = "";
+
+        DisplayInfo display = new DisplayInfo();
+        display.Device = info.szDevice;
+        display.Adapter = text;
+        display.Virtual = System.Text.RegularExpressions.Regex.IsMatch(text, "virtual|indirect|\\bidd\\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        display.Primary = (info.dwFlags & 1) != 0;
+        display.X = info.rcMonitor.Left;
+        display.Y = info.rcMonitor.Top;
+        display.Width = info.rcMonitor.Right - info.rcMonitor.Left;
+        display.Height = info.rcMonitor.Bottom - info.rcMonitor.Top;
+        found.Add(display);
+      }
+
+      return true;
+    }, IntPtr.Zero);
+
     return found.ToArray();
   }
 
-  /// The mode a display is in RIGHT NOW: its size and where it sits.
-  ///
-  /// It is returned as a plain object rather than through an `out` parameter,
-  /// because PowerShell binds `out` parameters by reference and a struct that
-  /// comes back empty is a display with no resolution - which is a silent
-  /// failure, and the one thing this helper must never do.
-  public class ScreenMode {
-    public int Width;
-    public int Height;
-    public int X;
-    public int Y;
-  }
-
-  public static ScreenMode CurrentMode(string deviceName) {
-    DEVMODE dm = new DEVMODE();
-    dm.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
-    if (!EnumDisplaySettings(deviceName, -1, ref dm)) {
-      return null;
-    }
-    ScreenMode mode = new ScreenMode();
-    mode.Width = dm.dmPelsWidth;
-    mode.Height = dm.dmPelsHeight;
-    mode.X = dm.dmPositionX;
-    mode.Y = dm.dmPositionY;
-    return mode;
+  /// Every pixel this helper reads or writes is a real one.
+  public static void BeDpiAware() {
+    SetProcessDpiAwarenessContext(new IntPtr(-4));
   }
 
   public class WindowInfo {
@@ -240,6 +210,13 @@ public class VdCap {
     return found.ToArray();
   }
 
+  /// The work area of the primary display: where a window can be put.
+  public static int[] WorkArea() {
+    RECT rect;
+    if (!SystemParametersInfo(0x0030, 0, out rect, 0)) return new int[] { 0, 0, 0, 0 };
+    return new int[] { rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top };
+  }
+
   /// SWP_NOACTIVATE (16) + SWP_NOZORDER (4) + SWP_SHOWWINDOW (64)
   ///
   /// NOACTIVATE is the important one: the window moves and it does NOT take
@@ -261,19 +238,12 @@ public class VdCap {
   /// The window styles and the window long index.
   ///
   /// WS_MAXIMIZE is the bit that says "this window is maximised". It is read
-  /// and cleared by the STYLE route, which never activates anything.
+  /// by the STYLE route, which never activates anything.
   public const int WS_MAXIMIZE = 0x01000000;
   public const int GWL_STYLE = -16;
 
-  /// The adapter's own flags: is it on the desktop, and is it the primary one?
-  public const int DISPLAY_DEVICE_ATTACHED_TO_DESKTOP = 0x1;
-  public const int DISPLAY_DEVICE_PRIMARY_DEVICE = 0x4;
-
   [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
   static extern int GetWindowLong(IntPtr hwnd, int index);
-
-  [DllImport("user32.dll", EntryPoint = "SetWindowLongW")]
-  static extern int SetWindowLong(IntPtr hwnd, int index, int value);
 
   [DllImport("user32.dll")]
   static extern bool ShowWindow(IntPtr hwnd, int command);
@@ -281,7 +251,7 @@ public class VdCap {
   /// How far the measured rect may be from the requested one, in pixels.
   public const int PLACE_TOLERANCE = 2;
 
-  /// What a placement DID - measured, never believed (D-147).
+  /// What a placement DID - measured, never believed (D-150).
   ///
   /// SetWindowPos returns TRUE on a MAXIMISED window and the window does not
   /// move: Windows puts it back to the work area of the display it was on. So
@@ -335,7 +305,7 @@ public class VdCap {
 
   /// Put a window on a rectangle, and MEASURE what happened.
   ///
-  /// The rule (D-147): **a move that did not happen is never reported as one.**
+  /// The rule (D-150): **a move that did not happen is never reported as one.**
   /// So the window is read back and the measured rect is the answer.
   public static Placement Place(IntPtr hwnd, int x, int y, int width, int height, bool maximise) {
     Placement result = new Placement();
@@ -423,106 +393,16 @@ public class VdCap {
 '@
 Add-Type -TypeDefinition $code
 
+[WinPark]::BeDpiAware()
+
 function Write-Json($value) {
   # one json object per line, so the reader never has to guess where a
   # record ends - and nothing else is ever written to stdout
   Write-Output (ConvertTo-Json -InputObject $value -Compress -Depth 4)
 }
 
-function Test-VirtualText($text) {
-  # The rule that tells a VIRTUAL display from a real one - the same rule the
-  # extension applies to what this helper reports: an indirect display driver
-  # says so in its own name ("Virtual Display Driver"), in its id, or in its
-  # key in the registry.
-  if (-not $text) { return $false }
-  return ($text -match '(?i)virtual|indirect|\bidd\b')
-}
-
 try {
-  if ($Mode -eq 'Enumerate') {
-    # every display adapter, and the display device that is attached to it
-    foreach ($adapter in [VdCap]::Adapters()) {
-      # is this adapter a VIRTUAL display? an indirect display driver says so
-      # in its own name, its id or its registry key
-      $virtual = (Test-VirtualText $adapter.DeviceString) -or
-                 (Test-VirtualText $adapter.DeviceID) -or
-                 (Test-VirtualText $adapter.DeviceKey) -or
-                 (($adapter.StateFlags -band 16) -ne 0)
-
-      $screen = [VdCap]::CurrentMode($adapter.DeviceName)
-      $detached = ($null -eq $screen)
-
-      if ($detached -and -not $virtual) {
-        # no mode, and not a virtual display: this output has nothing
-        # attached to it at all. It is not a screen, so it is not reported
-        # as one.
-        continue
-      }
-
-      $name = ''
-      $deviceId = ''
-      $deviceKey = ''
-      $deviceFlags = 0
-
-      foreach ($display in [VdCap]::DisplayDevices($adapter.DeviceName)) {
-        $name = $display.DeviceString
-        $deviceId = $display.DeviceID
-        $deviceKey = $display.DeviceKey
-        $deviceFlags = $display.StateFlags
-        break
-      }
-
-      # The ADAPTER's own flags are the OS's word for "this display is on the
-      # desktop" and "this display is the primary one". The monitor's flags
-      # are the monitor's own business - a virtual display's monitor claims to
-      # be primary too, and it is not.
-      $attached = (($adapter.StateFlags -band 1) -ne 0)
-      $primary = (($adapter.StateFlags -band 4) -ne 0)
-
-      if ($detached) {
-        # a VIRTUAL display whose monitor is NOT attached to the desktop:
-        # there is no mode, so it has no size and no place, and no window
-        # can be placed on it yet. It is reported anyway (D-146) - the driver
-        # is installed, that is a fact, and the fact names the click.
-        $width = 0
-        $height = 0
-        $x = 0
-        $y = 0
-        $attached = $false
-        $primary = $false
-        $reason = 'the virtual display is installed but its monitor is DETACHED - open VDD Control and set the monitor to Extend, and it joins the desktop'
-      }
-      else {
-        $width = $screen.Width
-        $height = $screen.Height
-        $x = $screen.X
-        $y = $screen.Y
-        $reason = ''
-      }
-
-      Write-Json ([ordered]@{
-        device      = $adapter.DeviceName
-        name        = $name
-        adapter     = $adapter.DeviceString
-        adapterId   = $adapter.DeviceID
-        adapterKey  = $adapter.DeviceKey
-        deviceId    = $deviceId
-        deviceKey   = $deviceKey
-        width       = $width
-        height      = $height
-        x           = $x
-        y           = $y
-        attached    = $attached
-        primary     = $primary
-        virtual     = $virtual
-        detached    = $detached
-        reason      = $reason
-        adapterFlags = $adapter.StateFlags
-        deviceFlags  = $deviceFlags
-      })
-    }
-  }
-  elseif ($Mode -eq 'Find') {
+  if ($Mode -eq 'Find') {
     $owned = @{}
     if ($ProcessName) {
       Get-Process -Name $ProcessName -ErrorAction SilentlyContinue | ForEach-Object {
@@ -531,7 +411,7 @@ try {
     }
 
     $matches = @()
-    foreach ($candidate in [VdCap]::TopLevelWindows()) {
+    foreach ($candidate in [WinPark]::TopLevelWindows()) {
       if ($ProcessName -and -not $owned.ContainsKey($candidate.Pid)) { continue }
       if ($candidate.Class -eq 'ConsoleWindowClass') { continue }
       if (-not $candidate.Title) { continue }
@@ -561,10 +441,10 @@ try {
     }
   }
   elseif ($Mode -eq 'Place') {
-    $result = [VdCap]::Place([IntPtr]::new($Handle), $X, $Y, $Width, $Height, [bool]$Maximise)
+    $result = [WinPark]::Place([IntPtr]::new($Handle), $X, $Y, $Width, $Height, [bool]$Maximise)
 
     # The MEASURED rect, and the truth about the move: a move that did not
-    # happen is never reported as one (D-147).
+    # happen is never reported as one (D-150).
     Write-Json ([ordered]@{
       placed      = $result.Placed
       moved       = $result.Moved
@@ -580,10 +460,31 @@ try {
       reason      = $result.Reason
     })
   }
+  elseif ($Mode -eq 'Displays') {
+    $list = @()
+
+    foreach ($display in [WinPark]::Displays()) {
+      $list += [ordered]@{
+        device  = $display.Device
+        adapter = $display.Adapter
+        virtual = $display.Virtual
+        primary = $display.Primary
+        x       = $display.X
+        y       = $display.Y
+        width   = $display.Width
+        height  = $display.Height
+      }
+    }
+
+    Write-Json ([ordered]@{ displays = $list })
+  }
+  elseif ($Mode -eq 'Primary') {
+    $area = [WinPark]::WorkArea()
+    Write-Json ([ordered]@{ x = $area[0]; y = $area[1]; width = $area[2]; height = $area[3] })
+  }
 }
 catch {
-  # a failure is a MESSAGE, not a silence: the panel has to be able to say
-  # why there is no virtual display (D-75)
+  # a failure is a MESSAGE, not a silence
   Write-Json ([ordered]@{ error = $_.Exception.Message })
   exit 1
 }

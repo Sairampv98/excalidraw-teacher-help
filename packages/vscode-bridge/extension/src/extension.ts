@@ -15,7 +15,8 @@ import {
   resolveCaptureFps,
   resolvePort,
   resolvePythonPath,
-  resolveToken,
+  resolveSessionToken,
+  KEPT_SESSION_SLOT,
 } from "./config";
 import {
   documentForTabUri,
@@ -32,6 +33,8 @@ import {
   resolveEngineState,
   stopOcrSidecar,
 } from "./ocrEngines";
+import { installIndra, isIndraMissing, pythonForSidecar } from "./indraEnv";
+import { createPerfMonitor, formatPerfReport } from "./perfMonitor";
 import { portConflictMessage } from "./portConflict";
 import { createRunPseudoterminal } from "./pseudoterminal";
 import { createRunner, type Runner } from "./runner";
@@ -44,16 +47,25 @@ import {
   type PanelState,
 } from "./inputPanel";
 import {
-  createVirtualDisplay,
-  PRESENTER_WINDOW_TITLE,
-  VIRTUAL_DISPLAY_SCRIPT_RELATIVE_PATH,
-} from "./virtualDisplay";
-import {
   CAPTURE_SCRIPT_RELATIVE_PATH,
   createWindowCaptureSupervisor,
   editorProcessName,
   type WindowCaptureSupervisor,
 } from "./windowCapture";
+import {
+  createInputGate,
+  createWindowInput,
+  INPUT_ROUTE_CHOICES,
+  INPUT_SCRIPT_RELATIVE_PATH,
+  resolveInputRoute,
+  type InputHelperState,
+  type WindowInput,
+} from "./windowInput";
+import {
+  createWindowPark,
+  WINDOW_SCRIPT_RELATIVE_PATH,
+  type WindowRule,
+} from "./windowPark";
 import { createCoalescedPublisher } from "./publish";
 
 import type { OcrEngineState, OcrRequest } from "../../bridge/src/ocr";
@@ -83,6 +95,12 @@ let bridgeServer: ReturnType<typeof createBridgeServer> | null = null;
 let captureSupervisor: WindowCaptureSupervisor | null = null;
 
 /**
+ * What has to happen to the editor's window when the extension goes away: the
+ * input helper stops, and a window that was parked is brought back (D-328).
+ */
+let shutdownWindow: (() => Promise<void>) | null = null;
+
+/**
  * The editor's text, published **at most every 100 ms** (D-88).
  *
  * It is a module-level variable so that `deactivate` can flush the last
@@ -91,13 +109,42 @@ let captureSupervisor: WindowCaptureSupervisor | null = null;
  */
 let textPublisher: CoalescedPublisher | null = null;
 
-export function activate(context: vscode.ExtensionContext): void {
+/** what the panel says while the editor's window is on the virtual display (D-350) */
+const VIRTUAL_REASON =
+  "real input was chosen: the editor's window is brought to the front for a moment - on the virtual display, out of your way";
+
+export async function activate(
+  context: vscode.ExtensionContext,
+): Promise<void> {
   extensionVersion = context.extension?.packageJSON?.version ?? "0.0.0";
 
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const configuration = vscode.workspace.getConfiguration(CONFIG_SECTION);
   const port = resolvePort(workspaceRoot, configuration.get<number>("port"));
-  const { token, generated } = resolveToken(configuration.get<string>("token"));
+  // The token of the session is KEPT in the editor's secret storage (D-333):
+  // a reload of the editor gives the page the token it already has, so the
+  // page reconnects by itself instead of retrying a token that is gone.
+  let storedToken: string | undefined;
+
+  try {
+    storedToken = await context.secrets.get(KEPT_SESSION_SLOT);
+  } catch {
+    // no secret storage here: the token is made for this session, as it was
+    storedToken = undefined;
+  }
+
+  const { token, generated, reused } = resolveSessionToken(
+    configuration.get<string>("token"),
+    storedToken,
+  );
+
+  if (generated && !reused) {
+    try {
+      await context.secrets.store(KEPT_SESSION_SLOT, token);
+    } catch {
+      // not kept: the next start makes a new one
+    }
+  }
   /**
    * The teacher's **own** YouTube API key (D-129).
    *
@@ -235,7 +282,11 @@ export function activate(context: vscode.ExtensionContext): void {
       // the window's title holds the workspace folder's name
       titleLike: workspace,
       fps: resolveCaptureFps(configuration.get<number>("captureFps")),
+      onPerf: (perf) => perfMonitor.recordHelper(perf),
       onFrame: (frame) => {
+        // only a picture that differs gets here: the key that waited has shown
+        perfMonitor.pictureChanged();
+
         // The picture goes to the MJPEG STREAM and to nothing else (D-85).
         bridgeServer?.publishFrame({
           bytes: frame.bytes,
@@ -374,7 +425,19 @@ export function activate(context: vscode.ExtensionContext): void {
   const configuredEngine = resolveOcrEngine(
     configuration.get<string>("ocrEngine"),
   );
-  const pythonPath = resolvePythonPath(configuration.get<string>("pythonPath"));
+  const configuredPython = resolvePythonPath(
+    configuration.get<string>("pythonPath"),
+  );
+
+  /**
+   * The Python the sidecar runs in: the private environment the extension made
+   * for indra once there is one, and the teacher's own Python until then
+   * (D-353).
+   */
+  let pythonPath = pythonForSidecar({
+    configured: configuredPython,
+    storageDir: context.globalStorageUri.fsPath,
+  });
 
   /**
    * Whether the teacher has already been told about the fall-back.
@@ -447,6 +510,70 @@ export function activate(context: vscode.ExtensionContext): void {
     publishOcrState(state);
   };
 
+  /**
+   * Installs the indra engine in an environment of its own (D-353).
+   *
+   * The sidecar is stopped and started again in the new environment, and the
+   * panel is told the engine is there - so the next read uses it without the
+   * teacher doing anything else.
+   */
+  const installIndraEngine = async () => {
+    const outcome = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title:
+          "Excalidraw Bridge: installing the indra OCR engine (one download, about 270 MB)",
+        cancellable: false,
+      },
+      () =>
+        installIndra({
+          basePython: configuredPython,
+          storageDir: context.globalStorageUri.fsPath,
+          extensionDir: context.extensionPath,
+        }),
+    );
+
+    if (!outcome.ok || !outcome.python) {
+      void vscode.window.showErrorMessage(
+        `Excalidraw Bridge: ${outcome.message}`,
+      );
+
+      return;
+    }
+
+    stopOcrSidecar();
+    pythonPath = outcome.python;
+    await resolveTheEngine();
+
+    void vscode.window.showInformationMessage(
+      "Excalidraw Bridge: indra is installed - the next read uses it. (Its model downloads the first time it reads.)",
+    );
+  };
+
+  /** the teacher is asked once whether indra is installed now (D-353) */
+  let offeredIndra = false;
+
+  const offerIndraInstall = async () => {
+    if (offeredIndra) {
+      return;
+    }
+
+    offeredIndra = true;
+
+    const choice = await vscode.window.showInformationMessage(
+      "Excalidraw Bridge: the indra OCR engine is not installed on this machine, so the text was read with tesseract. Install indra now? It is one download of about 270 MB, made once, in an environment of its own.",
+      "Install indra",
+      "Not now",
+    );
+
+    if (choice === "Install indra") {
+      await installIndraEngine();
+    } else {
+      // asked again the next time the teacher reads with indra
+      offeredIndra = false;
+    }
+  };
+
   const readText = async (request: OcrRequest) => {
     try {
       // the request may name an engine; when it does not, the setting decides
@@ -500,7 +627,14 @@ export function activate(context: vscode.ExtensionContext): void {
         message,
       });
 
-      vscode.window.showErrorMessage(`Excalidraw Bridge: ${message}`);
+      // indra that is not installed is a choice, not an error: the read was
+      // taken by the next engine, and the teacher is offered the install once
+      // (D-353)
+      if (isIndraMissing(message)) {
+        void offerIndraInstall();
+      } else {
+        vscode.window.showErrorMessage(`Excalidraw Bridge: ${message}`);
+      }
     }
   };
 
@@ -529,7 +663,10 @@ export function activate(context: vscode.ExtensionContext): void {
     );
   };
 
-  const handleBridgeMessage = (message: BridgeMessage) => {
+  const handleBridgeMessage = (
+    message: BridgeMessage,
+    connection?: BridgeConnection,
+  ) => {
     switch (message.type) {
       case "run:start":
         void runCommand(message);
@@ -555,6 +692,44 @@ export function activate(context: vscode.ExtensionContext): void {
           message,
         );
         break;
+      case "editor:control":
+        // The canvas may touch the editor's window only when the teacher said
+        // so, and the connection that said so is the one that is heard
+        // (D-323, D-327).
+        setControl(message.enabled, connection);
+        break;
+      case "editor:input": {
+        // One event for the editor's window: it passes the gate or it is
+        // dropped, and the gate says which (D-327).
+        const verdict = inputGate.accept(message.event, connection);
+
+        if (verdict.ok) {
+          windowInput?.send(verdict.line);
+
+          // a key (or typed text) is timed until the picture next changes
+          if (
+            verdict.line.startsWith("K down") ||
+            verdict.line.startsWith("T ")
+          ) {
+            perfMonitor.keySent();
+          }
+        } else if (verdict.why === "limited") {
+          noteLimited();
+        }
+
+        break;
+      }
+      case "editor:window":
+        // Park the editor's window, or bring it back (D-328): the teacher's
+        // choice, from the panel (D-148).
+        if (message.action === "park") {
+          void parkEditor();
+        } else if (message.action === "virtual") {
+          void moveToVirtualByChoice();
+        } else {
+          void bringBackByChoice();
+        }
+        break;
       case "ocr:request":
         void readText(message);
         break;
@@ -568,67 +743,78 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   /**
-   * The **virtual display** and the **input panel** (D-145).
+   * The editor's **own window**: parked out of sight, brought back, and
+   * controlled from the canvas (D-323, D-328), and the **input panel** (D-145).
    *
    * The screen the students see and the controls the teacher uses are
-   * different surfaces: the presenter's window goes on a virtual display when
-   * the machine has one, and the teacher drives it from a small page on their
-   * **real** screen.
+   * different surfaces: the teacher's own screen is for the canvas and their
+   * notes, and the editor's window can go out of sight and still be seen and
+   * driven from the canvas. It needs **nothing installed** (D-329): parking is
+   * a window move, and the control is posted input.
    *
-   * The virtual display is a **Windows** feature - it is the indirect display
-   * driver - and it needs **no driver at all**: on a machine without one the
-   * feature says so plainly and the presenter's window opens on the desktop.
+   * Both are **Windows** features - they are Windows' own window APIs.
    */
-  const virtualDisplay = createVirtualDisplay({
-    scriptPath: join(
-      context.extensionPath,
-      VIRTUAL_DISPLAY_SCRIPT_RELATIVE_PATH,
-    ),
+  const windowPark = createWindowPark({
+    scriptPath: join(context.extensionPath, WINDOW_SCRIPT_RELATIVE_PATH),
   });
 
-  /** The panel's capability. It lives for the session. */
+  /** the editor's window, found BY RULE (D-112, D-113) */
+  const editorRule: WindowRule = {
+    titleLike: workspace,
+    // the OS process name is not the editor's name: VS Code runs as `Code`
+    processName: editorProcessName(appName),
+    subject: "your editor's window",
+  };
+
+  /** the panel's capability. It lives for the session. */
   let panelCapability: string | null = null;
 
-  /** What the panel shows about the presenter's screen. */
+  /** what the input panel shows about the editor's window */
   let panelState: PanelState = UNKNOWN_PANEL_STATE;
 
-  const refreshPanelState = async (): Promise<PanelState> => {
+  /**
+   * Is the editor's window parked? It is READ from the window, and published
+   * in the capture's descriptor so that every panel says the same thing.
+   */
+  const refreshWindowState = async (): Promise<PanelState> => {
     if (process.platform !== "win32") {
       panelState = {
-        display: null,
-        virtual: false,
+        parked: false,
         reason:
-          "the virtual display is a Windows feature - the presenter's window opens on the desktop",
+          "parking the editor's window is a Windows feature - your editor stays on the desktop",
       };
+
+      return panelState;
+    }
+
+    if (!workspace) {
+      panelState = {
+        parked: false,
+        reason:
+          "open a folder first - the editor's window is found by the folder's name",
+      };
+
       return panelState;
     }
 
     try {
-      const chosen = await virtualDisplay.target();
+      const parked = await windowPark.isParked(editorRule);
 
       panelState = {
-        display: chosen.display
-          ? {
-              device: chosen.display.device,
-              name: chosen.display.name,
-              width: chosen.display.width,
-              height: chosen.display.height,
-              x: chosen.display.x,
-              y: chosen.display.y,
-            }
-          : null,
-        virtual: chosen.virtual,
-        reason: chosen.reason,
-        // The click, when there is one: a virtual display that is installed
-        // but DETACHED is one click away (D-146), and the panel says which
-        // click it is.
-        remedy: chosen.remedy,
+        parked,
+        reason: parked
+          ? "the editor's window is parked: it keeps working, out of sight"
+          : "the editor's window is on a display",
       };
+
+      captureState.setParked(parked);
+      captureState.setVirtual(await windowPark.virtualState(editorRule));
     } catch (error) {
       panelState = {
-        display: null,
-        virtual: false,
-        reason: `the displays could not be read: ${(error as Error).message}`,
+        parked: false,
+        reason: `the editor's window could not be read: ${
+          (error as Error).message
+        }`,
       };
     }
 
@@ -636,21 +822,17 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   /**
-   * The **editor's own window** goes on the virtual display (D-147).
+   * Park the editor's window (D-328).
    *
-   * This is an **option the teacher chooses** (D-148): nothing moves until
-   * the teacher presses the panel's button or runs this command. Their
-   * window is theirs, and it stays exactly where they put it otherwise.
-   *
-   * The window is found **BY RULE** - the workspace folder's name is in its
-   * title, the same rule the capture uses (D-112, D-113) - and the placement
-   * never takes the focus, so the teacher keeps typing while their window
-   * moves.
+   * This is an **option the teacher chooses** (D-148): nothing moves until the
+   * teacher presses the panel's button or runs this command. The window is
+   * found **by rule**, and the move never takes the focus, so the teacher
+   * keeps typing while their window goes (D-147).
    */
-  const placeEditor = async () => {
+  const parkEditor = async () => {
     if (process.platform !== "win32") {
       void vscode.window.showInformationMessage(
-        "Excalidraw Bridge: the virtual display is a Windows feature - your editor stays on the desktop.",
+        "Excalidraw Bridge: parking the editor's window is a Windows feature - your editor stays on the desktop.",
       );
       return;
     }
@@ -663,14 +845,9 @@ export function activate(context: vscode.ExtensionContext): void {
     }
 
     try {
-      const result = await virtualDisplay.placeWindow({
-        titleLike: workspace,
-        // the OS process name is not the editor's name: VS Code runs as `Code`
-        processName: editorProcessName(appName),
-        subject: "your editor's window",
-      });
+      const result = await windowPark.park(editorRule);
 
-      await refreshPanelState();
+      await refreshWindowState();
 
       void vscode.window.showInformationMessage(
         `Excalidraw Bridge: ${result.reason}.`,
@@ -683,16 +860,13 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   /**
-   * The **editor's own window** comes BACK (D-149).
-   *
-   * The feature is not a one-way door: the window goes back to the display
-   * the teacher is working on, in the size it had before it moved, and
-   * maximised again if it was maximised before it moved.
+   * The editor's window comes BACK (D-149): the way the teacher had it, or on
+   * the primary display when nothing was kept.
    */
   const bringBackEditor = async () => {
     if (process.platform !== "win32") {
       void vscode.window.showInformationMessage(
-        "Excalidraw Bridge: the virtual display is a Windows feature - your editor is already on this screen.",
+        "Excalidraw Bridge: parking the editor's window is a Windows feature - your editor is already on this screen.",
       );
       return;
     }
@@ -705,13 +879,9 @@ export function activate(context: vscode.ExtensionContext): void {
     }
 
     try {
-      const result = await virtualDisplay.bringBack({
-        titleLike: workspace,
-        processName: editorProcessName(appName),
-        subject: "your editor's window",
-      });
+      const result = await windowPark.bringBack(editorRule);
 
-      await refreshPanelState();
+      await refreshWindowState();
 
       void vscode.window.showInformationMessage(
         `Excalidraw Bridge: ${result.reason}.`,
@@ -720,6 +890,357 @@ export function activate(context: vscode.ExtensionContext): void {
       void vscode.window.showErrorMessage(
         `Excalidraw Bridge: ${(error as Error).message}`,
       );
+    }
+  };
+
+  /**
+   * The teacher's own button: the window goes to the virtual display (D-351).
+   *
+   * It stays there - Control ending does not take it back - until the teacher
+   * brings it back to the main display.
+   */
+  const moveToVirtualByChoice = async () => {
+    if (process.platform !== "win32" || !workspace) {
+      void vscode.window.showInformationMessage(
+        "Excalidraw Bridge: moving the editor's window needs Windows and an open folder.",
+      );
+      return;
+    }
+
+    chosenVirtual = true;
+    declinedVirtual = false;
+
+    const moved = await moveToVirtual();
+
+    if (!moved) {
+      chosenVirtual = false;
+
+      void vscode.window.showInformationMessage(
+        "Excalidraw Bridge: there is no virtual display on this machine to put the editor's window on.",
+      );
+    }
+
+    await refreshWindowState();
+  };
+
+  /**
+   * The teacher's own button: the window comes back to the main display, from
+   * the virtual display or from where it was parked (D-149, D-351).
+   */
+  const bringBackByChoice = async () => {
+    chosenVirtual = false;
+    declinedVirtual = true;
+    onVirtualDisplay = false;
+
+    await bringBackEditor();
+  };
+
+  /**
+   * The **control** of the editor's window (D-323 to D-327).
+   *
+   * It is off until a panel turns it on, and it is off again when that panel's
+   * connection ends. The helper that delivers the input runs only while
+   * Control is on.
+   */
+  const inputGate = createInputGate();
+
+  let windowInput: WindowInput | null = null;
+
+  /** what the helper last said about the way in (D-326) */
+  let helperState: InputHelperState = {
+    route: "none",
+    reason: "Control is off",
+  };
+
+  /** are events being dropped for being too many right now? (D-327) */
+  let limited = false;
+
+  /**
+   * Where the mirror's time goes (D-370): the capture helper's own numbers,
+   * and how far behind its timer this extension host is - the host is the one
+   * thread that every extension of the editor shares, and the mirror's stream
+   * is served from it.
+   */
+  const perfMonitor = createPerfMonitor();
+  const perfChannel = vscode.window.createOutputChannel("Excalidraw Bridge");
+  let lagLast = Date.now();
+  const lagTimer = setInterval(() => {
+    const at = Date.now();
+
+    perfMonitor.recordHostLag(Math.max(0, at - lagLast - 100));
+    lagLast = at;
+  }, 100);
+
+  lagTimer.unref?.();
+  context.subscriptions.push({
+    dispose: () => {
+      clearInterval(lagTimer);
+      perfChannel.dispose();
+    },
+  });
+
+  /**
+   * Whether the editor's window was put on the **virtual display** for the
+   * focus route (D-350).
+   *
+   * Real input goes to the window in front, so on this route the window is
+   * brought to the front for every burst of input - and on the teacher's own
+   * screen that is a window that jumps up and goes back. On a virtual display
+   * it jumps up where nobody is looking. It is put there when the route turns
+   * out to be the focus route, and it is put back when Control ends.
+   */
+  let onVirtualDisplay = false;
+
+  /** the move to the virtual display is tried once for each Control session */
+  let virtualTried = false;
+
+  /**
+   * The teacher put the window on the virtual display themselves (D-351): it
+   * stays there until they bring it back, and Control ending does not.
+   */
+  let chosenVirtual = false;
+
+  /**
+   * The teacher brought the window back to the main display themselves
+   * (D-351): the focus route leaves it there until Control ends.
+   */
+  let declinedVirtual = false;
+
+  /** the window is put on the virtual display, and the helper looks again */
+  const moveToVirtual = async (): Promise<boolean> => {
+    virtualTried = true;
+
+    try {
+      const result = await windowPark.moveToVirtualDisplay(editorRule);
+
+      if (!result.ok) {
+        // no virtual display: the route works on the teacher's own screen, and
+        // the reason says what would make it better
+        helperState = {
+          route: helperState.route,
+          reason:
+            helperState.route === "focus"
+              ? "real input was chosen: the editor's window is brought to the front for a moment - a virtual display would keep that out of your way"
+              : helperState.reason,
+        };
+        publishControl();
+
+        return false;
+      }
+
+      onVirtualDisplay = true;
+
+      await refreshWindowState();
+
+      helperState = {
+        route: helperState.route,
+        reason: VIRTUAL_REASON,
+      };
+      publishControl();
+
+      if (result.moved) {
+        windowInput?.send("R");
+      }
+
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  /** the window comes back from the virtual display, when it was put there */
+  const leaveVirtualDisplay = async () => {
+    virtualTried = false;
+    declinedVirtual = false;
+
+    // a window the teacher put there stays there until they bring it back
+    if (!onVirtualDisplay || chosenVirtual) {
+      return;
+    }
+
+    onVirtualDisplay = false;
+
+    try {
+      await windowPark.bringBack(editorRule);
+      await refreshWindowState();
+    } catch {
+      // the window may be gone already
+    }
+  };
+
+  const publishControl = () => {
+    captureState.setControl({
+      enabled: inputGate.enabled,
+      route: inputGate.enabled ? helperState.route : "none",
+      reason: !inputGate.enabled
+        ? "Control is off"
+        : limited
+        ? "some input came too fast and was dropped"
+        : helperState.reason,
+    });
+  };
+
+  // The control is announced from the FIRST message of the descriptor, off:
+  // a panel draws its Control switch only when the extension says it has one
+  // (D-323), and it used to say so only once somebody had turned it on.
+  publishControl();
+
+  /** said once while the limit is dropping events, and not for every one */
+  const noteLimited = () => {
+    if (limited) {
+      return;
+    }
+
+    limited = true;
+    publishControl();
+
+    setTimeout(() => {
+      limited = false;
+      publishControl();
+    }, 2000);
+  };
+
+  /**
+   * The helper, with the route the setting says NOW (D-335): the setting is
+   * read again every time, because the pick list changes it while the editor
+   * runs.
+   */
+  const makeWindowInput = (): WindowInput =>
+    createWindowInput({
+      scriptPath: join(context.extensionPath, INPUT_SCRIPT_RELATIVE_PATH),
+      processName: editorProcessName(appName),
+      titleLike: workspace,
+      route: resolveInputRoute(
+        vscode.workspace
+          .getConfiguration(CONFIG_SECTION)
+          .get<string>("inputRoute"),
+      ),
+      onState: (state) => {
+        helperState =
+          onVirtualDisplay && state.route === "focus"
+            ? { route: state.route, reason: VIRTUAL_REASON }
+            : state;
+        publishControl();
+
+        // the focus route: the window goes to the virtual display, if there is
+        // one (D-350)
+        if (
+          state.route === "focus" &&
+          inputGate.enabled &&
+          !onVirtualDisplay &&
+          !virtualTried &&
+          !declinedVirtual
+        ) {
+          void moveToVirtual();
+        }
+      },
+      onStatus: (text) => {
+        // something the teacher should read: it replaces the reason until
+        // the helper says the route again
+        helperState = { ...helperState, reason: text };
+        publishControl();
+      },
+      // Real input goes to the window in front, and a parked window is on no
+      // display: the window is brought back, and the helper looks again
+      // (D-336). The window is the teacher's, so it is said.
+      onNeed: () => {
+        void (async () => {
+          // a virtual display is where the window goes when there is one
+          // (D-350); the teacher's own screen when there is not (D-336)
+          if (!declinedVirtual && (await moveToVirtual())) {
+            return;
+          }
+
+          const result = await windowPark.bringBack(editorRule);
+
+          await refreshWindowState();
+
+          helperState = {
+            route: helperState.route,
+            reason: result.ok
+              ? "real input needs the editor's window on a display, so it was brought back"
+              : result.reason,
+          };
+          publishControl();
+
+          if (result.ok) {
+            windowInput?.send("R");
+          }
+        })();
+      },
+    });
+
+  const setControl = (enabled: boolean, from?: BridgeConnection) => {
+    if (process.platform !== "win32") {
+      helperState = {
+        route: "none",
+        reason: "the control of the editor's window needs Windows",
+      };
+      publishControl();
+      return;
+    }
+
+    inputGate.setEnabled(enabled, from);
+
+    if (enabled) {
+      if (!windowInput) {
+        windowInput = makeWindowInput();
+      }
+
+      helperState = { route: "none", reason: "starting the input helper" };
+      windowInput.start();
+    } else {
+      windowInput?.stop();
+      windowInput = null;
+      void leaveVirtualDisplay();
+    }
+
+    publishControl();
+  };
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (
+        event.affectsConfiguration(`${CONFIG_SECTION}.inputRoute`) &&
+        inputGate.enabled &&
+        windowInput
+      ) {
+        windowInput.stop();
+        windowInput = makeWindowInput();
+        helperState = { route: "none", reason: "starting the input helper" };
+        windowInput.start();
+        publishControl();
+      }
+    }),
+  );
+
+  /** a connection ended: when it was the one that had Control, it is off (D-327) */
+  const onBridgeDisconnect = (connection: BridgeConnection) => {
+    if (inputGate.connectionEnded(connection)) {
+      windowInput?.stop();
+      windowInput = null;
+      void leaveVirtualDisplay();
+      publishControl();
+    }
+  };
+
+  shutdownWindow = async () => {
+    windowInput?.stop();
+    windowInput = null;
+
+    // a window that is parked - or on the virtual display - when the
+    // extension ends is brought back (D-328, D-350)
+    if (process.platform === "win32" && workspace) {
+      try {
+        if (onVirtualDisplay) {
+          onVirtualDisplay = false;
+          await windowPark.bringBack(editorRule);
+        } else if (await windowPark.isParked(editorRule)) {
+          await windowPark.bringBack(editorRule);
+        }
+      } catch {
+        // the window may be gone already
+      }
     }
   };
 
@@ -731,12 +1252,12 @@ export function activate(context: vscode.ExtensionContext): void {
       bridgeServer?.broadcast({ v: 1, type: "present:command", command });
     },
     // The panel's own **actions** stay on the teacher's machine: the editor's
-    // window moving onto the virtual display - and coming back - is the
-    // extension's own business and never goes on the bridge (D-147, D-149).
-    // Nothing moves unless the teacher pressed the button (D-148).
+    // window parked out of sight - and brought back - is the extension's own
+    // business and never goes on the bridge (D-328). Nothing moves unless the
+    // teacher pressed the button (D-148).
     onAction: (action) => {
-      if (action === "move-editor-window") {
-        void placeEditor();
+      if (action === "park-editor-window") {
+        void parkEditor();
       }
 
       if (action === "bring-back-editor-window") {
@@ -755,7 +1276,7 @@ export function activate(context: vscode.ExtensionContext): void {
       panelCapability = inputPanel.createCapability();
     }
 
-    await refreshPanelState();
+    await refreshWindowState();
 
     const url = inputPanel.urlFor(panelCapability);
 
@@ -764,67 +1285,6 @@ export function activate(context: vscode.ExtensionContext): void {
     void vscode.window.showInformationMessage(
       `Excalidraw Bridge: the presenter's input panel is open. ${panelState.reason}.`,
     );
-  };
-
-  /**
-   * The presenter's window goes on the **virtual display**.
-   *
-   * With no virtual display the window is left where it is - on the desktop -
-   * and the teacher is told that in plain words.
-   */
-  const placePresenter = async () => {
-    if (process.platform !== "win32") {
-      void vscode.window.showInformationMessage(
-        "Excalidraw Bridge: the virtual display is a Windows feature - the presenter's window opens on the desktop.",
-      );
-      return;
-    }
-
-    try {
-      const result = await virtualDisplay.placePresenter();
-      await refreshPanelState();
-
-      void vscode.window.showInformationMessage(
-        `Excalidraw Bridge: ${result.reason}.`,
-      );
-    } catch (error) {
-      void vscode.window.showErrorMessage(
-        `Excalidraw Bridge: ${(error as Error).message}`,
-      );
-    }
-  };
-
-  /**
-   * The presenter's window comes BACK (D-149).
-   *
-   * The same round trip as the editor's window: it goes back to the display
-   * the teacher is working on, maximised as it was if it was maximised.
-   */
-  const bringBackPresenter = async () => {
-    if (process.platform !== "win32") {
-      void vscode.window.showInformationMessage(
-        "Excalidraw Bridge: the virtual display is a Windows feature - the presenter's window is already on the desktop.",
-      );
-      return;
-    }
-
-    try {
-      const result = await virtualDisplay.bringBack({
-        titleLike: PRESENTER_WINDOW_TITLE,
-        subject: "the presenter's window",
-        hint: "open the presenter view first",
-      });
-
-      await refreshPanelState();
-
-      void vscode.window.showInformationMessage(
-        `Excalidraw Bridge: ${result.reason}.`,
-      );
-    } catch (error) {
-      void vscode.window.showErrorMessage(
-        `Excalidraw Bridge: ${(error as Error).message}`,
-      );
-    }
   };
 
   bridgeServer = createBridgeServer({
@@ -836,6 +1296,8 @@ export function activate(context: vscode.ExtensionContext): void {
     appName,
     onMessage: handleBridgeMessage,
     onConnect: sendEditorContentTo,
+    // Control is off again when the connection that turned it on ends (D-327)
+    onDisconnect: onBridgeDisconnect,
     inputPanel,
     logger: (message) => console.info("[excalidraw-bridge]", message),
   });
@@ -940,52 +1402,153 @@ export function activate(context: vscode.ExtensionContext): void {
   status.show();
   context.subscriptions.push(status);
 
+  /** the route the setting says now (D-335) */
+  const currentInputRoute = () =>
+    resolveInputRoute(
+      vscode.workspace
+        .getConfiguration(CONFIG_SECTION)
+        .get<string>("inputRoute"),
+    );
+
+  /**
+   * The teacher chooses how the canvas types into the editor, from a pick list
+   * (D-335): the same setting as `excalidraw-bridge.inputRoute`, reached
+   * without opening the settings page, and applied at once.
+   */
+  const chooseInputRoute = async () => {
+    const current = currentInputRoute();
+
+    const picked = await vscode.window.showQuickPick(
+      INPUT_ROUTE_CHOICES.map((choice) => ({
+        label: `${choice.value === current ? "$(check) " : ""}${choice.label}`,
+        description: choice.description,
+        value: choice.value,
+      })),
+      {
+        title: "Excalidraw Bridge: how the canvas types into this editor",
+        placeHolder: "Choose the way in",
+      },
+    );
+
+    if (!picked || picked.value === current) {
+      return;
+    }
+
+    await vscode.workspace
+      .getConfiguration(CONFIG_SECTION)
+      .update("inputRoute", picked.value, vscode.ConfigurationTarget.Global);
+
+    const label =
+      INPUT_ROUTE_CHOICES.find((choice) => choice.value === picked.value)
+        ?.label ?? picked.value;
+
+    void vscode.window.showInformationMessage(
+      `Excalidraw Bridge: the canvas types into the editor by the ${label} route from now on.`,
+    );
+  };
+
   const showStatus = async () => {
+    const route = INPUT_ROUTE_CHOICES.find(
+      (choice) => choice.value === currentInputRoute(),
+    );
+
     const choice = await vscode.window.showInformationMessage(
       `Excalidraw Bridge is listening on ws://${DEFAULT_BRIDGE_HOST}:${port}.${
-        generated ? " This session's token is:" : " The token is:"
-      } ${token}`,
+        generated
+          ? " The token is kept in this editor, so a reload reconnects by itself:"
+          : " The token is:"
+      } ${token} - input route: ${route?.label ?? "Automatic"}.`,
       "Copy token",
+      "Input route...",
     );
     if (choice === "Copy token") {
       await vscode.env.clipboard.writeText(token);
       vscode.window.showInformationMessage("Excalidraw Bridge: token copied.");
     }
+
+    if (choice === "Input route...") {
+      await chooseInputRoute();
+    }
   };
 
   context.subscriptions.push(
     vscode.commands.registerCommand("excalidraw-bridge.showStatus", showStatus),
+    vscode.commands.registerCommand(
+      "excalidraw-bridge.chooseInputRoute",
+      chooseInputRoute,
+    ),
     vscode.commands.registerCommand("excalidraw-bridge.copyToken", async () => {
       await vscode.env.clipboard.writeText(token);
       vscode.window.showInformationMessage("Excalidraw Bridge: token copied.");
     }),
-    // The virtual display and the input panel (D-145)
+    // The input panel (D-145)
     vscode.commands.registerCommand(
       "excalidraw-bridge.openInputPanel",
       openInputPanel,
     ),
+    // The editor's own window is parked out of sight (D-328) - and it comes
+    // back (D-149). Both are the teacher's choice (D-148).
     vscode.commands.registerCommand(
-      "excalidraw-bridge.placePresenterOnVirtualDisplay",
-      placePresenter,
-    ),
-    // The editor's own window goes on the virtual display too (D-147) - and
-    // it comes back (D-149). Both are the teacher's choice (D-148).
-    vscode.commands.registerCommand(
-      "excalidraw-bridge.placeEditorOnVirtualDisplay",
-      placeEditor,
+      "excalidraw-bridge.parkEditorWindow",
+      parkEditor,
     ),
     vscode.commands.registerCommand(
-      "excalidraw-bridge.bringBackEditorToPrimaryDisplay",
-      bringBackEditor,
+      "excalidraw-bridge.bringBackEditorWindow",
+      bringBackByChoice,
     ),
+    // where the mirror's time goes, said in the Output panel (D-370)
+    vscode.commands.registerCommand("excalidraw-bridge.showPerformance", () => {
+      const report = perfMonitor.report();
+
+      perfChannel.clear();
+
+      for (const line of formatPerfReport(report)) {
+        perfChannel.appendLine(line);
+      }
+
+      perfChannel.show(true);
+      void vscode.window.showInformationMessage(
+        `Excalidraw Bridge: ${report.verdict}`,
+      );
+    }),
+    // the indra engine installs itself, when the teacher says so (D-353)
     vscode.commands.registerCommand(
-      "excalidraw-bridge.bringBackPresenterToPrimaryDisplay",
-      bringBackPresenter,
+      "excalidraw-bridge.installIndraOcr",
+      installIndraEngine,
+    ),
+    // the virtual display is the teacher's choice too (D-351)
+    vscode.commands.registerCommand(
+      "excalidraw-bridge.moveEditorWindowToVirtualScreen",
+      moveToVirtualByChoice,
     ),
   );
+
+  // Whether the window is parked is read now, so that a window that was
+  // parked before the extension restarted is said to be (D-328). A window that
+  // the editor itself started on the virtual display - it opens where it was
+  // closed - is brought to the main display: nobody can reach it there
+  // (D-356).
+  void (async () => {
+    if (process.platform === "win32" && workspace) {
+      try {
+        if ((await windowPark.virtualState(editorRule)).on) {
+          await windowPark.bringBack(editorRule);
+        }
+      } catch {
+        // the window may not be there yet: it is read again below
+      }
+    }
+
+    await refreshWindowState();
+  })();
 }
 
-export function deactivate(): void {
+export function deactivate(): Promise<void> | void {
+  // the input helper stops, and a window that was parked comes back (D-328)
+  const shutdown = shutdownWindow?.();
+
+  shutdownWindow = null;
+
   // the capture is a process of its own: it goes away with the extension
   captureSupervisor?.stop();
   captureSupervisor = null;
@@ -1001,4 +1564,6 @@ export function deactivate(): void {
 
   void bridgeServer?.close();
   bridgeServer = null;
+
+  return shutdown;
 }

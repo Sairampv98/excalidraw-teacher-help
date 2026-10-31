@@ -51,22 +51,21 @@ import {
 import { readVideoPanelState } from "../scene/panelContent";
 import { readPanelPlayback } from "../scene/panelContent";
 import { readYoutubePanelState, youtubeEmbedUrl } from "../scene/panelContent";
-import {
-  PANEL_SCALE_PROPERTY,
-  choiceStripPlacement,
-  panelChrome,
-} from "../scene/panelChrome";
+import { PANEL_SCALE_PROPERTY, panelChrome } from "../scene/panelChrome";
 import { getPanelCapture, subscribePanelCaptures } from "../scene/panelFrames";
+import { snapshotUrl } from "../scene/panelScreenshot";
 import {
-  getPendingScreenshot,
-  snapshotUrl,
-  subscribePendingScreenshots,
-} from "../scene/panelScreenshot";
-import {
+  FOLLOW_SIZE_MAX,
+  FOLLOW_SIZE_MIN,
+  FOLLOW_SIZE_STEP,
   openPanelMirrorPicker,
   panelMirrorCrop,
+  panelMirrorMode,
   panelMirrorRegionAtPointer,
+  resizePanelMirrorRegion,
+  withPanelMirrorMode,
 } from "../scene/panelMirror";
+import { CONTROL_RELEASE_CHORD } from "../scene/panelControl";
 import {
   appliedPlaybackState,
   INITIAL_PLAYBACK_SYNC_STATE,
@@ -87,10 +86,18 @@ import { PANEL_PALETTES, VS_CODE_DARK } from "./vscodeTheme";
 
 import { captionCueAt, DEFAULT_CAPTION_LANGUAGE } from "./panelCaptions";
 import { codeMirrorLanguageIds } from "./codeLanguages";
+import { MirrorPanelSurface } from "./MirrorPanelSurface";
+import { usePanelControlSurface } from "./usePanelControlSurface";
+import { PanelIcon } from "./panelIcons";
+import { toggleFullscreen } from "./panelFullscreen";
 import {
   registerVideoSurface,
   unregisterVideoSurface,
 } from "./videoPanelSurface";
+import {
+  registerYoutubeSurface,
+  unregisterYoutubeSurface,
+} from "./youtubePanelSurface";
 
 import type { PanelPalette } from "./vscodeTheme";
 
@@ -110,7 +117,9 @@ import type { CodeMirrorEditorProps } from "./TTDDialog/CodeMirrorEditor";
 import type { MediaFallback, MediaPanelSource } from "../scene/mediaRegistry";
 import type { PanelCamera } from "../scene/panelContent";
 import type { PanelChrome } from "../scene/panelChrome";
-import type { PanelMirror } from "../scene/panelMirror";
+import type { PanelControlControls } from "../scene/panelControl";
+import type { PanelBridgeControls, PanelOcrControls } from "../types";
+import type { PanelMirror, PanelMirrorMode } from "../scene/panelMirror";
 import type { PanelPlayback } from "../scene/panelContent";
 import type { PlaybackSyncState } from "../scene/panelPlayback";
 import type { YoutubePanelSource } from "../scene/panelContent";
@@ -227,6 +236,12 @@ type PanelOverlayProps = {
    * card is the host's own.
    */
   copy?: PanelCopyControls;
+  /** the host's controls for the control of the mirrored window (D-323) */
+  control?: PanelControlControls;
+  /** the host's read of the picture (D-59, D-332) */
+  ocrControls?: PanelOcrControls;
+  /** the host's bridge: the connection and the token (D-333) */
+  bridgeControls?: PanelBridgeControls;
   /**
    * The teacher chose the language the panel **reads** the file as (D-142).
    *
@@ -432,52 +447,6 @@ const CodePanelEditor = ({
 };
 
 /**
- * The icons of a code panel's bars (D-274): drawn as paths so they are crisp at
- * any size, and named so a bar can be read at a glance.
- */
-const PANEL_ICON_PATHS: Record<string, React.ReactNode> = {
-  play: <path d="M8 5v14l11-7z" fill="currentColor" stroke="none" />,
-  copy: (
-    <>
-      <rect x="9" y="9" width="11" height="11" rx="2" />
-      <path d="M5 15V6a2 2 0 0 1 2-2h9" />
-    </>
-  ),
-  plus: <path d="M12 5v14M5 12h14" />,
-  minus: <path d="M5 12h14" />,
-  fullscreen: <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />,
-  clear: <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" />,
-  dockBottom: (
-    <>
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="M3 14h18" />
-    </>
-  ),
-  dockRight: (
-    <>
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="M14 4v16" />
-    </>
-  ),
-};
-
-const PanelIcon = ({ name, size }: { name: string; size: number | string }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    {PANEL_ICON_PATHS[name]}
-  </svg>
-);
-
-/**
  * The hairline between a code panel's regions - VS Code's own.
  */
 const hairlineOf = (palette: PanelPalette): React.CSSProperties => ({
@@ -494,26 +463,6 @@ const hairlineOf = (palette: PanelPalette): React.CSSProperties => ({
  */
 const ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
 
-/**
- * Shows the panel the button is in full screen, or leaves full screen (D-271).
- *
- * The browser's own full screen is used on the panel's element: only that
- * element is shown, the canvas is not, and Esc leaves.
- */
-const toggleFullscreen = (button: HTMLElement) => {
-  if (document.fullscreenElement) {
-    void document.exitFullscreen?.();
-    return;
-  }
-
-  void button
-    .closest<HTMLElement>(".excalidraw__panel")
-    ?.requestFullscreen?.()
-    ?.catch(() => {
-      // full screen was refused: the panel stays as it is
-    });
-};
-
 /** the language an editor reads its text as until the teacher chooses (D-270) */
 const DEFAULT_CODE_LANGUAGE = "python";
 
@@ -521,103 +470,6 @@ const DEFAULT_CODE_LANGUAGE = "python";
 const THEME_LABELS: Record<PanelEditorTheme, string> = {
   dark: "Dark",
   light: "Light",
-};
-
-/**
- * The **screenshot** button of a panel (D-102) lives in the panel's
- * **properties**, not on the panel's picture (D-135) - see
- * `components/PanelActions.tsx`.
- *
- * The **choice strip** of a screenshot (D-103).
- *
- * Exactly three entries, and they exist **only** after the capture: before it
- * there is no screenshot, and a choice about a picture that was never taken is
- * a choice about nothing. The strip is chrome - it keeps its size on screen at
- * any zoom (D-92) - and it is drawn by the library, like the header.
- *
- * The strip asks the **host** to act: the host owns the bridge, the pages and
- * the files, and the host is the side that can read a picture (D-105).
- */
-const PanelScreenshotChoices = ({
-  panel,
-  chrome,
-  screenshot,
-  top,
-}: {
-  panel: ExcalidrawPanelElement;
-  chrome: PanelChrome;
-  screenshot: PanelScreenshotControls;
-  /** where the strip hangs, in the panel's own units */
-  top: string;
-}) => {
-  const pending = useSyncExternalStore(
-    subscribePendingScreenshots,
-    () => getPendingScreenshot(panel.id),
-    () => getPendingScreenshot(panel.id),
-  );
-
-  if (!pending) {
-    return null;
-  }
-
-  const choice = (
-    name: string,
-    value: "ocr" | "page" | "new-page",
-    label: string,
-  ) => (
-    <button
-      type="button"
-      className="excalidraw__panel-screenshot-choice"
-      data-testid={`panel-screenshot-choice-${name}`}
-      data-panel-id={panel.id}
-      onClick={() => screenshot.onChoice?.(panel.id, value)}
-      style={{
-        // Every size of the chrome comes from `panelChrome.ts` (D-114): the
-        // buttons had a height and no width, so their width was decided by
-        // their label - and a button the flexbox may shrink is a choice the
-        // teacher cannot read.
-        width: chrome.choiceStripButtonWidth,
-        height: chrome.choiceStripHeight,
-        fontSize: chrome.choiceStripFontSize,
-        flexShrink: 0,
-      }}
-    >
-      {label}
-    </button>
-  );
-
-  return (
-    <div
-      className="excalidraw__panel-screenshot-choices"
-      data-testid="panel-screenshot-choices"
-      data-panel-id={panel.id}
-      style={{
-        position: "absolute",
-        top,
-        right: 0,
-        display: "flex",
-        alignItems: "center",
-        // the strip never leaves the panel: it wraps rather than hang over
-        // the panel's own edge
-        flexWrap: "wrap",
-        maxWidth: "100%",
-        gap: chrome.choiceStripGap,
-        padding: chrome.choiceStripPadding,
-        minHeight: chrome.choiceStripBoxHeight,
-      }}
-    >
-      {/*
-        The three choices, in the **owner's order** (D-140): the picture goes
-        on this page, the text is read out of the cropped region, the picture
-        goes on another page. The order is the teacher's own - "the 1st option
-        ... the 2nd option ... and finally the 3rd option" - so the strip reads
-        the way the owner said it.
-      */}
-      {choice("page", "page", t("labels.panel.screenshot.page"))}
-      {choice("ocr", "ocr", t("labels.panel.screenshot.ocr"))}
-      {choice("newPage", "new-page", t("labels.panel.screenshot.newPage"))}
-    </div>
-  );
 };
 
 /**
@@ -663,6 +515,9 @@ const CodePanelSurface = ({
   draft,
   run,
   copy,
+  control,
+  ocrControls,
+  bridgeControls,
   onReadLanguageChange,
   onZoomChange,
   onThemeChange,
@@ -683,6 +538,12 @@ const CodePanelSurface = ({
   run?: PanelRunControls;
   /** the host's controls for the copy (D-142) */
   copy?: PanelCopyControls;
+  /** the host's controls for the control of the mirrored window (D-323) */
+  control?: PanelControlControls;
+  /** the host's read of the picture (D-59, D-332) */
+  ocrControls?: PanelOcrControls;
+  /** the host's bridge: the connection and the token (D-333) */
+  bridgeControls?: PanelBridgeControls;
   /** the teacher chose the language the panel reads the file as (D-142) */
   onReadLanguageChange?: (panelId: string, language: string) => void;
   /** the teacher zoomed the editor (D-142) */
@@ -993,11 +854,22 @@ const CodePanelSurface = ({
    * picture comes from the teacher's own machine - the capability in the URL
    * is what authorises it (D-86).
    */
-  const openMirrorPicker = () => {
+  const openMirrorPicker = async () => {
     setMirrorNotice(null);
 
     if (capture?.status !== "live") {
       return;
+    }
+
+    // The picker is drawn over the page, and a panel that is full screen is the
+    // only thing the browser shows: the picker would open behind it and the
+    // teacher would see nothing. So the panel leaves full screen first (D-322).
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen?.();
+      } catch {
+        // full screen could not be left: the picker opens all the same
+      }
     }
 
     openPanelMirrorPicker(
@@ -1012,27 +884,84 @@ const CodePanelSurface = ({
   };
 
   /**
-   * The teacher turned the follow mode on or off (D-143).
+   * The mode the mirror is in: whole, part or follow (D-322).
    *
-   * It is a **mode**: it is off until they turn it on, and they can turn it
-   * off again.
+   * It is what the panel's mirror says, so there is nothing else to keep.
    */
-  const toggleFollow = () => {
-    onMirrorChange?.(panel.id, {
-      ...panelMirror,
-      follow: !panelMirror.follow,
-    });
+  const mode = panelMirrorMode(panelMirror);
+
+  /**
+   * The teacher chose a mode (D-322).
+   *
+   * **Part** with no region to keep - or when the part is already the mode -
+   * opens the picker: it is how a part is drawn, and how it is drawn again.
+   * Every other change is the mirror in its new mode.
+   */
+  const chooseMode = (next: PanelMirrorMode) => {
+    if (next === "part" && (mode === "part" || !panelMirror.region)) {
+      void openMirrorPicker();
+
+      return;
+    }
+
+    if (next === mode) {
+      return;
+    }
+
+    onMirrorChange?.(panel.id, withPanelMirrorMode(panelMirror, next));
   };
+
+  /**
+   * The control of the editor's window (D-323).
+   *
+   * It is the **extension's** state - the descriptor says whether Control is on,
+   * the way the input goes in and whether the window is parked - so every panel
+   * says the same thing, and a connection that ends turns it off in all of
+   * them. A descriptor with no control is an extension that predates it, and
+   * the panel then offers none.
+   */
+  const controlState = capture?.status === "live" ? capture.control : undefined;
+  const controlOn =
+    Boolean(control?.onToggle) && controlState?.enabled === true;
+  const parked = capture?.status === "live" && capture.parked === true;
+
+  /**
+   * What the teacher does over the view, as events for the editor's window
+   * (D-323, D-324).
+   */
+  const surface = usePanelControlSurface({
+    panelId: panel.id,
+    enabled: controlOn && !mirror,
+    region: panelMirror.region,
+    boxRef: cropWindowRef,
+    picture:
+      capture?.status === "live" && capture.width && capture.height
+        ? { width: capture.width, height: capture.height }
+        : null,
+    onInput: control?.onInput,
+    onRelease: () => {
+      // the keyboard goes back to the canvas
+      cropWindowRef.current
+        ?.closest<HTMLElement>(EDITOR_CONTAINER_SELECTOR)
+        ?.focus({ preventScroll: true });
+    },
+  });
 
   /**
    * The pointer moved inside the mirrored region (D-143).
    *
    * The region keeps its size and moves so that its middle is under the
    * pointer - so the teacher points at the part of the editor they are talking
-   * about, and the panel shows it.
+   * about, and the panel shows it. It stands still while a button is down, so a
+   * drag does not run away from the pointer (D-324).
    */
   const onFollowMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!panelMirror.follow || !panelMirror.region || !cropWindowRef.current) {
+    if (
+      !panelMirror.follow ||
+      !panelMirror.region ||
+      !cropWindowRef.current ||
+      surface.isPressed()
+    ) {
       return;
     }
 
@@ -1227,6 +1156,21 @@ const CodePanelSurface = ({
    * does not change it (D-57).
    */
   const canToggleView = Boolean(onToggleView) && !mirror && connected;
+
+  /**
+   * Whether the panel may offer the **control** (D-323).
+   *
+   * Like what is mirrored, it means something only when the panel shows the
+   * editor's own window - a MIRROR (the presenter) does not get it - and only
+   * when the extension said it has a control: a descriptor without one is an
+   * extension that predates it.
+   */
+  const canControl =
+    Boolean(control?.onToggle) &&
+    !mirror &&
+    view === "live" &&
+    capture?.status === "live" &&
+    capture.control !== undefined;
 
   /**
    * Whether the panel may say **what is mirrored** (D-143).
@@ -1477,9 +1421,21 @@ const CodePanelSurface = ({
               : undefined
           }
           ref={cropWindowRef}
-          onPointerMove={onFollowMove}
-          style={
-            crop
+          // What the teacher does over the view goes into the editor's window
+          // while Control is on (D-323); with it off these do nothing
+          {...surface.handlers}
+          onPointerMove={(event) => {
+            onFollowMove(event);
+            surface.handlers.onPointerMove(event);
+          }}
+          // the view takes the keyboard when it is clicked, and only while
+          // Control is on (D-323)
+          tabIndex={controlOn ? 0 : undefined}
+          data-control={
+            controlOn ? (surface.engaged ? "engaged" : "on") : "off"
+          }
+          style={{
+            ...(crop
               ? {
                   // The **region** the teacher chose (D-143): the picture is
                   // drawn whole and the window shows only the part they
@@ -1506,14 +1462,27 @@ const CodePanelSurface = ({
                   left: 0,
                   right: 0,
                   bottom: 0,
+                }),
+            // Control is on: the view says so, and says whether it has the
+            // keyboard (D-323). The browser does not scroll or drag it.
+            ...(controlOn
+              ? {
+                  outline: surface.engaged
+                    ? `2px solid ${palette.accent}`
+                    : `1px dashed ${palette.accent}`,
+                  outlineOffset: -2,
+                  touchAction: "none",
+                  userSelect: "none",
                 }
-          }
+              : {}),
+          }}
         >
           <img
             className="excalidraw__panel-code-live"
             data-testid="code-panel-live-frame"
             src={capture.streamUrl}
             alt=""
+            draggable={false}
             style={
               crop
                 ? {
@@ -1766,53 +1735,64 @@ const CodePanelSurface = ({
                   </button>
                 ) : null}
                 {canMirror ? (
-                  <>
-                    {/* What is **mirrored** (D-143): the teacher's own control, and
-                    it is in the panel's own header - the header is always
-                    mounted, so the teacher can change it mid-class. */}
-                    <button
-                      type="button"
-                      className="excalidraw__panel-code-mirror"
-                      data-testid="code-panel-mirror-region"
-                      data-panel-id={panel.id}
-                      onClick={() => void openMirrorPicker()}
-                      title={t("labels.mirror.change")}
-                      aria-label={t("labels.mirror.change")}
-                      style={{
-                        background: "transparent",
-                        border: `1px solid ${palette.border}`,
-                        borderRadius: 2,
-                        color: palette.foreground,
-                        cursor: "pointer",
-                        font: "inherit",
-                      }}
-                    >
-                      {t("labels.mirror.change")}
-                    </button>
-                    {panelMirror.region ? (
-                      /* The follow mode: it is **off** until the teacher turns it
-                     on, and they can turn it off again (D-143). */
+                  <div
+                    className="excalidraw__panel-code-mirror-modes"
+                    data-testid="code-panel-mirror-modes"
+                    data-mode={mode}
+                    role="group"
+                    aria-label={t("labels.mirror.picker")}
+                    style={{ display: "inline-flex", gap: 2 }}
+                  >
+                    {/* What is **mirrored** (D-143, D-322): three ways to look
+                    at the editor's window, in one control, in the panel's own
+                    header - the header is always mounted, so the teacher can
+                    change it mid-class. */}
+                    {(
+                      [
+                        {
+                          option: "whole",
+                          testId: "code-panel-mirror-whole",
+                          label: t("labels.mirror.modeWhole"),
+                          title: t("labels.mirror.wholeWindow"),
+                        },
+                        {
+                          option: "part",
+                          testId: "code-panel-mirror-region",
+                          label: t("labels.mirror.modePart"),
+                          title: t("labels.mirror.change"),
+                        },
+                        {
+                          option: "follow",
+                          testId: "code-panel-mirror-follow",
+                          label: t("labels.mirror.modeFollow"),
+                          title:
+                            mode === "follow"
+                              ? t("labels.mirror.following")
+                              : t("labels.mirror.follow"),
+                        },
+                      ] as const
+                    ).map(({ option, testId, label, title }) => (
                       <button
+                        key={option}
                         type="button"
-                        className="excalidraw__panel-code-mirror-follow"
-                        data-testid="code-panel-mirror-follow"
+                        className="excalidraw__panel-code-mirror"
+                        data-testid={testId}
                         data-panel-id={panel.id}
-                        data-follow={panelMirror.follow ? "on" : "off"}
-                        onClick={toggleFollow}
-                        title={
-                          panelMirror.follow
-                            ? t("labels.mirror.following")
-                            : t("labels.mirror.follow")
+                        data-mode-option={option}
+                        data-follow={
+                          option === "follow"
+                            ? panelMirror.follow
+                              ? "on"
+                              : "off"
+                            : undefined
                         }
-                        aria-label={
-                          panelMirror.follow
-                            ? t("labels.mirror.following")
-                            : t("labels.mirror.follow")
-                        }
+                        aria-pressed={mode === option}
+                        onClick={() => chooseMode(option)}
+                        title={title}
+                        aria-label={title}
                         style={{
-                          background: panelMirror.follow
-                            ? palette.accent
-                            : "transparent",
+                          background:
+                            mode === option ? palette.accent : "transparent",
                           border: `1px solid ${palette.border}`,
                           borderRadius: 2,
                           color: palette.foreground,
@@ -1820,8 +1800,141 @@ const CodePanelSurface = ({
                           font: "inherit",
                         }}
                       >
-                        {t("labels.mirror.follow")}
+                        {label}
                       </button>
+                    ))}
+                  </div>
+                ) : null}
+                {canMirror && mode === "follow" && panelMirror.region ? (
+                  /* How big the area that follows the pointer is, as a share of
+                  the window - the teacher's own setting, and it keeps the
+                  area's shape (D-322). */
+                  <label
+                    className="excalidraw__panel-code-mirror-size"
+                    title={t("labels.mirror.size")}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      color: palette.muted,
+                      fontSize: chrome.languageFontSize,
+                    }}
+                  >
+                    <input
+                      type="range"
+                      data-testid="code-panel-mirror-size"
+                      aria-label={t("labels.mirror.size")}
+                      min={Math.round(FOLLOW_SIZE_MIN * 100)}
+                      max={Math.round(FOLLOW_SIZE_MAX * 100)}
+                      step={Math.round(FOLLOW_SIZE_STEP * 100)}
+                      value={Math.round(panelMirror.region.width * 100)}
+                      onChange={(event) => {
+                        if (!panelMirror.region) {
+                          return;
+                        }
+
+                        onMirrorChange?.(panel.id, {
+                          ...panelMirror,
+                          region: resizePanelMirrorRegion(
+                            panelMirror.region,
+                            Number(event.currentTarget.value) / 100,
+                          ),
+                        });
+                      }}
+                      style={{ width: 72 }}
+                    />
+                    <span data-testid="code-panel-mirror-size-value">
+                      {Math.round(panelMirror.region.width * 100)}%
+                    </span>
+                  </label>
+                ) : null}
+                {canControl ? (
+                  <>
+                    {/* The **control** of the editor's window (D-323): off until
+                    the teacher turns it on, lit while it is on. */}
+                    <button
+                      type="button"
+                      className="excalidraw__panel-code-control"
+                      data-testid="code-panel-control"
+                      data-panel-id={panel.id}
+                      data-control={controlOn ? "on" : "off"}
+                      aria-pressed={controlOn}
+                      onClick={() => control?.onToggle?.(panel.id, !controlOn)}
+                      title={
+                        controlOn
+                          ? t("labels.control.onTitle", {
+                              chord: CONTROL_RELEASE_CHORD,
+                            })
+                          : t("labels.control.offTitle")
+                      }
+                      aria-label={t("labels.control.label")}
+                      style={{
+                        background: controlOn ? palette.accent : "transparent",
+                        border: `1px solid ${palette.border}`,
+                        borderRadius: 2,
+                        color: palette.foreground,
+                        cursor: "pointer",
+                        font: "inherit",
+                      }}
+                    >
+                      {t("labels.control.label")}
+                    </button>
+                    {/* Park the editor's window, or bring it back (D-328): the
+                    teacher's choice, and one button for both ways. */}
+                    <button
+                      type="button"
+                      className="excalidraw__panel-code-park"
+                      data-testid="code-panel-park"
+                      data-panel-id={panel.id}
+                      data-parked={parked ? "yes" : "no"}
+                      onClick={() =>
+                        control?.onWindow?.(
+                          panel.id,
+                          parked ? "bring-back" : "park",
+                        )
+                      }
+                      title={
+                        parked
+                          ? t("labels.control.bringBackTitle")
+                          : t("labels.control.parkTitle")
+                      }
+                      aria-label={
+                        parked
+                          ? t("labels.control.bringBackTitle")
+                          : t("labels.control.parkTitle")
+                      }
+                      style={{
+                        background: parked ? palette.accent : "transparent",
+                        border: `1px solid ${palette.border}`,
+                        borderRadius: 2,
+                        color: palette.foreground,
+                        cursor: "pointer",
+                        font: "inherit",
+                      }}
+                    >
+                      {parked
+                        ? t("labels.control.bringBack")
+                        : t("labels.control.park")}
+                    </button>
+                    {controlOn && controlState ? (
+                      /* The way the input goes in, and why: the teacher is
+                      told, never left to guess (D-326). */
+                      <span
+                        className="excalidraw__panel-code-control-route"
+                        data-testid="code-panel-control-route"
+                        data-route={controlState.route}
+                        title={controlState.reason}
+                        style={{
+                          color: palette.muted,
+                          fontSize: chrome.languageFontSize,
+                        }}
+                      >
+                        {controlState.route === "background"
+                          ? t("labels.control.routeBackground")
+                          : controlState.route === "focus"
+                          ? t("labels.control.routeFocus")
+                          : controlState.reason}
+                      </span>
                     ) : null}
                   </>
                 ) : null}
@@ -3032,6 +3145,22 @@ const YoutubePanelSurface = ({
   }, [captions, panel.id, source.videoId]);
 
   /**
+   * The iframe is where a host looks for the picture of the player (D-352):
+   * the surface is kept for as long as the panel is on the screen.
+   */
+  useEffect(() => {
+    const frame = iframeRef.current;
+
+    if (!frame) {
+      return;
+    }
+
+    registerYoutubeSurface(panel.id, frame);
+
+    return () => unregisterYoutubeSurface(panel.id);
+  }, [panel.id]);
+
+  /**
    * The focus goes back to the canvas when the pointer leaves (D-130).
    *
    * The pointer's position is compared with the iframe's **rect**, the way the
@@ -3088,10 +3217,6 @@ const YoutubePanelSurface = ({
       ? t("labels.panel.youtube.captionsFromApi")
       : tier === "public"
       ? t("labels.panel.youtube.captionsFromPublic")
-      : tier === "none"
-      ? // the reason says it all — "no captions: the API key is not set" — and
-        // it is only shown on its own when it is missing
-        state?.reason || t("labels.panel.youtube.noCaptions")
       : null;
 
   return (
@@ -3150,6 +3275,9 @@ const PanelSurface = ({
   draft,
   run,
   copy,
+  control,
+  ocrControls,
+  bridgeControls,
   onReadLanguageChange,
   onZoomChange,
   onThemeChange,
@@ -3175,6 +3303,12 @@ const PanelSurface = ({
   run?: PanelRunControls;
   /** the host's controls for the copy (D-142) */
   copy?: PanelCopyControls;
+  /** the host's controls for the control of the mirrored window (D-323) */
+  control?: PanelControlControls;
+  /** the host's read of the picture (D-59, D-332) */
+  ocrControls?: PanelOcrControls;
+  /** the host's bridge: the connection and the token (D-333) */
+  bridgeControls?: PanelBridgeControls;
   /** the teacher chose the language the panel reads the file as (D-142) */
   onReadLanguageChange?: (panelId: string, language: string) => void;
   /** the teacher zoomed the editor (D-142) */
@@ -3189,6 +3323,28 @@ const PanelSurface = ({
   // the source, widened: a panel may name media in the host's store (D-95)
   const source = panelSource(panel);
 
+  // The VS Code mirror is the editor's window and nothing else - a surface of
+  // its own, built for it (D-331). The code editor in the browser keeps the
+  // code panel.
+  if (
+    panel.panelKind === "code" &&
+    isBridgeCodePanel(panel) &&
+    !isStandaloneCodePanel(panel)
+  ) {
+    return (
+      <MirrorPanelSurface
+        panel={panel}
+        chrome={chrome}
+        readOnly={mirror}
+        bridge={bridgeControls}
+        screenshot={screenshot}
+        ocr={ocrControls}
+        onMirrorChange={onMirrorChange}
+        control={control}
+      />
+    );
+  }
+
   if (panel.panelKind === "code" && isBridgeCodePanel(panel)) {
     return (
       <CodePanelSurface
@@ -3201,6 +3357,9 @@ const PanelSurface = ({
         draft={draft}
         run={run}
         copy={copy}
+        control={control}
+        ocrControls={ocrControls}
+        bridgeControls={bridgeControls}
         onReadLanguageChange={onReadLanguageChange}
         onZoomChange={onZoomChange}
         onThemeChange={onThemeChange}
@@ -3322,6 +3481,9 @@ const Panel = ({
   draft,
   run,
   copy,
+  control,
+  ocrControls,
+  bridgeControls,
   onReadLanguageChange,
   onZoomChange,
   onThemeChange,
@@ -3348,6 +3510,12 @@ const Panel = ({
   run?: PanelRunControls;
   /** the host's controls for the copy (D-142) */
   copy?: PanelCopyControls;
+  /** the host's controls for the control of the mirrored window (D-323) */
+  control?: PanelControlControls;
+  /** the host's read of the picture (D-59, D-332) */
+  ocrControls?: PanelOcrControls;
+  /** the host's bridge: the connection and the token (D-333) */
+  bridgeControls?: PanelBridgeControls;
   /** the teacher chose the language the panel reads the file as (D-142) */
   onReadLanguageChange?: (panelId: string, language: string) => void;
   /** the teacher zoomed the editor (D-142) */
@@ -3372,38 +3540,6 @@ const Panel = ({
   const scale = panelScale(camera);
 
   const chrome = useMemo(() => panelChrome(scale), [scale]);
-
-  /**
-   * Whether this panel's picture is waiting to be placed (D-116).
-   *
-   * The focus state dims the panel's **content** while the picture is in
-   * front: the editor steps back, and the panel's own chrome - the camera and
-   * the three choices - does not, so the teacher can still act on the picture
-   * the focus state shows.
-   */
-  const pending = useSyncExternalStore(
-    subscribePendingScreenshots,
-    () => getPendingScreenshot(panel.id),
-    () => getPendingScreenshot(panel.id),
-  );
-
-  /**
-   * Where the screenshot's choice strip hangs, in the panel's own units
-   * (D-114).
-   *
-   * It is computed from the panel's **own rect** - how tall the panel is and
-   * whether it wears a header - and from the chrome's own sizes. Nothing here
-   * is a number typed in at the call site.
-   */
-  const placement = useMemo(
-    () =>
-      choiceStripPlacement({
-        scale,
-        panelHeight: panel.height,
-        hasHeader: panel.panelKind === "code",
-      }),
-    [scale, panel.height, panel.panelKind],
-  );
 
   const transform = useMemo(
     () => panelTransform(panel, elementsMap, camera),
@@ -3482,35 +3618,15 @@ const Panel = ({
           draft={draft}
           run={run}
           copy={copy}
+          control={control}
+          ocrControls={ocrControls}
+          bridgeControls={bridgeControls}
           onReadLanguageChange={onReadLanguageChange}
           onZoomChange={onZoomChange}
           onThemeChange={onThemeChange}
           onConsoleChange={onConsoleChange}
           captions={captions}
         />
-        {pending ? (
-          // the editor steps back while its picture is in focus (D-116)
-          <div
-            className="excalidraw__panel-focus-scrim"
-            data-testid="panel-focus-scrim"
-          />
-        ) : null}
-        {screenshot ? (
-          // The choice strip hangs off the panel's own chrome, and it exists
-          // only after the capture (D-103). Its position is computed from
-          // the panel's own rect (D-114), never guessed.
-          //
-          // The CAMERA is not here: it is a choice about the panel, so it
-          // lives in the panel's properties (D-135). A button drawn on top
-          // of the picture is a button under a YouTube panel's iframe - and
-          // the iframe takes the click.
-          <PanelScreenshotChoices
-            panel={panel}
-            chrome={chrome}
-            screenshot={screenshot}
-            top={placement.top}
-          />
-        ) : null}
       </div>
     </div>
   );
@@ -3541,6 +3657,9 @@ const PanelOverlayImpl = ({
   draft,
   run,
   copy,
+  control,
+  ocrControls,
+  bridgeControls,
   onReadLanguageChange,
   onZoomChange,
   onThemeChange,
@@ -3575,6 +3694,9 @@ const PanelOverlayImpl = ({
           draft={draft}
           run={run}
           copy={copy}
+          control={control}
+          ocrControls={ocrControls}
+          bridgeControls={bridgeControls}
           onReadLanguageChange={onReadLanguageChange}
           onZoomChange={onZoomChange}
           onThemeChange={onThemeChange}
@@ -3611,6 +3733,9 @@ const areEqual = (prev: PanelOverlayProps, next: PanelOverlayProps) =>
   prev.draft === next.draft &&
   prev.run === next.run &&
   prev.copy === next.copy &&
+  prev.control === next.control &&
+  prev.ocrControls === next.ocrControls &&
+  prev.bridgeControls === next.bridgeControls &&
   prev.onReadLanguageChange === next.onReadLanguageChange &&
   prev.onZoomChange === next.onZoomChange &&
   prev.onThemeChange === next.onThemeChange &&

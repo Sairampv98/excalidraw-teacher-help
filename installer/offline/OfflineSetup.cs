@@ -14,8 +14,7 @@
 //
 //   2. It INSTALLS, offline, what is missing - asking first, one thing at a
 //      time. `-Yes` accepts the answers and `-DryRun` reports and installs
-//      NOTHING at all. The parts that need administrator rights (the virtual
-//      display driver, the machine-wide PATH) elevate the program with the
+//      NOTHING at all. The parts that need administrator rights (the machine-wide PATH) elevate the program with the
 //      runas verb.
 //
 //   3. It RUNS the app with NOTHING installed: a built-in HTTP server serves
@@ -767,7 +766,6 @@ internal static class OfflineSetup
         InstallEditor(manifest, payloadDir, "vscodium", "VSCodium", "codium");
         InstallPython(manifest, payloadDir);
         InstallJava(manifest, payloadDir, root);
-        InstallDisplayDriver(manifest, payloadDir, root);
         InstallExtension(manifest, payloadDir);
     }
 
@@ -801,7 +799,6 @@ internal static class OfflineSetup
             lines.Add("   Java - the payload has no Java archive");
         }
 
-        lines.Add("   the virtual display driver - needs administrator rights and a reboot");
         lines.Add("   the extension - into whichever editor is found");
 
         foreach (string line in lines)
@@ -1054,54 +1051,6 @@ internal static class OfflineSetup
         }
     }
 
-    /// <summary>
-    /// The virtual display driver.
-    ///
-    /// It needs administrator rights AND a reboot, so the program says both
-    /// plainly - and it does NOT claim the display works before the reboot.
-    /// </summary>
-    private static void InstallDisplayDriver(Manifest manifest, string payloadDir, string root)
-    {
-        if (DisplayDriverInstalled())
-        {
-            Console.WriteLine("   the virtual display driver is already installed");
-            return;
-        }
-
-        PayloadFile file = FindFile(manifest, "display-driver");
-
-        if (file == null)
-        {
-            Console.WriteLine("   the virtual display driver is missing, and the payload has no");
-            Console.WriteLine("      driver package. It is only for a second screen.");
-            return;
-        }
-
-        if (!Confirm("   the virtual display driver " + file.Version +
-                     " - install it? (needs administrator rights, and a REBOOT afterwards)"))
-        {
-            Console.WriteLine("      skipped");
-            return;
-        }
-
-        Console.WriteLine("      installing (this asks for administrator rights)");
-
-        int code = RunElevated("driver", new string[] { payloadDir, file.Name, root });
-
-        if (code == 0)
-        {
-            Console.WriteLine("      the driver was installed.");
-            Console.WriteLine("      IT NEEDS A REBOOT before there is a second screen. Until the");
-            Console.WriteLine("      machine has been restarted, the display does NOT work - and the");
-            Console.WriteLine("      extension will say so, because there is no virtual display yet.");
-        }
-        else
-        {
-            Console.WriteLine("      the elevated step returned " + code +
-                              " - the driver is NOT installed");
-        }
-    }
-
     /// <summary>The extension, into whichever editor is there.</summary>
     private static void InstallExtension(Manifest manifest, string payloadDir)
     {
@@ -1234,11 +1183,6 @@ internal static class OfflineSetup
             return ElevatedJava(payloadDir, archive, root);
         }
 
-        if (task == "driver")
-        {
-            return ElevatedDriver(payloadDir, archive, root);
-        }
-
         Console.WriteLine("Unknown elevated task: " + task);
         return -1;
     }
@@ -1275,45 +1219,6 @@ internal static class OfflineSetup
         catch (Exception e)
         {
             Console.WriteLine("Java could not be installed: " + e.Message);
-            return 1;
-        }
-    }
-
-    /// <summary>Install the virtual display driver.</summary>
-    private static int ElevatedDriver(string payloadDir, string archive, string root)
-    {
-        try
-        {
-            string target = Path.Combine(root, "virtual-display");
-            ExtractZip(Path.Combine(payloadDir, archive), target);
-
-            string[] drivers = Directory.GetFiles(target, "*.inf", SearchOption.AllDirectories);
-
-            if (drivers.Length == 0)
-            {
-                Console.WriteLine("the driver package holds no .inf file");
-                return 1;
-            }
-
-            foreach (string inf in drivers)
-            {
-                int code = Run("pnputil.exe", "/add-driver \"" + inf + "\" /install", false);
-
-                if (code != 0)
-                {
-                    Console.WriteLine("pnputil returned " + code + " for " + Path.GetFileName(inf));
-                    return code;
-                }
-
-                Console.WriteLine("the driver " + Path.GetFileName(inf) + " was installed");
-            }
-
-            Console.WriteLine("IT NEEDS A REBOOT before the second screen exists.");
-            return 0;
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine("the driver could not be installed: " + e.Message);
             return 1;
         }
     }
@@ -1412,15 +1317,6 @@ internal static class OfflineSetup
         }
 
         return null;
-    }
-
-    /// <summary>Whether the virtual display driver is installed.</summary>
-    private static bool DisplayDriverInstalled()
-    {
-        string driver = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.System), "drivers", "IddCxDriver.sys");
-
-        return File.Exists(driver);
     }
 
     /// <summary>A program on the PATH, or null.</summary>

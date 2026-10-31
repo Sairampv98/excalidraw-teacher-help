@@ -529,6 +529,47 @@ describe("the presenter shows the panels", () => {
     ).toBeNull();
   });
 
+  it("AC-399 a presenter whose canvas was emptied by its own start-up gets the scene back", async () => {
+    const panel = codePanel();
+
+    await render(
+      <ExcalidrawAPIProvider>
+        <PresenterView />
+      </ExcalidrawAPIProvider>,
+    );
+
+    const channel = FakeBroadcastChannel.instances[0];
+
+    await act(async () => {
+      channel.receive({
+        type: "presenter:scene",
+        scene: { elements: [panel], camera: camera() },
+      });
+    });
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    await waitFor(() =>
+      expect(document.querySelector('[data-testid="panel"]')).not.toBeNull(),
+    );
+
+    // the window settles itself after the scene was put on it, and the canvas
+    // is empty - the editor sends nothing more, because nothing in it changed
+    // (D-344)
+    await act(async () => {
+      API.setElements([]);
+    });
+
+    expect(document.querySelector('[data-testid="panel"]')).toBeNull();
+
+    // the presenter looks for the scene and puts it back, by itself
+    await waitFor(
+      () =>
+        expect(document.querySelector('[data-testid="panel"]')).not.toBeNull(),
+      { timeout: 3000 },
+    );
+  });
+
   it("AC-138 a presenter with no descriptor says why instead of showing black", async () => {
     const panel = codePanel();
 
@@ -561,7 +602,7 @@ describe("the presenter shows the panels", () => {
     // thing a teacher cannot read
     const status = (await waitFor(() => {
       const found = document.querySelector(
-        '[data-testid="code-panel-live-status"]',
+        '[data-testid="mirror-panel-message"]',
       );
 
       expect(found).not.toBeNull();
@@ -571,18 +612,23 @@ describe("the presenter shows the panels", () => {
 
     expect(status.textContent).toContain("live window");
 
+    // with a spinner: it is on its way, and the presenter has no controls to
+    // press (D-57)
+    expect(
+      document.querySelector('[data-testid="mirror-panel-spinner"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector('[data-testid="mirror-panel-header"]'),
+    ).toBeNull();
+
     // and there is no picture pretending to be the editor
     expect(
       document.querySelector('[data-testid="code-panel-live-frame"]'),
     ).toBeNull();
 
-    // the mirrored text is still there: the text is the FALLBACK, never a
-    // blank region
-    await waitFor(() =>
-      expect(
-        document.querySelector('[data-testid="code-panel-source"] .cm-editor'),
-      ).not.toBeNull(),
-    );
+    // and no text pretending to be the editor either: the mirror is the
+    // editor's window and nothing else (D-331)
+    expect(document.querySelector(".cm-editor")).toBeNull();
   });
 
   it("AC-138 the editor hands the live view's descriptor to the presenter", async () => {

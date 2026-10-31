@@ -14,7 +14,11 @@ import type {
   WebSocketConstructor,
 } from "../../packages/vscode-bridge/bridge/src/client";
 import type { BridgeMessage } from "../../packages/vscode-bridge/bridge/src/protocol";
-import type { BridgeMirrorRegion } from "../../packages/vscode-bridge/bridge/src/protocol";
+import type {
+  BridgeInputEvent,
+  BridgeMirrorRegion,
+  BridgeWindowAction,
+} from "../../packages/vscode-bridge/bridge/src/protocol";
 import type {
   OcrRequest,
   OcrResult,
@@ -94,7 +98,10 @@ export const bridgeConnection = (
   switch (status) {
     case "connected":
       return "connected";
+    // the extension is there and did not accept the token (D-333), or it does
+    // not answer
     case "reconnecting":
+    case "refused":
       return "rejected";
     default:
       return "not-connected";
@@ -173,6 +180,27 @@ export interface BridgeSession {
     region: BridgeMirrorRegion | null;
     follow: boolean;
   }) => boolean;
+  /**
+   * Turn the **control** of the editor's window on or off (D-323).
+   *
+   * Control is off until a panel says otherwise, and the extension turns it off
+   * again when this connection ends (D-327).
+   *
+   * It answers whether the message could be sent at all: with no bridge
+   * connected there is nobody to tell, and nothing is kept for later - a
+   * control that is switched on when the bridge comes back is a control the
+   * teacher did not ask for.
+   */
+  setControl: (enabled: boolean) => boolean;
+  /**
+   * One input event for the editor's window (D-323).
+   *
+   * Like the control's switch, it is sent now or not at all: a click that
+   * arrives a minute late is a click in the wrong place.
+   */
+  sendInput: (event: BridgeInputEvent) => boolean;
+  /** Park the editor's window, or bring it back (D-328). */
+  windowAction: (action: BridgeWindowAction) => boolean;
   /** close the connection and stop reconnecting */
   disconnect: () => void;
 }
@@ -494,6 +522,15 @@ export const createBridgeSession = (
 
       return client.send(message);
     },
+
+    setControl: (enabled) =>
+      client?.send({ v: 1, type: "editor:control", enabled }) ?? false,
+
+    sendInput: (event) =>
+      client?.send({ v: 1, type: "editor:input", event }) ?? false,
+
+    windowAction: (action) =>
+      client?.send({ v: 1, type: "editor:window", action }) ?? false,
 
     disconnect: () => {
       client?.disconnect();

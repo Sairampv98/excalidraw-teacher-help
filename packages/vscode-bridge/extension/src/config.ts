@@ -118,6 +118,46 @@ export function resolveToken(configured?: string): {
   return { token: randomBytes(24).toString("hex"), generated: true };
 }
 
+/** The key the session token is kept under in the editor's secret storage. */
+export const KEPT_SESSION_SLOT = "excalidraw-bridge.kept-session";
+
+/** Whether a kept value is a token this extension made (48 hex characters). */
+export const isStoredToken = (value: unknown): value is string =>
+  typeof value === "string" && /^[0-9a-f]{48}$/.test(value);
+
+/**
+ * The token of this session, with the one the editor kept (D-333).
+ *
+ * The token used to be new every time the extension started, so a reload of the
+ * editor gave the page a token it did not have: the page kept offering the old
+ * one and the connection never came back by itself. A token the extension made
+ * is now **kept in the editor's secret storage**, and a started extension uses
+ * it again - so a reload of the editor or of the page reconnects by itself.
+ *
+ * A configured token still wins and is never kept (it is the teacher's own).
+ * A kept value that is not a token of ours is not trusted: a new one is made.
+ */
+export function resolveSessionToken(
+  configured?: string,
+  stored?: string,
+): { token: string; generated: boolean; reused: boolean } {
+  const trimmed = configured?.trim();
+
+  if (trimmed) {
+    return { token: trimmed, generated: false, reused: false };
+  }
+
+  if (isStoredToken(stored)) {
+    return { token: stored, generated: true, reused: true };
+  }
+
+  return {
+    token: randomBytes(24).toString("hex"),
+    generated: true,
+    reused: false,
+  };
+}
+
 /**
  * How many frames a second the window capture takes.
  *
@@ -127,19 +167,24 @@ export function resolveToken(configured?: string): {
  * a second end to end through the helper, the raw capture itself costing
  * about 12 ms a frame).
  *
- * A number that is not a number, or one outside the range, falls back to the
- * default rather than to something that would hammer the machine.
+ * A number that is not a number, or less than one, falls back to the default.
+ * A number above the most there is - sixty - is the most (D-363): it used to
+ * fall back to the default too, so a teacher who asked for 48 got 12 and was
+ * never told. The helper takes the frames as fast as the window can be drawn,
+ * so a number above what the machine can do is the machine's best.
  */
-export const DEFAULT_CAPTURE_FPS = 6;
+export const DEFAULT_CAPTURE_FPS = 12;
+
+/** the most frames a second that can be asked for */
+export const MAX_CAPTURE_FPS = 60;
 
 export function resolveCaptureFps(configured?: number): number {
   if (
     typeof configured === "number" &&
     Number.isFinite(configured) &&
-    configured >= 1 &&
-    configured <= 30
+    configured >= 1
   ) {
-    return Math.floor(configured);
+    return Math.min(MAX_CAPTURE_FPS, Math.floor(configured));
   }
 
   return DEFAULT_CAPTURE_FPS;

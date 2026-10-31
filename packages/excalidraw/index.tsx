@@ -115,6 +115,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
     panelCopy,
     panelCaptions,
     panelMirror,
+    panelControl,
   } = props;
 
   const canvasActions = props.UIOptions?.canvasActions;
@@ -246,6 +247,7 @@ const ExcalidrawBase = (props: ExcalidrawProps) => {
           panelCopy={panelCopy}
           panelCaptions={panelCaptions}
           panelMirror={panelMirror}
+          panelControl={panelControl}
         >
           {children}
         </App>
@@ -662,14 +664,28 @@ export type {
 
 // what is mirrored of the editor's window (D-143): the region, and the mode
 // that moves it
-export type { PanelMirror, PanelMirrorRegion } from "./scene/panelMirror";
+export type {
+  PanelMirror,
+  PanelMirrorMode,
+  PanelMirrorRegion,
+} from "./scene/panelMirror";
 export {
   INITIAL_PANEL_MIRROR,
   normalizePanelMirrorRegion,
   panelMirrorCrop,
   panelMirrorRegionAtPointer,
+  panelMirrorRegionNudge,
   WHOLE_WINDOW,
 } from "./scene/panelMirror";
+
+// the control of the mirrored window (D-323): what the canvas sends into it
+export type {
+  PanelControlControls,
+  PanelControlState,
+  PanelInputEvent,
+  PanelWindowAction,
+} from "./scene/panelControl";
+export { PANEL_KEY_CODES } from "./scene/panelControl";
 
 // the live video surface: the frame the teacher is looking at, so a host can
 // read the text out of it (D-59)
@@ -678,6 +694,10 @@ export {
   capturePausedVideoFrame,
   getVideoSurface,
 } from "./components/videoPanelSurface";
+
+// the YouTube panel's iframe: where the host looks for the picture of the
+// player (D-352)
+export { getYoutubeSurface } from "./components/youtubePanelSurface";
 
 export { CommandPalette } from "./components/CommandPalette/CommandPalette";
 

@@ -62,6 +62,8 @@ import type { ImportedDataState } from "./data/types";
 import type { Language } from "./i18n";
 import type { isOverScrollBars } from "./scene/scrollbars";
 import type { PanelBridgeStatus } from "./scene/panelContent";
+import type { MirrorBridgePhase } from "./scene/mirrorPanelView";
+import type { PanelControlControls } from "./scene/panelControl";
 import type { PanelMirror } from "./scene/panelMirror";
 import type { PanelScreenshotChoice } from "./scene/panelScreenshot";
 import type { PagePaper, PagePaperDraw } from "./scene/paper";
@@ -1008,6 +1010,18 @@ export interface ExcalidrawProps {
    * editor's window, which is the default anyway.
    */
   panelMirror?: PanelMirrorControls;
+  /**
+   * The host app's controls for the **control** of the mirrored editor window
+   * (D-323).
+   *
+   * The library draws the switch and turns what the teacher does over the live
+   * view into events; the host sends them over the bridge, because the host is
+   * the side that talks to it.
+   *
+   * Without this prop there is no control: the panel only shows the editor's
+   * window.
+   */
+  panelControl?: PanelControlControls;
 
   /**
    * The host app's controls for the code panel's **draft** (D-123).
@@ -1157,6 +1171,13 @@ export type PanelCaptionControls = {
 export type PanelBridgeControls = {
   /** where the connection stands */
   status: PanelBridgeStatus;
+  /**
+   * The session's own word for it, finer than `status` (D-333): connecting,
+   * looking for an extension that does not answer, refused (the extension
+   * answered and did not accept the token). The VS Code mirror shows a state
+   * for each. A host that does not say it gets the three-way `status`.
+   */
+  phase?: MirrorBridgePhase;
   /** a sentence for the state. Never empty. */
   message: string;
   /** the token currently in the field */
@@ -1239,7 +1260,7 @@ export type PanelOcrControls = {
  */
 export type PanelScreenshotControls = {
   /** the teacher asked for a screenshot of this panel */
-  onCapture?: (panelId: string) => void;
+  onCapture?: (panelId: string) => unknown;
   /** the teacher made a choice in the strip */
   onChoice?: (panelId: string, choice: PanelScreenshotChoice) => void;
   /**

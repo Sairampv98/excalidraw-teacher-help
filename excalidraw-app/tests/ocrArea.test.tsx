@@ -7,7 +7,14 @@
 
 import { vi } from "vitest";
 
-import { Excalidraw } from "@excalidraw/excalidraw";
+import {
+  Excalidraw,
+  clearAllPanelCaptures,
+  codePanelContent,
+  emptyCodePanelState,
+  setPanelCapture,
+} from "@excalidraw/excalidraw";
+import { API } from "@excalidraw/excalidraw/tests/helpers/api";
 import {
   act,
   fireEvent,
@@ -299,5 +306,104 @@ describe("AC-343 the engine that reads is chosen where a page is read", () => {
 
     appJotaiStore.set(ocrEngineChoiceAtom, "tesseract");
     expect(chosenReadEngine()).toEqual({ engine: "tesseract" });
+  });
+});
+
+describe("AC-407 the read of the VS Code mirror asks which part is read", () => {
+  it("AC-407 the read of the mirror opens the window that asks, with the editor's window in it", async () => {
+    vi.stubGlobal("Worker", class {});
+
+    const read = vi.spyOn(browserOcr, "read").mockResolvedValue({
+      id: "ocr-1",
+      text: "hello",
+      lines: [{ text: "hello", x: 120, y: 220, width: 100, height: 30 }],
+      engine: "tesseract",
+      durationMs: 12,
+    });
+
+    // the extension's snapshot of the editor's window: one picture, with its
+    // size in the headers
+    const headers = new Map([
+      ["content-type", "image/png"],
+      ["x-frame-width", "1000"],
+      ["x-frame-height", "500"],
+    ]);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+        headers: { get: (name: string) => headers.get(name) ?? null },
+      })),
+    );
+
+    await render(<ExcalidrawApp />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+
+    const mirror = API.createElement({
+      type: "panel",
+      x: 120,
+      y: 80,
+      width: 400,
+      height: 300,
+      panelKind: "code",
+      panel: codePanelContent(emptyCodePanelState(), "session-1"),
+      posterMode: false,
+      posterFileId: null,
+    } as never);
+
+    API.setElements([mirror]);
+
+    act(() => {
+      setPanelCapture(mirror.id, {
+        status: "live",
+        streamUrl: "http://127.0.0.1:47511/s/a-capability/frame",
+        width: 1000,
+        height: 500,
+      });
+    });
+
+    // the properties of the selected mirror carry the read (the mirror's own
+    // header has it too, once the page is connected; both ask the same way)
+    API.setSelectedElements([mirror]);
+
+    const readButton = await waitFor(() => {
+      const found = document.querySelector('[data-testid="panel-ocr-button"]');
+
+      expect(found).not.toBeNull();
+
+      return found as HTMLElement;
+    });
+
+    fireEvent.click(readButton);
+
+    // the question about the part comes first, with the editor's window shown
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="ocr-area-picture"]'),
+      ).not.toBeNull(),
+    );
+
+    expect(read).not.toHaveBeenCalled();
+    expect(
+      document
+        .querySelector(
+          '[data-testid="ocr-area-picture"] img, img[data-testid="ocr-area-image"]',
+        )
+        ?.getAttribute("src") ?? document.body.innerHTML,
+    ).toContain("data:image/png;base64,AQID");
+
+    // and the window is read when the teacher says so
+    fireEvent.click(button("Read the whole page"));
+
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+
+    expect(read.mock.calls[0][0]).toContain("data:image/png;base64,AQID");
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
   });
 });

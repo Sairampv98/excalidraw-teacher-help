@@ -1,4 +1,10 @@
-import React, { useEffect, useRef, useSyncExternalStore } from "react";
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { createPortal } from "react-dom";
 
 import type { ExcalidrawPanelElement } from "@excalidraw/element/types";
 
@@ -12,6 +18,8 @@ import {
 } from "../scene/panelScreenshot";
 
 import { t } from "../i18n";
+
+import { useFullscreenElement } from "./useFullscreenElement";
 
 import type { ExcalidrawPage } from "../types";
 import type {
@@ -70,6 +78,7 @@ export const PanelScreenshotFocus = ({
   panels,
   viewport,
   pages,
+  currentPageId,
   onPageChoice,
   onChoice,
 }: {
@@ -79,6 +88,8 @@ export const PanelScreenshotFocus = ({
   viewport: { width: number; height: number };
   /** the document's pages: the page selector ribbon offers them (D-140) */
   pages: readonly ExcalidrawPage[];
+  /** the page the teacher is on: where the picture goes unless they say else (D-349) */
+  currentPageId?: string;
   /** the teacher picked a page in the ribbon (D-140) */
   onPageChoice?: (panelId: string, pageId: string | null) => void;
   /** the teacher chose what to do with the picture (D-277) */
@@ -128,6 +139,11 @@ export const PanelScreenshotFocus = ({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [pendingPanelId]);
 
+  const fullscreen = useFullscreenElement();
+
+  /** the page the teacher chose to put the picture on; none yet is the current one (D-349) */
+  const [chosenPage, setChosenPage] = useState<string | null>(null);
+
   if (!pending) {
     return null;
   }
@@ -154,24 +170,68 @@ export const PanelScreenshotFocus = ({
   const pictureWidth = pending.width || 1;
   const pictureHeight = pending.height || 1;
 
-  const fit =
-    stage === "place"
-      ? Math.min(
-          (viewport.width * 0.28) / pictureWidth,
-          (viewport.height * 0.28) / pictureHeight,
-        )
-      : Math.min(
-          (viewport.width * 0.9) / pictureWidth,
-          (viewport.height * 0.8) / pictureHeight,
-        );
+  // the crop window is the whole viewport - or the whole full-screen element -
+  // and its bar is on top (D-339)
+  const room = fullscreen
+    ? {
+        width: fullscreen.clientWidth || viewport.width,
+        height: fullscreen.clientHeight || viewport.height,
+      }
+    : viewport;
+
+  const below = Math.max(room.height - CROP_BAR_HEIGHT, 1);
+
+  const fit = Math.min(
+    (room.width * 0.9) / pictureWidth,
+    (below * 0.86) / pictureHeight,
+  );
 
   const displayWidth = pictureWidth * fit;
   const displayHeight = pictureHeight * fit;
 
-  /** where the picture sits: in the middle, or in the corner (D-140) */
-  const inCorner = stage === "place";
-  const pictureLeft = inCorner ? 16 : (viewport.width - displayWidth) / 2;
-  const pictureTop = inCorner ? 16 : (viewport.height - displayHeight) / 2;
+  const pictureLeft = (room.width - displayWidth) / 2;
+  const pictureTop = CROP_BAR_HEIGHT + (below - displayHeight) / 2;
+
+  /** the page the picture goes on, and what the button says it is (D-349) */
+  const targetPage =
+    pages.find((page) => page.id === chosenPage)?.id ?? currentPageId;
+  const targetName = pages.find((page) => page.id === targetPage)?.name;
+  const insertLabel =
+    targetPage && targetPage !== currentPageId && targetName
+      ? t("labels.panel.screenshot.pageNamed", { name: targetName })
+      : t("labels.panel.screenshot.page");
+
+  /** whether the teacher has cropped the picture: the read says what it reads */
+  const cropped = crop.x > 0 || crop.y > 0 || crop.width < 1 || crop.height < 1;
+
+  /**
+   * What the teacher chose (D-339).
+   *
+   * The placement is on the canvas, so a panel that is full screen is left
+   * before the choice is made; a new page needs no ribbon - it is made when
+   * the picture is placed.
+   */
+  const choose = async (value: PanelScreenshotChoice) => {
+    const panelId = pending.panelId;
+
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen?.();
+      } catch {
+        // the browser kept it full screen: the flow goes on all the same
+      }
+    }
+
+    onChoice?.(panelId, value);
+
+    if (value === "new-page") {
+      // a new page needs no ribbon: it is made when the picture is placed
+      onPageChoice?.(panelId, null);
+    } else if (value === "page" && targetPage && targetPage !== currentPageId) {
+      // another page than the one the teacher is on (D-349)
+      onPageChoice?.(panelId, targetPage);
+    }
+  };
 
   /**
    * The cropped part of the picture, in the picture's own screen box.
@@ -235,38 +295,68 @@ export const PanelScreenshotFocus = ({
     }
   };
 
-  return (
+  if (stage === "place") {
+    // The canvas is the teacher's now (D-140): the rectangle follows the
+    // pointer and a click places it, so all that is drawn is a hint and the way
+    // out.
+    return (
+      <div
+        className="excalidraw__panel-screenshot-focus"
+        data-testid="panel-screenshot-focus"
+        data-stage="place"
+        style={{
+          position: "absolute",
+          top: 12,
+          left: "50%",
+          transform: "translateX(-50%)",
+          zIndex: "var(--zIndex-cropWindow)",
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          padding: "8px 14px",
+          borderRadius: 8,
+          background: CROP_BAR_BACKGROUND,
+          color: "#fff",
+          fontSize: 15,
+          pointerEvents: "auto",
+          ["--panel-scale" as string]: 1,
+        }}
+      >
+        <span data-testid="panel-screenshot-place-hint">
+          {t("labels.panel.screenshot.placeHint")}
+        </span>
+        <button
+          type="button"
+          className="excalidraw__panel-screenshot-choice"
+          data-testid="panel-screenshot-cancel"
+          data-panel-id={pending.panelId}
+          onClick={() => clearPendingScreenshot(pending.panelId)}
+          style={{ ...CROP_BUTTON, flexShrink: 0 }}
+        >
+          {t("labels.panel.screenshot.cancel")}
+        </button>
+      </div>
+    );
+  }
+
+  const node = (
     <div
       className="excalidraw__panel-screenshot-focus"
       data-testid="panel-screenshot-focus"
+      data-stage={stage}
       style={{
         position: "absolute",
         top: 0,
         left: 0,
         width: "100%",
         height: "100%",
-        // the focus state is **visual** (D-116): it dims what is behind and
-        // brings the picture forward, and it does not change the document.
-        pointerEvents: "none",
+        // The crop window is its own window (D-339): opaque, so nothing of the
+        // canvas or of a panel shows through it, and it takes the pointer.
+        background: "#111113",
+        pointerEvents: "auto",
+        zIndex: "var(--zIndex-cropWindow)",
       }}
     >
-      {/* the dimming: everything behind the picture steps back (D-116) */}
-      <div
-        className="excalidraw__panel-screenshot-focus-scrim"
-        data-testid="panel-screenshot-focus-scrim"
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
-          background: "rgba(0, 0, 0, 0.55)",
-          // the dimming does not take the pointer: the three choices behind it
-          // stay the teacher's to press
-          pointerEvents: "none",
-        }}
-      />
-
       {/* the picture in front, with the crop on it (D-116) */}
       <div
         className="excalidraw__panel-screenshot-focus-preview"
@@ -324,7 +414,7 @@ export const PanelScreenshotFocus = ({
             top: cropTop,
             width: cropWidth,
             height: cropHeight,
-            border: "1px solid var(--color-primary)",
+            border: "1px solid #fff",
             boxSizing: "border-box",
             pointerEvents: "none",
           }}
@@ -344,7 +434,7 @@ export const PanelScreenshotFocus = ({
                 position: "absolute",
                 width: HANDLE_SIZE,
                 height: HANDLE_SIZE,
-                background: "var(--color-primary)",
+                background: "#fff",
                 borderRadius: 2,
                 // the handles are the one control of the picture
                 pointerEvents: "auto",
@@ -356,32 +446,10 @@ export const PanelScreenshotFocus = ({
         </div>
       </div>
 
-      {pending.cropUndo ? (
-        /* The revert: one step, back to the uncropped capture (D-116). */
-        <button
-          type="button"
-          className="excalidraw__panel-screenshot-crop-revert"
-          data-testid="panel-screenshot-crop-revert"
-          onClick={() => revertPendingScreenshotCrop(pending.panelId)}
-          style={{
-            position: "absolute",
-            left: pictureLeft + displayWidth / 2,
-            top: pictureTop + displayHeight + 16,
-            transform: "translateX(-50%)",
-            zIndex: "var(--zIndex-panelFocus)",
-            pointerEvents: "auto",
-            cursor: "pointer",
-          }}
-        >
-          {t("labels.crop.revert")}
-        </button>
-      ) : null}
-
       {/*
-        What to do with the picture, always on the screen (D-278): the three
-        choices and a way out. The choices used to hang on the panel's own
-        edge, which can be out of view or clipped, and then the teacher had a
-        picture and no way to place it - or to leave it.
+        What to do with the picture, in a bar on top of the window (D-339): the
+        three choices, the revert and a way out. It is on the window itself, so
+        it is always on the screen - and in the full-screen panel too.
       */}
       <div
         className="excalidraw__panel-screenshot-actions"
@@ -389,47 +457,98 @@ export const PanelScreenshotFocus = ({
         role="group"
         style={{
           position: "absolute",
-          bottom: 20,
-          left: "50%",
-          transform: "translateX(-50%)",
-          zIndex: "var(--zIndex-panelFocus)",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: CROP_BAR_HEIGHT,
+          boxSizing: "border-box",
           display: "flex",
+          alignItems: "center",
           flexWrap: "wrap",
-          justifyContent: "center",
           gap: 8,
-          padding: 8,
+          padding: "0 12px",
+          background: CROP_BAR_BACKGROUND,
+          borderBottom: "1px solid #2e2e34",
+          zIndex: "var(--zIndex-cropWindow)",
           pointerEvents: "auto",
           ["--panel-scale" as string]: 1,
         }}
       >
-        {stage !== "place"
-          ? (
-              [
-                ["page", "page", t("labels.panel.screenshot.page")],
-                ["ocr", "ocr", t("labels.panel.screenshot.ocr")],
-                ["new-page", "new-page", t("labels.panel.screenshot.newPage")],
-              ] as const
-            ).map(([name, value, label]) => (
-              <button
-                key={name}
-                type="button"
-                className="excalidraw__panel-screenshot-choice"
-                data-testid={`panel-screenshot-action-${name}`}
-                data-panel-id={pending.panelId}
-                onClick={() => onChoice?.(pending.panelId, value)}
-                style={{ flexShrink: 0, padding: "8px 14px", fontSize: 15 }}
-              >
-                {label}
-              </button>
-            ))
-          : null}
+        {pages.length > 1 ? (
+          /* which page the picture goes on (D-349) */
+          <select
+            data-testid="panel-screenshot-page-select"
+            aria-label={t("labels.panel.screenshot.pageChoice")}
+            value={targetPage ?? ""}
+            onChange={(event) => setChosenPage(event.target.value)}
+            style={{ ...CROP_BUTTON, flexShrink: 0 }}
+          >
+            {pages.map((page, index) => (
+              <option key={page.id} value={page.id}>
+                {page.name || `${index + 1}`}
+                {page.id === currentPageId
+                  ? ` (${t("labels.panel.screenshot.here")})`
+                  : ""}
+              </option>
+            ))}
+          </select>
+        ) : null}
+
+        {(
+          [
+            ["page", "page", insertLabel],
+            ["new-page", "new-page", t("labels.panel.screenshot.newPage")],
+            [
+              "ocr",
+              "ocr",
+              cropped
+                ? t("labels.panel.screenshot.readCrop")
+                : t("labels.panel.screenshot.readWhole"),
+            ],
+          ] as const
+        ).map(([name, value, label]) => (
+          <button
+            key={name}
+            type="button"
+            className="excalidraw__panel-screenshot-choice"
+            data-testid={`panel-screenshot-action-${name}`}
+            data-panel-id={pending.panelId}
+            data-crop={
+              name === "ocr" ? (cropped ? "crop" : "whole") : undefined
+            }
+            onClick={() => void choose(value)}
+            style={{
+              ...CROP_BUTTON,
+              ...(name === "page" ? { background: "#4f46e5" } : {}),
+              flexShrink: 0,
+            }}
+          >
+            {label}
+          </button>
+        ))}
+
+        {pending.cropUndo ? (
+          /* The revert: one step, back to the uncropped capture (D-116). */
+          <button
+            type="button"
+            className="excalidraw__panel-screenshot-crop-revert"
+            data-testid="panel-screenshot-crop-revert"
+            onClick={() => revertPendingScreenshotCrop(pending.panelId)}
+            style={{ ...CROP_BUTTON, flexShrink: 0 }}
+          >
+            {t("labels.crop.revert")}
+          </button>
+        ) : null}
+
+        <span style={{ flex: "1 1 0" }} />
+
         <button
           type="button"
           className="excalidraw__panel-screenshot-choice"
           data-testid="panel-screenshot-cancel"
           data-panel-id={pending.panelId}
           onClick={() => clearPendingScreenshot(pending.panelId)}
-          style={{ flexShrink: 0, padding: "8px 14px", fontSize: 15 }}
+          style={{ ...CROP_BUTTON, flexShrink: 0 }}
         >
           {t("labels.panel.screenshot.cancel")}
         </button>
@@ -448,7 +567,7 @@ export const PanelScreenshotFocus = ({
             left: pictureLeft + displayWidth / 2,
             top: pictureTop + displayHeight + 16,
             transform: "translateX(-50%)",
-            zIndex: "var(--zIndex-panelFocus)",
+            zIndex: "var(--zIndex-cropWindow)",
             display: "flex",
             alignItems: "center",
             flexWrap: "wrap",
@@ -487,6 +606,25 @@ export const PanelScreenshotFocus = ({
       ) : null}
     </div>
   );
+
+  return fullscreen ? createPortal(node, fullscreen) : node;
+};
+
+/** the height of the bar that holds the choices, in screen pixels (D-339) */
+const CROP_BAR_HEIGHT = 72;
+
+const CROP_BAR_BACKGROUND = "#1a1a1e";
+
+/** a button of the crop window: large, so it can be pressed and read from afar */
+const CROP_BUTTON: React.CSSProperties = {
+  padding: "10px 18px",
+  fontSize: 16,
+  lineHeight: 1.2,
+  color: "#fff",
+  background: "#2a2a31",
+  border: "1px solid #3a3a44",
+  borderRadius: 8,
+  cursor: "pointer",
 };
 
 /** the eight handles of the crop: the four corners and the four edges */

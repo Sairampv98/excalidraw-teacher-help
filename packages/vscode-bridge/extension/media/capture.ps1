@@ -60,9 +60,9 @@
 param(
   [string]$ProcessName = 'Code',
   [string]$TitleLike = '',
-  [int]$Fps = 6,
-  [int]$Quality = 60,
-  [double]$Scale = 0.75,
+  [int]$Fps = 12,
+  [int]$Quality = 70,
+  [double]$Scale = 1.0,
   [int]$MaxFrames = 0
 )
 
@@ -80,6 +80,19 @@ public class PwCap {
   [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr h, ref POINT p);
   [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
+  [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr context);
+
+  // The helper's process is DPI AWARE: on a screen at 150% a process that is
+  // not told it is aware is handed VIRTUALISED sizes - a 1920 by 1008 window
+  // reads as 1280 by 672 - and PrintWindow into a bitmap of that size draws the
+  // TOP-LEFT two thirds of the window and nothing else. The panel then showed
+  // "the whole window" without its right side or its status bar (found on the
+  // teacher's own machine, 2026-10-29). Per-monitor v2 (-4) gives the real
+  // pixels, the same ones the input helper delivers to.
+  public static void BeDpiAware() {
+    SetProcessDpiAwarenessContext(new IntPtr(-4));
+  }
+
   [StructLayout(LayoutKind.Sequential)]
   public struct RECT { public int Left, Top, Right, Bottom; }
   [StructLayout(LayoutKind.Sequential)]
@@ -122,6 +135,10 @@ public class PwCap {
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
   [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
+  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+
+  /// Is the window the one the person is working in (D-371)?
+  public static bool InFront(IntPtr hwnd) { return GetForegroundWindow() == hwnd; }
 
   /// One top-level window: its handle, the process that owns it, its title.
   public class WindowInfo {
@@ -164,6 +181,9 @@ public class PwCap {
 }
 '@
 Add-Type -TypeDefinition $code -ReferencedAssemblies 'System.Drawing'
+
+# before any window is read: the sizes are the real ones (see BeDpiAware)
+[PwCap]::BeDpiAware()
 
 # The editor's OWN window, found BY RULE (D-113).
 #
@@ -248,6 +268,14 @@ function Test-Empty([System.Drawing.Bitmap]$bitmap) {
 
 if ($Scale -le 0) { $Scale = 1.0 }
 
+# The helper works for the picture, not for the machine: it runs BELOW normal
+# priority, so the teacher's own programs, the browser and the presenter come
+# first when the machine is busy (D-338).
+try {
+  [System.Diagnostics.Process]::GetCurrentProcess().PriorityClass =
+    [System.Diagnostics.ProcessPriorityClass]::BelowNormal
+} catch { }
+
 # 24 bits per pixel: the JPEG encoder has no alpha channel, and a 32bpp
 # bitmap makes GDI+ fail with a generic error.
 $format = [System.Drawing.Imaging.PixelFormat]::Format24bppRgb
@@ -265,6 +293,11 @@ $params.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter(
 $stream = [Console]::OpenStandardOutput()
 $delay = [int](1000 / $Fps)
 if ($delay -lt 1) { $delay = 1 }
+
+# The time a frame took, so the wait is what is LEFT of the frame's time and
+# not a whole frame's time on top of the work (D-338): a helper asked for 12
+# frames a second then makes 12, and not 5.
+$clock = [System.Diagnostics.Stopwatch]::StartNew()
 
 # the JPEG's bytes, on their way out
 $mem = New-Object System.IO.MemoryStream
@@ -303,7 +336,28 @@ function Write-Status([string]$code) {
   }
 }
 
+# Where the time goes (D-370): once a second the helper says how many frames it
+# took, how long the window took to draw itself in them (PrintWindow waits for
+# the window, so a window that is busy shows up here) and the longest the whole
+# loop took. The extension adds its own lag to this, and says who was slow.
+$shotClock = New-Object System.Diagnostics.Stopwatch
+$perfSince = [DateTime]::UtcNow
+$perfFrames = 0
+$perfShotSum = 0
+$perfShotMax = 0
+$perfLoopMax = 0
+
+function Write-Perf([string]$text) {
+  if (-not $headerWritten) { return }
+
+  $payload = [System.Text.Encoding]::UTF8.GetBytes($text)
+  $stream.Write([BitConverter]::GetBytes([int]$payload.Length), 0, 4)
+  $stream.Write($payload, 0, $payload.Length)
+  $stream.Flush()
+}
+
 for ($i = 0; ($MaxFrames -le 0) -or ($i -lt $MaxFrames); $i++) {
+  $clock.Restart()
   $now = [DateTime]::UtcNow
 
   # --- the window, RE-RESOLVED whenever it is not usable (D-112) ---
@@ -381,10 +435,32 @@ for ($i = 0; ($MaxFrames -le 0) -or ($i -lt $MaxFrames); $i++) {
     continue
   }
 
+  # --- the window's size, looked at on EVERY frame (D-355) ---
+  #
+  # A window that is resized - dragged, maximised, or moved to a display with
+  # another scale, which is what the virtual display is - has a new client
+  # size, and the bitmaps were made for the old one: the editor is drawn into
+  # a bitmap that does not fit it (stale margins, a picture of the wrong
+  # size), and the pointer's place, which is a fraction of the live client
+  # area, lands somewhere else in it. A size that changed is a window that is
+  # measured again, and the reader is told the new size.
+  $current = [PwCap]::ClientRect($hwnd)
+
+  if (($current[2] -ne $w) -or ($current[3] -ne $h)) {
+    $hwnd = [IntPtr]::Zero
+    $nextResolveAt = [DateTime]::MinValue
+    continue
+  }
+
   # --- the capture ---
   $mem.SetLength(0)
 
-  if (-not [PwCap]::Shot($hwnd, $bmp)) {
+  $shotClock.Restart()
+  $shotOk = [PwCap]::Shot($hwnd, $bmp)
+  $shotClock.Stop()
+  $shotMs = [int]$shotClock.ElapsedMilliseconds
+
+  if (-not $shotOk) {
     # the handle is DEAD: the window was recreated. The window is re-resolved.
     $hwnd = [IntPtr]::Zero
     if ($state -ne 'SHOT_FAILED') {
@@ -406,19 +482,25 @@ for ($i = 0; ($MaxFrames -le 0) -or ($i -lt $MaxFrames); $i++) {
     continue
   }
 
-  # the downscale: a bilinear DrawImage into the smaller bitmap
-  $gfx = [System.Drawing.Graphics]::FromImage($scaled)
-  try {
-    $gfx.InterpolationMode =
-      [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBilinear
-    $gfx.PixelOffsetMode =
-      [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-    $gfx.DrawImage($bmp, 0, 0, $outW, $outH)
-  } finally {
-    $gfx.Dispose()
-  }
+  if (($outW -eq $w) -and ($outH -eq $h)) {
+    # the window's own size: nothing to scale, and the resampling is the most
+    # expensive thing the helper does (D-338)
+    $bmp.Save($mem, $codec, $params)
+  } else {
+    # the downscale: a bilinear DrawImage into the smaller bitmap
+    $gfx = [System.Drawing.Graphics]::FromImage($scaled)
+    try {
+      $gfx.InterpolationMode =
+        [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBilinear
+      $gfx.PixelOffsetMode =
+        [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+      $gfx.DrawImage($bmp, 0, 0, $outW, $outH)
+    } finally {
+      $gfx.Dispose()
+    }
 
-  $scaled.Save($mem, $codec, $params)
+    $scaled.Save($mem, $codec, $params)
+  }
   $bytes = $mem.ToArray()
   $stream.Write([BitConverter]::GetBytes([int]$bytes.Length), 0, 4)
   $stream.Write($bytes, 0, $bytes.Length)
@@ -430,7 +512,26 @@ for ($i = 0; ($MaxFrames -le 0) -or ($i -lt $MaxFrames); $i++) {
     $state = ''
   }
 
-  Start-Sleep -Milliseconds $delay
+  # the numbers of the second (D-370)
+  $perfFrames++
+  $perfShotSum += $shotMs
+  if ($shotMs -gt $perfShotMax) { $perfShotMax = $shotMs }
+  $loopMs = [int]$clock.ElapsedMilliseconds
+  if ($loopMs -gt $perfLoopMax) { $perfLoopMax = $loopMs }
+
+  if (([DateTime]::UtcNow - $perfSince).TotalMilliseconds -ge 1000) {
+    $perfAvg = [int]($perfShotSum / [Math]::Max(1, $perfFrames))
+    $perfFront = if ([PwCap]::InFront($hwnd)) { 1 } else { 0 }
+    Write-Perf ('PERF ' + $perfFrames + ' ' + $perfAvg + ' ' + $perfShotMax + ' ' + $perfLoopMax + ' ' + $perfFront)
+    $perfSince = [DateTime]::UtcNow
+    $perfFrames = 0
+    $perfShotSum = 0
+    $perfShotMax = 0
+    $perfLoopMax = 0
+  }
+
+  $left = $delay - [int]$clock.ElapsedMilliseconds
+  if ($left -gt 0) { Start-Sleep -Milliseconds $left }
 }
 
 $stream.Flush()

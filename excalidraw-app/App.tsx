@@ -4,6 +4,11 @@ import {
   CaptureUpdateAction,
   reconcileElements,
   ExcalidrawAPIProvider,
+  fetchEditorSnapshot,
+  getYoutubeSurface,
+  getPanelCapture,
+  isStandaloneCodePanel,
+  snapshotUrl,
   useExcalidrawAPI,
   useExcalidrawStateValue,
 } from "@excalidraw/excalidraw";
@@ -51,7 +56,12 @@ import {
   youtubeIcon,
 } from "@excalidraw/excalidraw/components/icons";
 import { isElementLink } from "@excalidraw/element";
-import { isPanelElement, isPosterPanelElement } from "@excalidraw/element";
+import {
+  isImageElement,
+  isPanelElement,
+  isPosterPanelElement,
+  mediaOf,
+} from "@excalidraw/element";
 import {
   bumpElementVersions,
   restoreAppState,
@@ -117,7 +127,8 @@ import { AppWelcomeScreen } from "./components/AppWelcomeScreen";
 import { insertCodePanel } from "./bridge/insertCodePanel";
 import { useBridgePanel } from "./bridge/useBridgePanel";
 import { useOcr, imageNaturalSize } from "./bridge/useOcr";
-import { useScreenshot } from "./bridge/useScreenshot";
+import { tabCaptureMessage, useScreenshot } from "./bridge/useScreenshot";
+import { captureYoutubePicture } from "./bridge/tabCapture";
 import {
   ExportToExcalidrawPlus,
   exportToExcalidrawPlus,
@@ -163,6 +174,8 @@ import { useEdgeDocksEnabled } from "./dock/dockTypes";
 import PageBar from "./components/PageBar";
 import StickerBar from "./emoji/StickerBar";
 import { MediaCropMode } from "./sidebar/MediaCrop";
+import { ImageCropMode } from "./sidebar/ImageCrop";
+import { openImageCrop } from "./sidebar/imageCropState";
 import { NodeMediaDrop } from "./sidebar/NodeMediaPanel";
 import { ExcalidrawPlusIframeExport } from "./ExcalidrawPlusIframeExport";
 import { isPresenterWindow } from "./presenter/presenterChannel";
@@ -462,6 +475,7 @@ const ExcalidrawWrapper = () => {
     panelRun,
     panelCaptions,
     panelMirror,
+    panelControl,
   } = useBridgePanel(excalidrawAPI, publishLiveView);
 
   /**
@@ -670,6 +684,53 @@ const ExcalidrawWrapper = () => {
   );
 
   /**
+   * Reads the text of the part of a picture that the crop window's box is on
+   * (D-358): the teacher has already said which part, so nothing is asked.
+   */
+  const readImagePart = useCallback(
+    async (
+      element: ExcalidrawImageElement,
+      region: { x: number; y: number; width: number; height: number },
+    ) => {
+      const current = excalidrawAPI;
+
+      if (!current || !element.fileId) {
+        return;
+      }
+
+      const file = current.getFiles()[element.fileId];
+
+      if (!file) {
+        return;
+      }
+
+      const natural = await imageNaturalSize(file.dataURL);
+
+      const result = await readOcr({
+        place: false,
+        image: {
+          dataURL: file.dataURL,
+          width: natural.width || element.width,
+          height: natural.height || element.height,
+        },
+        region,
+        ...chosenReadEngine(),
+        placement: {
+          x: element.x,
+          y: element.y,
+          width: element.width,
+          height: element.height,
+        },
+        pageId: element.pageId,
+        strokeColor: current.getAppState().currentItemStrokeColor,
+      });
+
+      showRead(result);
+    },
+    [excalidrawAPI, readOcr, showRead],
+  );
+
+  /**
    * Reads the **panel** the teacher picked: its poster, or the frame the
    * video is showing right now (D-59).
    *
@@ -692,7 +753,45 @@ const ExcalidrawWrapper = () => {
         return;
       }
 
-      const image = imageOfPanel(panel);
+      // The **VS Code mirror** has no poster and no frame: its picture is the
+      // editor's window, which the extension hands over (D-347).
+      const live = getPanelCapture(panelId);
+      const mirrored =
+        panel.panelKind === "code" &&
+        !isStandaloneCodePanel(panel) &&
+        live?.status === "live"
+          ? await fetchEditorSnapshot(snapshotUrl(live.streamUrl))
+          : null;
+
+      if (panel.panelKind === "code" && !isStandaloneCodePanel(panel)) {
+        if (!mirrored) {
+          current.setToast({
+            message: t("labels.panel.screenshot.nothingToCapture"),
+          });
+
+          return;
+        }
+      }
+
+      // A YouTube player is a foreign document: its picture is the tab's
+      // picture of it (D-352).
+      const youtube = getYoutubeSurface(panelId);
+      let tabbed: Awaited<ReturnType<typeof captureYoutubePicture>> = null;
+
+      if (youtube) {
+        try {
+          tabbed = await captureYoutubePicture(
+            youtube,
+            panel.height > 0 ? panel.width / panel.height : null,
+          );
+        } catch (error) {
+          current.setToast({ message: tabCaptureMessage(error) });
+
+          return;
+        }
+      }
+
+      const image = mirrored ?? tabbed ?? imageOfPanel(panel);
 
       if (!image) {
         return;
@@ -706,6 +805,37 @@ const ExcalidrawWrapper = () => {
        * marked and not the whole poster.
        */
       const crop = cropFor(panelId);
+
+      // Without a crop of the teacher's own the read asks which part of the
+      // picture is read - the same window every other read opens (D-347)
+      if (!crop) {
+        setOcrArea({
+          picture: image,
+          read: (region) => {
+            setOcrArea(null);
+
+            void readOcr({
+              place: false,
+              image,
+              panelId,
+              ...(region ? { region } : {}),
+              placement: {
+                x: panel.x,
+                y: panel.y,
+                width: panel.width,
+                height: panel.height,
+              },
+              pageId: panel.pageId,
+              strokeColor: current.getAppState().currentItemStrokeColor,
+              ...(pickedEngineFor(panelId)
+                ? { engine: pickedEngineFor(panelId)! }
+                : {}),
+            }).then((result) => showRead(result));
+          },
+        });
+
+        return;
+      }
 
       const result = await readOcr({
         place: false,
@@ -1177,6 +1307,18 @@ const ExcalidrawWrapper = () => {
 
       if (croppingElement && isPosterPanelElement(croppingElement)) {
         setPanelCropId(croppingId);
+      } else if (
+        croppingElement &&
+        isImageElement(croppingElement) &&
+        !mediaOf(croppingElement)
+      ) {
+        // The crop of a picture is a window of its own (D-348): the library's
+        // in-place crop is asked for by the crop button and by Enter, and it
+        // was drawn under the panels. It is left at once and the window opens.
+        openImageCrop(croppingId);
+        excalidrawAPI?.updateScene({
+          appState: { croppingElementId: null },
+        });
       }
     }
 
@@ -1545,6 +1687,7 @@ const ExcalidrawWrapper = () => {
         // what is mirrored of the editor's window: the teacher's own choice,
         // and the editor has to know it (D-143)
         panelMirror={panelMirror}
+        panelControl={panelControl}
         // the OCR option of a panel: the read happens in the bridge's Node
         // process, and the app puts the text back on the canvas (D-59)
         panelOcr={{
@@ -1718,6 +1861,9 @@ const ExcalidrawWrapper = () => {
 
         {/* the crop screen of the picture in a node */}
         <MediaCropMode />
+
+        {/* the crop window of every other picture and GIF (D-348) */}
+        <ImageCropMode onRead={readImagePart} />
 
         <ShareDialog
           collabAPI={collabAPI}

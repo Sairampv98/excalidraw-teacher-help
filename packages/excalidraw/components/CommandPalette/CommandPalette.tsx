@@ -60,6 +60,7 @@ import { activeConfirmDialogAtom } from "../ActiveConfirmDialog";
 import { useStable } from "../../hooks/useStable";
 
 import { Ellipsify } from "../Ellipsify";
+import { isKeyboardTaken } from "../keyboardTaken";
 
 import {
   distributeLibraryItemsOnSquareGrid,
@@ -76,6 +77,7 @@ import "./CommandPalette.scss";
 
 import type { CommandPaletteItem } from "./types";
 import type { AppProps, AppState, LibraryItem, UIAppState } from "../../types";
+
 import type { ShortcutName } from "../../actions/shortcuts";
 import type { TranslationKeys } from "../../i18n";
 import type { Action } from "../../actions/types";
@@ -156,6 +158,12 @@ export const CommandPalette = Object.assign(
 
     useEffect(() => {
       const commandPaletteShortcut = (event: KeyboardEvent) => {
+        // the editor's window has the keyboard: Ctrl+/ and Ctrl+Shift+P are its
+        // own shortcuts (D-345)
+        if (isKeyboardTaken(event)) {
+          return;
+        }
+
         if (isCommandPaletteToggleShortcut(event)) {
           event.preventDefault();
           event.stopPropagation();

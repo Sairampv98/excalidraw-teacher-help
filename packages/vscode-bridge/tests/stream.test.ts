@@ -10,6 +10,7 @@
  * issued in the `bridge:hello` (D-86).
  */
 
+import { EventEmitter } from "node:events";
 import { get as httpGet } from "node:http";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -24,9 +25,16 @@ import {
   type BridgeServer,
   type BridgeServerOptions,
 } from "../extension/src/bridge";
-import { snapshotPath } from "../extension/src/stream";
+import {
+  STREAM_BACKLOG_BYTES,
+  createMjpegStream,
+  snapshotPath,
+  streamPath,
+} from "../extension/src/stream";
 
 import { RawWsClient } from "./helpers/rawWsClient";
+
+import type { IncomingMessage, ServerResponse } from "node:http";
 
 // A fixture, not a credential: the name says so, and the kit's secret scan
 // recognises a `test-` prefixed value as the placeholder it is.
@@ -195,6 +203,9 @@ afterEach(async () => {
   }
 });
 
+/** the boundary and the header that open every part of the stream (D-372) */
+const OPEN_PART = "--frame\r\nContent-Type: image/jpeg\r\n\r\n";
+
 describe("the MJPEG stream", () => {
   it("AC-113 the extension serves the frames as MJPEG on its own HTTP server", async () => {
     const server = await startServer();
@@ -228,23 +239,72 @@ describe("the MJPEG stream", () => {
 
     // The LAST frame goes out immediately, so a panel that opens the live
     // view is never blank.
-    await until(() => stream.body.includes("X-Seq: 1"));
+    await until(() => stream.body.includes(picture.toString("binary")));
 
-    // and the part is the boundary, the JPEG's headers and the bytes
-    expect(stream.body).toContain("--frame\r\nContent-Type: image/jpeg\r\n");
-    expect(stream.body).toContain(`Content-Length: ${picture.length}\r\n`);
-    expect(stream.body).toContain("X-Seq: 1\r\n\r\n");
-    expect(stream.body).toContain(picture.toString("binary"));
+    // and the part is the boundary, the JPEG's header and the bytes
+    expect(stream.body.startsWith(OPEN_PART)).toBe(true);
 
     // a NEW frame reaches the stream that is already open
     const second = jpeg(2);
     server.publishFrame({ bytes: second, seq: 2 });
 
-    await until(() => stream.body.includes("X-Seq: 2"));
-
-    expect(stream.body).toContain(second.toString("binary"));
+    await until(() => stream.body.includes(second.toString("binary")));
 
     stream.close();
+  });
+
+  it("AC-435 a picture is followed at once by the start of the next part, so the browser shows it without waiting", async () => {
+    const server = await startServer();
+    const client = await connect(server);
+
+    auth(client);
+
+    const hello = await helloOf(client);
+    const streamUrl = (hello as { streamUrl?: string }).streamUrl!;
+
+    const first = jpeg(11);
+
+    server.publishFrame({ bytes: first, seq: 1 });
+
+    const stream = await openStream(streamUrl);
+
+    // The picture ends with the next part's boundary AND header: a browser
+    // shows a part only once it has seen the start of the next one, and a
+    // still editor sends no next picture for seconds (D-372).
+    await until(() =>
+      stream.body.endsWith(`${first.toString("binary")}\r\n${OPEN_PART}`),
+    );
+
+    // the same for a picture that arrives later, and the header is not
+    // written twice in front of it
+    const second = jpeg(12);
+
+    server.publishFrame({ bytes: second, seq: 2 });
+
+    await until(() =>
+      stream.body.endsWith(`${second.toString("binary")}\r\n${OPEN_PART}`),
+    );
+
+    expect(
+      stream.body.endsWith(
+        `${first.toString("binary")}\r\n${OPEN_PART}${second.toString(
+          "binary",
+        )}\r\n${OPEN_PART}`,
+      ),
+    ).toBe(true);
+
+    // a stream that opens later starts with the header, once
+    const late = await openStream(streamUrl);
+
+    await until(() =>
+      late.body.endsWith(`${second.toString("binary")}\r\n${OPEN_PART}`),
+    );
+
+    expect(late.body.startsWith(OPEN_PART)).toBe(true);
+    expect(late.body.split(OPEN_PART).length - 1).toBe(2);
+
+    stream.close();
+    late.close();
   });
 
   it("AC-115 the stream endpoint refuses a request without the connection's capability, and two connections get different capabilities", async () => {
@@ -443,5 +503,69 @@ describe("the MJPEG stream", () => {
 
     expect(neverIssued.status).toBe(404);
     expect(neverIssued.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+});
+
+describe("a client that is behind", () => {
+  it("AC-389 is skipped, and gets the newest frame when its socket drains", () => {
+    const stream = createMjpegStream({ port: () => 1 });
+    const capability = stream.createCapability();
+
+    // a response that only remembers what was written to it
+    class FakeResponse extends EventEmitter {
+      writableLength = 0;
+      writableEnded = false;
+      destroyed = false;
+      written: string[] = [];
+      writeHead() {
+        return this;
+      }
+      flushHeaders() {}
+      write(chunk: string | Buffer) {
+        this.written.push(chunk.toString("latin1"));
+        return true;
+      }
+      end() {}
+      destroy() {}
+    }
+
+    const res = new FakeResponse();
+
+    stream.handle(
+      { url: streamPath(capability), headers: {} } as IncomingMessage,
+      res as unknown as ServerResponse,
+    );
+
+    const frame = (seq: number) => ({
+      seq,
+      bytes: Buffer.from(`frame-${seq}`),
+    });
+    const has = (seq: number) => res.written.includes(`frame-${seq}`);
+
+    // a client that keeps up gets every frame
+    stream.publish(frame(1));
+    expect(has(1)).toBe(true);
+
+    // a client that is behind gets none: its delay does not grow with the
+    // frames it has not taken
+    res.writableLength = STREAM_BACKLOG_BYTES + 1;
+    stream.publish(frame(2));
+    stream.publish(frame(3));
+    expect(has(2)).toBe(false);
+    expect(has(3)).toBe(false);
+
+    // and when it has caught up it gets the NEWEST frame, and not the ones
+    // it missed
+    res.writableLength = 0;
+    res.emit("drain");
+    expect(has(3)).toBe(true);
+    expect(has(2)).toBe(false);
+
+    // a client that was not behind is not sent a frame it already has
+    const before = res.written.length;
+    res.emit("drain");
+    expect(res.written.length).toBe(before);
+
+    stream.close();
   });
 });

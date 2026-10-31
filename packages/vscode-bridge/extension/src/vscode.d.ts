@@ -96,6 +96,30 @@ declare module "vscode" {
   export interface WorkspaceConfiguration {
     get<T>(section: string): T | undefined;
     get<T>(section: string, defaultValue: T): T;
+    /** change a setting (the control's input route is one: D-335) */
+    update(
+      section: string,
+      value: unknown,
+      target?: ConfigurationTarget | boolean,
+    ): Thenable<void>;
+  }
+
+  export enum ConfigurationTarget {
+    Global = 1,
+    Workspace = 2,
+    WorkspaceFolder = 3,
+  }
+
+  /** one line of a pick list */
+  export interface QuickPickItem {
+    label: string;
+    description?: string;
+    detail?: string;
+    picked?: boolean;
+  }
+
+  export interface ConfigurationChangeEvent {
+    affectsConfiguration(section: string): boolean;
   }
 
   export interface StatusBarItem {
@@ -211,6 +235,28 @@ declare module "vscode" {
      * relative to this path (D-82).
      */
     readonly extensionPath: string;
+    /**
+     * The editor's own secret storage (the system's keychain behind it).
+     *
+     * The session token is kept here, so a reload of the editor does not give
+     * the page a new one to paste (D-333).
+     */
+    readonly secrets: {
+      get(key: string): Thenable<string | undefined>;
+      store(key: string, value: string): Thenable<void>;
+      delete(key: string): Thenable<void>;
+    };
+    /**
+     * A folder of the extension's own, which the editor keeps across updates.
+     *
+     * The private Python environment of the indra engine lives here (D-353).
+     */
+    readonly globalStorageUri: { readonly fsPath: string };
+  }
+
+  export enum ProgressLocation {
+    Window = 10,
+    Notification = 15,
   }
 
   export namespace window {
@@ -268,6 +314,29 @@ declare module "vscode" {
       message: string,
       ...items: string[]
     ): Thenable<string | undefined>;
+    /** a pick list: the teacher chooses one line, or none (D-335) */
+    export function showQuickPick<T extends QuickPickItem>(
+      items: readonly T[],
+      options?: { title?: string; placeHolder?: string },
+    ): Thenable<T | undefined>;
+    /** a place in the editor's Output panel to write lines to (D-370) */
+    export function createOutputChannel(name: string): {
+      appendLine(line: string): void;
+      clear(): void;
+      show(preserveFocus?: boolean): void;
+      dispose(): void;
+    };
+    /** a task that takes time, with a progress notice while it does (D-353) */
+    export function withProgress<R>(
+      options: {
+        location: ProgressLocation;
+        title?: string;
+        cancellable?: boolean;
+      },
+      task: (progress: {
+        report(value: { message?: string; increment?: number }): void;
+      }) => Thenable<R>,
+    ): Thenable<R>;
     export function createStatusBarItem(
       alignment?: StatusBarAlignment,
       priority?: number,
@@ -288,6 +357,9 @@ declare module "vscode" {
       listener: (e: TextDocumentChangeEvent) => any,
     ): Disposable;
     export function getConfiguration(section?: string): WorkspaceConfiguration;
+    export function onDidChangeConfiguration(
+      listener: (e: ConfigurationChangeEvent) => any,
+    ): Disposable;
   }
 
   export namespace tasks {

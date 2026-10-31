@@ -192,14 +192,22 @@
       "screenshot": {
         "button": "Take a screenshot",
         "ocr": "Read the text",
-        "page": "Place on this page",
-        "newPage": "Place on a new page",
+        "page": "Insert into this page",
+        "pageNamed": "Insert into {{name}}",
+        "pageChoice": "The page the picture goes on",
+        "here": "this page",
+        "newPage": "New page",
+        "readWhole": "Read the text of the whole picture",
+        "readCrop": "Read the text of the crop",
+        "placeHint": "Move to where it goes, then click",
         "cancel": "Cancel",
         "wireframe": "The screenshot goes here",
         "cropHandle": "Crop the picture",
         "revertCrop": "Revert the crop",
         "nothingToCapture": "There is nothing to capture on this panel yet.",
-        "captureFailed": "The picture could not be taken."
+        "captureFailed": "The picture could not be taken.",
+        "tabNotShared": "The picture of the video needs this tab to be shared with the page - press Allow when the browser asks, and choose this tab.",
+        "tabUnsupported": "This browser cannot take a picture of a tab, so the video cannot be photographed here."
       },
       "bridge": {
         "label": "Bridge",
@@ -287,7 +295,37 @@
       "wholeWindow": "Mirror the whole window",
       "cancel": "Cancel",
       "handle": "Crop the mirrored region",
-      "fetchFailed": "The editor's window could not be fetched - the whole window is mirrored."
+      "fetchFailed": "The editor's window could not be fetched - the whole window is mirrored.",
+      "modeWhole": "Whole",
+      "modePart": "Part",
+      "modeFollow": "Follow",
+      "size": "How much of the window the following area shows",
+      "title": "VS Code",
+      "state": {
+        "connecting": "Connecting to VS Code...",
+        "looking": "Looking for VS Code - is the Excalidraw Bridge extension running?",
+        "token": "Paste the token from VS Code to connect",
+        "tokenHint": "In VS Code run \"Excalidraw Bridge: Copy the session token\", then press Paste from clipboard.",
+        "refused": "VS Code did not accept the token",
+        "waiting": "Waiting for the editor's window...",
+        "unavailable": "The editor's window cannot be shown",
+        "unavailableHint": "The live view comes back by itself when the window does."
+      }
+    },
+    "control": {
+      "label": "Control",
+      "offTitle": "Control the editor's window from here: your clicks, the wheel and your typing go into it",
+      "onTitle": "Control is on: click the picture to type into the editor. {{chord}} gives the keyboard back. Press to turn it off",
+      "park": "Park",
+      "parkTitle": "Park the editor's window out of sight - it keeps working",
+      "bringBack": "Bring back",
+      "bringBackTitle": "Bring the editor's window back",
+      "virtual": "Virtual",
+      "virtualTitle": "Move the editor's window to the virtual display - out of your way, and still live here",
+      "mainScreen": "Main",
+      "mainScreenTitle": "Bring the editor's window back to your main display",
+      "routeBackground": "no focus taken",
+      "routeFocus": "with focus"
     },
     "pages": {
       "title": "Page",

@@ -653,6 +653,17 @@ export const PdfViewer = ({
         return;
       }
 
+      // The toolbar is drawn into the row of the zoom, outside the part that
+      // scrolls, but React hands this handler its presses too (a portal's
+      // events go to the component that made it). A press on a button of it
+      // is not a press on a page: with the pages scrolled, one of them lies
+      // under the toolbar, and taking the press for the start of a box on it
+      // captured the pointer and swallowed the click - so Read this page only
+      // worked at the very top (D-346).
+      if (target && !viewer.contains(target)) {
+        return;
+      }
+
       const area = viewer.getBoundingClientRect();
 
       if (

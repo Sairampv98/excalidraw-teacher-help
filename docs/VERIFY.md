@@ -38,7 +38,7 @@ The check ends with a **block you can copy and send back as it is**. That block 
 
 ### The output of this check on a working machine
 
-This is the real output, on a machine that has Windows 11, Node.js, Yarn, VS Code, VSCodium, the extension, the virtual display driver and the offline payload installed:
+This is the real output, on a machine that has Windows 11, Node.js, Yarn, VS Code, VSCodium, the extension and the offline payload installed:
 
 ```
 Excalidraw for the classroom - checking the install
@@ -53,14 +53,13 @@ This only reads the machine. It changes nothing.
   VSCodium                              installed, 1.91.0 or newer                                          1.140.06880                                                                     PASS
   the extension, in VS Code             excalidraw-teacher-help.excalidraw-bridge                           listed                                                                          PASS
   the extension, in VSCodium            excalidraw-teacher-help.excalidraw-bridge                           listed                                                                          PASS
-  the extension's helpers, in VS Code   media\capture.ps1, media\virtual-display.ps1, media\ocr_sidecar.py  all three are there                                                             PASS
-  the extension's helpers, in VSCodium  media\capture.ps1, media\virtual-display.ps1, media\ocr_sidecar.py  all three are there                                                             PASS
-  the virtual display driver            installed and attached                                              Virtual Display Driver (1920 x 1080)                                            PASS
+  the extension's helpers, in VS Code   media\capture.ps1, media\window.ps1, media\input.ps1, media\ocr_sidecar.py  all four are there                                                              PASS
+  the extension's helpers, in VSCodium  media\capture.ps1, media\window.ps1, media\input.ps1, media\ocr_sidecar.py  all four are there                                                              PASS
   the bridge                            listening on 47511                                                  not listening - no editor is running, and the bridge only listens while one is  MISSING
   the app                               HTTP 200 at the address it is served from                           not checked - no address was given                                              NOT CHECKED
   the offline payload's hashes          every file in manifest.json matches                                 3 of 3 files match                                                              PASS
 
-PASS 11   FAIL 0   MISSING 1   NOT CHECKED 1
+PASS 10   FAIL 0   MISSING 1   NOT CHECKED 1
 Nothing FAILED.
 ```
 
@@ -89,14 +88,13 @@ The app was checked at: not checked - no address was given
 | VSCodium | installed, 1.91.0 or newer | 1.140.06880 | PASS |
 | the extension, in VS Code | excalidraw-teacher-help.excalidraw-bridge | listed | PASS |
 | the extension, in VSCodium | excalidraw-teacher-help.excalidraw-bridge | listed | PASS |
-| the extension's helpers, in VS Code | media\capture.ps1, media\virtual-display.ps1, media\ocr_sidecar.py | all three are there | PASS |
-| the extension's helpers, in VSCodium | media\capture.ps1, media\virtual-display.ps1, media\ocr_sidecar.py | all three are there | PASS |
-| the virtual display driver | installed and attached | Virtual Display Driver (1920 x 1080) | PASS |
+| the extension's helpers, in VS Code | media\capture.ps1, media\window.ps1, media\input.ps1, media\ocr_sidecar.py | all four are there | PASS |
+| the extension's helpers, in VSCodium | media\capture.ps1, media\window.ps1, media\input.ps1, media\ocr_sidecar.py | all four are there | PASS |
 | the bridge | listening on 47511 | not listening - no editor is running, and the bridge only listens while one is | MISSING |
 | the app | HTTP 200 at the address it is served from | not checked - no address was given | NOT CHECKED |
 | the offline payload's hashes | every file in manifest.json matches | 3 of 3 files match | PASS |
 
-PASS 11   FAIL 0   MISSING 1   NOT CHECKED 1
+PASS 10   FAIL 0   MISSING 1   NOT CHECKED 1
 ```
 
 Three things to read in that table:
@@ -231,19 +229,15 @@ then the output of the program, then:
 
 **See it** - [10 - the page's frame, number and size](../clips/10-pages-frame-number-size.mp4)
 
-### 2.11 The virtual display
+### 2.11 Parking the editor's window, and controlling it from the canvas
 
-**What to do** - Open the extension's presenter panel. Press **Move this editor to the virtual display**. Then press **Bring this editor back to this screen**.
+**What to do** - Open a code panel in its live view. Press the panel's **Park** button, turn **Control** on, click into the picture of the editor and type a line of code. Then press **Bring back**.
 
-**You should see** - The panel reports the virtual display it found:
+**You should see** - The editor's window leaves the screen, and its picture stays in the panel and keeps changing as you type. Your clicks, the wheel and your typing in the picture go into the editor's window - it is not in front, and your own cursor, keyboard and focus are never taken. The panel says which way the input goes: `input goes to the editor's window without taking the focus`. Control is off in every new panel, and Ctrl+Alt+Home gives the keyboard back to the canvas. **Bring back** puts the window where it was, maximised if it was.
 
-> a window goes on the virtual display Generic PnP Monitor (1920x1080 at 1920,0)
+**If it is not that** - Nothing moves until you press the button - parking your own window is your choice, not the tool's. The window did not move: the panel says why. Typing does nothing: Control is off, or the picture has not been clicked, or the panel says there is no editor window. A shortcut does nothing: it is one the machine keeps (Alt+Tab, Alt+F4, the Windows key). You cannot see the window and want it back: press **Bring back**, or run **Excalidraw Bridge: Bring the editor's window back**.
 
-Nothing moves until you press the button - moving your own window is your choice, not the tool's. When you do press it, the editor's window really goes to the virtual display, and the extension reports what it did, with the **measured** rectangle it used, so you can see where the window landed.
-
-**If it is not that** - The panel says there is no virtual display: the driver is not installed - read the **the virtual display driver** row of the install check. The window did not move: the placement failed and the panel says why. The window is on the virtual display and you cannot get it back: press **Bring this editor back to this screen** again.
-
-**See it** - [11 - the virtual display](../clips/11-virtual-display.mp4)
+**See it** - [11 - parking and control](../clips/11-park-and-control.mp4)
 
 ### 2.12 YouTube
 

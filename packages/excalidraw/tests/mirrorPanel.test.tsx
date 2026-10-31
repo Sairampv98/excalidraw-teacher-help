@@ -1,0 +1,1016 @@
+/**
+ * The **VS Code mirror** panel: its states, the tools in its own header, and
+ * where the bridge's field and the screenshot and the read live (D-331, D-332).
+ *
+ * The rows named in the test titles are the rows of SPEC.md - the kit's SPEC
+ * lint reads this file and fails if a row id is missing.
+ */
+
+import React from "react";
+import { describe, expect, it, vi } from "vitest";
+
+import type {
+  ExcalidrawPanelElement,
+  NonDeletedExcalidrawElement,
+} from "@excalidraw/element/types";
+
+import { CommandPalette, Excalidraw } from "../index";
+import { codePanelContent, emptyCodePanelState } from "../scene/panelContent";
+import { mirrorPanelView } from "../scene/mirrorPanelView";
+import {
+  clearPendingScreenshot,
+  getPendingScreenshot,
+  setPendingScreenshot,
+  setPendingScreenshotCrop,
+  setPendingScreenshotStage,
+} from "../scene/panelScreenshot";
+import { getAnyPanelMirrorPicker } from "../scene/panelMirror";
+import {
+  FOLLOW_REST_ZONE,
+  FOLLOW_STEP_MAX,
+  panelMirrorRegionNudge,
+} from "../scene/panelMirror";
+import { clearAllPanelCaptures, setPanelCapture } from "../scene/panelFrames";
+
+import { API } from "./helpers/api";
+import { act, fireEvent, render, waitFor } from "./test-utils";
+
+import type { PanelCapture } from "../scene/panelFrames";
+import type { MirrorBridgePhase } from "../scene/mirrorPanelView";
+
+const STREAM = "http://127.0.0.1:47511/s/a-capability/frame";
+
+/** A VS Code mirror: a code panel of the bridge's kind (D-331). */
+const mirror = (): ExcalidrawPanelElement =>
+  API.createElement({
+    type: "panel",
+    x: 120,
+    y: 80,
+    width: 400,
+    height: 300,
+    panelKind: "code",
+    panel: codePanelContent(emptyCodePanelState(), "session-1"),
+    posterMode: false,
+    posterFileId: null,
+  }) as unknown as ExcalidrawPanelElement;
+
+const asElement = (panel: ExcalidrawPanelElement) =>
+  panel as unknown as NonDeletedExcalidrawElement;
+
+const bridge = (
+  status: "not-connected" | "connected" | "rejected",
+  phase: MirrorBridgePhase,
+) => ({
+  status,
+  phase,
+  message: `state: ${phase}`,
+  token: "",
+});
+
+const live: PanelCapture = { status: "live", streamUrl: STREAM };
+
+describe("the VS Code mirror's states", () => {
+  it("AC-383 the mirror is in exactly one state, and the state is a rule", () => {
+    const rule = (
+      bridgeInput: Parameters<typeof mirrorPanelView>[0]["bridge"],
+      capture: PanelCapture | null,
+      readOnly = false,
+    ) => mirrorPanelView({ readOnly, bridge: bridgeInput, capture });
+
+    // not connected: what the page is doing says the state
+    expect(rule(bridge("not-connected", "connecting"), null)).toBe(
+      "connecting",
+    );
+    expect(rule(bridge("rejected", "reconnecting"), null)).toBe("looking");
+    expect(rule(bridge("rejected", "refused"), null)).toBe("refused");
+    expect(rule(bridge("not-connected", "idle"), null)).toBe("token");
+    expect(rule(bridge("not-connected", "closed"), null)).toBe("token");
+
+    // a host that does not name the phase: a try that did not work is
+    // "looking", a connection never tried is "token"
+    expect(rule({ status: "rejected" }, null)).toBe("looking");
+    expect(rule({ status: "not-connected" }, null)).toBe("token");
+
+    // connected: the editor's own say
+    expect(rule(bridge("connected", "connected"), null)).toBe("waiting");
+    expect(rule(bridge("connected", "connected"), live)).toBe("live");
+    expect(
+      rule(bridge("connected", "connected"), {
+        status: "unavailable",
+        reason: "no window",
+      }),
+    ).toBe("unavailable");
+
+    // the presenter and a host with no bridge have no connection to say
+    // anything about: the registry's picture is what there is
+    expect(rule(undefined, live)).toBe("live");
+    expect(rule(undefined, null)).toBe("waiting");
+    expect(rule(bridge("not-connected", "idle"), live, true)).toBe("live");
+    expect(rule(bridge("not-connected", "idle"), null, true)).toBe("waiting");
+  });
+
+  it("AC-384 the mirror moves between its states: a spinner, an error, the live window", async () => {
+    const panel = mirror();
+
+    const { rerender } = await render(
+      <Excalidraw panelBridge={bridge("not-connected", "connecting")} />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    const view = () =>
+      document
+        .querySelector('[data-testid="mirror-panel-status"]')
+        ?.getAttribute("data-view");
+
+    // opening the connection: a wheel and a sentence under it
+    expect(view()).toBe("connecting");
+    expect(
+      document.querySelector('[data-testid="mirror-panel-spinner"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector('[data-testid="mirror-panel-message"]')!
+        .textContent,
+    ).not.toBe("");
+
+    // the extension did not accept the token: an error icon and a sentence
+    rerender(<Excalidraw panelBridge={bridge("rejected", "refused")} />);
+
+    await waitFor(() => expect(view()).toBe("refused"));
+    expect(
+      document.querySelector('[data-testid="mirror-panel-spinner"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector('[data-testid="mirror-panel-error-icon"]'),
+    ).not.toBeNull();
+
+    // connected, and the window has not come yet: the wheel again
+    rerender(<Excalidraw panelBridge={bridge("connected", "connected")} />);
+
+    await waitFor(() => expect(view()).toBe("waiting"));
+    expect(
+      document.querySelector('[data-testid="mirror-panel-spinner"]'),
+    ).not.toBeNull();
+
+    // the window arrives: the picture, and nothing else in the body
+    act(() => {
+      setPanelCapture(panel.id, live);
+    });
+
+    await waitFor(() =>
+      expect(
+        document
+          .querySelector('[data-testid="code-panel"]')
+          ?.getAttribute("data-view"),
+      ).toBe("live"),
+    );
+    expect(
+      document.querySelector('[data-testid="code-panel-live-frame"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector('[data-testid="mirror-panel-status"]'),
+    ).toBeNull();
+
+    // the connection drops: the picture goes and the state says why
+    rerender(<Excalidraw panelBridge={bridge("rejected", "reconnecting")} />);
+
+    await waitFor(() => expect(view()).toBe("looking"));
+    expect(
+      document.querySelector('[data-testid="code-panel-live-frame"]'),
+    ).toBeNull();
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
+  });
+
+  it("AC-384 the mirror has no run bar and no output console", async () => {
+    const panel = mirror();
+
+    await render(<Excalidraw panelBridge={bridge("connected", "connected")} />);
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    act(() => {
+      setPanelCapture(panel.id, live);
+    });
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-live-frame"]'),
+      ).not.toBeNull(),
+    );
+
+    for (const testId of [
+      "code-panel-run",
+      "code-panel-output",
+      "code-panel-console",
+      "code-panel-consolebox",
+      "code-panel-divider",
+      "code-panel-view-toggle",
+    ]) {
+      expect(document.querySelector(`[data-testid="${testId}"]`)).toBeNull();
+    }
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
+  });
+});
+
+describe("the tools of the VS Code mirror", () => {
+  it("AC-385 the screenshot and the read are in the mirror's own header, with no selection", async () => {
+    const panel = mirror();
+    const onCapture = vi.fn();
+    const onOcr = vi.fn();
+
+    await render(
+      <Excalidraw
+        panelBridge={bridge("connected", "connected")}
+        panelScreenshot={{ onCapture }}
+        panelOcr={{ message: "Read the window's text.", onOcr }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    // nothing is selected, and the tools are not there while there is no
+    // picture to take or to read
+    expect(
+      document.querySelector('[data-testid="mirror-panel-screenshot"]'),
+    ).toBeNull();
+
+    act(() => {
+      setPanelCapture(panel.id, live);
+    });
+
+    const header = await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="mirror-panel-header"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found!;
+    });
+
+    const camera = header.querySelector(
+      '[data-testid="mirror-panel-screenshot"]',
+    ) as HTMLButtonElement | null;
+    const read = header.querySelector(
+      '[data-testid="mirror-panel-read"]',
+    ) as HTMLButtonElement | null;
+
+    expect(camera).not.toBeNull();
+    expect(read).not.toBeNull();
+
+    // and they work: the host is asked for the picture (the crop window is
+    // what the teacher sees then, AC-392) and for the read
+    fireEvent.click(camera!);
+
+    expect(onCapture).toHaveBeenCalledWith(panel.id);
+
+    fireEvent.click(read!);
+
+    expect(onOcr).toHaveBeenCalledWith(panel.id);
+
+    // the header also carries the mode, the control, the park and the full
+    // screen of the mirror
+    for (const testId of ["code-panel-mirror-modes", "code-panel-fullscreen"]) {
+      expect(header.querySelector(`[data-testid="${testId}"]`)).not.toBeNull();
+    }
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
+  });
+
+  it("AC-386 the properties panel keeps the screenshot and the read, and the bridge field is not in it", async () => {
+    const panel = mirror();
+
+    const { container } = await render(
+      <Excalidraw
+        panelBridge={bridge("connected", "connected")}
+        panelScreenshot={{ onCapture: () => undefined }}
+        panelOcr={{ message: "Read.", onOcr: () => undefined }}
+      />,
+    );
+
+    API.setAppState({
+      width: 1000,
+      height: 1000,
+      selectedElementIds: { [panel.id]: true },
+    });
+    API.setElements([asElement(panel)]);
+
+    const actions = await waitFor(() => {
+      const found = container.querySelector(
+        '[data-testid="panel-actions"]',
+      ) as HTMLElement | null;
+
+      expect(found).not.toBeNull();
+
+      return found!;
+    });
+
+    // the backup: the camera and the read are in the properties too
+    expect(
+      actions.querySelector('[data-testid="panel-screenshot-button"]'),
+    ).not.toBeNull();
+    expect(
+      actions.querySelector('[data-testid="panel-ocr-button"]'),
+    ).not.toBeNull();
+
+    // and the token's field is not: it is in the mirror, where it is needed
+    expect(actions.querySelector('[data-testid="panel-bridge"]')).toBeNull();
+    expect(
+      actions.querySelector('[data-testid="panel-bridge-token"]'),
+    ).toBeNull();
+  });
+});
+
+describe("the following area", () => {
+  const region = { x: 0.25, y: 0.25, width: 0.5, height: 0.5 };
+  const view = (width: number, height: number) => ({
+    left: 0,
+    top: 0,
+    width,
+    height,
+  });
+
+  it("AC-387 the following area rests while the pointer is near the middle, and moves by a step outside", () => {
+    // in the rest zone - the middle 70% of the window - nothing moves
+    expect(
+      panelMirrorRegionNudge(region, { x: 200, y: 100 }, view(400, 200)),
+    ).toEqual(region);
+    expect(
+      panelMirrorRegionNudge(region, { x: 300, y: 150 }, view(400, 200)),
+    ).toEqual(region);
+    // anywhere in it, not only in the middle and on its edge
+    for (const x of [130, 170, 230, 270]) {
+      expect(
+        panelMirrorRegionNudge(region, { x, y: 120 }, view(400, 200)),
+      ).toEqual(region);
+    }
+    expect(FOLLOW_REST_ZONE).toBe(0.7);
+
+    // at the edge of the window the area moves by the biggest step, towards the
+    // pointer, and keeps its size
+    const right = panelMirrorRegionNudge(
+      region,
+      { x: 400, y: 100 },
+      view(400, 200),
+    );
+
+    expect(right.x).toBeCloseTo(region.x + FOLLOW_STEP_MAX * region.width, 3);
+    expect(right.y).toBe(region.y);
+    expect(right.width).toBe(region.width);
+    expect(right.height).toBe(region.height);
+
+    const left = panelMirrorRegionNudge(
+      region,
+      { x: 0, y: 100 },
+      view(400, 200),
+    );
+
+    expect(left.x).toBeCloseTo(region.x - FOLLOW_STEP_MAX * region.width, 3);
+
+    // between the rest zone and the edge the step is smaller
+    const part = panelMirrorRegionNudge(
+      region,
+      { x: 350, y: 100 },
+      view(400, 200),
+    );
+
+    expect(part.x).toBeGreaterThan(region.x);
+    expect(part.x).toBeLessThan(right.x);
+
+    // the same movement of the hand does the same in a small window as in a
+    // large one: the pointer's distance sets the speed and not its place
+    expect(
+      panelMirrorRegionNudge(region, { x: 80, y: 40 }, view(80, 40)),
+    ).toEqual(
+      panelMirrorRegionNudge(region, { x: 1600, y: 800 }, view(1600, 800)),
+    );
+
+    // and the area stays inside the window
+    const against = panelMirrorRegionNudge(
+      { x: 0.49, y: 0.1, width: 0.5, height: 0.4 },
+      { x: 400, y: 100 },
+      view(400, 200),
+    );
+
+    expect(against.x + against.width).toBeLessThanOrEqual(1);
+  });
+
+  it("AC-391 turning Control on gives the window the keyboard at once", async () => {
+    const panel = mirror();
+
+    await render(
+      <Excalidraw
+        panelBridge={bridge("connected", "connected")}
+        panelControl={{
+          onToggle: vi.fn(),
+          onInput: vi.fn(),
+          onWindow: vi.fn(),
+        }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    const control = {
+      enabled: false,
+      route: "background" as const,
+      reason: "",
+    };
+
+    act(() => {
+      setPanelCapture(panel.id, { ...live, control });
+    });
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="code-panel-live-window"]'),
+      ).not.toBeNull(),
+    );
+
+    const view = document.querySelector(
+      '[data-testid="code-panel-live-window"]',
+    ) as HTMLElement;
+
+    expect(document.activeElement).not.toBe(view);
+
+    // the extension says Control is on: the window has the keyboard, with no
+    // click on it
+    act(() => {
+      setPanelCapture(panel.id, {
+        ...live,
+        control: { ...control, enabled: true },
+      });
+    });
+
+    await waitFor(() => expect(document.activeElement).toBe(view));
+    expect(view.getAttribute("data-control")).toBe("engaged");
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
+  });
+});
+
+describe("the screenshot of the mirror", () => {
+  const SIZE = { width: 1000, height: 500 };
+
+  const liveWindow: PanelCapture = { ...live, ...SIZE };
+
+  /** a host that takes the picture the way the app does, and says what it was asked */
+  const host = () => {
+    const onCapture = vi.fn(async (panelId: string) => {
+      setPendingScreenshot({
+        panelId,
+        source: "editor",
+        dataURL: "data:image/png;base64,AAAA",
+        width: SIZE.width,
+        height: SIZE.height,
+        x: 0,
+        y: 0,
+        canvasWidth: 400,
+        canvasHeight: 200,
+      });
+    });
+
+    return {
+      onCapture,
+      onChoice: vi.fn(),
+      onPageChoice: vi.fn(),
+      onPlace: vi.fn(),
+    };
+  };
+
+  const openCropWindow = async (screenshot: ReturnType<typeof host>) => {
+    const panel = mirror();
+
+    await render(
+      <Excalidraw
+        panelBridge={bridge("connected", "connected")}
+        panelScreenshot={screenshot}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    act(() => {
+      setPanelCapture(panel.id, liveWindow);
+    });
+
+    const camera = (await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="mirror-panel-screenshot"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found;
+    })) as HTMLElement;
+
+    fireEvent.click(camera);
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="panel-screenshot-focus"]'),
+      ).not.toBeNull(),
+    );
+
+    return panel;
+  };
+
+  const press = (testId: string) =>
+    fireEvent.click(document.querySelector(`[data-testid="${testId}"]`)!);
+
+  const finish = (panelId: string) => {
+    act(() => {
+      clearPendingScreenshot(panelId);
+      clearAllPanelCaptures();
+    });
+  };
+
+  it("AC-392 the camera opens the crop window with the three things to do", async () => {
+    const screenshot = host();
+
+    const panel = await openCropWindow(screenshot);
+
+    // the picture is taken, and the crop window is where it is shown
+    expect(screenshot.onCapture).toHaveBeenCalledWith(panel.id);
+
+    const crop = document.querySelector(
+      '[data-testid="panel-screenshot-focus"]',
+    )!;
+
+    expect(crop.getAttribute("data-stage")).toBe("crop");
+
+    // the three choices and a way out are in a bar on the window itself
+    const bar = document.querySelector(
+      '[data-testid="panel-screenshot-actions"]',
+    )!;
+
+    expect(crop.contains(bar)).toBe(true);
+
+    expect(
+      bar.querySelector('[data-testid="panel-screenshot-action-page"]')!
+        .textContent,
+    ).toBe("Insert into this page");
+    expect(
+      bar.querySelector('[data-testid="panel-screenshot-action-new-page"]')!
+        .textContent,
+    ).toBe("New page");
+    expect(
+      bar.querySelector('[data-testid="panel-screenshot-cancel"]'),
+    ).not.toBeNull();
+
+    // the read says what it will read: the whole picture, or the crop
+    const read = bar.querySelector(
+      '[data-testid="panel-screenshot-action-ocr"]',
+    )!;
+
+    expect(read.getAttribute("data-crop")).toBe("whole");
+    expect(read.textContent).toBe("Read the text of the whole picture");
+
+    act(() => {
+      setPendingScreenshotCrop(panel.id, {
+        x: 0.1,
+        y: 0.1,
+        width: 0.5,
+        height: 0.5,
+      });
+    });
+
+    await waitFor(() =>
+      expect(
+        document
+          .querySelector('[data-testid="panel-screenshot-action-ocr"]')!
+          .getAttribute("data-crop"),
+      ).toBe("crop"),
+    );
+    expect(
+      document.querySelector('[data-testid="panel-screenshot-action-ocr"]')!
+        .textContent,
+    ).toBe("Read the text of the crop");
+
+    // nothing of the old design is left on the panel: no strip of choices
+    // hanging off its edge, and no dimming of its picture
+    expect(
+      document.querySelector('[data-testid="panel-screenshot-choices"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector('[data-testid="panel-focus-scrim"]'),
+    ).toBeNull();
+
+    finish(panel.id);
+  });
+
+  it("AC-393 Insert goes straight to the rectangle, with no page ribbon", async () => {
+    const screenshot = host();
+    const panel = await openCropWindow(screenshot);
+
+    press("panel-screenshot-action-page");
+
+    await waitFor(() =>
+      expect(screenshot.onChoice).toHaveBeenCalledWith(panel.id, "page"),
+    );
+    expect(screenshot.onPageChoice).not.toHaveBeenCalled();
+
+    finish(panel.id);
+  });
+
+  it("AC-393 New page asks for a new page at once, and the read reads the crop", async () => {
+    const newPage = host();
+    const panel = await openCropWindow(newPage);
+
+    press("panel-screenshot-action-new-page");
+
+    await waitFor(() =>
+      expect(newPage.onChoice).toHaveBeenCalledWith(panel.id, "new-page"),
+    );
+    // a new page needs no ribbon: it is made when the picture is placed
+    expect(newPage.onPageChoice).toHaveBeenCalledWith(panel.id, null);
+
+    press("panel-screenshot-action-ocr");
+
+    await waitFor(() =>
+      expect(newPage.onChoice).toHaveBeenCalledWith(panel.id, "ocr"),
+    );
+
+    finish(panel.id);
+  });
+
+  it("AC-403 the crop window lists the pages, and Insert goes to the page that was chosen", async () => {
+    const screenshot = host();
+    const panel = await openCropWindow(screenshot);
+
+    // with one page there is nothing to choose
+    expect(
+      document.querySelector('[data-testid="panel-screenshot-page-select"]'),
+    ).toBeNull();
+
+    act(() => {
+      API.setAppState({
+        pages: [
+          { id: "p1", name: "One" },
+          { id: "p2", name: "Two" },
+          { id: "p3", name: "Three" },
+        ],
+        currentPageId: "p2",
+      });
+    });
+
+    const select = (await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="panel-screenshot-page-select"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found;
+    })) as HTMLSelectElement;
+
+    // every page is there, and the one the teacher is on says so
+    expect([...select.options].map((option) => option.textContent)).toEqual([
+      "One",
+      "Two (this page)",
+      "Three",
+    ]);
+    expect(select.value).toBe("p2");
+
+    // the page the teacher is on is where the picture goes, and the button says
+    // so
+    const insert = () =>
+      document.querySelector(
+        '[data-testid="panel-screenshot-action-page"]',
+      ) as HTMLElement;
+
+    expect(insert().textContent).toBe("Insert into this page");
+
+    // another page is chosen, and the button says which
+    fireEvent.change(select, { target: { value: "p3" } });
+
+    await waitFor(() => expect(insert().textContent).toBe("Insert into Three"));
+
+    press("panel-screenshot-action-page");
+
+    await waitFor(() =>
+      expect(screenshot.onChoice).toHaveBeenCalledWith(panel.id, "page"),
+    );
+    expect(screenshot.onPageChoice).toHaveBeenCalledWith(panel.id, "p3");
+
+    finish(panel.id);
+  });
+
+  it("AC-403 Insert on the page the teacher is on asks for no other page", async () => {
+    const screenshot = host();
+    const panel = await openCropWindow(screenshot);
+
+    act(() => {
+      API.setAppState({
+        pages: [
+          { id: "p1", name: "One" },
+          { id: "p2", name: "Two" },
+        ],
+        currentPageId: "p1",
+      });
+    });
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="panel-screenshot-page-select"]'),
+      ).not.toBeNull(),
+    );
+
+    press("panel-screenshot-action-page");
+
+    await waitFor(() =>
+      expect(screenshot.onChoice).toHaveBeenCalledWith(panel.id, "page"),
+    );
+    expect(screenshot.onPageChoice).not.toHaveBeenCalled();
+
+    finish(panel.id);
+  });
+
+  it("AC-394 a panel that is full screen is left before the rectangle, because the rectangle is on the canvas", async () => {
+    const screenshot = host();
+    const exit = vi.fn(async () => undefined);
+    const element = document.createElement("div");
+
+    document.body.appendChild(element);
+
+    Object.defineProperty(document, "fullscreenElement", {
+      configurable: true,
+      get: () => element,
+    });
+    Object.defineProperty(document, "exitFullscreen", {
+      configurable: true,
+      value: exit,
+    });
+
+    let id = "";
+
+    try {
+      const panel = await openCropWindow(screenshot);
+
+      id = panel.id;
+
+      // the crop window is drawn into the full-screen element (D-334), so its
+      // choices are on the screen
+      await waitFor(() =>
+        expect(
+          element.querySelector('[data-testid="panel-screenshot-actions"]'),
+        ).not.toBeNull(),
+      );
+
+      press("panel-screenshot-action-page");
+
+      await waitFor(() =>
+        expect(screenshot.onChoice).toHaveBeenCalledWith(panel.id, "page"),
+      );
+
+      expect(exit).toHaveBeenCalledTimes(1);
+      expect(exit.mock.invocationCallOrder[0]).toBeLessThan(
+        screenshot.onChoice.mock.invocationCallOrder[0],
+      );
+    } finally {
+      // @ts-expect-error the test's own stand-ins are taken off again
+      delete document.fullscreenElement;
+      // @ts-expect-error the test's own stand-ins are taken off again
+      delete document.exitFullscreen;
+      element.remove();
+      finish(id);
+    }
+  });
+
+  it("AC-395 cancelling the crop window takes nothing, and cancelling Part's leaves the mirror as it was", async () => {
+    const screenshot = host();
+    const onChange = vi.fn();
+    const panel = mirror();
+
+    await render(
+      <Excalidraw
+        panelBridge={bridge("connected", "connected")}
+        panelScreenshot={screenshot}
+        panelMirror={{ onChange }}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    act(() => {
+      setPanelCapture(panel.id, liveWindow);
+    });
+
+    // Part's picker, and Cancel in it: the window is not made whole by it
+    const part = (await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="code-panel-mirror-region"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found;
+    })) as HTMLElement;
+
+    fireEvent.click(part);
+
+    await waitFor(() => expect(getAnyPanelMirrorPicker()).not.toBeNull());
+
+    press("panel-mirror-picker-cancel");
+
+    expect(getAnyPanelMirrorPicker()).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+
+    // the crop window, and Cancel in it: the picture is forgotten and nothing
+    // was asked of the host
+    fireEvent.click(
+      document.querySelector('[data-testid="mirror-panel-screenshot"]')!,
+    );
+
+    await waitFor(() => expect(getPendingScreenshot(panel.id)).not.toBeNull());
+
+    press("panel-screenshot-cancel");
+
+    expect(getPendingScreenshot(panel.id)).toBeNull();
+    expect(screenshot.onChoice).not.toHaveBeenCalled();
+
+    finish(panel.id);
+  });
+
+  it("AC-396 the rectangle follows the pointer as a hover, at the size the picture will have, and a click places it", async () => {
+    const screenshot = host();
+    const panel = mirror();
+
+    await render(
+      <Excalidraw
+        panelBridge={bridge("connected", "connected")}
+        panelScreenshot={screenshot}
+      />,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    // the picture is 400 by 200 on the canvas and the teacher cropped it to
+    // the middle half of each side: the rectangle is 200 by 100
+    act(() => {
+      setPendingScreenshot({
+        panelId: panel.id,
+        source: "editor",
+        dataURL: "data:image/png;base64,AAAA",
+        width: SIZE.width,
+        height: SIZE.height,
+        x: 0,
+        y: 0,
+        canvasWidth: 400,
+        canvasHeight: 200,
+        crop: { x: 0.25, y: 0.25, width: 0.5, height: 0.5 },
+      });
+      setPendingScreenshotStage(panel.id, "place", {
+        choice: "page",
+        placing: "picture",
+      });
+    });
+
+    const rectangle = () =>
+      document.querySelector(
+        '[data-testid="panel-screenshot-wireframe"]',
+      ) as HTMLElement;
+
+    await waitFor(() => expect(rectangle()).not.toBeNull());
+
+    // the pointer moves - no button is down - and the rectangle's middle is
+    // under it
+    const hover = (clientX: number, clientY: number) =>
+      act(() => {
+        window.dispatchEvent(
+          new MouseEvent("pointermove", { clientX, clientY, bubbles: true }),
+        );
+      });
+
+    hover(600, 400);
+
+    await waitFor(() => expect(rectangle().style.left).toBe("500px"));
+    expect(rectangle().style.top).toBe("350px");
+    expect(rectangle().style.width).toBe("200px");
+    expect(rectangle().style.height).toBe("100px");
+
+    hover(300, 250);
+
+    await waitFor(() => expect(rectangle().style.left).toBe("200px"));
+    expect(rectangle().style.top).toBe("200px");
+
+    // the rectangle itself does not take the pointer, and a click anywhere
+    // places the picture where it stands
+    expect(rectangle().style.pointerEvents).toBe("none");
+
+    fireEvent.pointerDown(
+      document.querySelector(
+        '[data-testid="panel-screenshot-wireframe-catcher"]',
+      )!,
+      { button: 0, clientX: 300, clientY: 250 },
+    );
+
+    expect(screenshot.onPlace).toHaveBeenCalledWith(panel.id, {
+      x: 200,
+      y: 200,
+    });
+
+    // there is no way to place it but the click, and nothing else is asked
+    expect(screenshot.onChoice).not.toHaveBeenCalled();
+
+    finish(panel.id);
+  });
+});
+
+describe("the keyboard of the mirror", () => {
+  it("AC-400 while Control has the keyboard, the canvas's own shortcuts keep out of it", async () => {
+    const panel = mirror();
+    const onInput = vi.fn();
+
+    await render(
+      <Excalidraw
+        panelBridge={bridge("connected", "connected")}
+        panelControl={{ onToggle: vi.fn(), onInput, onWindow: vi.fn() }}
+      >
+        {/* the host app mounts the canvas's command palette */}
+        <CommandPalette />
+      </Excalidraw>,
+    );
+
+    API.setAppState({ width: 1000, height: 1000 });
+    API.setElements([asElement(panel)]);
+
+    act(() => {
+      setPanelCapture(panel.id, {
+        ...live,
+        control: { enabled: true, route: "background", reason: "" },
+      });
+    });
+
+    const view = (await waitFor(() => {
+      const found = document.querySelector(
+        '[data-testid="code-panel-live-window"]',
+      );
+
+      expect(found).not.toBeNull();
+
+      return found;
+    })) as HTMLElement;
+
+    // Control is on and the window has the keyboard
+    await waitFor(() => expect(document.activeElement).toBe(view));
+    expect(view.getAttribute("data-keyboard-taken")).toBe("true");
+
+    // Ctrl+/ and Ctrl+Shift+P are the editor's (comment the lines, the
+    // command palette), Ctrl+F is its find: they go into it, and the canvas's
+    // own palette and search do not open
+    const chords = [
+      { code: "Slash", key: "/", ctrlKey: true },
+      { code: "KeyP", key: "P", ctrlKey: true, shiftKey: true },
+      { code: "KeyF", key: "f", ctrlKey: true },
+    ];
+
+    for (const chord of chords) {
+      onInput.mockClear();
+
+      fireEvent.keyDown(view, chord);
+
+      expect(onInput).toHaveBeenCalledWith(
+        panel.id,
+        expect.objectContaining({
+          kind: "key",
+          action: "down",
+          code: chord.code,
+        }),
+      );
+      expect(window.h.state.openDialog).toBeNull();
+    }
+
+    // anywhere else the shortcut is the canvas's, as it was
+    fireEvent.keyDown(document.body, {
+      code: "Slash",
+      key: "/",
+      ctrlKey: true,
+    });
+
+    await waitFor(() =>
+      expect(window.h.state.openDialog).toEqual({ name: "commandPalette" }),
+    );
+
+    act(() => {
+      clearAllPanelCaptures();
+    });
+  });
+});
