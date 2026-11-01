@@ -5,9 +5,14 @@
  * (`csc.exe` in the .NET Framework folder), so the project gains NO
  * dependency: nothing is downloaded, nothing is installed.
  *
- *   node installer/build-setup-exe.mjs
+ *   node installer/build-setup-exe.mjs [--out <file.exe>] [--resources <dir>]
  *
  * The result is `installer/setup.exe` and `setup.exe` beside it.
+ *
+ * `--out` says where the executable is written, and `--resources` says where
+ * the three files it carries with it come from: the release compiles the
+ * executable from **scrubbed** copies of them, so the published file holds
+ * nothing of the way this repository is developed.
  */
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
@@ -16,7 +21,20 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "..");
-const OUT = join(HERE, "setup.exe");
+
+/** where the executable is written */
+const outFlag = process.argv.indexOf("--out");
+const OUT =
+  outFlag !== -1 && process.argv[outFlag + 1]
+    ? resolve(process.argv[outFlag + 1])
+    : join(HERE, "setup.exe");
+
+/** where the files the executable carries come from */
+const resourcesFlag = process.argv.indexOf("--resources");
+const SOURCES =
+  resourcesFlag !== -1 && process.argv[resourcesFlag + 1]
+    ? resolve(process.argv[resourcesFlag + 1])
+    : HERE;
 
 /** the compiler that ships with Windows */
 const CSC_CANDIDATES = [
@@ -37,9 +55,9 @@ if (!csc) {
 
 /** the files the executable carries with it */
 const RESOURCES = [
-  { file: join(HERE, "setup.ps1"), name: "setup.ps1" },
-  { file: join(HERE, "setup.sh"), name: "setup.sh" },
-  { file: join(HERE, "lib", "check.mjs"), name: "lib/check.mjs" },
+  { file: join(SOURCES, "setup.ps1"), name: "setup.ps1" },
+  { file: join(SOURCES, "setup.sh"), name: "setup.sh" },
+  { file: join(SOURCES, "lib", "check.mjs"), name: "lib/check.mjs" },
 ];
 
 for (const r of RESOURCES) {
@@ -66,6 +84,7 @@ for (const r of RESOURCES) {
 }
 
 console.log("compiling with " + csc);
+mkdirSync(dirname(OUT), { recursive: true });
 execFileSync(csc, args, { stdio: "inherit", cwd: ROOT });
 
 if (!existsSync(OUT)) {
@@ -73,11 +92,12 @@ if (!existsSync(OUT)) {
   process.exit(1);
 }
 
-console.log(
-  `  ${OUT}  ${(statSync(OUT).size / 1024).toFixed(1)} KB`,
-);
+console.log(`  ${OUT}  ${(statSync(OUT).size / 1024).toFixed(1)} KB`);
 
-// and a copy at the repository root, so it can be found
-const rootCopy = join(ROOT, "setup.exe");
-copyFileSync(OUT, rootCopy);
-console.log(`  ${rootCopy}`);
+// and a copy at the repository root, so it can be found - only for the
+// ordinary build: a build that was told where to write leaves the root alone
+if (OUT === join(HERE, "setup.exe")) {
+  const rootCopy = join(ROOT, "setup.exe");
+  copyFileSync(OUT, rootCopy);
+  console.log(`  ${rootCopy}`);
+}

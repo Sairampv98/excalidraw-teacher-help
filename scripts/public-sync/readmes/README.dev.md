@@ -1,6 +1,6 @@
 # Excalidraw for the classroom
 
-A **modified Excalidraw**: a fork that adds the things a teacher needs when a VS Code or VSCodium window is the thing being taught — a bridge between the editor and the canvas, panels, OCR, a presenter view, pages with a frame and a number, and a virtual display for the projector.
+A **modified Excalidraw**: a fork that adds the things a teacher needs when a VS Code or VSCodium window is the thing being taught — a bridge between the editor and the canvas, panels, OCR, a presenter view, pages with a frame and a number, a virtual display for the projector, and an **AI assistant** that can work on the board while you teach.
 
 ![the clips](clips/index.html)
 
@@ -35,8 +35,9 @@ A **modified Excalidraw**: a fork that adds the things a teacher needs when a VS
 | **Media in a chart** | A picture, GIF or video inside a node of a chart, cut to the node's shape, with four fits and a crop screen. |
 | **Ink looks** | Neon, chalk, marker and pencil on text, freehand and shapes. |
 | **Paper** | Each page has its own paper (eight kinds, twelve colours, grain and age); the image export draws every page's paper. |
+| **The assistant** | An AI assistant (Claude, or another) can look at the board, draw on it, change it and make things - a chart, a deck of slides, a page for the lesson. It runs a small server **on your own computer**, the board is paired with it with a code you type once, and an **Allow changes** switch decides whether it may change anything. Every change it makes is **one undo step**. |
 
-The [clips](clips/index.html) show each of these working. The long version, with what each feature will and will not do, is in [`docs/FEATURES.md`](docs/FEATURES.md).
+Some of the [clips](clips/index.html) show these working. The long version, with what each feature will and will not do, is in [`docs/FEATURES.md`](docs/FEATURES.md).
 
 ---
 
@@ -50,7 +51,7 @@ The [clips](clips/index.html) show each of these working. The long version, with
 | `v1.1` | The first release with its repairs, as it was before the second release. |
 | `v1` | The first release, kept as it was published. It is **superseded**. |
 
-When a release is replaced by the next one, the one that goes is kept as a branch of its own (`v2` is the first of them), with a README that says so.
+When a release is replaced by the next one, the one that goes is kept as a branch of its own (`v1` is the first of them), with a README that says so.
 
 ## Getting started
 
@@ -114,13 +115,13 @@ If you would rather not install anything at all, the [Docker](#running-it-in-a-c
 
 ## Setting it up with no internet
 
-Some rooms have no internet, or the teacher would rather not trust it. The **offline setup** is one file that carries everything it needs inside itself - the app, the extension, Node.js, the editors, Python, Java and the virtual display driver.
+Some rooms have no internet, or the teacher would rather not trust it. The **offline setup** is one file that carries everything it needs inside itself - the app, the extension, Node.js, the editors, Python and Java.
 
 Download `OfflineSetup.exe` from the [releases page](https://github.com/Sairampv98/excalidraw-classroom/releases) and double-click it. It:
 
 - unpacks what it carries and **checks every file against its hash** - a file that does not match is refused, never downloaded;
 - **serves the app straight away** - the app is a static bundle, so **nothing has to be installed for it to run**;
-- then asks, **one thing at a time**, whether to install the rest from its own payload: Node.js, VS Code or VSCodium, Python (only for the OCR engine that runs in Python), Java (only to build the app yourself) and the virtual display driver (which needs **administrator rights** and a **reboot** afterwards).
+- then asks, **one thing at a time**, whether to install the rest from its own payload: Node.js, VS Code or VSCodium, Python (only for the OCR engine that runs in Python) and Java (only to build the app yourself).
 
 `-DryRun` reports and installs nothing. `-Yes` accepts every question. A file that is missing is **reported**, never fetched.
 
@@ -188,11 +189,11 @@ More in [`docker/README.md`](docker/README.md).
 
 ### Build and install the extension
 
-The extension is published as a **release asset** - download `excalidraw-bridge-0.1.0.vsix` from the [releases page](https://github.com/Sairampv98/excalidraw-classroom/releases) and install it:
+The extension is published as a **release asset** - download `excalidraw-bridge-0.2.0.vsix` from the [releases page](https://github.com/Sairampv98/excalidraw-classroom/releases) and install it:
 
 ```bash
-code    --install-extension excalidraw-bridge-0.1.0.vsix --force
-codium  --install-extension excalidraw-bridge-0.1.0.vsix --force
+code    --install-extension excalidraw-bridge-0.2.0.vsix --force
+codium  --install-extension excalidraw-bridge-0.2.0.vsix --force
 ```
 
 Or build it yourself from this repository - one command, no extra tooling:
@@ -234,6 +235,28 @@ Only one editor can hold the port at a time, and the app reaches that one — so
 
 ---
 
+## The assistant
+
+An AI assistant - Claude, or another - can work on the board **while you teach**: it looks at the canvas, draws on it, changes what is there, and makes things - a chart, a deck of slides, a page for the lesson.
+
+It does that through a **small server that runs on your own computer**. The board connects to it; the server never reaches into the page. The server listens on **127.0.0.1 only**, and it accepts only a page served from this machine.
+
+- **Add the server to your assistant.** It is one file, published with this release as `excalidraw-mcp-server.mjs`. For Claude Code:
+
+  ```bash
+  claude mcp add excalidraw -- node excalidraw-mcp-server.mjs
+  ```
+
+  Files are read and written only in the folders you list when the server starts: add `--folder "C:\path\to\folder"` to the command, once for each folder.
+
+- **Pair the two.** The assistant asks its `status` tool for the **pairing code** - eight characters - and you type it once in the **Assistant** tab of the sidebar. It is remembered on this computer.
+- **Allow changes.** The tab has an **Allow changes** switch. With it off the assistant may look at the board but not change it; with it on it may draw, edit and delete. **Every change it makes is one undo step** - Ctrl+Z takes the whole of it back.
+- **Allow internet**, off by default: nothing is fetched from the web until you turn it on.
+
+The tools are in **groups** - what the board can look at, what it can change, the pages, the pictures and files, the charts, the slides and the lesson pages - so a model finds the right one. The server also offers ready-made **prompts** (a deck of slides for a lesson, a chart of a process, a lesson page out of a document, a check of a page before a class), a **guide** to the tools, and a **skill** an assistant can load.
+
+---
+
 ## The OCR engines and the ladder
 
 You do not have to choose an engine: the machine chooses, and it says what it chose and why. Where a page is read there is a picker - each engine with the speed that was measured for it and what it needs - if you would rather choose:
@@ -254,7 +277,7 @@ _indra_ is a Python package, so it cannot run inside a web page: it runs in a sm
 The mirror shows the editor's own window, live, and the canvas can **control** it when you choose: the mouse, the wheel and the keyboard go into the real window. There are three views - the **whole** window, a **part** you pick, and a part that **follows** the pointer. The input reaches the window **without bringing it forward**; where that does not work it goes **with the focus**, and the panel says which of the two it is on.
 
 - **Parking.** The editor's window can be **parked**: kept out of the way, off every screen, with the mirror still showing it and still controlling it. Nothing parks it unless you ask.
-- **The virtual display.** Where the machine has a virtual display, one button moves the editor's window onto it and one brings it back to the main display. Give the virtual display the **same Windows scale** as the main display, or the editor looks smaller there and the zoom follows it back.
+- **The virtual display.** Where the machine has a virtual display - this project does not install one - one button moves the editor's window onto it and one brings it back to the main display. Give the virtual display the **same Windows scale** as the main display, or the editor looks smaller there and the zoom follows it back.
 - **A window cannot be lost.** A window that was moved is **brought back** with its place restored. A window found on a screen that no longer exists is brought to the main display when the editor starts, and a one-file **rescue** script brings it back when the editor cannot be reached at all.
 - Every placement reports the **measured** rectangle. A move that did not happen is never reported as one that did.
 
@@ -265,6 +288,7 @@ The mirror shows the editor's own window, live, and the canvas can **control** i
 This is the part worth reading before you point it at a class.
 
 - The bridge listens on **127.0.0.1 only**. Nothing outside your machine can reach it.
+- The assistant's server listens on **127.0.0.1 only**, accepts only a page served from this machine, and asks for the pairing code before it does anything.
 - The session token is per-session, in memory, and **never** in a URL, **never** in the document and **never** in a payload.
 - The captured frames **never reach the document**. The live view is an MJPEG stream served by the extension's own local HTTP server; the document only ever holds a small descriptor.
 - The OCR runs **on your machine**. The picture is not sent anywhere.
@@ -282,7 +306,7 @@ This is a hobby project. These are the real limitations, not the pleasant ones.
 - **The first use needs a connection.** The in-browser Python, the PDF reader and the in-browser OCR are each downloaded from a public CDN the first time they are used.
 - **Go, Java, C and C++ are not available in the browser editor yet.** They run from VS Code when the bridge is connected and the language is installed on the machine.
 - **Bold and italic are drawn by thickening and leaning the letters**, not by another face of the font: the letters keep their width, so nothing moves, and the look is close to - not the same as - a font's own bold.
-- **The virtual display needs a virtual display driver** installed and **attached** (on Windows, the driver's own control panel — _Extend_), and the same Windows scale as the main display.
+- **The virtual display must already be on the machine**, and be **attached** (on Windows, the control panel of whatever made it — _Extend_), and the same Windows scale as the main display.
 - **The OCR speed depends on the machine** and on the region you read.
 - **The clips were recorded on one machine, on one browser.** They are a demonstration, not a benchmark.
 - There is **no test for the recorder** — the extension finds the editor's window by rule, but an editor that titles itself unusually can defeat it.
@@ -318,7 +342,7 @@ This is a hobby project. Issues and pull requests are welcome, but there is no g
 
 ## The clips
 
-Every feature above has a short recording in [`clips/`](clips/). Open [`clips/index.html`](clips/index.html) to play them.
+Fifteen of the features above have a short recording in [`clips/`](clips/). Open [`clips/index.html`](clips/index.html) to play them. The newer ones - the flow studio, the emoji and GIF bar, the media in a chart, the ink looks, the paper and the assistant - do not have one yet.
 
 ## Licence
 

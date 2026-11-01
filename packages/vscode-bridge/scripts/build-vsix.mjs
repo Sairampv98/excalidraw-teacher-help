@@ -3,10 +3,10 @@
  * Build the `.vsix`.
  *
  * A `.vsix` is a zip: the `extension/` folder at the root, plus
- * `[Content_Types].xml` and `extension.vsixmanifest`. This script writes that
- * zip ITSELF - the STORE method (no compression) is a few dozen lines and
- * works on every platform - so the extension needs no packaging dependency,
- * and neither does the repository.
+ * `[Content_Types].xml` and `extension.vsixmanifest`. The zip is written by
+ * `zip.mjs`, beside this script - the STORE method (no compression) is a few
+ * dozen lines and works on every platform - so the extension needs no
+ * packaging dependency, and neither does the repository.
  *
  * The extension's TypeScript is bundled with esbuild, which the repository
  * already has. `vscode` is external: the editor provides it at run time.
@@ -27,6 +27,8 @@ import {
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { writeZip } from "./zip.mjs";
+
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(here, "..");
 const extensionDir = join(packageRoot, "extension");
@@ -34,109 +36,6 @@ const stageDir = join(packageRoot, "build", "vsix");
 const manifest = JSON.parse(
   readFileSync(join(extensionDir, "package.json"), "utf8"),
 );
-
-// ---------------------------------------------------------------------------
-// the zip writer (STORE, no compression)
-// ---------------------------------------------------------------------------
-const CRC_TABLE = (() => {
-  const table = new Int32Array(256);
-  for (let index = 0; index < 256; index++) {
-    let value = index;
-    for (let bit = 0; bit < 8; bit++) {
-      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
-    }
-    table[index] = value;
-  }
-  return table;
-})();
-
-const crc32 = (buffer) => {
-  let crc = -1;
-  for (let index = 0; index < buffer.length; index++) {
-    crc = (crc >>> 8) ^ CRC_TABLE[(crc ^ buffer[index]) & 0xff];
-  }
-  return (crc ^ -1) >>> 0;
-};
-
-const dosTimestamp = (date) => {
-  const time =
-    ((date.getHours() << 11) |
-      (date.getMinutes() << 5) |
-      (date.getSeconds() >> 1)) &
-    0xffff;
-  const day =
-    (((date.getFullYear() - 1980) << 9) |
-      ((date.getMonth() + 1) << 5) |
-      date.getDate()) &
-    0xffff;
-  return { time, day };
-};
-
-/**
- * @param {{name: string, data: Buffer}[]} entries
- * @returns {Buffer}
- */
-const writeZip = (entries) => {
-  const { time, day } = dosTimestamp(new Date());
-  const locals = [];
-  const centrals = [];
-  let offset = 0;
-
-  for (const entry of entries) {
-    const name = Buffer.from(entry.name, "utf8");
-    const data = entry.data;
-    const crc = crc32(data);
-
-    const local = Buffer.alloc(30);
-    local.writeUInt32LE(0x04034b50, 0);
-    local.writeUInt16LE(20, 4); // version needed
-    local.writeUInt16LE(0x0800, 6); // flags: the name is utf-8
-    local.writeUInt16LE(0, 8); // method: store
-    local.writeUInt16LE(time, 10);
-    local.writeUInt16LE(day, 12);
-    local.writeUInt32LE(crc, 14);
-    local.writeUInt32LE(data.length, 18);
-    local.writeUInt32LE(data.length, 22);
-    local.writeUInt16LE(name.length, 26);
-    local.writeUInt16LE(0, 28);
-    locals.push(local, name, data);
-
-    const central = Buffer.alloc(46);
-    central.writeUInt32LE(0x02014b50, 0);
-    central.writeUInt16LE(0x0014, 4); // made by: MS-DOS, zip 2.0
-    central.writeUInt16LE(20, 6);
-    central.writeUInt16LE(0x0800, 8);
-    central.writeUInt16LE(0, 10);
-    central.writeUInt16LE(time, 12);
-    central.writeUInt16LE(day, 14);
-    central.writeUInt32LE(crc, 16);
-    central.writeUInt32LE(data.length, 20);
-    central.writeUInt32LE(data.length, 24);
-    central.writeUInt16LE(name.length, 28);
-    central.writeUInt16LE(0, 30);
-    central.writeUInt16LE(0, 32);
-    central.writeUInt16LE(0, 34);
-    central.writeUInt16LE(0, 36);
-    central.writeUInt32LE(0, 38);
-    central.writeUInt32LE(offset, 42);
-    centrals.push(central, name);
-
-    offset += local.length + name.length + data.length;
-  }
-
-  const centralDirectory = Buffer.concat(centrals);
-  const end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054b50, 0);
-  end.writeUInt16LE(0, 4);
-  end.writeUInt16LE(0, 6);
-  end.writeUInt16LE(entries.length, 8);
-  end.writeUInt16LE(entries.length, 10);
-  end.writeUInt32LE(centralDirectory.length, 12);
-  end.writeUInt32LE(offset, 16);
-  end.writeUInt16LE(0, 20);
-
-  return Buffer.concat([...locals, centralDirectory, end]);
-};
 
 // ---------------------------------------------------------------------------
 // the engine's runtime tree (D-89)

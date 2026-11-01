@@ -2,7 +2,7 @@
   "name": "excalidraw-bridge",
   "displayName": "Excalidraw Bridge",
   "description": "Mirrors the active editor into an Excalidraw canvas panel, and runs the program so that its output can be shown there too.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "excalidraw-teacher-help",
   "license": "MIT",
   "engines": {
@@ -101,7 +101,7 @@
         "excalidraw-bridge.token": {
           "type": "string",
           "default": "",
-          "description": "The token the Excalidraw page must present. Leave it empty and one is generated for the session. The extension NEVER ships a token: it is a secret, and the .vsix is a published artifact (D-110)."
+          "description": "The token the Excalidraw page must present. Leave it empty and one is generated for the session. The extension NEVER ships a token: it is a secret, and the .vsix is a published artifact (D-432)."
         },
         "excalidraw-bridge.captureFps": {
           "type": "number",
@@ -132,8 +132,8 @@
         },
         "excalidraw-bridge.pythonPath": {
           "type": "string",
-          "default": "C:\\Users\\user\\.pyenv\\pyenv-win\\versions\\3.12.10\\python.exe",
-          "description": "The Python interpreter the indra and paddle OCR engines run in. Point it at a virtual environment that has them installed."
+          "default": "",
+          "description": "The Python interpreter the indra and paddle OCR engines run in. Leave it empty and the `python` on the PATH is used; point it at a virtual environment that has them installed."
         },
         "excalidraw-bridge.youtubeApiKey": {
           "type": "string",
@@ -145,7 +145,7 @@
     "configurationDefaults": {
       "": {
         "excalidraw-bridge.ocrEngine": "paddle",
-        "excalidraw-bridge.pythonPath": "C:\\Users\\user\\.pyenv\\pyenv-win\\versions\\3.12.10\\python.exe"
+        "excalidraw-bridge.pythonPath": ""
       }
     }
   }

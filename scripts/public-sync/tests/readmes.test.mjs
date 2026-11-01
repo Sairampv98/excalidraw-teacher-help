@@ -136,4 +136,94 @@ describe("AC-444 the drafts of the public texts", () => {
     expect(existsSync(join(DIR, "README.dev-draft.md"))).toBe(true);
     expect(existsSync(join(DIR, "FEATURES.dev.md"))).toBe(true);
   });
+
+  it("AC-522 the second release's draft names itself, the assistant and the built version", () => {
+    const manifest = JSON.parse(
+      readFileSync(
+        join(
+          DIR,
+          "..",
+          "..",
+          "..",
+          "packages",
+          "vscode-bridge",
+          "extension",
+          "package.json",
+        ),
+        "utf8",
+      ),
+    );
+
+    for (const name of ["README.current.md", "README.dev.md"]) {
+      const text = read(name);
+
+      // the release says which release it is ...
+      expect(text, name).toMatch(
+        /\| `main` \| The current release - the second one\./,
+      );
+
+      // ... and that the release it replaces is kept as a branch: `v1` is the
+      // first of them, `v2` is not one yet
+      expect(text, name).toContain("(`v1` is the first of them)");
+      expect(text, name).not.toContain("(`v2` is the first of them)");
+
+      // the assistant is named, and named with what matters
+      const body = section(text, "## The assistant");
+
+      expect(body, name).not.toBeNull();
+      expect(body).toMatch(/\*\*pairing code\*\*/);
+      expect(body).toMatch(/\*\*Allow changes\*\*/);
+      expect(body).toMatch(/\*\*127\.0\.0\.1 only\*\*/);
+      expect(body).toMatch(/one undo step/);
+      expect(body).toMatch(/claude mcp add excalidraw/);
+
+      // and it is public text: no word of the method and no row number
+      expect(matchesMethod(body)).toBe(false);
+      expect(body).not.toMatch(/\b(?:D|AC)-\d+/);
+
+      // the built extension is named with the version it has
+      expect(text, name).toContain(
+        `excalidraw-bridge-${manifest.version}.vsix`,
+      );
+    }
+
+    // the list of features describes the assistant too
+    const features = section(read("FEATURES.dev.md"), "## The assistant");
+
+    expect(features).not.toBeNull();
+    expect(features).toMatch(/\*\*Allow changes\*\*/);
+    expect(features).toMatch(/\*\*127\.0\.0\.1 only\*\*/);
+  });
+
+  it("AC-522 the drafts tell the truth about the clips and the virtual display", () => {
+    for (const name of [
+      "README.current.md",
+      "README.dev.md",
+      "FEATURES.dev.md",
+    ]) {
+      const text = read(name);
+
+      // the clips are SOME of the features - not every feature above
+      expect(text, name).not.toMatch(/Every feature (?:above|below) has/);
+      expect(text, name).not.toMatch(/show each of these working/);
+
+      // and the virtual display is one the machine already has: nothing
+      // installs a driver any more
+      expect(text, name).not.toMatch(/virtual display driver/i);
+    }
+
+    // the READMEs say how many there are, and which features have none
+    for (const name of ["README.current.md", "README.dev.md"]) {
+      const text = read(name);
+
+      expect(text, name).toMatch(/Fifteen of the features above/);
+      expect(text, name).toMatch(/do not have one yet/);
+    }
+
+    // and the feature list says the same of its own clips
+    const features = read("FEATURES.dev.md");
+
+    expect(features).toMatch(/Some of the features below have a short/);
+    expect(features).toMatch(/do not have one yet/);
+  });
 });

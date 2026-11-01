@@ -34,13 +34,13 @@ const packageRoot = findPackageRoot();
 const buildScript = join(packageRoot, "scripts", "build-vsix.mjs");
 
 /**
- * The interpreter the owner's paddle install lives in.
+ * The interpreter the extension asks for when the teacher has not chosen one.
  *
- * It is a **default**, not a secret: the extension ships it, so the teacher
- * installs the extension and OCR works (D-110).
+ * It is EMPTY, and that is the point: the `.vsix` is a published artifact and
+ * a path of the machine that built it has no business in it (D-432). An empty
+ * setting falls back to the `python` on the PATH.
  */
-const OWNER_PYTHON_PATH =
-  "C:\\Users\\user\\.pyenv\\pyenv-win\\versions\\3.12.10\\python.exe";
+const EMPTY_PYTHON_PATH = "";
 
 const buildVsix = (outPath: string) => {
   execFileSync(process.execPath, [buildScript, "--out", outPath], {
@@ -415,7 +415,7 @@ describe("the .vsix", () => {
   });
 
   it(
-    "AC-147 the manifest's default engine is paddle and the default Python path is the owner's interpreter",
+    "AC-147 the manifest's default engine is paddle and the default Python path is empty",
     () => {
       const manifest = JSON.parse(
         readFileSync(join(packageRoot, "extension", "package.json"), "utf8"),
@@ -423,19 +423,22 @@ describe("the .vsix", () => {
 
       const properties = manifest.contributes.configuration.properties;
 
-      // The engine and the interpreter name THIS MACHINE's tools, so they
-      // ship with the extension: the teacher installs it and OCR already
-      // works (D-110).
+      // The engine ships with the extension: the teacher installs it and OCR
+      // already works (D-110).
       expect(properties["excalidraw-bridge.ocrEngine"].default).toBe("paddle");
+
+      // The interpreter does NOT: a path of the machine that built the .vsix
+      // has no business in a published artifact, and an empty setting falls
+      // back to the `python` on the PATH (D-432).
       expect(properties["excalidraw-bridge.pythonPath"].default).toBe(
-        OWNER_PYTHON_PATH,
+        EMPTY_PYTHON_PATH,
       );
 
       // and the same values are contributed as DEFAULTS, so the value applies
       // whichever mechanism the editor uses
       const defaults = manifest.contributes.configurationDefaults[""];
       expect(defaults["excalidraw-bridge.ocrEngine"]).toBe("paddle");
-      expect(defaults["excalidraw-bridge.pythonPath"]).toBe(OWNER_PYTHON_PATH);
+      expect(defaults["excalidraw-bridge.pythonPath"]).toBe(EMPTY_PYTHON_PATH);
 
       // The BUILT package carries them too - that is the file the teacher
       // installs, and the source tree is not what ships.
@@ -452,7 +455,7 @@ describe("the .vsix", () => {
         "paddle",
       );
       expect(builtProperties["excalidraw-bridge.pythonPath"].default).toBe(
-        OWNER_PYTHON_PATH,
+        EMPTY_PYTHON_PATH,
       );
       expect(
         built.contributes.configurationDefaults[""][
@@ -463,7 +466,7 @@ describe("the .vsix", () => {
         built.contributes.configurationDefaults[""][
           "excalidraw-bridge.pythonPath"
         ],
-      ).toBe(OWNER_PYTHON_PATH);
+      ).toBe(EMPTY_PYTHON_PATH);
     },
     BUILD_TIMEOUT_MS,
   );
@@ -486,7 +489,7 @@ describe("the .vsix", () => {
       expect(Object.keys(defaults)).not.toContain("excalidraw-bridge.token");
 
       // Nothing in the manifest looks like a token: the .vsix is a PUBLISHED
-      // artifact, and a secret in it is a published secret (D-110).
+      // artifact, and a secret in it is a published secret (D-432).
       expect(JSON.stringify(manifest)).not.toMatch(/[0-9a-f]{32,}/i);
 
       // and the BUILT package is the one that ships, so it is the one that

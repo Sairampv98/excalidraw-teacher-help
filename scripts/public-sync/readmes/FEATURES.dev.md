@@ -1,6 +1,6 @@
 # The features, in more depth
 
-A reader's guide to what this fork adds to Excalidraw, and what each feature will and will not do. Every feature below has a short recording in [`../clips/`](../clips/index.html).
+A reader's guide to what this fork adds to Excalidraw, and what each feature will and will not do. Some of the features below have a short recording in [`../clips/`](../clips/index.html); the newer ones do not have one yet.
 
 This is a hobby project. It is not maintained, and it is not in sync with upstream Excalidraw. Read [Known limitations](#known-limitations) in the [README](../README.md) before you rely on it.
 
@@ -173,6 +173,53 @@ The editor's window is mirrored as a **live MJPEG stream** served by the extensi
 - The stream is authorised by a **per-connection capability** in the URL path. The session token never appears in a URL.
 - An unchanged picture is not published again, and the editor's text is published **at most every 100 ms**.
 - The capture is the window's **client area**, a JPEG, scaled down - and it is the **whole window**, unless you choose a region.
+
+## Flow studio
+
+Charts built from a script, in the order a class draws them.
+
+- **Presets**: process, decision, steps, network, cycle, tiers and integration.
+- **Arrowless layouts**: list, grid, matrix, pyramid, funnel, timeline, target, venn and hierarchy.
+- An **animation** with a look of its own, a **class loop**, and a **step-by-step presenter** that shows a chart one part at a time.
+- The script is written in a box beside the board, **checked** before it is made, and kept with the chart - so the teacher can open it again and change it.
+
+## The emoji and GIF bar
+
+A floating bar of emoji, stickers and GIFs to drop on the canvas. It folds into a round button when it is not wanted.
+
+- The emoji are **original artwork** and the GIFs are animated versions of the same artwork - nothing is fetched from a third party, and nothing needs an account or a key.
+- A sticker lands on the page that is open, by **drag** or by **click**, and keeps its kind - a GIF stays a GIF.
+
+## Media in a chart
+
+A picture, a GIF or a video can sit **inside a node** of a chart, cut to the node's shape, with four fits and a crop screen.
+
+## Ink looks and paper
+
+- **Ink looks**: neon, chalk, marker and pencil on text, freehand and shapes.
+- **Paper**: each page has its own paper - eight kinds, twelve colours, grain and age - and the image export draws every page's paper.
+
+## Exporting an animation
+
+A chart's animation can be **written to a file** - a GIF, an animated WebP or an MP4 - from the animation bar's **Export** button, and from the **Edit chart** window.
+
+- The panel offers what the browser can really write: **GIF** first, then the animated **WebP**, then **MP4**. A format the browser cannot write is not offered, and the panel says why.
+- The **rate** (5 to 60 pictures a second), the **size** and the **shape** are chosen there, and the background can be left out - except for an MP4, which cannot be transparent.
+- The **camera** can fly to each step, so the file shows the chart one step at a time and each picture is as sharp as the camera is near.
+- What travels along the arrows and what is highlighted are drawn as they are on the board, and a GIF inside a node **plays in the file** as it does on the board.
+- The panel says what the file would be - how long it is, how many pictures, how big - **before** it makes anything, shows how far it is, and can be stopped.
+- A file that grows past **512 MB** is stopped, and the panel says so.
+
+## The assistant
+
+An AI assistant can work on the board: look at it, draw on it, change it, and make things.
+
+- It talks to the board through a **small server that runs on your own computer**. The board connects to it; the server never reaches into the page.
+- The two are **paired** with a code the teacher types once in the **Assistant** tab. The server listens on **127.0.0.1 only** and accepts only a page served from this machine.
+- The tab's **Allow changes** switch decides whether the assistant may change anything. With it off the assistant may look but not change; with it on, **every change is one undo step** - one Ctrl+Z takes the whole of it back.
+- **Allow internet** is off by default: nothing is fetched from the web until it is turned on, and then only over https, and never from an address on this computer or its network.
+- Files are read and written only in the folders that are listed when the server starts.
+- The tools are in **groups** - what the board can look at, what it can change, the pages, the pictures and files, the charts, the slides and the lesson pages - and the server offers ready-made **prompts** (a deck of slides for a lesson, a chart of a process, a lesson page out of a document, a check of a page before a class), a **guide** to the tools, and a **skill** an assistant can load.
 
 ---
 

@@ -58,7 +58,7 @@ export const ACTION_IDS = [
 
 /** The `.vsix` the setup builds and installs. */
 export const EXTENSION_FILE =
-  "packages/vscode-bridge/excalidraw-bridge-0.1.0.vsix";
+  "packages/vscode-bridge/excalidraw-bridge-0.2.0.vsix";
 
 /**
  * The facts about a machine, as the scripts found them.
@@ -368,8 +368,7 @@ export function buildReport(found) {
     }
 
     const canInstall = facts.winget || facts.brew || facts.directInstall;
-    const from =
-      label === "VS Code" ? "code.visualstudio.com" : "vscodium.com";
+    const from = label === "VS Code" ? "code.visualstudio.com" : "vscodium.com";
 
     actions.push({
       id,
