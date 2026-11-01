@@ -85,7 +85,6 @@
     "prepare": "husky install",
     "prettier": "prettier \"**/*.{css,scss,json,md,html,yml}\" --ignore-path=.eslintignore",
     "release": "node scripts/release.js",
-    "release:public": "node scripts/public-sync/release.mjs --out release",
     "release:test": "node scripts/release.js --tag=test",
     "release:next": "node scripts/release.js --tag=next",
     "release:latest": "node scripts/release.js --tag=latest",
