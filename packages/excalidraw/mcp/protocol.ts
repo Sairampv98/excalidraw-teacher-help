@@ -61,6 +61,8 @@ export type McpError = { code: McpErrorCode; message: string };
 export type McpPageState = {
   /** whether the assistant may change the scene (D-399) */
   allowChanges: boolean;
+  /** whether the assistant may fetch things from the internet (D-410); off until the person says */
+  allowInternet?: boolean;
   /** the app's name and version, for `describe_capabilities` */
   app: string;
   /** what the page can do besides the canvas tools */
@@ -116,6 +118,9 @@ export const parseMcpPageMessage = (text: string): McpPageMessage | null => {
             v: 1,
             type: "mcp:state",
             allowChanges: value.allowChanges,
+            ...(typeof value.allowInternet === "boolean"
+              ? { allowInternet: value.allowInternet }
+              : {}),
             app: value.app,
             features: value.features as string[],
           }

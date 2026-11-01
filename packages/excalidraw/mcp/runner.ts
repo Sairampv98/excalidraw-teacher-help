@@ -49,6 +49,13 @@ import {
 import { McpToolError } from "./common";
 import { mcpToolByName } from "./toolSpecs";
 import { libraryInsert, libraryList } from "./libraryTools";
+import {
+  cropImage,
+  listSources,
+  placeImage,
+  uploadChunk,
+  uploadDrop,
+} from "./mediaTools";
 import { goToPage, screenshot, selectElements } from "./viewTools";
 
 import type { McpApp } from "./common";
@@ -105,6 +112,11 @@ export const MCP_HANDLERS: Record<string, Handler> = {
   insert_document: (app, args) => insertDocument(app, args),
   library_list: (app) => libraryList(app),
   library_insert: (app, args) => libraryInsert(app, args),
+  crop_image: (app, args) => cropImage(app, args),
+  list_sources: (app) => listSources(app),
+  upload_chunk: (app, args) => uploadChunk(app, args),
+  upload_drop: (app, args) => uploadDrop(app, args),
+  place_image: (app, args) => placeImage(app, args),
   select_elements: (app, args) => selectElements(app, args),
   go_to_page: (app, args) => goToPage(app, args),
   screenshot: (app, args) => screenshot(app, args),
@@ -145,6 +157,17 @@ export const runMcpTool = async (
 
   // a tool that needs what only the app has is the app's to give (D-407)
   const appTool = spec.app ? context.appTools?.[name] : undefined;
+  // a tool the server does itself is not one the page has (D-409)
+  if (spec.server) {
+    return {
+      ok: false,
+      error: {
+        code: "unknown-tool",
+        message: `${name} is done by the server, not by the page.`,
+      },
+    };
+  }
+
   const handler: Handler | undefined = spec.app
     ? appTool && ((forApp, forArgs) => appTool(forArgs, forApp))
     : MCP_HANDLERS[name];

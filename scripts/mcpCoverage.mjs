@@ -83,12 +83,22 @@ const groups = {
     "insert_table",
     "insert_code_card",
   ],
+  "Pictures, files and the internet": [
+    "list_allowed_folders",
+    "list_folder",
+    "file_info",
+    "insert_image",
+    "crop_image",
+    "list_sources",
+    "fetch_resource",
+  ],
 };
 
 const grouped = new Set(Object.values(groups).flat());
-const missing = MCP_TOOLS.map((tool) => tool.name).filter(
-  (name) => !grouped.has(name),
-);
+// the tools only the server calls are not for an assistant, so they are not listed
+const missing = MCP_TOOLS.filter((tool) => !tool.hidden)
+  .map((tool) => tool.name)
+  .filter((name) => !grouped.has(name));
 
 if (missing.length) {
   throw new Error(`not in a group: ${missing.join(", ")}`);
@@ -102,6 +112,7 @@ Made from the code by \`scripts/mcpCoverage.mjs\` - the tools are defined once, 
 
 Positions are page-relative: (0, 0) is the top-left of the page, in scene units; pages are numbered from 1.
 A tool marked **changes** is refused while *Allow changes* is off, and each is one undo step.
+A tool marked **server** is done by the server itself, which has the disk: it reads and writes only in the folders the person lists, and goes on the internet only while *Allow internet* is on.
 
 `;
 
@@ -113,7 +124,7 @@ for (const [title, names] of Object.entries(groups)) {
 
     md += `| \`${name}\` | ${first(tool.description).replace(/\|/g, "/")} | ${
       tool.changes ? "changes" : "reads"
-    }${tool.app ? ", app" : ""} |\n`;
+    }${tool.app ? ", app" : ""}${tool.server ? ", server" : ""} |\n`;
   }
 
   md += "\n";

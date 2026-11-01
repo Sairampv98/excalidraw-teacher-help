@@ -11,7 +11,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
 
-import { MCP_TOOLS } from "../../excalidraw/mcp/toolSpecs";
+import { mcpPublicTools } from "../../excalidraw/mcp/toolSpecs";
 import { McpCallError } from "../src/pageLink";
 import { SERVER_NAME, contentOf, createMcpServer } from "../src/server";
 
@@ -72,7 +72,7 @@ describe("the MCP server", () => {
 
     expect(tools.map((tool) => tool.name)).toEqual([
       "status",
-      ...MCP_TOOLS.map((tool) => tool.name),
+      ...mcpPublicTools().map((tool) => tool.name),
     ]);
 
     for (const tool of tools) {
@@ -187,5 +187,91 @@ describe("the MCP server", () => {
     expect((result.content as { text: string }[])[0].text).toMatch(
       /not-connected/,
     );
+  });
+});
+
+describe("the tools the server does itself, and the tools only it calls", () => {
+  it("AC-492 sends the tools of its own to its own handlers and not to the page, and tells the folders and the internet in status", async () => {
+    const { link, calls } = fakeLink({ connected: true });
+    const server = createMcpServer({
+      link,
+      code: "ABCD2345",
+      folders: ["C:/class"],
+      fileTools: {
+        list_allowed_folders: async () => ({ folders: ["C:/class"] }),
+      },
+    });
+    const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test", version: "0" });
+
+    await server.connect(serverSide);
+    await client.connect(clientSide);
+
+    const result = await client.callTool({
+      name: "list_allowed_folders",
+      arguments: {},
+    });
+
+    expect(JSON.parse((result.content as { text: string }[])[0].text)).toEqual({
+      folders: ["C:/class"],
+    });
+    expect(calls).toEqual([]);
+
+    const status = await client.callTool({ name: "status", arguments: {} });
+
+    expect(
+      JSON.parse((status.content as { text: string }[])[0].text),
+    ).toMatchObject({
+      allowedFolders: ["C:/class"],
+      allowInternet: false,
+    });
+
+    // a tool of the server's own that this server does not have says so
+    const missing = await client.callTool({
+      name: "file_info",
+      arguments: { path: "a" },
+    });
+
+    expect(missing.isError).toBe(true);
+    expect((missing.content as { text: string }[])[0].text).toMatch(
+      /not available in this server/,
+    );
+  });
+
+  it("AC-492 does not list the tools only the server calls, and does not take a call to one", async () => {
+    const { link, calls } = fakeLink({ connected: true });
+    const { client } = await connectClient(link);
+    const { tools } = await client.listTools();
+    const names = tools.map((tool) => tool.name);
+
+    for (const hidden of ["upload_chunk", "upload_drop", "place_image"]) {
+      expect(names).not.toContain(hidden);
+
+      const result = await client.callTool({
+        name: hidden,
+        arguments: {
+          id: "abcdef",
+          upload: "x",
+          index: 0,
+          total: 1,
+          data: "AA==",
+        },
+      });
+
+      expect(result.isError).toBe(true);
+      expect((result.content as { text: string }[])[0].text).toMatch(
+        /unknown-tool/,
+      );
+    }
+
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "insert_image",
+        "fetch_resource",
+        "list_folder",
+        "crop_image",
+      ]),
+    );
+    expect(calls).toEqual([]);
   });
 });

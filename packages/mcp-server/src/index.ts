@@ -9,6 +9,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { DEFAULT_MCP_PORT } from "../../excalidraw/mcp/protocol";
 
+import { createFileTools } from "./fileTools";
+import { createFolders, foldersFromConfig } from "./folders";
 import { readOrCreatePairingCode } from "./pairing";
 import { createPageLink } from "./pageLink";
 import { SERVER_NAME, SERVER_VERSION, createMcpServer } from "./server";
@@ -38,7 +40,21 @@ const main = async () => {
     );
   }
 
-  const server = createMcpServer({ link, code });
+  // the folders the person listed: nothing is read or written outside them (D-409)
+  const folders = createFolders(foldersFromConfig());
+
+  log(
+    folders.allowed().length
+      ? `allowed folders: ${folders.allowed().join(", ")}`
+      : "no folder is allowed (start the server with --folder <path>)",
+  );
+
+  const server = createMcpServer({
+    link,
+    code,
+    fileTools: createFileTools({ link, folders }),
+    folders: folders.allowed(),
+  });
 
   await server.connect(new StdioServerTransport());
 
