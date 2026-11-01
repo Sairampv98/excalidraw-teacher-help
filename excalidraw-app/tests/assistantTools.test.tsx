@@ -349,7 +349,7 @@ describe("the tools of the server", () => {
     const wanted = MCP_TOOLS.filter((tool) => tool.app)
       .map((tool) => tool.name)
       .sort();
-    const library = MCP_TOOLS.filter((tool) => !tool.app)
+    const library = MCP_TOOLS.filter((tool) => !tool.app && !tool.server)
       .map((tool) => tool.name)
       .sort();
 

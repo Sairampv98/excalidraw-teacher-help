@@ -29,6 +29,7 @@ import {
   assistantCodeAtom,
   assistantConnectionAtom,
   assistantEnabledAtom,
+  assistantInternetAtom,
   recordAssistantActivity,
 } from "./assistantState";
 
@@ -113,10 +114,13 @@ export const AssistantLink = () => {
   const code = useAtomValue(assistantCodeAtom);
   const enabled = useAtomValue(assistantEnabledAtom);
   const allow = useAtomValue(assistantAllowAtom);
+  const internet = useAtomValue(assistantInternetAtom);
   const allowRef = useRef(allow);
+  const internetRef = useRef(internet);
   const clientRef = useRef<McpClient | null>(null);
 
   allowRef.current = allow;
+  internetRef.current = internet;
 
   useEffect(() => {
     if (!enabled || !code) {
@@ -133,6 +137,7 @@ export const AssistantLink = () => {
       getCode: () => code,
       getState: () => ({
         allowChanges: allowRef.current,
+        allowInternet: internetRef.current,
         app: ASSISTANT_APP_NAME,
         features: FEATURES,
       }),
@@ -179,10 +184,10 @@ export const AssistantLink = () => {
     };
   }, [app, code, enabled]);
 
-  // the server is told when Allow changes is turned on or off
+  // the server is told when Allow changes or the internet is turned on or off
   useEffect(() => {
     clientRef.current?.pushState();
-  }, [allow]);
+  }, [allow, internet]);
 
   return null;
 };

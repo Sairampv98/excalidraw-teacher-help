@@ -16,6 +16,7 @@ import { appJotaiStore, atom } from "../app-jotai";
 export const ASSISTANT_CODE_KEY = "excalidraw-mcp-code";
 export const ASSISTANT_ENABLED_KEY = "excalidraw-mcp-enabled";
 export const ASSISTANT_ALLOW_KEY = "excalidraw-mcp-allow";
+export const ASSISTANT_INTERNET_KEY = "excalidraw-mcp-internet";
 
 const read = (key: string): string | null => {
   try {
@@ -43,6 +44,11 @@ export const assistantEnabledAtom = atom<boolean>(
 /** the assistant may change the scene; on until the person says otherwise */
 export const assistantAllowAtom = atom<boolean>(
   read(ASSISTANT_ALLOW_KEY) !== "0",
+);
+
+/** the assistant may fetch from the internet: off until the person says (D-410) */
+export const assistantInternetAtom = atom<boolean>(
+  read(ASSISTANT_INTERNET_KEY) === "1",
 );
 
 export const assistantConnectionAtom = atom<McpClientState>({
@@ -85,6 +91,11 @@ export const pairAssistant = (code: string) => {
 export const disconnectAssistant = () => {
   write(ASSISTANT_ENABLED_KEY, "0");
   appJotaiStore.set(assistantEnabledAtom, false);
+};
+
+export const setAssistantInternet = (allow: boolean) => {
+  write(ASSISTANT_INTERNET_KEY, allow ? "1" : "0");
+  appJotaiStore.set(assistantInternetAtom, allow);
 };
 
 export const setAssistantAllow = (allow: boolean) => {

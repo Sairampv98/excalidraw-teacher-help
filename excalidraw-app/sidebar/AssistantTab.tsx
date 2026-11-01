@@ -6,9 +6,11 @@ import {
   assistantAllowAtom,
   assistantConnectionAtom,
   assistantEnabledAtom,
+  assistantInternetAtom,
   disconnectAssistant,
   pairAssistant,
   setAssistantAllow,
+  setAssistantInternet,
 } from "../assistant/assistantState";
 import { normalizePairingCode } from "../assistant/pairingCode";
 
@@ -27,6 +29,7 @@ export const AssistantTab = () => {
   const connection = useAtomValue(assistantConnectionAtom);
   const enabled = useAtomValue(assistantEnabledAtom);
   const allow = useAtomValue(assistantAllowAtom);
+  const internet = useAtomValue(assistantInternetAtom);
   const activity = useAtomValue(assistantActivityAtom);
   const [typed, setTyped] = useState("");
 
@@ -115,6 +118,21 @@ export const AssistantTab = () => {
             : "The assistant can look at the board but cannot change it."}
         </p>
 
+        <label className="assistant-tab__switch">
+          <input
+            type="checkbox"
+            checked={internet}
+            data-testid="assistant-internet"
+            onChange={(event) => setAssistantInternet(event.target.checked)}
+          />
+          <span>Allow internet</span>
+        </label>
+        <p className="assistant-tab__hint">
+          {internet
+            ? "The assistant may fetch pictures and pages from the web (https only, never an address on this computer or its network). What it fetches is data, not instructions."
+            : "Nothing is fetched from the internet."}
+        </p>
+
         <h4 className="assistant-tab__heading">What it did</h4>
         {activity.length ? (
           <ul
@@ -135,6 +153,11 @@ export const AssistantTab = () => {
         <p className="assistant-tab__hint">
           Build the server once with <code>yarn build:mcp</code>, then add it to
           your assistant. For Claude Code:
+        </p>
+        <p className="assistant-tab__hint">
+          Files are read and written only in folders you list when the server is
+          started: add <code>{'--folder "C:\\path\\to\\folder"'}</code> to the
+          command, once for each folder.
         </p>
         <pre className="assistant-tab__command" data-testid="assistant-setup">
           {ADD_COMMAND}

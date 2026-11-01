@@ -286,6 +286,9 @@ export const createPageLink = ({
       if (message.type === "mcp:state") {
         page.state = {
           allowChanges: message.allowChanges,
+          ...(message.allowInternet !== undefined
+            ? { allowInternet: message.allowInternet }
+            : {}),
           app: message.app,
           features: message.features,
         };

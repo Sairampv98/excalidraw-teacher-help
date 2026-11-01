@@ -13,10 +13,11 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-import { MCP_TOOLS, mcpToolByName } from "../../excalidraw/mcp/toolSpecs";
+import { mcpPublicTools, mcpToolByName } from "../../excalidraw/mcp/toolSpecs";
 
 import { McpCallError } from "./pageLink";
 
+import type { FileTools } from "./fileTools";
 import type { PageLink } from "./pageLink";
 
 export const SERVER_NAME = "excalidraw-whiteboard";
@@ -82,10 +83,16 @@ export const contentOf = (result: unknown): Content[] => {
 export const createMcpServer = ({
   link,
   code,
+  fileTools = {},
+  folders = [],
 }: {
   link: PageLink;
   /** the pairing code `status` tells while no page is paired */
   code: string;
+  /** the tools the server does itself, with the disk and the network (D-409) */
+  fileTools?: FileTools;
+  /** the folders the person allowed, for `status` to tell */
+  folders?: readonly string[];
 }) => {
   const server = new Server(
     { name: SERVER_NAME, version: SERVER_VERSION },
@@ -95,7 +102,7 @@ export const createMcpServer = ({
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
       STATUS_TOOL,
-      ...MCP_TOOLS.map((tool) => ({
+      ...mcpPublicTools().map((tool) => ({
         name: tool.name,
         description: tool.description,
         inputSchema: {
@@ -118,6 +125,8 @@ export const createMcpServer = ({
             ? {
                 connected: true,
                 allowChanges: state?.allowChanges ?? null,
+                allowInternet: state?.allowInternet === true,
+                allowedFolders: folders,
                 app: state?.app ?? null,
                 next: "Call describe_capabilities, then list_pages and list_elements.",
               }
@@ -130,7 +139,10 @@ export const createMcpServer = ({
       };
     }
 
-    if (!mcpToolByName(name)) {
+    const spec = mcpToolByName(name);
+
+    // a tool only the server calls is not one the assistant has
+    if (!spec || spec.hidden) {
       return {
         isError: true,
         content: [
@@ -143,7 +155,16 @@ export const createMcpServer = ({
     }
 
     try {
-      const result = await link.call(name, args ?? {});
+      // a tool of the server's own is done here; the others go to the page
+      const result = spec.server
+        ? await (fileTools[name]?.(args ?? {}) ??
+            Promise.reject(
+              new McpCallError({
+                code: "failed",
+                message: `${name} is not available in this server.`,
+              }),
+            ))
+        : await link.call(name, args ?? {});
 
       return { content: contentOf(result) };
     } catch (error) {

@@ -2,7 +2,7 @@
 
 Made from the code by `scripts/mcpCoverage.mjs` - the tools are defined once, in `packages/excalidraw/mcp/toolSpecs.ts`, and the actions in `packages/excalidraw/mcp/actionCatalog.ts`. `status` is the server's own: it tells the pairing code while no page is paired.
 
-Positions are page-relative: (0, 0) is the top-left of the page, in scene units; pages are numbered from 1. A tool marked **changes** is refused while _Allow changes_ is off, and each is one undo step.
+Positions are page-relative: (0, 0) is the top-left of the page, in scene units; pages are numbered from 1. A tool marked **changes** is refused while _Allow changes_ is off, and each is one undo step. A tool marked **server** is done by the server itself, which has the disk: it reads and writes only in the folders the person lists, and goes on the internet only while _Allow internet_ is on.
 
 ## Look
 
@@ -88,6 +88,18 @@ Positions are page-relative: (0, 0) is the top-left of the page, in scene units;
 | `insert_sticker` | Put a sticker (an emoji or an animated GIF, by the id list_stickers gives) on a page, with its top-left at x, y (page-relative; the middle of the page when not given), its longest side size long (default 200) | changes, app |
 | `insert_table` | Draw a table on a page: rows is a list of rows, each a list of cell texts, with the top-left at x, y (page-relative, default 100, 100) | changes, app |
 | `insert_code_card` | Put code on a page as a syntax-highlighted card (dark, monospace, real text that can be edited), with its top-left at x, y (page-relative, default 100, 100) | changes, app |
+
+## Pictures, files and the internet
+
+| Tool | What it does |  |
+| --- | --- | --- |
+| `list_allowed_folders` | The folders the person has allowed the assistant to read from and write to (the server was started with them), and whether the internet is on | reads, server |
+| `list_folder` | What is in a folder of an allowed folder: files with their kind (image, video, document, captions, whiteboard) and size, and folders | reads, server |
+| `file_info` | What a file in an allowed folder is, by its bytes and not its name: kind, type, size, and for a picture its size in pixels | reads, server |
+| `insert_image` | Put a picture on a page: a file of an allowed folder (path) or a picture from the internet (url, when the internet is on) | changes, server |
+| `crop_image` | Crop a picture to a part of it: left, top, width, height as fractions of the whole picture (0 to 1) | changes |
+| `list_sources` | Where the pictures that came from outside came from: url, licence and attribution, with the element and page | reads |
+| `fetch_resource` | Fetch something from the internet (only when the internet is on in the whiteboard's Assistant tab): https only, never an address on this computer or its network, at most 25 MB | reads, server |
 
 ## The editor's actions (108)
 

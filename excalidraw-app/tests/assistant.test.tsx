@@ -23,6 +23,8 @@ import {
   ASSISTANT_ALLOW_KEY,
   ASSISTANT_CODE_KEY,
   ASSISTANT_ENABLED_KEY,
+  ASSISTANT_INTERNET_KEY,
+  assistantInternetAtom,
   assistantActivityAtom,
   assistantAllowAtom,
   assistantCodeAtom,
@@ -95,6 +97,7 @@ beforeEach(() => {
     appJotaiStore.set(assistantCodeAtom, "");
     appJotaiStore.set(assistantEnabledAtom, false);
     appJotaiStore.set(assistantAllowAtom, true);
+    appJotaiStore.set(assistantInternetAtom, false);
     appJotaiStore.set(assistantActivityAtom, []);
   });
 });
@@ -271,5 +274,46 @@ describe("the link, with the editor", () => {
 
     // reading still works
     expect(await call("list_pages", {}, "again")).toMatchObject({ ok: true });
+  });
+});
+
+describe("the internet", () => {
+  it("AC-493 is off until the person turns it on, says so, is remembered, and the server is told", async () => {
+    const { getByTestId } = await renderAssistant();
+
+    expect(
+      (getByTestId("assistant-internet") as HTMLInputElement).checked,
+    ).toBe(false);
+
+    pairWith(getByTestId);
+    await waitFor(() => expect(last()?.sent.length).toBeGreaterThan(0));
+    act(() => {
+      last().receive({ v: 1, type: "mcp:ready", server: "s", version: "1" });
+    });
+
+    // the first thing it says is that the internet is off
+    expect(last().sent[1]).toMatchObject({
+      type: "mcp:state",
+      allowInternet: false,
+    });
+
+    fireEvent.click(getByTestId("assistant-internet"));
+
+    expect(localStorage.getItem(ASSISTANT_INTERNET_KEY)).toBe("1");
+    await waitFor(() =>
+      expect(last().sent[last().sent.length - 1]).toMatchObject({
+        type: "mcp:state",
+        allowInternet: true,
+      }),
+    );
+
+    fireEvent.click(getByTestId("assistant-internet"));
+
+    expect(localStorage.getItem(ASSISTANT_INTERNET_KEY)).toBe("0");
+    await waitFor(() =>
+      expect(last().sent[last().sent.length - 1]).toMatchObject({
+        allowInternet: false,
+      }),
+    );
   });
 });

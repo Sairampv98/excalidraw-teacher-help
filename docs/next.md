@@ -39,15 +39,16 @@ Task `wave9b-small-fixes` (SPEC rows D-374 to D-396, AC-437 to AC-457).
 
 Dropped from this wave by the owner on 2026-10-31: relative images in markdown, OCR of a box drawn on a PDF, the Python "page crash" report. (`DROPPED`.) The scaling reminder in the setup helper moved to v3.
 
-### W9c - MCP server - NEXT (9c-1 is built and gated; 9c-2 and 9c-3 are still to do)
+### W9c - MCP server - NEXT (9c-1 is merged; 9c-2 is in progress; 9c-3 is still to do)
 
-**9c-1 (task `wave9c-1-canvas-tools`, SPEC rows D-397 to D-407, AC-458 to AC-484) is built; it waits for the owner to try it, then `kit merge wave9c-1-canvas-tools`.** The owner approved the three-wave plan on 2026-11-01 (the full list is `docs/mcp-coverage.md`, made from the code by `node scripts/mcpCoverage.mjs`).
+**9c-1 (task `wave9c-1-canvas-tools`, SPEC rows D-397 to D-407, AC-458 to AC-484) is merged (`aa60c09`).** On 2026-11-01 the owner said to carry on alone through 9c-2, 9c-3 and the v2 release, and to report at the end. The owner approved the three-wave plan on 2026-11-01 (the full list is `docs/mcp-coverage.md`, made from the code by `node scripts/mcpCoverage.mjs`).
 
 - The server is `packages/mcp-server` (stdio, `@modelcontextprotocol/sdk` 1.32.2 and `zod`, built into one file by `yarn build:mcp`). The page connects to it on 127.0.0.1:47711 with a pairing code typed once in the new **Assistant** tab of the sidebar; **Allow changes** is the switch.
 - The tools are defined once in `packages/excalidraw/mcp/toolSpecs.ts` and run by `mcp/runner.ts` in the page; the tools that need the app (stickers, tables, code cards) are the app's, in `excalidraw-app/assistant/appTools.ts`. 45 tools, and `mcp/actionCatalog.ts` names all 108 editor actions (a test fails when one is not named).
 - Tried against a real MCP client over stdio and real Chrome on 2026-10-31 (create, style, move, delete, screenshot, Allow changes); the later tools (pages, canvas, stickers, tables, code cards, mermaid, export) are tested in the editor but have not been tried in Chrome yet.
 - If a break check (a deliberate change to see a test fail) is killed half way, a source file can be left with the change in it: look before a gate.
-- Still to do: 9c-2 (local files in listed folders, media from disk, video and YouTube panels, documents, OCR, the code panel and Run, the internet) and 9c-3 (flow charts, slides from a script, playbook pages, the skills for assistants, the VS Code terminal). The original plan of the rows is below.
+- 9c-2 (task `wave9c-2-media-documents`) is built in steps. **Step A** (D-408 to D-410, AC-485 to AC-493): the server reads and writes only in the folders the person lists (`--folder` or `EXCALIDRAW_MCP_FOLDERS`), a picture goes from a file or an https address to the page in 3 MB pieces, `crop_image`, `list_sources`, and the **Allow internet** switch (off by default; https only, public addresses only, 25 MB counted as it arrives). Not yet tried in Chrome. Still to do in 9c-2: documents (markdown, PDF), OCR, video and YouTube panels, the code panel and Run.
+- Still to do: the rest of 9c-2 and 9c-3 (flow charts, slides from a script, playbook pages, the skills for assistants, the VS Code terminal). The original plan of the rows is below.
 
 Show the SPEC rows first. The owner wants **all functionality**, which is large: the proposal is three tasks of their own, each with its own gate - **9c-1 canvas tools**, **9c-2 local media and documents**, **9c-3 flow charts, slides and export** (or one task `wave9c-mcp-server` if the owner prefers).
 
