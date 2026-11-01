@@ -32,6 +32,7 @@
     "A value stored before wave 7u is read as what it drew: \"shape\" stays, and the old \"text\" - which drew the rectangle on the label's box - is the text box.": "A value stored before the look was refined is read as what it drew: \"shape\" stays, and the old \"text\" - which drew the rectangle on the label's box - is the text box.",
     "wave 7t's \"text\" drew the rectangle on the label's box": "the earlier \"text\" drew the rectangle on the label's box",
     "wave 7v authoring: large charts, in-place script editor and guide, custom presets": "Authoring: large charts, in-place script editor and guide, custom presets",
-    "wave 7x gallery: arrowless SmartArt-style layouts, the Arrows setting, and switching layouts keeps the text": "Gallery: arrowless SmartArt-style layouts, the Arrows setting, and switching layouts keeps the text"
+    "wave 7x gallery: arrowless SmartArt-style layouts, the Arrows setting, and switching layouts keeps the text": "Gallery: arrowless SmartArt-style layouts, the Arrows setting, and switching layouts keeps the text",
+    "Wave 9b: export a chart animation as GIF, animated WebP or MP4 (fps selector, MP4 after a compatibility check), a worked gateway example in the Flow guide, README drafts sync": "Export: a chart animation as GIF, animated WebP or MP4 (fps selector, MP4 after a compatibility check), a worked gateway example in the Flow guide, README drafts sync"
   }
 }

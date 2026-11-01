@@ -7,13 +7,19 @@
  * lint reads this file and fails if a row id is missing.
  */
 
+import fs from "node:fs";
+import path from "node:path";
+
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
 
 import { mcpPublicTools } from "../../excalidraw/mcp/toolSpecs";
+import { GUIDE_URI, whiteboardGuide } from "../src/guide";
 import { McpCallError } from "../src/pageLink";
+import { MCP_PROMPTS } from "../src/prompts";
 import { SERVER_NAME, contentOf, createMcpServer } from "../src/server";
+import { SKILL_DESCRIPTION, SKILL_NAME, skillMarkdown } from "../src/skill";
 
 import type { PageLink } from "../src/pageLink";
 
@@ -273,5 +279,86 @@ describe("the tools the server does itself, and the tools only it calls", () => 
       ]),
     );
     expect(calls).toEqual([]);
+  });
+});
+
+describe("the prompts, the resources and the skill", () => {
+  it("AC-517 the prompts are listed with their name, their description and their arguments, a prompt is given with its text, and a prompt that is not there is refused", async () => {
+    const { client } = await connectClient(fakeLink({ connected: false }).link);
+    const { prompts } = await client.listPrompts();
+
+    expect(prompts.map((prompt) => prompt.name)).toEqual(
+      MCP_PROMPTS.map((prompt) => prompt.name),
+    );
+
+    for (const prompt of prompts) {
+      expect(prompt.description?.length).toBeGreaterThan(10);
+      expect(prompt.arguments?.length).toBeGreaterThan(0);
+
+      for (const argument of prompt.arguments ?? []) {
+        expect(argument.description?.length).toBeGreaterThan(5);
+      }
+    }
+
+    const got = await client.getPrompt({
+      name: "lesson_deck",
+      arguments: { topic: "photosynthesis", slides: "8" },
+    });
+    const text = (got.messages[0].content as { text: string }).text;
+
+    expect(text).toMatch(/photosynthesis/);
+    expect(text).toMatch(/8 slides/);
+    expect(text).toMatch(/make_slides/);
+
+    // a prompt that is not there is refused
+    await expect(client.getPrompt({ name: "nope" })).rejects.toThrow(
+      /not-found/,
+    );
+  });
+
+  it("AC-518 the resources are listed with their name and their kind, the guide is read as text, and a resource that is not there is refused", async () => {
+    const { client } = await connectClient(fakeLink({ connected: false }).link);
+    const { resources } = await client.listResources();
+
+    expect(resources).toHaveLength(1);
+    expect(resources[0]).toMatchObject({
+      uri: GUIDE_URI,
+      mimeType: "text/plain",
+    });
+    expect(resources[0].name.length).toBeGreaterThan(3);
+    expect(resources[0].description?.length).toBeGreaterThan(10);
+
+    const read = await client.readResource({ uri: GUIDE_URI });
+    const contents = read.contents as {
+      uri: string;
+      mimeType?: string;
+      text?: string;
+    }[];
+
+    expect(contents[0].text).toBe(whiteboardGuide());
+    expect(contents[0].text).toMatch(/page-relative/);
+    expect(contents[0].text).toMatch(/## The tools, in groups/);
+
+    // a resource that is not there is refused
+    await expect(
+      client.readResource({ uri: "excalidraw://guide/nothing" }),
+    ).rejects.toThrow(/not-found/);
+  });
+
+  it("AC-519 the skill is there, it names the tools in groups, and it carries the same guide the server serves", () => {
+    const file = path.resolve(__dirname, "../skill/SKILL.md");
+    const text = fs.readFileSync(file, "utf8");
+
+    expect(text).toBe(skillMarkdown());
+    expect(text).toContain(`name: ${SKILL_NAME}`);
+    expect(text).toContain(`description: ${SKILL_DESCRIPTION}`);
+    expect(text).toContain(whiteboardGuide());
+
+    // it names the tools in groups, out of the groups of the code
+    expect(text).toContain("## The tools, in groups");
+    expect(text).toContain("### Look");
+    expect(text).toContain("### Flow charts");
+    expect(text).toContain("- `describe_capabilities` - ");
+    expect(text).toContain("- `create_flow_chart` - ");
   });
 });

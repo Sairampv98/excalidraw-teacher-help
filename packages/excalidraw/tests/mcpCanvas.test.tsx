@@ -137,7 +137,7 @@ describe("the editor's actions", () => {
     });
     expect(
       list.comingLater.find((entry: any) => entry.name === "flowLayout"),
-    ).toMatchObject({ wave: "9c-3" });
+    ).toMatchObject({ use: "flow_layout" });
     expect(
       list.notForTheAssistant.find((entry: any) => entry.name === "undo").why,
     ).toMatch(/Ctrl\+Z/);
@@ -188,7 +188,7 @@ describe("the editor's actions", () => {
     expect(byId("a").groupIds).toHaveLength(0);
   });
 
-  it("AC-474 says why when an action is not one it runs: the tool that does it, the wave it comes in, or why it is not for an assistant", async () => {
+  it("AC-474 AC-520 says why when an action is not one it runs: the tool that does it, the tool that comes later, or why it is not for an assistant", async () => {
     await boxes();
 
     expect(
@@ -203,7 +203,9 @@ describe("the editor's actions", () => {
     expect(
       await run("run_action", { name: "flowLayout", ids: ["a"] }),
     ).toMatchObject({
-      error: { message: expect.stringMatching(/wave 9c-3/) },
+      error: {
+        message: expect.stringMatching(/in a later part of the server/),
+      },
     });
     expect(await run("run_action", { name: "undo" })).toMatchObject({
       error: { message: expect.stringMatching(/not for the assistant/) },

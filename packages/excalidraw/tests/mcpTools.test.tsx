@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { Excalidraw } from "../index";
 import { MCP_HANDLERS, runMcpTool } from "../mcp/runner";
 import { MCP_MAX_ELEMENTS_PER_CALL, MCP_TOOLS } from "../mcp/toolSpecs";
+import { MCP_TOOL_GROUPS, mcpToolGroupListings } from "../mcp/toolGroups";
 
 import { API } from "./helpers/api";
 import { Keyboard } from "./helpers/ui";
@@ -83,6 +84,74 @@ describe("reading the document", () => {
       MCP_TOOLS.filter((tool) => !tool.hidden).map((tool) => tool.name),
     );
     expect(capabilities.coordinates).toMatch(/page-relative/);
+  });
+
+  it("AC-516 the tools are given in groups, every tool that is not hidden is in one, and a tool in no group is refused", async () => {
+    const capabilities = await ok("describe_capabilities");
+    const groups = capabilities.groups as {
+      title: string;
+      tools: { name: string; does: string }[];
+    }[];
+
+    expect(groups.length).toBe(MCP_TOOL_GROUPS.length);
+    expect(groups.map((group) => group.title)).toEqual(
+      MCP_TOOL_GROUPS.map((group) => group.title),
+    );
+
+    // every tool that is not hidden is in exactly one group
+    const named = groups.flatMap((group) =>
+      group.tools.map((tool) => tool.name),
+    );
+
+    expect([...named].sort()).toEqual(
+      MCP_TOOLS.filter((tool) => !tool.hidden)
+        .map((tool) => tool.name)
+        .sort(),
+    );
+
+    // every tool of a group says what it does, and it says it in the tool's own words
+    for (const group of groups) {
+      for (const tool of group.tools) {
+        const spec = MCP_TOOLS.find((each) => each.name === tool.name)!;
+
+        expect(tool.does.length).toBeGreaterThan(3);
+        expect(spec.description).toContain(tool.does);
+      }
+    }
+
+    // a tool that is in no group is refused when the list is made
+    (MCP_TOOLS as any).push({
+      name: "a_tool_of_no_group",
+      description: "A tool that is in no group.",
+      changes: false,
+      inputSchema: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
+    });
+
+    try {
+      expect(() => mcpToolGroupListings()).toThrow(/not in a group/);
+    } finally {
+      (MCP_TOOLS as any).pop();
+    }
+
+    expect(() => mcpToolGroupListings()).not.toThrow();
+
+    // and a group that names a tool that is not there is refused too
+    (MCP_TOOL_GROUPS as any).push({
+      title: "A group of nothing",
+      tools: ["nope"],
+    });
+
+    try {
+      expect(() => mcpToolGroupListings()).toThrow(/not a tool/);
+    } finally {
+      (MCP_TOOL_GROUPS as any).pop();
+    }
+
+    expect(() => mcpToolGroupListings()).not.toThrow();
   });
 
   it("AC-461 lists the pages with their size, frame, number and paper, and the one that is open", async () => {

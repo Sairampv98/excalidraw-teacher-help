@@ -24,6 +24,7 @@ import {
   toPageSpace,
 } from "./common";
 import { MCP_MAX_ELEMENTS_PER_CALL, mcpPublicTools } from "./toolSpecs";
+import { mcpToolGroupListings } from "./toolGroups";
 
 import type { McpApp } from "./common";
 
@@ -68,6 +69,7 @@ export const describeCapabilities = (app: McpApp, context: McpRunContext) => {
     pages: pages.length,
     currentPage: current.number,
     tools: mcpPublicTools().map((tool) => tool.name),
+    groups: mcpToolGroupListings(),
     coordinates:
       "Positions are page-relative: (0, 0) is the top-left of the page, in scene units. Pages are numbered from 1.",
   };

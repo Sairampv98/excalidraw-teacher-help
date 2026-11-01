@@ -10,7 +10,7 @@
  *
  *  - `run`      the assistant runs it with `run_action` (on the elements it names)
  *  - `covered`  a tool of its own does what the action does
- *  - `later`    a tool of a later wave of the server does it
+ *  - `later`    a tool that comes later does it (D-429)
  *  - `excluded` the assistant does not do it, and why
  */
 
@@ -26,7 +26,7 @@ export type McpActionEntry =
       value?: string;
     }
   | { name: string; use: "covered"; tool: string }
-  | { name: string; use: "later"; tool: string; wave: string }
+  | { name: string; use: "later"; tool: string }
   | { name: string; use: "excluded"; why: string };
 
 const run = (
@@ -40,11 +40,10 @@ const covered = (name: string, tool: string): McpActionEntry => ({
   use: "covered",
   tool,
 });
-const later = (name: string, tool: string, wave: string): McpActionEntry => ({
+const later = (name: string, tool: string): McpActionEntry => ({
   name,
   use: "later",
   tool,
-  wave,
 });
 const excluded = (name: string, why: string): McpActionEntry => ({
   name,
@@ -54,7 +53,7 @@ const excluded = (name: string, why: string): McpActionEntry => ({
 
 const CLIPBOARD = "the person's clipboard is the person's own";
 const PICK =
-  "it opens a file dialog, and the files are for wave 2 of the server";
+  "it opens a file dialog, and the files are read by the server itself";
 const UI_MODE =
   "it is a mode of the person's own editing, not a change of the document";
 
@@ -203,11 +202,11 @@ export const MCP_ACTION_CATALOG: readonly McpActionEntry[] = [
   covered("setFrameAsActiveTool", "set_tool"),
   covered("insertDocument", "insert_document"),
 
-  later("changePanel", "set_panel", "9c-2"),
-  later("cropEditor", "crop_image", "9c-2"),
-  later("flowClass", "flow_class", "9c-3"),
-  later("flowLayout", "flow_layout", "9c-3"),
-  later("flowResetLayout", "flow_reset_layout", "9c-3"),
+  later("changePanel", "set_panel"),
+  later("cropEditor", "crop_image"),
+  later("flowClass", "flow_class"),
+  later("flowLayout", "flow_layout"),
+  later("flowResetLayout", "flow_reset_layout"),
 
   excluded("copy", CLIPBOARD),
   excluded("cut", CLIPBOARD),
