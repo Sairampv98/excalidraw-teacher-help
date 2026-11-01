@@ -117,6 +117,8 @@ If you would rather not install anything at all, the [Docker](#running-it-in-a-c
 
 Some rooms have no internet, or the teacher would rather not trust it. The **offline setup** is one file that carries everything it needs inside itself - the app, the extension, Node.js, the editors, Python and Java.
 
+**The offline file on the releases page is the one that was built for the first release**, and it carries that release's app and extension. This release does not build a new offline payload, so on a machine with internet use the setup above instead.
+
 Download `OfflineSetup.exe` from the [releases page](https://github.com/Sairampv98/excalidraw-classroom/releases) and double-click it. It:
 
 - unpacks what it carries and **checks every file against its hash** - a file that does not match is refused, never downloaded;

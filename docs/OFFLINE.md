@@ -6,6 +6,8 @@ This is the setup for those machines. It is **one file**, it **carries everythin
 
 And it does one more thing, which is the reason it exists: it can **run the whiteboard with nothing installed at all** — no Node, no Python, no editor. Just the app.
 
+> **The offline file on the releases page is the one that was built for the first release**, and it carries that release's app and extension. This release does not build a new offline payload, so on a machine with internet use the setup (`setup.exe`) instead — the offline setup is for a machine that has none.
+
 ---
 
 ## Using it

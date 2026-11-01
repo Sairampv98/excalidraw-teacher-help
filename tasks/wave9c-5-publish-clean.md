@@ -2,7 +2,7 @@
 id: wave9c-5-publish-clean
 paths: scripts/public-sync,package.json,SPEC.md,docs
 base: main
-status: open
+status: merged
 ---
 
 The public repository is checked before it is published. Every file it would hold refers to what it needs, and the sentences that are not ordinary wording go through a reviewed list.
