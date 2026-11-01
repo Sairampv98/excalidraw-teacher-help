@@ -83,6 +83,15 @@ const groups = {
     "insert_table",
     "insert_code_card",
   ],
+  "Flow charts": [
+    "flow_kinds",
+    "check_flow_script",
+    "create_flow_chart",
+    "list_flow_charts",
+    "edit_flow_chart",
+    "delete_flow_chart",
+    "convert_flow_script",
+  ],
   "Pictures, documents, files and the internet": [
     "list_allowed_folders",
     "list_folder",

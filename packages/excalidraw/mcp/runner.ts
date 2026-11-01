@@ -48,6 +48,15 @@ import {
 } from "./readTools";
 import { McpToolError } from "./common";
 import { mcpToolByName } from "./toolSpecs";
+import {
+  checkFlowScriptTool,
+  convertFlowScript,
+  createFlowChart,
+  deleteFlowChart,
+  editFlowChart,
+  flowKinds,
+  listFlowCharts,
+} from "./flowTools";
 import { libraryInsert, libraryList } from "./libraryTools";
 import {
   cropImage,
@@ -116,6 +125,13 @@ export const MCP_HANDLERS: Record<string, Handler> = {
   crop_image: (app, args) => cropImage(app, args),
   list_sources: (app) => listSources(app),
   list_panels: (app) => listPanels(app),
+  flow_kinds: () => flowKinds(),
+  check_flow_script: (app, args) => checkFlowScriptTool(app, args),
+  create_flow_chart: (app, args) => createFlowChart(app, args),
+  list_flow_charts: (app, args) => listFlowCharts(app, args),
+  edit_flow_chart: (app, args) => editFlowChart(app, args),
+  delete_flow_chart: (app, args) => deleteFlowChart(app, args),
+  convert_flow_script: (app, args) => convertFlowScript(app, args),
   upload_chunk: (app, args) => uploadChunk(app, args),
   upload_drop: (app, args) => uploadDrop(app, args),
   place_image: (app, args) => placeImage(app, args),
