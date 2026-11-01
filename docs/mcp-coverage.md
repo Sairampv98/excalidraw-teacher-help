@@ -89,7 +89,7 @@ Positions are page-relative: (0, 0) is the top-left of the page, in scene units;
 | `insert_table` | Draw a table on a page: rows is a list of rows, each a list of cell texts, with the top-left at x, y (page-relative, default 100, 100) | changes, app |
 | `insert_code_card` | Put code on a page as a syntax-highlighted card (dark, monospace, real text that can be edited), with its top-left at x, y (page-relative, default 100, 100) | changes, app |
 
-## Pictures, files and the internet
+## Pictures, documents, files and the internet
 
 | Tool | What it does |  |
 | --- | --- | --- |
@@ -99,6 +99,10 @@ Positions are page-relative: (0, 0) is the top-left of the page, in scene units;
 | `insert_image` | Put a picture on a page: a file of an allowed folder (path) or a picture from the internet (url, when the internet is on) | changes, server |
 | `crop_image` | Crop a picture to a part of it: left, top, width, height as fractions of the whole picture (0 to 1) | changes |
 | `list_sources` | Where the pictures that came from outside came from: url, licence and attribution, with the element and page | reads |
+| `read_document` | Read a document of an allowed folder: a text or markdown file comes back as its text (at most maxChars, 20000 by default; truncated says if it was cut); a PDF comes back as the text of the pages asked for (pages, like 1-3,5; the first ten by default, at most thirty at a time) and, with images: true, a picture of each of the first three, so you can see what is on them | reads, server |
+| `insert_markdown` | Put markdown on a page as what a page is made of, top to bottom from x, y (page-relative, default 100, 100) in width (default: the page's width less margins): headings, paragraphs and quotes as text that wraps, lists, a code block as a code card, a table as a table, a rule as a line; bold and italic are kept | changes, server |
+| `insert_pdf_page` | Put a page of a PDF of an allowed folder on a page as a picture, or a part of it: pdfPage (from 1) and an optional region (left, top, width, height as fractions of the PDF page, 0 to 1) | changes, server |
+| `read_image_text` | Read the words in a picture on a page (OCR, in the browser): the whole text and each line with where it is in the picture (as fractions of it) | reads, app |
 | `fetch_resource` | Fetch something from the internet (only when the internet is on in the whiteboard's Assistant tab): https only, never an address on this computer or its network, at most 25 MB | reads, server |
 
 ## The editor's actions (108)

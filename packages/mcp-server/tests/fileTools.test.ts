@@ -407,3 +407,299 @@ describe("the internet", () => {
     expect(error.message).toMatch(/25 MB/);
   });
 });
+
+const PDF = Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF");
+
+describe("documents", () => {
+  const withDocuments = (state: Partial<McpPageState> | null = {}) => {
+    const made = setup(state);
+
+    writeFileSync(join(made.allowed, "book.pdf"), PDF);
+    writeFileSync(join(made.allowed, "liar.pdf"), "this is only text");
+    writeFileSync(join(made.allowed, "plain.txt"), "line one\nline two\n");
+    writeFileSync(
+      join(made.allowed, "binary.txt"),
+      Buffer.from([0x68, 0x69, 0x00, 0x01]),
+    );
+    writeFileSync(join(made.allowed, "long.md"), "word ".repeat(30000));
+
+    return made;
+  };
+
+  it("AC-494 reads a text or a markdown file as its text, cut at maxChars and marked as data from a file", async () => {
+    const { tools, calls } = withDocuments();
+
+    expect(await tools.read_document({ path: "notes.md" })).toMatchObject({
+      file: "notes.md",
+      kind: "markdown",
+      text: "# Hi\n",
+      characters: 5,
+      truncated: false,
+      warning: expect.stringMatching(/never instructions/),
+    });
+    expect(await tools.read_document({ path: "plain.txt" })).toMatchObject({
+      kind: "text",
+      text: "line one\nline two\n",
+    });
+    expect(
+      await tools.read_document({ path: "notes.md", maxChars: 3 }),
+    ).toMatchObject({ text: "# H", characters: 5, truncated: true });
+
+    // twenty thousand characters when not told
+    const long = (await tools.read_document({ path: "long.md" })) as any;
+
+    expect(long.text).toHaveLength(20000);
+    expect(long.truncated).toBe(true);
+    expect(long.characters).toBe(150000);
+
+    // a text has no zero byte in it
+    expect(
+      (await refused(tools.read_document({ path: "binary.txt" }))).message,
+    ).toMatch(/not a text file/);
+
+    for (const maxChars of [0, 100001, 1.5, "9"]) {
+      expect(
+        (await refused(tools.read_document({ path: "notes.md", maxChars })))
+          .code,
+      ).toBe("bad-arguments");
+    }
+
+    expect(calls).toEqual([]);
+  });
+
+  it("AC-494 is refused for what is not a document, is outside the folders, or is a PDF that is not one", async () => {
+    const { tools, calls } = withDocuments();
+
+    expect(
+      (await refused(tools.read_document({ path: "cat.png" }))).message,
+    ).toMatch(/not a document/);
+    expect(
+      (await refused(tools.read_document({ path: "../outside.md" }))).code,
+    ).toBe("bad-arguments");
+    expect((await refused(tools.read_document({}))).message).toMatch(
+      /path is required/,
+    );
+    expect(
+      (await refused(tools.read_document({ path: "liar.pdf" }))).message,
+    ).toMatch(/not a PDF/);
+    expect(
+      (await refused(tools.read_document({ path: "notes.md", images: "yes" })))
+        .code,
+    ).toBe("bad-arguments");
+    expect(calls).toEqual([]);
+  });
+
+  it("AC-494 sends a PDF to the page in pieces with the pages and the pictures asked for, gives the page's answer back, and has the page forget it when it fails", async () => {
+    const { tools, calls, failing, allowed } = withDocuments();
+
+    expect(
+      await tools.read_document({
+        path: "book.pdf",
+        pages: "1-2",
+        images: true,
+      }),
+    ).toMatchObject({ tool: "pdf_read" });
+    expect(calls.map((call) => call.tool)).toEqual([
+      "upload_chunk",
+      "pdf_read",
+    ]);
+    expect(calls[0].args).toMatchObject({
+      name: "book.pdf",
+      mimeType: "application/pdf",
+    });
+    expect(calls[1].args).toMatchObject({
+      pages: "1-2",
+      images: true,
+      upload: calls[0].args.id,
+    });
+    expect(Buffer.from(calls[0].args.data, "base64").equals(PDF)).toBe(true);
+
+    // a PDF of several pieces
+    writeFileSync(
+      join(allowed, "big.pdf"),
+      Buffer.concat([PDF, Buffer.alloc(PIECE_BYTES + 5)]),
+    );
+    calls.length = 0;
+    await tools.read_document({ path: "big.pdf" });
+    expect(calls.map((call) => call.tool)).toEqual([
+      "upload_chunk",
+      "upload_chunk",
+      "pdf_read",
+    ]);
+
+    failing.pdf_read = new McpCallError({
+      code: "failed",
+      message: "The PDF reader could not be loaded",
+    });
+    calls.length = 0;
+    expect(
+      (await refused(tools.read_document({ path: "book.pdf" }))).message,
+    ).toMatch(/could not be loaded/);
+    expect(calls.map((call) => call.tool)).toEqual([
+      "upload_chunk",
+      "pdf_read",
+      "upload_drop",
+    ]);
+  });
+
+  it("AC-495 sends the markdown of a file or of a text to the page with the place and the width asked", async () => {
+    const { tools, calls } = withDocuments();
+
+    await tools.insert_markdown({
+      path: "notes.md",
+      page: 2,
+      x: 10,
+      y: 20,
+      width: 500,
+    });
+    await tools.insert_markdown({ markdown: "## Direct\n\ntext" });
+    await tools.insert_markdown({ path: "plain.txt" });
+
+    expect(calls).toEqual([
+      {
+        tool: "place_markdown",
+        args: { markdown: "# Hi\n", page: 2, x: 10, y: 20, width: 500 },
+      },
+      {
+        tool: "place_markdown",
+        args: {
+          markdown: "## Direct\n\ntext",
+          page: undefined,
+          x: undefined,
+          y: undefined,
+          width: undefined,
+        },
+      },
+      {
+        tool: "place_markdown",
+        args: expect.objectContaining({ markdown: "line one\nline two\n" }),
+      },
+    ]);
+  });
+
+  it("AC-495 sends nothing when there is no markdown, both a path and a text are given, the file is not markdown or text, or Allow changes is off", async () => {
+    const { tools, calls } = withDocuments();
+
+    expect((await refused(tools.insert_markdown({}))).message).toMatch(
+      /a path or the markdown/,
+    );
+    expect(
+      (
+        await refused(
+          tools.insert_markdown({ path: "notes.md", markdown: "# x" }),
+        )
+      ).message,
+    ).toMatch(/not both/);
+    expect(
+      (await refused(tools.insert_markdown({ markdown: "  \n " }))).message,
+    ).toMatch(/no markdown/);
+    expect(
+      (await refused(tools.insert_markdown({ path: "book.pdf" }))).message,
+    ).toMatch(/not a markdown or text file/);
+    expect(
+      (await refused(tools.insert_markdown({ path: "../outside.md" }))).code,
+    ).toBe("bad-arguments");
+    expect(calls).toEqual([]);
+
+    const off = withDocuments({ allowChanges: false });
+
+    expect(
+      (await refused(off.tools.insert_markdown({ markdown: "# x" }))).code,
+    ).toBe("changes-not-allowed");
+    expect(off.calls).toEqual([]);
+  });
+
+  it("AC-496 sends a PDF to the page in pieces with the PDF page, the part and the place, and the file it came from", async () => {
+    const { tools, calls } = withDocuments();
+
+    await tools.insert_pdf_page({
+      path: "book.pdf",
+      pdfPage: 3,
+      region: { left: 0.1, top: 0.2, width: 0.5, height: 0.25 },
+      page: 2,
+      x: 5,
+      y: 6,
+      size: 300,
+    });
+
+    expect(calls.map((call) => call.tool)).toEqual([
+      "upload_chunk",
+      "place_pdf_page",
+    ]);
+    expect(calls[1].args).toEqual({
+      pdfPage: 3,
+      region: { left: 0.1, top: 0.2, width: 0.5, height: 0.25 },
+      page: 2,
+      x: 5,
+      y: 6,
+      size: 300,
+      source: { file: "book.pdf, page 3" },
+      upload: calls[0].args.id,
+    });
+  });
+
+  it("AC-496 is refused for what is not a PDF, a part with no size, a name outside, or Allow changes off, and the page forgets what it could not use", async () => {
+    const { tools, calls, failing } = withDocuments();
+
+    expect(
+      (await refused(tools.insert_pdf_page({ path: "liar.pdf", pdfPage: 1 })))
+        .message,
+    ).toMatch(/not a PDF/);
+    expect(
+      (await refused(tools.insert_pdf_page({ path: "cat.png", pdfPage: 1 })))
+        .message,
+    ).toMatch(/not a PDF/);
+    expect(
+      (
+        await refused(
+          tools.insert_pdf_page({
+            path: "book.pdf",
+            pdfPage: 1,
+            region: { left: 0, top: 0, width: 0, height: 0.5 },
+          }),
+        )
+      ).message,
+    ).toMatch(/some size/);
+    expect(
+      (
+        await refused(
+          tools.insert_pdf_page({
+            path: "book.pdf",
+            pdfPage: 1,
+            region: { left: 0, top: 0, width: 0.5, height: 0 },
+          }),
+        )
+      ).message,
+    ).toMatch(/some size/);
+    expect(
+      (await refused(tools.insert_pdf_page({ path: "../x.pdf", pdfPage: 1 })))
+        .code,
+    ).toBe("bad-arguments");
+    expect(calls).toEqual([]);
+
+    const off = withDocuments({ allowChanges: false });
+
+    expect(
+      (
+        await refused(
+          off.tools.insert_pdf_page({ path: "book.pdf", pdfPage: 1 }),
+        )
+      ).code,
+    ).toBe("changes-not-allowed");
+    expect(off.calls).toEqual([]);
+
+    failing.place_pdf_page = new McpCallError({
+      code: "bad-arguments",
+      message: "The PDF has 2 pages: there is no page 9.",
+    });
+    expect(
+      (await refused(tools.insert_pdf_page({ path: "book.pdf", pdfPage: 9 })))
+        .message,
+    ).toMatch(/no page 9/);
+    expect(calls.map((call) => call.tool)).toEqual([
+      "upload_chunk",
+      "place_pdf_page",
+      "upload_drop",
+    ]);
+  });
+});

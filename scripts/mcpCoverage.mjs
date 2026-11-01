@@ -83,13 +83,17 @@ const groups = {
     "insert_table",
     "insert_code_card",
   ],
-  "Pictures, files and the internet": [
+  "Pictures, documents, files and the internet": [
     "list_allowed_folders",
     "list_folder",
     "file_info",
     "insert_image",
     "crop_image",
     "list_sources",
+    "read_document",
+    "insert_markdown",
+    "insert_pdf_page",
+    "read_image_text",
     "fetch_resource",
   ],
 };

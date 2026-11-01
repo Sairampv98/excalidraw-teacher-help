@@ -103,7 +103,7 @@ export type PdfPageProxy = {
 
 /** the text of a page: a piece of it is a string in a font */
 export type PdfTextContent = {
-  items: Array<{ str?: string; fontName?: string }>;
+  items: Array<{ str?: string; fontName?: string; hasEOL?: boolean }>;
   styles?: Record<string, { fontFamily?: string }>;
 };
 

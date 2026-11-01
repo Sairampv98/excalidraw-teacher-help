@@ -43,8 +43,11 @@ import {
   normaliseRows,
 } from "../sidebar/table";
 
+import { createDocumentTools } from "./documentTools";
+
 import type { Sticker } from "../emoji/catalog";
 import type { TableText } from "../sidebar/table";
+import type { DocumentDeps } from "./documentTools";
 
 /** what the tools lean on, so a test can hand in its own */
 export type AppToolDeps = {
@@ -52,6 +55,8 @@ export type AppToolDeps = {
   getImageSize: (src: string) => Promise<{ width: number; height: number }>;
   tableText?: TableText;
   buildCodeCard: typeof buildCodeCard;
+  /** the PDF reader, the drawing of a page and the reader of pictures (D-411 to D-414) */
+  documents?: Partial<DocumentDeps>;
 };
 
 const REAL: AppToolDeps = { stickerFile, getImageSize, buildCodeCard };
@@ -90,6 +95,12 @@ export const createAppTools = (
     );
 
   return {
+    ...createDocumentTools(getApi, {
+      buildCodeCard: deps.buildCodeCard,
+      tableText: deps.tableText,
+      documents: deps.documents,
+    }),
+
     list_stickers: (rawArgs) => {
       const args = argsOf(rawArgs);
       const query = readString(args, "query") ?? "";
