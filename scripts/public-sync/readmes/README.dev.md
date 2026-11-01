@@ -344,7 +344,7 @@ This is a hobby project. Issues and pull requests are welcome, but there is no g
 
 ## The clips
 
-Fifteen of the features above have a short recording in [`clips/`](clips/). Open [`clips/index.html`](clips/index.html) to play them. The newer ones - the flow studio, the emoji and GIF bar, the media in a chart, the ink looks, the paper and the assistant - do not have one yet.
+Fourteen of the features above have a short recording in [`clips/`](clips/). Open [`clips/index.html`](clips/index.html) to play them. The newer ones - the flow studio, the emoji and GIF bar, the media in a chart, the ink looks, the paper, the assistant and the parking of the editor's window - do not have one yet.
 
 ## Licence
 

@@ -216,7 +216,7 @@ describe("AC-444 the drafts of the public texts", () => {
     for (const name of ["README.current.md", "README.dev.md"]) {
       const text = read(name);
 
-      expect(text, name).toMatch(/Fifteen of the features above/);
+      expect(text, name).toMatch(/Fourteen of the features above/);
       expect(text, name).toMatch(/do not have one yet/);
     }
 

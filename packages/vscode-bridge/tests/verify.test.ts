@@ -52,7 +52,7 @@ const script = readFileSync(
 const checklist = readFileSync(join(root, "docs", "VERIFY.md"), "utf8");
 const report = readFileSync(join(root, "docs", "REPORT.md"), "utf8");
 
-/** the clips the project ships - one per feature */
+/** the clips the project ships - one per feature, and the first release's one */
 const CLIPS = [
   "01-panels-on-the-canvas.mp4",
   "02-properties-panel-actions.mp4",
@@ -64,12 +64,15 @@ const CLIPS = [
   "08-what-is-mirrored.mp4",
   "09-run-code.mp4",
   "10-pages-frame-number-size.mp4",
-  "11-park-and-control.mp4",
+  "11-virtual-display.mp4",
   "12-youtube-captions.mp4",
   "13-the-code-card.mp4",
   "14-the-file-sidebar.mp4",
   "15-the-live-view.mp4",
 ];
+
+/** the recording that is not made yet - the checklist names it, it does not link it */
+const PLANNED = ["11-park-and-control.mp4"];
 
 describe("the install check", () => {
   it("AC-189 the check script only reads the machine", () => {
@@ -235,6 +238,21 @@ describe("the feature checklist", () => {
   it("AC-189 the checklist covers every clip the project ships", () => {
     const notShown = CLIPS.filter((clip) => !checklist.includes(clip));
     expect(notShown).toEqual([]);
+  });
+
+  it("AC-527 the checklist links only the recordings that are there, and names the one that is not made yet", () => {
+    // a link is a promise: the file is there when the teacher clicks it
+    const links = [...checklist.matchAll(/\.\.\/clips\/([\w.-]+\.mp4)/g)].map(
+      (match) => match[1],
+    );
+    const notShipped = links.filter((clip) => !CLIPS.includes(clip));
+    expect(notShipped).toEqual([]);
+
+    // and the recording that is not made yet is named, never linked
+    for (const clip of PLANNED) {
+      expect(checklist).toContain(clip);
+      expect(links).not.toContain(clip);
+    }
   });
 
   it("AC-189 the checklist carries the real output of the check", () => {
