@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { buildPdf } from "../pages/pdf";
+import { buildPdf } from "@excalidraw/excalidraw";
 
-import type { PdfPageImage } from "../pages/pdf";
+import type { PdfPageImage } from "@excalidraw/excalidraw";
 
 /**
  * A PDF is a byte-level format: object offsets have to point at real positions
