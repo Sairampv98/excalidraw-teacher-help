@@ -117,7 +117,7 @@ Every feature has the same four parts, so you always know where to look.
 >
 > **See it** - the clip that shows it working.
 
-The clips are in the [`clips`](../clips/index.html) folder.
+The clips are in the [`clips`](../clips/index.html) folder. One of them - `11-virtual-display.mp4` - is from the first release: it shows the moving of the editor's window to a virtual display, before the parking replaced it.
 
 ### 2.1 Panels on the canvas
 
@@ -237,7 +237,7 @@ then the output of the program, then:
 
 **If it is not that** - Nothing moves until you press the button - parking your own window is your choice, not the tool's. The window did not move: the panel says why. Typing does nothing: Control is off, or the picture has not been clicked, or the panel says there is no editor window. A shortcut does nothing: it is one the machine keeps (Alt+Tab, Alt+F4, the Windows key). You cannot see the window and want it back: press **Bring back**, or run **Excalidraw Bridge: Bring the editor's window back**.
 
-**See it** - [11 - parking and control](../clips/11-park-and-control.mp4)
+**See it** - there is no clip of this yet. The recording of it will be `11-park-and-control.mp4`.
 
 ### 2.12 YouTube
 
