@@ -154,7 +154,7 @@ const SCRIPTS = [
 ];
 
 describe("the setup: check what is missing, and install it", () => {
-  it("AC-521 the manifest's version is the one every file names", () => {
+  it("AC-521 and AC-528 the manifest's version is the one every file names", () => {
     const manifest = JSON.parse(
       read("packages/vscode-bridge/extension/package.json"),
     );
@@ -164,6 +164,10 @@ describe("the setup: check what is missing, and install it", () => {
     // there - so the file the builder writes is named after this number
     expect(version).toMatch(/^\d+\.\d+\.\d+$/);
 
+    // the files that are PUBLISHED: a published test may only read published
+    // files, or the public tree's own tests fail on a file it does not have.
+    // The release drafts are not published - the drafts' own test, which is
+    // not published either, is what checks them.
     const NAMING = [
       "installer/setup.sh",
       "installer/setup.ps1",
@@ -171,8 +175,6 @@ describe("the setup: check what is missing, and install it", () => {
       "installer/README.md",
       "packages/vscode-bridge/README.md",
       "docs/INSTALL.md",
-      "scripts/public-sync/readmes/README.current.md",
-      "scripts/public-sync/readmes/README.dev.md",
     ];
 
     for (const file of NAMING) {

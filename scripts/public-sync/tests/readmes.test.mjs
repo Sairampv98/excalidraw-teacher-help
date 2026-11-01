@@ -137,7 +137,7 @@ describe("AC-444 the drafts of the public texts", () => {
     expect(existsSync(join(DIR, "FEATURES.dev.md"))).toBe(true);
   });
 
-  it("AC-522 the second release's draft names itself, the assistant and the built version", () => {
+  it("AC-522 and AC-528 the second release's draft names itself, the assistant and the built version", () => {
     const manifest = JSON.parse(
       readFileSync(
         join(
@@ -185,6 +185,18 @@ describe("AC-444 the drafts of the public texts", () => {
       expect(text, name).toContain(
         `excalidraw-bridge-${manifest.version}.vsix`,
       );
+
+      // ... and with that version and NO other: a draft that names a second
+      // version sends the teacher to a file that is not there
+      const named = [
+        ...new Set(
+          [...text.matchAll(/excalidraw-bridge-(\d+\.\d+\.\d+)\.vsix/g)].map(
+            (match) => match[1],
+          ),
+        ),
+      ];
+
+      expect({ name, named }).toEqual({ name, named: [manifest.version] });
     }
 
     // the list of features describes the assistant too
