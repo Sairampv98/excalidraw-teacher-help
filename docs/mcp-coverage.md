@@ -89,6 +89,18 @@ Positions are page-relative: (0, 0) is the top-left of the page, in scene units;
 | `insert_table` | Draw a table on a page: rows is a list of rows, each a list of cell texts, with the top-left at x, y (page-relative, default 100, 100) | changes, app |
 | `insert_code_card` | Put code on a page as a syntax-highlighted card (dark, monospace, real text that can be edited), with its top-left at x, y (page-relative, default 100, 100) | changes, app |
 
+## Flow charts
+
+| Tool | What it does |  |
+| --- | --- | --- |
+| `flow_kinds` | The kinds of flow chart the whiteboard makes - process, decision, steps, cycle, tiers, integration, network, list, grid, matrix, pyramid, funnel, timeline, target, venn, hierarchy - and the teacher's own, each with what it is and an example script to follow, and how a script is written | reads |
+| `check_flow_script` | Check a script for a kind of chart without making it: whether it can be made, how many nodes and arrows it has, the text size and how many pages it would need, and what is wrong with it, line by line | reads |
+| `create_flow_chart` | Make a flow chart from a script, on a page: kind (see flow_kinds), script (one line to a node, as the kind's example shows), fit (page: the text gets smaller until it fits, the default; larger: the text stays large and the chart goes past the page; spread: over the pages that follow, which are made when missing), shape (own, or one shape for every node), arrows (own, or none) | changes |
+| `list_flow_charts` | The flow charts on the pages: each one's chartId, kind, script, fit, shape, arrows, the pages it is on and how many nodes it has | reads |
+| `edit_flow_chart` | Change a flow chart in place: a new script, kind, fit, shape or arrows (what is not given stays) | changes |
+| `delete_flow_chart` | Delete a flow chart: every shape, text and arrow of it | changes |
+| `convert_flow_script` | Write a script for another kind of chart, keeping its words: from and to are kinds (see flow_kinds) | reads |
+
 ## Pictures, documents, files and the internet
 
 | Tool | What it does |  |

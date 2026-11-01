@@ -871,6 +871,124 @@ export const MCP_TOOLS: readonly McpToolSpec[] = [
     },
   },
   {
+    name: "flow_kinds",
+    description:
+      "The kinds of flow chart the whiteboard makes - process, decision, steps, cycle, tiers, integration, network, list, grid, matrix, pyramid, funnel, timeline, target, venn, hierarchy - and the teacher's own, each with what it is and an example script to follow, and how a script is written. Read it before create_flow_chart.",
+    changes: false,
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "check_flow_script",
+    description:
+      "Check a script for a kind of chart without making it: whether it can be made, how many nodes and arrows it has, the text size and how many pages it would need, and what is wrong with it, line by line.",
+    changes: false,
+    inputSchema: {
+      type: "object",
+      properties: {
+        kind: { type: "string" },
+        script: { type: "string" },
+        fit: { type: "string", enum: ["page", "spread", "larger"] },
+        shape: {
+          type: "string",
+          enum: ["own", "rectangle", "rounded", "ellipse", "circle", "diamond"],
+        },
+        arrows: { type: "string", enum: ["own", "none"] },
+        page: PAGE,
+      },
+      required: ["kind", "script"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_flow_chart",
+    description:
+      "Make a flow chart from a script, on a page: kind (see flow_kinds), script (one line to a node, as the kind's example shows), fit (page: the text gets smaller until it fits, the default; larger: the text stays large and the chart goes past the page; spread: over the pages that follow, which are made when missing), shape (own, or one shape for every node), arrows (own, or none). Its centre is at x, y (page-relative; the middle of the page when not given). The chart remembers its script: the teacher opens it in the script editor, and edit_flow_chart changes it. Returns the chartId. One undo step.",
+    changes: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        kind: { type: "string" },
+        script: { type: "string" },
+        fit: { type: "string", enum: ["page", "spread", "larger"] },
+        shape: {
+          type: "string",
+          enum: ["own", "rectangle", "rounded", "ellipse", "circle", "diamond"],
+        },
+        arrows: { type: "string", enum: ["own", "none"] },
+        page: PAGE,
+        x: { type: "number" },
+        y: { type: "number" },
+      },
+      required: ["kind", "script"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_flow_charts",
+    description:
+      "The flow charts on the pages: each one's chartId, kind, script, fit, shape, arrows, the pages it is on and how many nodes it has. Charts made before charts remembered their script are not listed.",
+    changes: false,
+    inputSchema: {
+      type: "object",
+      properties: { page: PAGE },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "edit_flow_chart",
+    description:
+      "Change a flow chart in place: a new script, kind, fit, shape or arrows (what is not given stays). A node whose words are the same keeps its place, size and colours and everything the teacher did to it; a new line adds a node; a line that is gone removes its node and the arrows on it. A change of kind, fit or shape makes the chart again in the same place. One undo step.",
+    changes: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        chartId: { type: "string" },
+        kind: { type: "string" },
+        script: { type: "string" },
+        fit: { type: "string", enum: ["page", "spread", "larger"] },
+        shape: {
+          type: "string",
+          enum: ["own", "rectangle", "rounded", "ellipse", "circle", "diamond"],
+        },
+        arrows: { type: "string", enum: ["own", "none"] },
+      },
+      required: ["chartId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_flow_chart",
+    description:
+      "Delete a flow chart: every shape, text and arrow of it. One undo step.",
+    changes: true,
+    inputSchema: {
+      type: "object",
+      properties: { chartId: { type: "string" } },
+      required: ["chartId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "convert_flow_script",
+    description:
+      "Write a script for another kind of chart, keeping its words: from and to are kinds (see flow_kinds). A script that cannot be read comes back as it was.",
+    changes: false,
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string" },
+        to: { type: "string" },
+        script: { type: "string" },
+      },
+      required: ["from", "to", "script"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_panels",
     description:
       "The panels on the pages - videos, YouTube videos and code editors: each one's id, page, place, size and what it holds (a video's source and caption tracks, a code panel's language and how much code).",
