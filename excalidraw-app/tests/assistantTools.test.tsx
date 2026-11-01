@@ -357,13 +357,19 @@ describe("the tools of the server", () => {
     expect(Object.keys(MCP_HANDLERS).sort()).toEqual(library);
     expect(wanted).toEqual([
       "insert_code_card",
+      "insert_code_panel",
       "insert_sticker",
       "insert_table",
+      "insert_youtube",
       "list_stickers",
       "pdf_read",
       "place_markdown",
       "place_pdf_page",
+      "place_video",
+      "read_code_panel",
       "read_image_text",
+      "run_code",
+      "set_code_panel",
     ]);
   });
 });

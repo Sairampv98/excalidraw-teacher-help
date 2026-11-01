@@ -51,6 +51,7 @@ import { mcpToolByName } from "./toolSpecs";
 import { libraryInsert, libraryList } from "./libraryTools";
 import {
   cropImage,
+  listPanels,
   listSources,
   placeImage,
   uploadChunk,
@@ -114,6 +115,7 @@ export const MCP_HANDLERS: Record<string, Handler> = {
   library_insert: (app, args) => libraryInsert(app, args),
   crop_image: (app, args) => cropImage(app, args),
   list_sources: (app) => listSources(app),
+  list_panels: (app) => listPanels(app),
   upload_chunk: (app, args) => uploadChunk(app, args),
   upload_drop: (app, args) => uploadDrop(app, args),
   place_image: (app, args) => placeImage(app, args),

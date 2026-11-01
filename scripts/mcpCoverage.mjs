@@ -94,6 +94,13 @@ const groups = {
     "insert_markdown",
     "insert_pdf_page",
     "read_image_text",
+    "list_panels",
+    "insert_video",
+    "insert_youtube",
+    "insert_code_panel",
+    "set_code_panel",
+    "read_code_panel",
+    "run_code",
     "fetch_resource",
   ],
 };

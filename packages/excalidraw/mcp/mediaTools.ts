@@ -15,8 +15,11 @@ import {
   getUncroppedImageElement,
   getUncroppedWidthAndHeight,
   isImageElement,
+  isPanelElement,
   newImageElement,
 } from "@excalidraw/element";
+
+import type { ExcalidrawPanelElement } from "@excalidraw/element/types";
 
 import {
   blobToArrayBuffer,
@@ -24,6 +27,11 @@ import {
   getDataURL,
 } from "../data/blob";
 import { stampCurrentPage } from "../scene/pages";
+import {
+  isStandaloneCodePanel,
+  panelEditorText,
+  readVideoPanelState,
+} from "../scene/panelContent";
 
 import {
   McpToolError,
@@ -318,6 +326,42 @@ export const cropImage = (app: McpApp, rawArgs: unknown) => {
     cropped: !!(now as { crop?: unknown }).crop,
   };
 };
+
+/** what a panel is, in a few words: the kind, and what it holds */
+const panelDetails = (panel: ExcalidrawPanelElement) => {
+  const content = panel.panel;
+
+  if (panel.panelKind === "code") {
+    const { text, language } = panelEditorText(content, null);
+
+    return {
+      kind: "code",
+      language,
+      characters: text.length,
+      editor: isStandaloneCodePanel(panel) ? "browser" : "bridge",
+    };
+  }
+
+  const video = readVideoPanelState(content);
+  const source = (content.source ?? {}) as { type?: string; videoId?: string };
+
+  return {
+    kind: source.type === "youtube" ? "youtube" : panel.panelKind,
+    ...(source.videoId ? { videoId: source.videoId } : {}),
+    ...(source.type ? { source: source.type } : {}),
+    ...(video ? { captionTracks: video.tracks.length } : {}),
+  };
+};
+
+export const listPanels = (app: McpApp) => ({
+  panels: app.scene
+    .getNonDeletedElements()
+    .filter((element) => isPanelElement(element))
+    .map((element) => ({
+      ...summarize(app, element),
+      ...panelDetails(element as unknown as ExcalidrawPanelElement),
+    })),
+});
 
 export const listSources = (app: McpApp) => ({
   sources: app.scene

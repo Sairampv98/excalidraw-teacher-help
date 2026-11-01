@@ -103,6 +103,13 @@ Positions are page-relative: (0, 0) is the top-left of the page, in scene units;
 | `insert_markdown` | Put markdown on a page as what a page is made of, top to bottom from x, y (page-relative, default 100, 100) in width (default: the page's width less margins): headings, paragraphs and quotes as text that wraps, lists, a code block as a code card, a table as a table, a rule as a line; bold and italic are kept | changes, server |
 | `insert_pdf_page` | Put a page of a PDF of an allowed folder on a page as a picture, or a part of it: pdfPage (from 1) and an optional region (left, top, width, height as fractions of the PDF page, 0 to 1) | changes, server |
 | `read_image_text` | Read the words in a picture on a page (OCR, in the browser): the whole text and each line with where it is in the picture (as fractions of it) | reads, app |
+| `list_panels` | The panels on the pages - videos, YouTube videos and code editors: each one's id, page, place, size and what it holds (a video's source and caption tracks, a code panel's language and how much code) | reads |
+| `insert_video` | Put a video of an allowed folder on a page as a video panel (mp4, webm, mov, m4v, ogv), with its top-left at x, y (page-relative; the middle of the page when not given) and width (default: the video's own width, at most 480) | changes, server |
+| `insert_youtube` | Put a YouTube video on a page as a video panel, played by YouTube's own player (the browser needs the internet to show it): url is a YouTube link (youtube.com/watch?v=..., youtu.be/..., shorts, embed) or the 11-character video id | changes, app |
+| `insert_code_panel` | Put a code editor panel on a page - an editor that works in the browser, holds code the teacher can edit, and runs Python and JavaScript | changes, app |
+| `set_code_panel` | Change the code of a code panel, its language, or both | changes, app |
+| `read_code_panel` | Read a code panel: its language and its code (at most 100000 characters; truncated says if it was cut), and whether the text is the teacher's own or what the editor mirrors | reads, app |
+| `run_code` | Run Python or JavaScript in the browser and say what it printed: give the id of a code panel (its code and language are run) or the code and its language (default python) | changes, app |
 | `fetch_resource` | Fetch something from the internet (only when the internet is on in the whiteboard's Assistant tab): https only, never an address on this computer or its network, at most 25 MB | reads, server |
 
 ## The editor's actions (108)

@@ -44,10 +44,12 @@ import {
 } from "../sidebar/table";
 
 import { createDocumentTools } from "./documentTools";
+import { createPanelTools } from "./panelTools";
 
 import type { Sticker } from "../emoji/catalog";
 import type { TableText } from "../sidebar/table";
 import type { DocumentDeps } from "./documentTools";
+import type { PanelDeps } from "./panelTools";
 
 /** what the tools lean on, so a test can hand in its own */
 export type AppToolDeps = {
@@ -57,6 +59,8 @@ export type AppToolDeps = {
   buildCodeCard: typeof buildCodeCard;
   /** the PDF reader, the drawing of a page and the reader of pictures (D-411 to D-414) */
   documents?: Partial<DocumentDeps>;
+  /** the app's inserts of video, YouTube and the runners of code (D-416 to D-418) */
+  panels?: Partial<PanelDeps>;
 };
 
 const REAL: AppToolDeps = { stickerFile, getImageSize, buildCodeCard };
@@ -100,6 +104,8 @@ export const createAppTools = (
       tableText: deps.tableText,
       documents: deps.documents,
     }),
+
+    ...createPanelTools(getApi, deps.panels),
 
     list_stickers: (rawArgs) => {
       const args = argsOf(rawArgs);
