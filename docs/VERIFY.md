@@ -295,6 +295,26 @@ Dragging a video row onto the canvas puts a loading wireframe where the player w
 
 **See it** - [03 - crop and read](../clips/03-crop-and-read.mp4)
 
+### 2.17 The assistant
+
+**What to do** - Start the assistant's server on your own computer and add it to your assistant - the **Assistant** tab of the sidebar shows the command. Ask the assistant for its `status`, and type the pairing code it gives you into the tab's **Pairing code** box. Press **Connect**. Then ask the assistant to put a rectangle on the page that is open.
+
+**You should see** - The tab says **Connected to the assistant.** The rectangle lands on the page, and the tab's **What it did** list says what the assistant did. Press Ctrl+Z once: the rectangle goes away. Press Ctrl+Z again: it comes back.
+
+**If it is not that** - The tab says **Waiting for the assistant's server. Is it running?**: the server was not started, or it runs on another port. It says **did not accept that pairing code**: the code was typed wrong, or it belongs to another server - ask the assistant for the code again. The assistant says it may not change anything: the **Allow changes** switch is off. Nothing lands at all: the assistant only looked, and that is what the switch asked for.
+
+**See it** - there is no clip of this yet.
+
+### 2.18 The flow studio and the animation export
+
+**What to do** - Open the **Flow** tab of the sidebar, choose the **process** preset, write one line per step in the **Script** box, and press **Insert chart**. Then press the animation bar's **Export** and choose **GIF**.
+
+**You should see** - The tab says how many **nodes** and **arrows** the script holds, and the chart is drawn on the page as boxes and arrows. The export panel says how long the file is, how many pictures it holds and how big it will be - and then the file is downloaded, and the panel says its size.
+
+**If it is not that** - The tab lists a problem under the script: the chart cannot be made as it is written. Nothing is drawn: the script is empty. The export panel does not offer **MP4**: this browser cannot write it - **GIF** and the animated **WebP** still are offered. The panel says the picture would be too narrow: the chart is very tall or very wide - fly the camera to each step, or choose a bigger size.
+
+**See it** - there is no clip of this yet.
+
 ---
 
 ## 3. When something is not right

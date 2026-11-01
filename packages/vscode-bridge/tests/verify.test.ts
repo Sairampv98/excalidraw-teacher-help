@@ -197,7 +197,7 @@ describe("the install check", () => {
 });
 
 describe("the feature checklist", () => {
-  it("AC-189 the checklist gives every feature its four parts and its clip", () => {
+  it("AC-189 and AC-524 the checklist gives every feature its four parts, and its clip or the plain words that there is none", () => {
     // the features are the sections under the checklist's feature heading
     const sections = checklist.split(/^###\s+/m).slice(1);
     const features = sections.filter((s) => /^\d+\.\d+\s/.test(s));
@@ -219,7 +219,12 @@ describe("the feature checklist", () => {
       if (!feature.includes("**See it**")) {
         incomplete.push(`${title}: no "See it"`);
       }
-      if (!/\.\.\/clips\/[\w.-]+\.mp4/.test(feature)) {
+      // a recording that has not been made is said out loud, never left out
+      // (D-433): either the clip is there, or the plain words are
+      if (
+        !/\.\.\/clips\/[\w.-]+\.mp4/.test(feature) &&
+        !/there is no clip of this yet/.test(feature)
+      ) {
         incomplete.push(`${title}: no clip`);
       }
     }

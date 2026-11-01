@@ -154,6 +154,66 @@ const SCRIPTS = [
 ];
 
 describe("the setup: check what is missing, and install it", () => {
+  it("AC-521 the manifest's version is the one every file names", () => {
+    const manifest = JSON.parse(
+      read("packages/vscode-bridge/extension/package.json"),
+    );
+    const version = manifest.version;
+
+    // the manifest is where the version LIVES, and the builder takes it from
+    // there - so the file the builder writes is named after this number
+    expect(version).toMatch(/^\d+\.\d+\.\d+$/);
+
+    const NAMING = [
+      "installer/setup.sh",
+      "installer/setup.ps1",
+      "installer/lib/check.mjs",
+      "installer/README.md",
+      "packages/vscode-bridge/README.md",
+      "docs/INSTALL.md",
+      "scripts/public-sync/readmes/README.current.md",
+      "scripts/public-sync/readmes/README.dev.md",
+    ];
+
+    for (const file of NAMING) {
+      const text = read(file);
+
+      // the file names the extension the manifest describes, and NO other
+      const named = [
+        ...new Set(
+          [...text.matchAll(/excalidraw-bridge-(\d+\.\d+\.\d+)\.vsix/g)].map(
+            (match) => match[1],
+          ),
+        ),
+      ];
+
+      expect({ file, named }).toEqual({ file, named: [version] });
+    }
+  });
+
+  it("AC-521 the extension ships no path of the machine it was built on", () => {
+    const manifest = JSON.parse(
+      read("packages/vscode-bridge/extension/package.json"),
+    );
+
+    const properties = manifest.contributes.configuration.properties;
+
+    // the interpreter is not named: the setting is empty, and an empty
+    // setting falls back to the `python` on the PATH
+    expect(properties["excalidraw-bridge.pythonPath"].default).toBe("");
+    expect(
+      manifest.contributes.configurationDefaults[""][
+        "excalidraw-bridge.pythonPath"
+      ],
+    ).toBe("");
+
+    // and NOTHING in the manifest names a path of a person's own machine:
+    // the `.vsix` is a published artifact, kept for years
+    expect(JSON.stringify(manifest)).not.toMatch(/[A-Za-z]:[\\/]+Users[\\/]/i);
+    expect(JSON.stringify(manifest)).not.toMatch(/\/home\/[a-z]/i);
+    expect(JSON.stringify(manifest)).not.toMatch(/\/Users\/[A-Za-z]/i);
+  });
+
   it("AC-187 the setup is one executable built by the compiler that ships with Windows", () => {
     const build = readFileSync(
       join(findRepoRoot(), "installer", "build-setup-exe.mjs"),

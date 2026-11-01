@@ -48,7 +48,7 @@ param(
 $ErrorActionPreference = 'Continue'
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$ExtensionRelative = 'packages/vscode-bridge/excalidraw-bridge-0.1.0.vsix'
+$ExtensionRelative = 'packages/vscode-bridge/excalidraw-bridge-0.2.0.vsix'
 $ExtensionId = 'excalidraw-teacher-help.excalidraw-bridge'
 $NodeMinimum = 20
 
@@ -192,7 +192,7 @@ function Get-SetupFacts {
         (Join-Path $env:ProgramFiles 'VSCodium\VSCodium.exe')
     )
 
-    $facts.ExtensionBuilt = Test-Path -LiteralPath (Join-Path $RepoRoot 'packages\vscode-bridge\excalidraw-bridge-0.1.0.vsix')
+    $facts.ExtensionBuilt = Test-Path -LiteralPath (Join-Path $RepoRoot 'packages\vscode-bridge\excalidraw-bridge-0.2.0.vsix')
     $facts.DependenciesInstalled = Test-Path -LiteralPath (Join-Path $RepoRoot 'node_modules')
     $facts.Winget = $null -ne (Get-CommandPath 'winget')
     # Windows can always download and run the official installer itself, so the
@@ -527,7 +527,7 @@ if (-not $Yes) {
 
 # The paths the installing needs. They live here, below the dry-run guard, so
 # that nothing above the guard can install anything.
-$ExtensionFile = Join-Path $RepoRoot 'packages\vscode-bridge\excalidraw-bridge-0.1.0.vsix'
+$ExtensionFile = Join-Path $RepoRoot 'packages\vscode-bridge\excalidraw-bridge-0.2.0.vsix'
 $BuildScript = Join-Path $RepoRoot 'packages\vscode-bridge\scripts\build-vsix.mjs'
 $BuildScript = Join-Path $RepoRoot 'packages\vscode-bridge\scripts\build-vsix.mjs'
 
