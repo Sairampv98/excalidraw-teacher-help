@@ -360,6 +360,10 @@ describe("the tools of the server", () => {
       "insert_sticker",
       "insert_table",
       "list_stickers",
+      "pdf_read",
+      "place_markdown",
+      "place_pdf_page",
+      "read_image_text",
     ]);
   });
 });

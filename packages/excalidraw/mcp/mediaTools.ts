@@ -107,9 +107,27 @@ const sourceOf = (raw: unknown) => {
 
 export const placeImage = async (app: McpApp, rawArgs: unknown) => {
   const args = argsOf(rawArgs);
-  const entry = resolvePage(app, readInteger(args, "page", { min: 1 }));
   const upload = readString(args, "upload", { required: true })!;
-  const file = uploading(() => takeUpload(upload));
+
+  resolvePage(app, readInteger(args, "page", { min: 1 }));
+
+  return placeImageFile(
+    app,
+    uploading(() => takeUpload(upload)),
+    args,
+  );
+};
+
+/**
+ * Puts a picture that is a file on a page (D-409): the same for what came in
+ * pieces and for what the page made itself (a PDF page, D-413).
+ */
+export const placeImageFile = async (
+  app: McpApp,
+  file: File,
+  args: Record<string, unknown>,
+) => {
+  const entry = resolvePage(app, readInteger(args, "page", { min: 1 }));
   const bytes = new Uint8Array(await blobToArrayBuffer(file));
   // what the bytes are decides, not the name or the type that came with them
   const type = sniffType(bytes);
@@ -190,6 +208,19 @@ const fraction = (value: unknown, name: string) => {
     : n;
 };
 
+/** the size of the picture in a data url, read from its first bytes */
+export const dataUrlImageSize = (dataURL: string) => {
+  const base64 = dataURL.slice(dataURL.indexOf(",") + 1);
+
+  try {
+    const raw = atob(base64.slice(0, 40000));
+
+    return imageSizeOf(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
+  } catch {
+    return null;
+  }
+};
+
 export const cropImage = (app: McpApp, rawArgs: unknown) => {
   const args = argsOf(rawArgs);
   const id = readString(args, "id", { required: true })!;
@@ -219,10 +250,7 @@ export const cropImage = (app: McpApp, rawArgs: unknown) => {
     : null;
 
   if (!natural && file?.dataURL) {
-    const base64 = file.dataURL.slice(file.dataURL.indexOf(",") + 1);
-    const raw = atob(base64.slice(0, 40000));
-
-    natural = imageSizeOf(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
+    natural = dataUrlImageSize(file.dataURL);
   }
 
   if (!natural) {
