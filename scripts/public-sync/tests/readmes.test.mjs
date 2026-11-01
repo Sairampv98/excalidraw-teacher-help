@@ -226,4 +226,36 @@ describe("AC-444 the drafts of the public texts", () => {
     expect(features).toMatch(/Some of the features below have a short/);
     expect(features).toMatch(/do not have one yet/);
   });
+
+  it("AC-526 the drafts do not send a teacher to the first release's offline setup", () => {
+    for (const name of ["README.current.md", "README.dev.md"]) {
+      const text = read(name);
+      const body = section(text, "## Setting it up with no internet");
+
+      expect(body, name).not.toBeNull();
+
+      // the file on the releases page is the one of the FIRST release, and it
+      // carries that release's app and extension
+      expect(body, name).toMatch(
+        /offline file on the releases page is the one that was built for the first release/i,
+      );
+
+      // this release builds no new offline payload, and a machine with
+      // internet uses the setup instead
+      expect(body, name).toMatch(/does not build a new offline payload/i);
+      expect(body, name).toMatch(/use the setup above instead/i);
+    }
+
+    // the offline document says the same, at its top
+    const offline = readFileSync(
+      join(DIR, "..", "..", "..", "docs", "OFFLINE.md"),
+      "utf8",
+    );
+
+    expect(offline).toMatch(
+      /offline file on the releases page is the one that was built for the first release/i,
+    );
+    expect(offline).toMatch(/does not build a new offline payload/i);
+    expect(offline.indexOf("built for the first release")).toBeLessThan(2000);
+  });
 });
