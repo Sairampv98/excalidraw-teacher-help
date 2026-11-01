@@ -74,7 +74,6 @@ export const listActions = () => ({
       entry.use === "later" && {
         name: entry.name,
         use: entry.tool,
-        wave: entry.wave,
       },
   ),
   notForTheAssistant: MCP_ACTION_CATALOG.filter(
@@ -113,7 +112,7 @@ export const runAction = async (app: McpApp, rawArgs: unknown) => {
   if (entry.use === "later") {
     return fail(
       "bad-arguments",
-      `${name} comes with the tool ${entry.tool} in wave ${entry.wave} of the server.`,
+      `${name} comes with the tool ${entry.tool} in a later part of the server.`,
     );
   }
 

@@ -10,124 +10,41 @@ import { build } from "esbuild";
 const W = `${resolve(dirname(fileURLToPath(import.meta.url)), "..")}/`;
 const out = join(tmpdir(), "mcp-specs.bundle.mjs");
 
-await build({
-  entryPoints: [`${W}packages/excalidraw/mcp/toolSpecs.ts`],
-  outfile: out,
-  bundle: true,
-  platform: "node",
-  format: "esm",
-});
-await build({
-  entryPoints: [`${W}packages/excalidraw/mcp/actionCatalog.ts`],
-  outfile: out.replace("specs", "catalog"),
-  bundle: true,
-  platform: "node",
-  format: "esm",
-});
+const bundle = async (entry, name) => {
+  const file = out.replace("specs", name);
 
-const { MCP_TOOLS } = await import(pathToFileURL(out).href);
-const { MCP_ACTION_CATALOG } = await import(
-  pathToFileURL(out.replace("specs", "catalog")).href
-);
+  await build({
+    entryPoints: [`${W}${entry}`],
+    outfile: file,
+    bundle: true,
+    platform: "node",
+    format: "esm",
+  });
 
-const first = (text) => text.split(". ")[0].replace(/\.$/, "");
-const groups = {
-  Look: [
-    "describe_capabilities",
-    "list_pages",
-    "list_elements",
-    "get_element",
-    "get_selection",
-    "screenshot",
-    "get_stats",
-    "find_text",
-    "check_page",
-  ],
-  "Create, change, delete": [
-    "create_elements",
-    "update_elements",
-    "delete_elements",
-    "duplicate_elements",
-    "style_text",
-    "bind_arrow",
-    "mermaid_to_diagram",
-    "select_elements",
-  ],
-  "The properties panel and ink": [
-    "describe_properties",
-    "set_properties",
-    "set_ink",
-  ],
-  "The editor's actions": ["list_actions", "run_action"],
-  "Pages and their look": [
-    "add_page",
-    "rename_page",
-    "move_page",
-    "delete_page",
-    "clear_page",
-    "list_deleted_pages",
-    "restore_page",
-    "set_page",
-    "scale_page_content",
-    "describe_page_look",
-    "apply_page_look",
-    "go_to_page",
-  ],
-  "The canvas and the view": ["set_canvas", "set_view", "set_tool"],
-  "Export and insert": ["export_scene", "insert_document"],
-  "Library, stickers, tables, code": [
-    "library_list",
-    "library_insert",
-    "list_stickers",
-    "insert_sticker",
-    "insert_table",
-    "insert_code_card",
-  ],
-  "Flow charts": [
-    "flow_kinds",
-    "check_flow_script",
-    "create_flow_chart",
-    "list_flow_charts",
-    "edit_flow_chart",
-    "delete_flow_chart",
-    "convert_flow_script",
-    "describe_flow_look",
-    "set_flow_look",
-    "play_flow",
-    "stop_flow",
-  ],
-  "Slides and lesson pages": ["make_slides", "build_page"],
-  "Pictures, documents, files and the internet": [
-    "list_allowed_folders",
-    "list_folder",
-    "file_info",
-    "insert_image",
-    "crop_image",
-    "list_sources",
-    "read_document",
-    "insert_markdown",
-    "insert_pdf_page",
-    "read_image_text",
-    "list_panels",
-    "insert_video",
-    "insert_youtube",
-    "insert_code_panel",
-    "set_code_panel",
-    "read_code_panel",
-    "run_code",
-    "fetch_resource",
-  ],
+  return pathToFileURL(file).href;
 };
 
-const grouped = new Set(Object.values(groups).flat());
-// the tools only the server calls are not for an assistant, so they are not listed
-const missing = MCP_TOOLS.filter((tool) => !tool.hidden)
-  .map((tool) => tool.name)
-  .filter((name) => !grouped.has(name));
+const specsUrl = await bundle("packages/excalidraw/mcp/toolSpecs.ts", "specs");
+const catalogUrl = await bundle(
+  "packages/excalidraw/mcp/actionCatalog.ts",
+  "catalog",
+);
+const groupsUrl = await bundle(
+  "packages/excalidraw/mcp/toolGroups.ts",
+  "groups",
+);
 
-if (missing.length) {
-  throw new Error(`not in a group: ${missing.join(", ")}`);
-}
+const { MCP_TOOLS } = await import(specsUrl);
+const { MCP_ACTION_CATALOG } = await import(catalogUrl);
+const { MCP_TOOL_GROUPS, assertGroupsCoverTools } = await import(groupsUrl);
+
+// the groups live in the code (D-425): the document is made from them
+assertGroupsCoverTools();
+
+const first = (text) => text.split(". ")[0].replace(/\.$/, "");
+const groups = Object.fromEntries(
+  MCP_TOOL_GROUPS.map((group) => [group.title, [...group.tools]]),
+);
 
 let md = `# What the MCP server does
 
@@ -177,7 +94,7 @@ for (const entry of MCP_ACTION_CATALOG) {
       : entry.use === "covered"
       ? `the tool \`${entry.tool}\``
       : entry.use === "later"
-      ? `\`${entry.tool}\`, wave ${entry.wave}`
+      ? `\`${entry.tool}\`, in a later part of the server`
       : `not for the assistant: ${entry.why}`;
 
   md += `| \`${entry.name}\` | ${how.replace(/\|/g, "/")} |\n`;
@@ -186,7 +103,7 @@ for (const entry of MCP_ACTION_CATALOG) {
 md += `
 ## Still to come
 
-- The export of an animation and of a handout, the skills for assistants, the VS Code terminal.
+- The export of an animation and of a handout, the VS Code terminal.
 `;
 
 fs.writeFileSync(`${W}docs/mcp-coverage.md`, md);

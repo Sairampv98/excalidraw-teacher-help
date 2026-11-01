@@ -984,9 +984,10 @@ describe("the code panel's view", () => {
     // a NEW panel: its payload carries no choice
     const fresh = codePanel(connectedState());
 
-    // and a panel that ALREADY exists: wave 5h wrote `view: "editor"` into
-    // every payload, and that was the OLD default - not a choice the teacher
-    // ever made (D-99). The mirror has no editor view now (D-331).
+    // and a panel that ALREADY exists: an earlier part of the work wrote
+    // `view: "editor"` into every payload, and that was the OLD default - not a
+    // choice the teacher ever made (D-99). The mirror has no editor view now
+    // (D-331).
     const existing = codePanel(connectedState(), {
       panel: {
         ...codePanelContent(connectedState(), "session-1"),
