@@ -5,7 +5,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { basename } from "node:path";
+import { basename, dirname } from "node:path";
 
 import { sniffType } from "../../excalidraw/mcp/imageSize";
 
@@ -59,6 +59,32 @@ const asCallError = (error: unknown): never => {
     code: "failed",
     message: error instanceof Error ? error.message : String(error),
   });
+};
+
+/**
+ * The captions that belong to a video: the file of the same name whose extension
+ * is .srt or .vtt, or one with a language in its name (lesson.en.srt). The plain
+ * name wins when both are there.
+ */
+const sidecarOf = (
+  video: string,
+  entries: readonly { name: string; folder: boolean }[],
+) => {
+  const stem = basename(video).replace(/\.[^.]+$/, "");
+  const files = entries.filter((entry) => !entry.folder).map((e) => e.name);
+  const isCaptions = (name: string) => /\.(srt|vtt)$/i.test(name);
+
+  return (
+    files.find((name) => isCaptions(name) && name.slice(0, -4) === stem) ??
+    files.find(
+      (name) =>
+        isCaptions(name) &&
+        name.slice(0, stem.length) === stem &&
+        name[stem.length] === "." &&
+        /^[A-Za-z-]{2,8}$/.test(name.slice(stem.length + 1, -4)),
+    ) ??
+    null
+  );
 };
 
 /** the extension of a file name, in lower case */
@@ -436,6 +462,93 @@ export const createFileTools = ({
             },
           },
         );
+      } catch (error) {
+        return asCallError(error);
+      }
+    },
+
+    insert_video: async (raw) => {
+      const args = argsOf(raw);
+      const path =
+        text(args, "path") ?? fail("bad-arguments", "path is required.");
+      const captionsPath = text(args, "captions");
+
+      mayChange();
+
+      try {
+        const info = await folders.file(path);
+
+        if (info.kind !== "video") {
+          return fail(
+            "bad-arguments",
+            `${info.name} is not a video (mp4, webm, mov, m4v, ogv).`,
+          );
+        }
+
+        const bytes = await folders.read(path, FILE_LIMITS.video);
+        const type = sniffType(bytes);
+
+        if (!type?.startsWith("video/")) {
+          return fail(
+            "bad-arguments",
+            `${info.name} is not a video (it looks like ${
+              type ?? "something else"
+            }).`,
+          );
+        }
+
+        // the captions: the file named, or the one beside the video
+        let captions: { bytes: Buffer; name: string } | null = null;
+        let captionsName = captionsPath;
+
+        if (captionsName === undefined) {
+          const beside = await folders
+            .list(dirname(path))
+            .then((listing) => sidecarOf(path, listing.entries))
+            .catch(() => null);
+
+          captionsName = beside
+            ? `${dirname(path) === "." ? "" : `${dirname(path)}/`}${beside}`
+            : undefined;
+        }
+
+        if (captionsName !== undefined) {
+          const found = await folders.file(captionsName);
+
+          if (found.kind !== "captions") {
+            return fail(
+              "bad-arguments",
+              `${found.name} is not a captions file (.srt or .vtt).`,
+            );
+          }
+
+          captions = {
+            bytes: await folders.read(captionsName, FILE_LIMITS.captions),
+            name: found.name,
+          };
+        }
+
+        const captionsId = captions
+          ? await upload(captions.bytes, captions.name, "text/plain")
+          : undefined;
+
+        try {
+          return await place("place_video", bytes, basename(path), type, {
+            captions: captionsId,
+            page: args.page,
+            x: args.x,
+            y: args.y,
+            width: args.width,
+          });
+        } catch (error) {
+          if (captionsId) {
+            await link
+              .call("upload_drop", { id: captionsId })
+              .catch(() => undefined);
+          }
+
+          throw error;
+        }
       } catch (error) {
         return asCallError(error);
       }

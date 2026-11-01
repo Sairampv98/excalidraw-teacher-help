@@ -703,3 +703,185 @@ describe("documents", () => {
     ]);
   });
 });
+
+describe("videos", () => {
+  /** the bytes of an mp4: a box that says ftyp, and some more */
+  const MP4 = Buffer.concat([
+    Buffer.from([0, 0, 0, 24]),
+    Buffer.from("ftypmp42"),
+    Buffer.alloc(40),
+  ]);
+  const SRT = Buffer.from("1\n00:00:01,000 --> 00:00:02,000\nHello\n");
+
+  const withVideos = (state: Partial<McpPageState> | null = {}) => {
+    const made = setup(state);
+
+    writeFileSync(join(made.allowed, "lesson.mp4"), MP4);
+    writeFileSync(join(made.allowed, "lesson.srt"), SRT);
+    writeFileSync(join(made.allowed, "lesson.fr.srt"), "French");
+    writeFileSync(
+      join(made.allowed, "talk.webm"),
+      Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), Buffer.alloc(40)]),
+    );
+    writeFileSync(join(made.allowed, "talk.en.vtt"), "WEBVTT");
+    writeFileSync(join(made.allowed, "plain.mp4"), MP4);
+    // a name that only looks like captions is not captions
+    writeFileSync(join(made.allowed, "clip2.mp4"), MP4);
+    writeFileSync(join(made.allowed, "clip2.enxsrt"), "not captions");
+    // a language in the name is a word of two to eight letters, after a dot
+    writeFileSync(join(made.allowed, "clip3.mp4"), MP4);
+    writeFileSync(join(made.allowed, "clip3.2024-final.srt"), "not a language");
+    writeFileSync(join(made.allowed, "clip5.mp4"), MP4);
+    writeFileSync(join(made.allowed, "clip5xen.srt"), "not beside it");
+    // a video is told by what it is, and by what it is called
+    writeFileSync(join(made.allowed, "movie.txt"), MP4);
+    writeFileSync(join(made.allowed, "my.talk.mp4"), MP4);
+    writeFileSync(join(made.allowed, "my.talk.srt"), SRT);
+    writeFileSync(join(made.allowed, "liar.mp4"), "this is only text");
+    mkdirSync(join(made.allowed, "sub"));
+    writeFileSync(join(made.allowed, "sub", "clip.mp4"), MP4);
+    writeFileSync(join(made.allowed, "sub", "clip.vtt"), "WEBVTT");
+    writeFileSync(join(made.allowed, "sub", "other.vtt"), "WEBVTT other");
+
+    return made;
+  };
+
+  it("AC-502 sends the video and the captions beside it to the page in pieces, and tells the page where to put them", async () => {
+    const { tools, calls } = withVideos();
+
+    await tools.insert_video({
+      path: "lesson.mp4",
+      page: 2,
+      x: 10,
+      y: 20,
+      width: 400,
+    });
+
+    // the captions go first, then the video, then the page is told
+    expect(calls.map((call) => call.tool)).toEqual([
+      "upload_chunk",
+      "upload_chunk",
+      "place_video",
+    ]);
+    expect(calls[0].args).toMatchObject({ name: "lesson.srt" });
+    expect(Buffer.from(calls[0].args.data, "base64").equals(SRT)).toBe(true);
+    expect(calls[1].args).toMatchObject({
+      name: "lesson.mp4",
+      mimeType: "video/mp4",
+    });
+    expect(calls[2].args).toEqual({
+      upload: calls[1].args.id,
+      captions: calls[0].args.id,
+      page: 2,
+      x: 10,
+      y: 20,
+      width: 400,
+    });
+    expect(calls[0].args.id).not.toBe(calls[1].args.id);
+  });
+
+  it("AC-502 takes the captions asked for, the plain name before one with a language, a language one when there is no plain one, and none when there is nothing", async () => {
+    const { tools, calls } = withVideos();
+    const captionsOf = async (args: Record<string, unknown>) => {
+      calls.length = 0;
+      await tools.insert_video(args);
+
+      return calls.length === 3 ? calls[0].args.name : null;
+    };
+
+    expect(await captionsOf({ path: "lesson.mp4" })).toBe("lesson.srt");
+    expect(await captionsOf({ path: "talk.webm" })).toBe("talk.en.vtt");
+    expect(await captionsOf({ path: "plain.mp4" })).toBeNull();
+    expect(await captionsOf({ path: "clip2.mp4" })).toBeNull();
+    expect(await captionsOf({ path: "clip3.mp4" })).toBeNull();
+    expect(await captionsOf({ path: "clip5.mp4" })).toBeNull();
+    expect(await captionsOf({ path: "my.talk.mp4" })).toBe("my.talk.srt");
+    expect(await captionsOf({ path: "sub/clip.mp4" })).toBe("clip.vtt");
+    // the one that was asked for, whatever is beside the video
+    expect(
+      await captionsOf({ path: "sub/clip.mp4", captions: "sub/other.vtt" }),
+    ).toBe("other.vtt");
+    expect(
+      await captionsOf({ path: "lesson.mp4", captions: "lesson.fr.srt" }),
+    ).toBe("lesson.fr.srt");
+    // a video that is sent says what it is from its bytes
+    expect(
+      calls.find(
+        (call) =>
+          call.tool === "upload_chunk" && call.args.name === "lesson.mp4",
+      )?.args.mimeType,
+    ).toBe("video/mp4");
+    await captionsOf({ path: "talk.webm" });
+    expect(
+      calls.find((call) => call.args.name === "talk.webm")?.args.mimeType,
+    ).toBe("video/webm");
+  });
+
+  it("AC-502 is refused for what is not a video whatever its name says, captions that are not captions, a name outside, or Allow changes off, and sends nothing", async () => {
+    const { tools, calls } = withVideos();
+
+    expect(
+      (await refused(tools.insert_video({ path: "liar.mp4" }))).message,
+    ).toMatch(/not a video/);
+    expect(
+      (await refused(tools.insert_video({ path: "cat.png" }))).message,
+    ).toMatch(/not a video/);
+    // the bytes are a video's, the name is not
+    expect(
+      (await refused(tools.insert_video({ path: "movie.txt" }))).message,
+    ).toMatch(/not a video \(mp4/);
+    expect(
+      (
+        await refused(
+          tools.insert_video({ path: "plain.mp4", captions: "notes.md" }),
+        )
+      ).message,
+    ).toMatch(/not a captions file/);
+    expect(
+      (await refused(tools.insert_video({ path: "../outside.mp4" }))).code,
+    ).toBe("bad-arguments");
+    expect(
+      (
+        await refused(
+          tools.insert_video({ path: "plain.mp4", captions: "../x.srt" }),
+        )
+      ).code,
+    ).toBe("bad-arguments");
+    expect((await refused(tools.insert_video({}))).message).toMatch(
+      /path is required/,
+    );
+    expect(calls).toEqual([]);
+
+    const off = withVideos({ allowChanges: false });
+
+    expect(
+      (await refused(off.tools.insert_video({ path: "lesson.mp4" }))).code,
+    ).toBe("changes-not-allowed");
+    expect(off.calls).toEqual([]);
+  });
+
+  it("AC-502 has the page forget the video and the captions when it could not use them", async () => {
+    const { tools, calls, failing } = withVideos();
+
+    failing.place_video = new McpCallError({
+      code: "bad-arguments",
+      message: "That is not a video",
+    });
+    expect(
+      (await refused(tools.insert_video({ path: "lesson.mp4" }))).message,
+    ).toBe("That is not a video");
+    expect(calls.map((call) => call.tool)).toEqual([
+      "upload_chunk",
+      "upload_chunk",
+      "place_video",
+      "upload_drop",
+      "upload_drop",
+    ]);
+    expect(
+      calls
+        .slice(3)
+        .map((call) => call.args.id)
+        .sort(),
+    ).toEqual([calls[0].args.id, calls[1].args.id].sort());
+  });
+});
