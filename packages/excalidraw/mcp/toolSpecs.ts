@@ -989,6 +989,70 @@ export const MCP_TOOLS: readonly McpToolSpec[] = [
     },
   },
   {
+    name: "describe_flow_look",
+    description:
+      "How the animation of a chart looks and plays now: the colours, the glows, the arrow, the highlight, the step's length, the speed, the node and arrow styles - and what may be chosen. Call this before set_flow_look.",
+    changes: false,
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "set_flow_look",
+    description:
+      "Change how the animation of a chart looks and plays: nodeColor, textColor, markColor, arrowColor (a hex colour like #6965db, or nothing for the accent colour), hideArrow, glowShape, glowText, glowMark, glowArrow, loop, camera, nodeTarget, durationMs (100 to 10000), speed (10 to 600), nodeStyle, arrowStyle. What is not given stays what it was, and the settings are remembered for the next session.",
+    changes: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        nodeColor: { type: "string" },
+        textColor: { type: "string" },
+        markColor: { type: "string" },
+        arrowColor: { type: "string" },
+        hideArrow: { type: "boolean" },
+        glowShape: { type: "boolean" },
+        glowText: { type: "boolean" },
+        glowMark: { type: "boolean" },
+        glowArrow: { type: "boolean" },
+        loop: { type: "boolean" },
+        camera: { type: "boolean" },
+        nodeTarget: { type: "string" },
+        durationMs: { type: "number", minimum: 100, maximum: 10000 },
+        speed: { type: "number", minimum: 10, maximum: 600 },
+        nodeStyle: { type: "string" },
+        arrowStyle: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "play_flow",
+    description:
+      "Play a chart: the animation walks the chart the teacher drew, step by step. mode is play (the animation runs) or present (it runs full screen, once). The chart is found by its chartId (list_flow_charts lists them).",
+    changes: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        chartId: { type: "string" },
+        mode: { type: "string", enum: ["play", "present"] },
+      },
+      required: ["chartId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "stop_flow",
+    description: "End the animation and give the canvas back.",
+    changes: true,
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_panels",
     description:
       "The panels on the pages - videos, YouTube videos and code editors: each one's id, page, place, size and what it holds (a video's source and caption tracks, a code panel's language and how much code).",
@@ -1256,6 +1320,78 @@ export const MCP_TOOLS: readonly McpToolSpec[] = [
         width: { type: "number" },
       },
       required: ["markdown"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "make_slides",
+    description:
+      "Make a deck of slides from a script: the slides are separated by a line of three dashes (---). Each slide is laid out on its own page - a heading, words, bullets, a table, code - and the pages are made after the page that is open (or the one named). The page of a slide is named after its first heading. The whole deck is one undo step.",
+    changes: true,
+    app: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        script: { type: "string" },
+        page: PAGE,
+        open: { type: "boolean" },
+      },
+      required: ["script"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "build_page",
+    description:
+      "Build a lesson page out of blocks, one under the other: a title, a heading, a text, bullets, a quote, a divider, a table, a code and a chart. A text block has its words, a bullets block its items, a table block its rows, a code block its code and a chart block its kind and script (see flow_kinds). The page is the one that is open (or the one named); the blocks start at x, y (page-relative, default 100, 100) and are as wide as width. One undo step.",
+    changes: true,
+    app: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        blocks: {
+          type: "array",
+          minItems: 1,
+          maxItems: 60,
+          items: {
+            type: "object",
+            properties: {
+              type: {
+                type: "string",
+                enum: [
+                  "title",
+                  "heading",
+                  "text",
+                  "bullets",
+                  "quote",
+                  "divider",
+                  "table",
+                  "code",
+                  "chart",
+                ],
+              },
+              text: { type: "string" },
+              items: { type: "array", items: { type: "string" } },
+              rows: {
+                type: "array",
+                items: { type: "array", items: { type: "string" } },
+              },
+              code: { type: "string" },
+              language: { type: "string" },
+              kind: { type: "string" },
+              script: { type: "string" },
+              fit: { type: "string", enum: ["page", "larger"] },
+            },
+            required: ["type"],
+            additionalProperties: true,
+          },
+        },
+        page: PAGE,
+        x: { type: "number" },
+        y: { type: "number" },
+        width: { type: "number", minimum: 200, maximum: 4000 },
+      },
+      required: ["blocks"],
       additionalProperties: false,
     },
   },

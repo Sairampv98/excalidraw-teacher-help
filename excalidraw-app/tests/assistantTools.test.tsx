@@ -356,12 +356,14 @@ describe("the tools of the server", () => {
     expect(appTools).toEqual(wanted);
     expect(Object.keys(MCP_HANDLERS).sort()).toEqual(library);
     expect(wanted).toEqual([
+      "build_page",
       "insert_code_card",
       "insert_code_panel",
       "insert_sticker",
       "insert_table",
       "insert_youtube",
       "list_stickers",
+      "make_slides",
       "pdf_read",
       "place_markdown",
       "place_pdf_page",

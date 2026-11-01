@@ -100,6 +100,17 @@ Positions are page-relative: (0, 0) is the top-left of the page, in scene units;
 | `edit_flow_chart` | Change a flow chart in place: a new script, kind, fit, shape or arrows (what is not given stays) | changes |
 | `delete_flow_chart` | Delete a flow chart: every shape, text and arrow of it | changes |
 | `convert_flow_script` | Write a script for another kind of chart, keeping its words: from and to are kinds (see flow_kinds) | reads |
+| `describe_flow_look` | How the animation of a chart looks and plays now: the colours, the glows, the arrow, the highlight, the step's length, the speed, the node and arrow styles - and what may be chosen | reads |
+| `set_flow_look` | Change how the animation of a chart looks and plays: nodeColor, textColor, markColor, arrowColor (a hex colour like #6965db, or nothing for the accent colour), hideArrow, glowShape, glowText, glowMark, glowArrow, loop, camera, nodeTarget, durationMs (100 to 10000), speed (10 to 600), nodeStyle, arrowStyle | changes |
+| `play_flow` | Play a chart: the animation walks the chart the teacher drew, step by step | changes |
+| `stop_flow` | End the animation and give the canvas back | changes |
+
+## Slides and lesson pages
+
+| Tool | What it does |  |
+| --- | --- | --- |
+| `make_slides` | Make a deck of slides from a script: the slides are separated by a line of three dashes (---) | changes, app |
+| `build_page` | Build a lesson page out of blocks, one under the other: a title, a heading, a text, bullets, a quote, a divider, a table, a code and a chart | changes, app |
 
 ## Pictures, documents, files and the internet
 
@@ -241,5 +252,4 @@ Every action the editor registers is named, and a test fails when one is not: 38
 
 ## Still to come
 
-- Wave 9c-2: local files in listed folders, images, GIFs and video from disk, the video and YouTube panels with captions, documents (markdown and PDF), OCR, the code panel and Run, the internet.
-- Wave 9c-3: flow charts and their animation and export, slides from a script, playbook pages, the skills for assistants, the VS Code terminal.
+- The export of an animation and of a handout, the skills for assistants, the VS Code terminal.

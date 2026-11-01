@@ -53,9 +53,13 @@ import {
   convertFlowScript,
   createFlowChart,
   deleteFlowChart,
+  describeFlowLook,
   editFlowChart,
   flowKinds,
   listFlowCharts,
+  playFlow,
+  setFlowLook,
+  stopFlow,
 } from "./flowTools";
 import { libraryInsert, libraryList } from "./libraryTools";
 import {
@@ -132,6 +136,10 @@ export const MCP_HANDLERS: Record<string, Handler> = {
   edit_flow_chart: (app, args) => editFlowChart(app, args),
   delete_flow_chart: (app, args) => deleteFlowChart(app, args),
   convert_flow_script: (app, args) => convertFlowScript(app, args),
+  describe_flow_look: () => describeFlowLook(),
+  set_flow_look: (app, args) => setFlowLook(app, args),
+  play_flow: (app, args) => playFlow(app, args),
+  stop_flow: () => stopFlow(),
   upload_chunk: (app, args) => uploadChunk(app, args),
   upload_drop: (app, args) => uploadDrop(app, args),
   place_image: (app, args) => placeImage(app, args),
