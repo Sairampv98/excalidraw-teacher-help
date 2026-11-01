@@ -43,12 +43,14 @@ import {
   normaliseRows,
 } from "../sidebar/table";
 
+import { createClassTools } from "./classTools";
 import { createDocumentTools } from "./documentTools";
 import { createPanelTools } from "./panelTools";
 
 import type { Sticker } from "../emoji/catalog";
 import type { TableText } from "../sidebar/table";
 import type { DocumentDeps } from "./documentTools";
+import type { MarkdownText } from "./markdownLayout";
 import type { PanelDeps } from "./panelTools";
 
 /** what the tools lean on, so a test can hand in its own */
@@ -57,6 +59,8 @@ export type AppToolDeps = {
   getImageSize: (src: string) => Promise<{ width: number; height: number }>;
   tableText?: TableText;
   buildCodeCard: typeof buildCodeCard;
+  /** how text is wrapped and measured; a test hands in its own */
+  text?: MarkdownText;
   /** the PDF reader, the drawing of a page and the reader of pictures (D-411 to D-414) */
   documents?: Partial<DocumentDeps>;
   /** the app's inserts of video, YouTube and the runners of code (D-416 to D-418) */
@@ -106,6 +110,12 @@ export const createAppTools = (
     }),
 
     ...createPanelTools(getApi, deps.panels),
+
+    ...createClassTools(getApi, {
+      buildCodeCard: deps.buildCodeCard,
+      tableText: deps.tableText,
+      text: deps.text ?? deps.documents?.text,
+    }),
 
     list_stickers: (rawArgs) => {
       const args = argsOf(rawArgs);

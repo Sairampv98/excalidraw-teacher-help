@@ -12,6 +12,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Excalidraw } from "../index";
 import { runMcpTool } from "../mcp/runner";
+import {
+  FLOW_SETTINGS_STORAGE_KEY,
+  flowAnimationStateAtom,
+  updateFlowAnimationSettings,
+} from "../components/FlowAnimationState";
+import { editorJotaiStore } from "../editor-jotai";
 import { FLOW_CUSTOM_PRESETS_KEY } from "../scene/flowCustomPresets";
 
 import { Keyboard } from "./helpers/ui";
@@ -75,6 +81,27 @@ const steps = (count: number) =>
 
 beforeEach(async () => {
   window.localStorage.removeItem(FLOW_CUSTOM_PRESETS_KEY);
+  // the look of the animation is remembered between sessions: every test starts
+  // from the look a fresh whiteboard has
+  window.localStorage.removeItem(FLOW_SETTINGS_STORAGE_KEY);
+  updateFlowAnimationSettings({
+    nodeColor: null,
+    textColor: null,
+    markColor: null,
+    arrowColor: null,
+    hideArrow: false,
+    glowShape: false,
+    glowText: false,
+    glowMark: false,
+    glowArrow: false,
+    nodeTarget: "shape",
+    durationMs: 1200,
+    loop: true,
+    nodeStyle: "focus",
+    arrowStyle: "none",
+    speed: 240,
+    camera: false,
+  });
   await render(
     <Excalidraw pagesEnabled={true} handleKeyboardGlobally={true} />,
   );
@@ -82,6 +109,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   window.localStorage.removeItem(FLOW_CUSTOM_PRESETS_KEY);
+  window.localStorage.removeItem(FLOW_SETTINGS_STORAGE_KEY);
 });
 
 describe("the kinds of chart", () => {
@@ -715,5 +743,197 @@ describe("listing, changing and deleting a chart", () => {
     expect(
       await run("convert_flow_script", { from: "process", to: "cycle" }),
     ).toMatchObject({ error: { code: "bad-arguments" } });
+  });
+});
+
+describe("the look of the animation and playing a chart", () => {
+  it("AC-515 says how the animation looks and plays now, and what may be chosen", async () => {
+    const look = await ok("describe_flow_look");
+
+    expect(look.look).toMatchObject({
+      nodeColor: null,
+      textColor: null,
+      markColor: null,
+      arrowColor: null,
+      hideArrow: false,
+      glowShape: false,
+      nodeTarget: "shape",
+    });
+    expect(look.animation).toMatchObject({
+      durationMs: 1200,
+      loop: true,
+      nodeStyle: "focus",
+      arrowStyle: "none",
+      speed: 240,
+      camera: false,
+    });
+    expect(look.playing).toBe(false);
+    expect(look.choices.colours).toEqual([
+      "nodeColor",
+      "textColor",
+      "markColor",
+      "arrowColor",
+    ]);
+    expect(look.choices.highlightTargets).toEqual([
+      "shape",
+      "shape-box",
+      "shape-text",
+      "box",
+      "letters",
+    ]);
+    expect(look.choices.nodeStyles).toEqual(["none", "focus", "pulse"]);
+    expect(look.choices.arrowStyles).toEqual([
+      "none",
+      "beam",
+      "marching",
+      "pipe",
+      "token",
+    ]);
+    expect(look.choices.speed).toEqual([10, 600]);
+    expect(look.choices.durationMs).toEqual([100, 10000]);
+  });
+
+  it("AC-515 changes the look and the run, keeps what is not given, remembers it for the next session, and refuses what is not a colour, a target, a style, a length or a speed", async () => {
+    const changed = await ok("set_flow_look", {
+      nodeColor: "#ff0000",
+      glowShape: true,
+      hideArrow: true,
+      nodeTarget: "letters",
+      durationMs: 500,
+      speed: 300,
+      nodeStyle: "pulse",
+      arrowStyle: "marching",
+    });
+
+    expect(changed.look).toMatchObject({
+      nodeColor: "#ff0000",
+      glowShape: true,
+      hideArrow: true,
+      nodeTarget: "letters",
+    });
+    expect(changed.animation).toMatchObject({
+      durationMs: 500,
+      speed: 300,
+      nodeStyle: "pulse",
+      arrowStyle: "marching",
+    });
+
+    // what is not given stays what it was
+    const again = await ok("set_flow_look", { textColor: "#00ff00" });
+
+    expect(again.look).toMatchObject({
+      nodeColor: "#ff0000",
+      textColor: "#00ff00",
+      glowShape: true,
+      hideArrow: true,
+      nodeTarget: "letters",
+    });
+    expect(again.animation).toMatchObject({
+      durationMs: 500,
+      speed: 300,
+      nodeStyle: "pulse",
+      arrowStyle: "marching",
+    });
+
+    // the settings are remembered for the next session
+    expect(
+      JSON.parse(
+        window.localStorage.getItem(FLOW_SETTINGS_STORAGE_KEY) ?? "{}",
+      ),
+    ).toMatchObject({
+      nodeColor: "#ff0000",
+      durationMs: 500,
+      nodeStyle: "pulse",
+    });
+
+    // and it refuses what is not right
+    expect(await run("set_flow_look", { nodeColor: "red" })).toMatchObject({
+      error: { code: "bad-arguments" },
+    });
+    expect(await run("set_flow_look", { nodeTarget: "pizza" })).toMatchObject({
+      error: { code: "bad-arguments" },
+    });
+    expect(await run("set_flow_look", { nodeStyle: "pizza" })).toMatchObject({
+      error: { code: "bad-arguments" },
+    });
+    expect(await run("set_flow_look", { arrowStyle: "pizza" })).toMatchObject({
+      error: { code: "bad-arguments" },
+    });
+    expect(await run("set_flow_look", { durationMs: 10 })).toMatchObject({
+      error: { code: "bad-arguments" },
+    });
+    expect(await run("set_flow_look", { speed: 5000 })).toMatchObject({
+      error: { code: "bad-arguments" },
+    });
+    expect(await run("set_flow_look", {})).toMatchObject({
+      error: { code: "bad-arguments" },
+    });
+  });
+
+  it("AC-515 plays a chart, ends the animation, and refuses a chart that is not there, a chart of one shape, a mode that is not one, and Allow changes off", async () => {
+    const made = await ok("create_flow_chart", {
+      kind: "process",
+      script: PROCESS,
+    });
+    const one = await ok("create_flow_chart", {
+      kind: "process",
+      script: "Only one shape",
+    });
+
+    const played = await ok("play_flow", { chartId: made.chartId });
+
+    expect(played).toMatchObject({
+      chartId: made.chartId,
+      mode: "play",
+      steps: 4,
+      playing: true,
+    });
+    expect(editorJotaiStore.get(flowAnimationStateAtom).active).toBe(true);
+
+    const stopped = await ok("stop_flow");
+
+    expect(stopped).toMatchObject({ playing: false, wasPlaying: true });
+    expect(editorJotaiStore.get(flowAnimationStateAtom).active).toBe(false);
+
+    expect(await run("play_flow", { chartId: "chart-nothing" })).toMatchObject({
+      error: { code: "not-found" },
+    });
+    const oneShape = await run("play_flow", { chartId: one.chartId });
+    expect(oneShape).toMatchObject({ error: { code: "failed" } });
+    // and it says that there is nothing to walk
+    expect((oneShape as any).error.message).toContain("has no steps to walk");
+    expect(
+      await run("play_flow", { chartId: made.chartId, mode: "pizza" }),
+    ).toMatchObject({ error: { code: "bad-arguments" } });
+    expect(
+      await run(
+        "play_flow",
+        { chartId: made.chartId },
+        { ...CONTEXT, allowChanges: false },
+      ),
+    ).toMatchObject({ error: { code: "changes-not-allowed" } });
+    expect(editorJotaiStore.get(flowAnimationStateAtom).active).toBe(false);
+  });
+
+  it("AC-515 presents a chart: the animation runs once, without looping", async () => {
+    const made = await ok("create_flow_chart", {
+      kind: "process",
+      script: PROCESS,
+    });
+
+    await ok("set_flow_look", { loop: true });
+    const played = await ok("play_flow", {
+      chartId: made.chartId,
+      mode: "present",
+    });
+
+    expect(played).toMatchObject({ mode: "present", playing: true });
+    expect(editorJotaiStore.get(flowAnimationStateAtom)).toMatchObject({
+      mode: "present",
+      loop: false,
+      active: true,
+    });
+
+    await ok("stop_flow");
   });
 });

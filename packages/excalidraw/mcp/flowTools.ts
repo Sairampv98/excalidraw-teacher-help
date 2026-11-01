@@ -13,6 +13,13 @@ import { CaptureUpdateAction, newElementWith } from "@excalidraw/element";
 
 import type { ExcalidrawElement } from "@excalidraw/element/types";
 
+import {
+  flowAnimationStateAtom,
+  startFlowAnimation,
+  stopFlowAnimation,
+  updateFlowAnimationSettings,
+} from "../components/FlowAnimationState";
+import { editorJotaiStore } from "../editor-jotai";
 import { applyFlowScript } from "../scene/flowApply";
 import {
   chartElementsOf,
@@ -28,6 +35,7 @@ import {
   buildSettingsOfCustom,
   readStoredCustomPresets,
 } from "../scene/flowCustomPresets";
+import { FLOW_HIGHLIGHT_TARGETS, isFlowColor } from "../scene/flowLook";
 import { flowPagesOf, planChartPages } from "../scene/flowPagesFor";
 import {
   FLOW_PRESETS,
@@ -35,6 +43,13 @@ import {
   listFlowPresets,
 } from "../scene/flowPresets";
 import { FLOW_NODE_SHAPES } from "../scene/flowScript";
+import { flowOfSelection } from "../scene/flowSelection";
+import {
+  FLOW_ARROW_STYLES,
+  FLOW_NODE_STYLES,
+  FLOW_SPEED_MAX,
+  FLOW_SPEED_MIN,
+} from "../scene/flowStyles";
 import {
   stampCurrentPage,
   translateContentForPageLayout,
@@ -45,6 +60,7 @@ import {
   fail,
   isRecord,
   pageOfElement,
+  readBoolean,
   readString,
   readInteger,
   readNumber,
@@ -52,16 +68,20 @@ import {
   toPageSpace,
 } from "./common";
 
+import type { FlowHighlightTarget } from "../scene/flowLook";
+import type { FlowAnimationSettings } from "../components/FlowAnimationState";
+
 import type { FlowFitMode } from "../scene/flowChart";
 import type { FlowCustomPreset } from "../scene/flowCustomPresets";
 import type { FlowChartShape, FlowPresetId } from "../scene/flowPresets";
+import type { FlowArrowStyle, FlowNodeStyle } from "../scene/flowStyles";
 import type { McpApp, McpPage } from "./common";
 
 /** the longest script that is made into a chart */
 export const FLOW_MAX_SCRIPT = 20_000;
 
 /** what a kind is called: a built-in kind, or the id of a custom one (D-228) */
-const kindOf = (
+export const kindOf = (
   value: string,
 ): { builtIn: FlowPresetId; custom?: FlowCustomPreset } => {
   const custom = readStoredCustomPresets().find(
@@ -505,4 +525,291 @@ export const convertFlowScript = (_app: McpApp, rawArgs: unknown) => {
     script: converted,
     changed: converted !== script,
   };
+};
+
+/* ------------------------------------------------- the look of the animation */
+
+/** the shortest a step may be held, in milliseconds */
+export const FLOW_MIN_STEP_MS = 100;
+
+/** the longest a step may be held, in milliseconds */
+export const FLOW_MAX_STEP_MS = 10_000;
+
+/** the colours of the look, and what may be done with them */
+const LOOK_COLOURS = [
+  "nodeColor",
+  "textColor",
+  "markColor",
+  "arrowColor",
+] as const;
+
+/** the switches of the look, and of the run */
+const LOOK_SWITCHES = [
+  "hideArrow",
+  "glowShape",
+  "glowText",
+  "glowMark",
+  "glowArrow",
+  "loop",
+  "camera",
+] as const;
+
+/**
+ * How the animation looks and plays now, and what may be chosen (D-424).
+ *
+ * It is the bar's own state, read from the editor's store - the same numbers
+ * the teacher sees in the bar, so the assistant and the person talk about the
+ * same thing.
+ */
+export const describeFlowLook = () => {
+  const state = editorJotaiStore.get(flowAnimationStateAtom);
+
+  return {
+    look: {
+      nodeColor: state.nodeColor,
+      textColor: state.textColor,
+      markColor: state.markColor,
+      arrowColor: state.arrowColor,
+      hideArrow: state.hideArrow,
+      glowShape: state.glowShape,
+      glowText: state.glowText,
+      glowMark: state.glowMark,
+      glowArrow: state.glowArrow,
+      nodeTarget: state.nodeTarget,
+    },
+    animation: {
+      durationMs: state.durationMs,
+      loop: state.loop,
+      nodeStyle: state.nodeStyle,
+      arrowStyle: state.arrowStyle,
+      speed: state.speed,
+      camera: state.camera,
+    },
+    playing: state.active,
+    mode: state.mode,
+    choices: {
+      colours: LOOK_COLOURS,
+      highlightTargets: FLOW_HIGHLIGHT_TARGETS.map((target) => target.id),
+      nodeStyles: FLOW_NODE_STYLES.map((style) => style.id),
+      arrowStyles: FLOW_ARROW_STYLES.map((style) => style.id),
+      speed: [FLOW_SPEED_MIN, FLOW_SPEED_MAX],
+      durationMs: [FLOW_MIN_STEP_MS, FLOW_MAX_STEP_MS],
+      note: "A colour is a hex value like #6965db, or nothing for the accent colour.",
+    },
+  };
+};
+
+/** a colour of the look: a hex value, or nothing for the accent colour */
+const colourOf = (args: Record<string, unknown>, key: string) => {
+  const value = args[key];
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null || value === "") {
+    return null;
+  }
+
+  return isFlowColor(value)
+    ? value
+    : fail(
+        "bad-arguments",
+        `${key} must be a hex colour like #6965db, or nothing for the accent colour.`,
+      );
+};
+
+/**
+ * Changes the look of the animation, and how it plays (D-424).
+ *
+ * What is not given stays what it was, and the settings are remembered for the
+ * next session - the bar's own rule, through the bar's own action.
+ */
+export const setFlowLook = (_app: McpApp, rawArgs: unknown) => {
+  const args = argsOf(rawArgs);
+  const settings: Partial<FlowAnimationSettings> = {};
+
+  for (const key of LOOK_COLOURS) {
+    const colour = colourOf(args, key);
+
+    if (colour !== undefined) {
+      settings[key] = colour;
+    }
+  }
+
+  for (const key of LOOK_SWITCHES) {
+    const value = readBoolean(args, key);
+
+    if (value !== undefined) {
+      settings[key] = value;
+    }
+  }
+
+  const target = args.nodeTarget;
+
+  if (target !== undefined) {
+    if (
+      typeof target !== "string" ||
+      !FLOW_HIGHLIGHT_TARGETS.some((each) => each.id === target)
+    ) {
+      return fail(
+        "bad-arguments",
+        `nodeTarget must be one of ${FLOW_HIGHLIGHT_TARGETS.map(
+          (each) => each.id,
+        ).join(", ")}.`,
+      );
+    }
+
+    settings.nodeTarget = target as FlowHighlightTarget;
+  }
+
+  const durationMs = readNumber(args.durationMs, "durationMs");
+
+  if (durationMs !== undefined) {
+    if (durationMs < FLOW_MIN_STEP_MS || durationMs > FLOW_MAX_STEP_MS) {
+      return fail(
+        "bad-arguments",
+        `durationMs must be a number from ${FLOW_MIN_STEP_MS} to ${FLOW_MAX_STEP_MS}.`,
+      );
+    }
+
+    settings.durationMs = durationMs;
+  }
+
+  const speed = readNumber(args.speed, "speed");
+
+  if (speed !== undefined) {
+    if (speed < FLOW_SPEED_MIN || speed > FLOW_SPEED_MAX) {
+      return fail(
+        "bad-arguments",
+        `speed must be a number from ${FLOW_SPEED_MIN} to ${FLOW_SPEED_MAX}.`,
+      );
+    }
+
+    settings.speed = speed;
+  }
+
+  const nodeStyle = args.nodeStyle;
+
+  if (nodeStyle !== undefined) {
+    if (
+      typeof nodeStyle !== "string" ||
+      !FLOW_NODE_STYLES.some((each) => each.id === nodeStyle)
+    ) {
+      return fail(
+        "bad-arguments",
+        `nodeStyle must be one of ${FLOW_NODE_STYLES.map(
+          (each) => each.id,
+        ).join(", ")}.`,
+      );
+    }
+
+    settings.nodeStyle = nodeStyle as FlowNodeStyle;
+  }
+
+  const arrowStyle = args.arrowStyle;
+
+  if (arrowStyle !== undefined) {
+    if (
+      typeof arrowStyle !== "string" ||
+      !FLOW_ARROW_STYLES.some((each) => each.id === arrowStyle)
+    ) {
+      return fail(
+        "bad-arguments",
+        `arrowStyle must be one of ${FLOW_ARROW_STYLES.map(
+          (each) => each.id,
+        ).join(", ")}.`,
+      );
+    }
+
+    settings.arrowStyle = arrowStyle as FlowArrowStyle;
+  }
+
+  if (!Object.keys(settings).length) {
+    return fail(
+      "bad-arguments",
+      "Say what to change: a colour, a glow, hideArrow, nodeTarget, durationMs, loop, nodeStyle, arrowStyle, speed or camera.",
+    );
+  }
+
+  updateFlowAnimationSettings(settings);
+
+  return describeFlowLook();
+};
+
+/* ------------------------------------------------------------- playing a chart */
+
+/**
+ * Plays a chart, or presents it (D-424).
+ *
+ * The chart is found by its id and its steps are read with the editor's own
+ * reader, so the animation walks the chart the teacher drew - the same steps
+ * the bar plays.
+ */
+export const playFlow = (app: McpApp, rawArgs: unknown) => {
+  const args = argsOf(rawArgs);
+  const chartId = readString(args, "chartId", { required: true })!;
+  const mode = readString(args, "mode") ?? "play";
+
+  if (mode !== "play" && mode !== "present") {
+    return fail("bad-arguments", "mode must be play or present.");
+  }
+
+  const elements = app.scene.getNonDeletedElements() as ExcalidrawElement[];
+  const members = chartElementsOf(chartId, elements);
+
+  if (!members.length) {
+    return fail(
+      "not-found",
+      `No chart ${chartId}. list_flow_charts lists the charts.`,
+    );
+  }
+
+  const selected: Record<string, boolean> = {};
+
+  for (const member of members) {
+    selected[member.id] = true;
+  }
+
+  const graph = flowOfSelection(
+    selected,
+    elements,
+    app.scene.getElementsMapIncludingDeleted(),
+  );
+
+  if (!graph || !graph.steps.length) {
+    return fail(
+      "failed",
+      `The chart ${chartId} has no steps to walk. A chart of one shape has nothing to play.`,
+    );
+  }
+
+  const state = editorJotaiStore.get(flowAnimationStateAtom);
+
+  startFlowAnimation(graph.steps, {
+    mode,
+    graph,
+    durationMs: state.durationMs,
+    loop: mode === "play" ? state.loop : false,
+    nodeStyle: state.nodeStyle,
+    arrowStyle: state.arrowStyle,
+    speed: state.speed,
+    camera: state.camera,
+  });
+
+  return {
+    chartId,
+    mode,
+    steps: graph.steps.length,
+    playing: true,
+  };
+};
+
+/** ends the animation and gives the canvas back */
+export const stopFlow = () => {
+  const state = editorJotaiStore.get(flowAnimationStateAtom);
+
+  stopFlowAnimation();
+
+  return { playing: false, wasPlaying: state.active };
 };

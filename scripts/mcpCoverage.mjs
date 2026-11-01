@@ -91,7 +91,12 @@ const groups = {
     "edit_flow_chart",
     "delete_flow_chart",
     "convert_flow_script",
+    "describe_flow_look",
+    "set_flow_look",
+    "play_flow",
+    "stop_flow",
   ],
+  "Slides and lesson pages": ["make_slides", "build_page"],
   "Pictures, documents, files and the internet": [
     "list_allowed_folders",
     "list_folder",
@@ -181,8 +186,7 @@ for (const entry of MCP_ACTION_CATALOG) {
 md += `
 ## Still to come
 
-- Wave 9c-2: local files in listed folders, images, GIFs and video from disk, the video and YouTube panels with captions, documents (markdown and PDF), OCR, the code panel and Run, the internet.
-- Wave 9c-3: flow charts and their animation and export, slides from a script, playbook pages, the skills for assistants, the VS Code terminal.
+- The export of an animation and of a handout, the skills for assistants, the VS Code terminal.
 `;
 
 fs.writeFileSync(`${W}docs/mcp-coverage.md`, md);
