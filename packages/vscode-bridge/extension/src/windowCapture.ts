@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import { join } from "node:path";
-import { crc32 } from "node:zlib";
 
 import { DEFAULT_CAPTURE_FPS } from "./config";
+import { crc32 } from "./crc32";
 
 /**
  * The capture of the editor's **own window**.
@@ -564,9 +564,9 @@ export const createWindowCapture = (
 
       // The change detection is HERE, in the extension, and not in the helper
       // (D-88). The helper's JPEG encoding is deterministic, so an unchanged
-      // editor produces byte-identical JPEG - and `zlib.crc32` (a Node
-      // builtin, Node 20.15 and later: the extension's manifest asks for
-      // VS Code 1.91, which ships it) catches that without the helper
+      // editor produces byte-identical JPEG - and the CRC-32 (the Node
+      // builtin when there is one, a table of ours on the Node 16 of VS Code
+      // 1.70: see crc32.ts) catches that without the helper
       // reading its own pixels back. An unchanged picture is NOT published
       // again, so a static editor costs no traffic and no app work at all.
       const checksum = crc32(bytes);
