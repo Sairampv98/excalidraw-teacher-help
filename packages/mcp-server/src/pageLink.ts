@@ -384,7 +384,7 @@ export const createPageLink = ({
               code: "timeout",
               message: `The page did not answer ${tool} in ${Math.round(
                 timeoutMs / 1000,
-              )} seconds.`,
+              )} seconds. The tab may be in the background or minimised, where the browser slows a page down: bring the whiteboard tab to the front and try again.`,
             }),
           );
         }, timeoutMs);

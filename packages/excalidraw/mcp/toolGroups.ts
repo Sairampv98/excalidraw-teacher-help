@@ -31,6 +31,7 @@ export const MCP_TOOL_GROUPS: readonly McpToolGroup[] = [
       "get_stats",
       "find_text",
       "check_page",
+      "describe_page",
     ],
   },
   {

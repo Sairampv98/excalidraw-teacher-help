@@ -28,6 +28,7 @@ The elements come in the order they are drawn, bottom first. `list_elements` giv
 - `get_stats` - The numbers the stats panel shows: how many elements of each type, how many on each page, and for the selection (or for ids) where it is on its page and how large.
 - `find_text` - Find the words in the document: every text, and the shape it is in, that has the query in it.
 - `check_page` - Look at a page for what would not read well: things that reach outside the page, things that lie on each other, text that is small, and text whose colour is too near the colour behind it.
+- `describe_page` - The page in words, for a model that cannot look at a picture: every thing on it in reading order (top to bottom, then left to right) with its id, type, place and size in page space, the words in it, its fill, and for an arrow what it joins.
 
 ### Create, change, delete
 

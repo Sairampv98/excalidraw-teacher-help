@@ -504,9 +504,20 @@ export const MCP_TOOLS: readonly McpToolSpec[] = [
     },
   },
   {
+    name: "describe_page",
+    description:
+      "The page in words, for a model that cannot look at a picture: every thing on it in reading order (top to bottom, then left to right) with its id, type, place and size in page space, the words in it, its fill, and for an arrow what it joins. `lines` is the same as plain sentences. Use it to check your own work when `screenshot` is not available to you.",
+    changes: false,
+    inputSchema: {
+      type: "object",
+      properties: { page: PAGE },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "check_page",
     description:
-      "Look at a page for what would not read well: things that reach outside the page, things that lie on each other, text that is small, and text whose colour is too near the colour behind it. Returns the problems with the ids, and ok. Run it after drawing a page, and put right what it finds.",
+      "Look at a page for what would not read well: things that reach outside the page, things that lie on each other, text that is small, and text whose colour is too near the colour behind it. Text is read against the shape it is in or lies on, and a text lying on a card is not an overlap. Returns `issues` (each with the ids, and for a label the shape it belongs to) and ok, plus where the content starts and ends in page space, whether it all fits, the page size, and the element that reaches lowest. Run it after drawing a page, and put right what it finds.",
     changes: false,
     inputSchema: {
       type: "object",

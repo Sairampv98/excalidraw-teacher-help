@@ -8,6 +8,7 @@
 import {
   bindArrow,
   checkPage,
+  describePage,
   duplicateElementsTool,
   listActions,
   mermaidToDiagram,
@@ -118,6 +119,7 @@ export const MCP_HANDLERS: Record<string, Handler> = {
   bind_arrow: (app, args) => bindArrow(app, args),
   mermaid_to_diagram: (app, args) => mermaidToDiagram(app, args),
   check_page: (app, args) => checkPage(app, args),
+  describe_page: (app, args) => describePage(app, args),
   set_canvas: (app, args) => setCanvas(app, args),
   set_view: (app, args) => setView(app, args),
   set_tool: (app, args) => setTool(app, args),
