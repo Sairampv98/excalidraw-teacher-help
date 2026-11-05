@@ -94,9 +94,18 @@ describe("the OCR benchmark", () => {
     expect(record.machine.platform).toBe(platform());
     expect(record.machine.arch).toBe(arch());
     expect(record.machine.cpus).toBe(cpus().length);
-    expect(Math.round(record.machine.totalMemoryMb)).toBe(
-      Math.round(totalmem() / (1024 * 1024)),
-    );
+
+    // The memory the system reports is not a constant of the machine: a graphics
+    // driver, a BIOS setting or an installed device moves the part it keeps for
+    // itself (15724 MB was recorded here, 14188 MB was reported after a driver
+    // was installed - the same machine). So it is the SIZE CLASS that is held, and
+    // not the exact figure: a record taken on a 4 GB laptop is still refused here.
+    const reportedMb = totalmem() / (1024 * 1024);
+
+    expect(
+      Math.abs(record.machine.totalMemoryMb - reportedMb) /
+        record.machine.totalMemoryMb,
+    ).toBeLessThan(0.25);
 
     // and the levers the design names are the ones that were used: one worker,
     // the language data cached, and the core NOT pinned to a single file (so
