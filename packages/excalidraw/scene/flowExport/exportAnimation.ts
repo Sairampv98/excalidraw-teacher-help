@@ -56,6 +56,14 @@ export type FlowExportAnimation = FlowLook & {
 
 export type FlowExportResult = {
   blob: Blob;
+  /**
+   * The very bytes the blob holds (D-438).
+   *
+   * The assistant's export needs the bytes themselves - they travel to the
+   * server as text - and the exporter has them in its hand already, so they
+   * are handed over rather than read back out of the blob.
+   */
+  bytes: Uint8Array;
   filename: string;
   width: number;
   height: number;
@@ -215,6 +223,7 @@ export const exportFlowAnimation = async (input: {
 
   return {
     blob: new Blob([bytes as BlobPart], { type: format.mime }),
+    bytes,
     filename: `${input.name || "animation"}.${format.extension}`,
     width: size.width,
     height: size.height,

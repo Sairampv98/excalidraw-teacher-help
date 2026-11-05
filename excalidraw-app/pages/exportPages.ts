@@ -1,15 +1,6 @@
-import {
-  exportToCanvas,
-  getOrderedElementsForPage,
-  getPageDecoration,
-  getPageRect,
-} from "@excalidraw/excalidraw";
+import { buildPagesPdf } from "@excalidraw/excalidraw";
 
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
-
-import { buildPdf, encodeCanvasForPdf } from "./pdf";
-
-import type { PdfPageImage } from "./pdf";
 
 /**
  * Multi-page export.
@@ -23,12 +14,12 @@ import type { PdfPageImage } from "./pdf";
  * them) are drawn into the export, so the exported page looks like the page
  * the teacher sees.
  *
- * The PDF is assembled by `pages/pdf.ts` rather than by a PDF library: a page
- * here is a flat raster, so a PDF page is just an image, and a small hand-written
- * writer avoids adding a dependency for the sake of a feature this narrow.
+ * The PDF is assembled by the library's own writer rather than by a PDF
+ * library: a page here is a flat raster, so a PDF page is just an image, and a
+ * small hand-written writer avoids adding a dependency for the sake of a
+ * feature this narrow. The writer lives in the library (D-438) so that the
+ * assistant's handout is this very file.
  */
-
-const PAGE_EXPORT_SCALE = 1;
 
 const downloadBlob = (blob: Blob, fileName: string) => {
   const url = URL.createObjectURL(blob);
@@ -61,32 +52,12 @@ export const exportAllPages = async (
     return;
   }
 
-  // scale 1 so every page comes out at exactly its own size
-  const exportAppState = { ...appState, exportScale: PAGE_EXPORT_SCALE };
-
-  const images: PdfPageImage[] = [];
-
-  for (const page of appState.pages) {
-    const pageElements = getOrderedElementsForPage(allElements, page.id);
-
-    const canvas = await exportToCanvas({
-      elements: pageElements,
-      appState: exportAppState,
-      files,
-      // the page's own rect — pages may differ in size, so the index alone
-      // does not tell us where the page sits
-      pageRect: getPageRect(appState.pages, page.id),
-      // the page's own frame and number (D-144)
-      pageDecoration: getPageDecoration({
-        pages: appState.pages,
-        pageId: page.id,
-      }),
-    });
-
-    images.push(await encodeCanvasForPdf(canvas));
-  }
-
-  const pdf = buildPdf({ pages: images });
+  const pdf = await buildPagesPdf({
+    elements: allElements,
+    appState,
+    files,
+    pages: appState.pages,
+  });
 
   downloadBlob(
     new Blob([pdf as BlobPart], { type: "application/pdf" }),
