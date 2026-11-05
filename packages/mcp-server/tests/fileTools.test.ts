@@ -1,6 +1,7 @@
 /**
- * The tools the server does itself (D-409, D-410): listing the allowed folders,
- * putting a picture on a page from a file or the internet in pieces, and fetching.
+ * The tools the server does itself (D-409, D-410, D-438): listing the allowed
+ * folders, putting a picture on a page from a file or the internet in pieces,
+ * fetching, and writing the files the page makes into an allowed folder.
  * The page is a fake that records what it is asked.
  *
  * The rows named in the test titles are the rows of SPEC.md - the kit's SPEC
@@ -20,8 +21,14 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { McpCallError } from "../src/pageLink";
-import { PIECE_BYTES, createFileTools } from "../src/fileTools";
+import {
+  EXPORT_TIMEOUT_MS,
+  PIECE_BYTES,
+  createFileTools,
+} from "../src/fileTools";
 import { createFolders } from "../src/folders";
+
+import { MCP_MAX_EXPORT_BYTES } from "../../excalidraw/mcp/protocol";
 
 import type { McpPageState } from "../../excalidraw/mcp/protocol";
 import type { PageLink } from "../src/pageLink";
@@ -41,14 +48,23 @@ const png = (width: number, height: number, extra = 0) => {
 const fakePage = (state: Partial<McpPageState> | null = {}) => {
   const calls: { tool: string; args: any }[] = [];
   const failing: Record<string, Error> = {};
+  /** what the page answers for a tool, when it is asked */
+  const answers: Record<string, unknown> = {};
+  /** how long the server waited for each tool, in milliseconds */
+  const timeouts: Record<string, number | undefined> = {};
   const link: PageLink = {
     start: async () => 0,
     stop: async () => undefined,
-    call: async (tool, args) => {
+    call: async (tool, args, timeoutMs) => {
       calls.push({ tool, args });
+      timeouts[tool] = timeoutMs;
 
       if (failing[tool]) {
         throw failing[tool];
+      }
+
+      if (tool in answers) {
+        return answers[tool];
       }
 
       return { tool, page: 1 };
@@ -67,7 +83,7 @@ const fakePage = (state: Partial<McpPageState> | null = {}) => {
     }),
   };
 
-  return { link, calls, failing };
+  return { link, calls, failing, answers, timeouts };
 };
 
 const setup = (state: Partial<McpPageState> | null = {}) => {
@@ -883,5 +899,175 @@ describe("videos", () => {
         .map((call) => call.args.id)
         .sort(),
     ).toEqual([calls[0].args.id, calls[1].args.id].sort());
+  });
+});
+
+describe("the files the page makes", () => {
+  /** the bytes of a GIF that says it is this wide and this tall */
+  const GIF = (() => {
+    const bytes = Buffer.from("GIF89a", "latin1");
+    const size = Buffer.alloc(4);
+
+    size.writeUInt16LE(480, 0);
+    size.writeUInt16LE(96, 2);
+
+    return Buffer.concat([bytes, size, Buffer.alloc(16)]);
+  })();
+
+  /** what the page answers when it is asked for the bytes of a file */
+  const answerOf = (filename: string, mimeType: string, bytes = GIF) => ({
+    data: bytes.toString("base64"),
+    mimeType,
+    filename,
+    bytes: bytes.length,
+  });
+
+  it("AC-531 asks the page for the bytes and writes them into an allowed folder as exports/<name>.<ext>", async () => {
+    const { tools, calls, timeouts, answers, allowed } = setup();
+
+    answers.export_animation_bytes = {
+      ...answerOf("lesson.gif", "image/gif"),
+      width: 480,
+      height: 96,
+      steps: 3,
+      format: "gif",
+    };
+
+    const answer = await tools.export_animation({
+      format: "gif",
+      chartId: "c1",
+    });
+
+    // the page was asked for the bytes, with the arguments it was given, and
+    // it was given the time a file takes
+    expect(calls).toEqual([
+      {
+        tool: "export_animation_bytes",
+        args: { format: "gif", chartId: "c1" },
+      },
+    ]);
+    expect(timeouts.export_animation_bytes).toBe(EXPORT_TIMEOUT_MS);
+
+    // the answer says where the file is, what it is and how big it is
+    expect(answer).toMatchObject({
+      name: "lesson.gif",
+      savedTo: "exports/lesson.gif",
+      bytes: GIF.length,
+      mimeType: "image/gif",
+      width: 480,
+      height: 96,
+      steps: 3,
+      format: "gif",
+    });
+    // the bytes themselves are not in the answer: they are on the disk
+    expect((answer as any).data).toBeUndefined();
+
+    // and the file on the disk is the file the page sent
+    const written = join(allowed, "exports", "lesson.gif");
+
+    expect(existsSync(written)).toBe(true);
+    expect(readFileSync(written).equals(GIF)).toBe(true);
+  });
+
+  it("AC-531 the handout is written the same way, as a PDF in the exports folder", async () => {
+    const { tools, calls, answers, allowed } = setup();
+    const pdf = Buffer.from("%PDF-1.7\n%%EOF\n", "latin1");
+
+    answers.export_handout_bytes = {
+      ...answerOf("handout.pdf", "application/pdf", pdf),
+      pages: 2,
+    };
+
+    const answer = await tools.export_handout({ pages: [1, 2] });
+
+    expect(calls).toEqual([
+      { tool: "export_handout_bytes", args: { pages: [1, 2] } },
+    ]);
+    expect(answer).toMatchObject({
+      name: "handout.pdf",
+      savedTo: "exports/handout.pdf",
+      mimeType: "application/pdf",
+      pages: 2,
+    });
+    expect(
+      readFileSync(join(allowed, "exports", "handout.pdf")).equals(pdf),
+    ).toBe(true);
+  });
+
+  it("AC-531 a file that is already there is not written over, and a name that is not a name for a file is refused", async () => {
+    const { tools, answers, allowed } = setup();
+
+    answers.export_animation_bytes = answerOf("lesson.gif", "image/gif");
+
+    await tools.export_animation({});
+    const written = join(allowed, "exports", "lesson.gif");
+    const before = readFileSync(written);
+
+    // the same name again: the file that is there is left alone
+    const again = await refused(tools.export_animation({}));
+
+    expect(again.code).toBe("bad-arguments");
+    expect(again.message).toMatch(/already there/);
+    expect(readFileSync(written).equals(before)).toBe(true);
+
+    // a name that is not a name for a file
+    answers.export_handout_bytes = answerOf(
+      "../outside.pdf",
+      "application/pdf",
+    );
+
+    const bad = await refused(tools.export_handout({}));
+
+    expect(bad.code).toBe("bad-arguments");
+    expect(bad.message).toMatch(/not a name for a file/);
+    expect(existsSync(join(allowed, "..", "outside.pdf"))).toBe(false);
+  });
+
+  it("AC-531 a file too big to travel in one message is refused, and nothing is written", async () => {
+    const { tools, answers, allowed } = setup();
+    const huge = Buffer.alloc(MCP_MAX_EXPORT_BYTES + 1);
+
+    answers.export_animation_bytes = {
+      data: huge.toString("base64"),
+      mimeType: "image/gif",
+      filename: "huge.gif",
+    };
+
+    const error = await refused(tools.export_animation({}));
+
+    expect(error.code).toBe("too-large");
+    expect(error.message).toMatch(/20 MB/);
+    expect(existsSync(join(allowed, "exports"))).toBe(false);
+  });
+
+  it("AC-531 with no folder allowed the call is refused and nothing is written", async () => {
+    const page = fakePage();
+    const tools = createFileTools({
+      link: page.link,
+      folders: createFolders([]),
+    });
+
+    page.answers.export_animation_bytes = answerOf("lesson.gif", "image/gif");
+
+    const error = await refused(tools.export_animation({}));
+
+    expect(error.code).toBe("bad-arguments");
+    expect(error.message).toMatch(/No folder is allowed/);
+  });
+
+  it("AC-531 a refusal of the page is the call's refusal, and nothing is written", async () => {
+    const { tools, failing, allowed } = setup();
+
+    failing.export_animation_bytes = new McpCallError({
+      code: "not-found",
+      message:
+        "There is no chart to export. list_flow_charts lists the charts.",
+    });
+
+    const error = await refused(tools.export_animation({}));
+
+    expect(error.code).toBe("not-found");
+    expect(error.message).toMatch(/no chart to export/);
+    expect(existsSync(join(allowed, "exports"))).toBe(false);
   });
 });

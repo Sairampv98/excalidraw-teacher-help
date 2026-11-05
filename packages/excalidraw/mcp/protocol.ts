@@ -30,6 +30,23 @@ export const MCP_CLOSE_UNAUTHORIZED = 1008;
 /** The longest message either side accepts, in bytes (media comes in pieces). */
 export const MCP_MAX_MESSAGE_BYTES = 32 * 1024 * 1024;
 
+/**
+ * The most a file the page makes may be, in bytes (D-438).
+ *
+ * The bytes of an exported file travel from the page to the server in **one**
+ * message, and a message is at most `MCP_MAX_MESSAGE_BYTES`; base64 makes the
+ * text four thirds of the bytes, so the file itself is kept to 20 MB.
+ */
+export const MCP_MAX_EXPORT_BYTES = 20 * 1024 * 1024;
+
+/** What is said when a file is too big to travel in one message (D-438). */
+export const exportTooLargeMessage = (bytes: number): string =>
+  `The file is ${(bytes / (1024 * 1024)).toFixed(
+    1,
+  )} MB, and the most that can be written is ${
+    MCP_MAX_EXPORT_BYTES / (1024 * 1024)
+  } MB. Choose a smaller size, a lower frame rate or fewer pages.`;
+
 /** How long the server waits for the page to answer a call, in milliseconds. */
 export const MCP_CALL_TIMEOUT_MS = 60_000;
 

@@ -39,6 +39,7 @@ import {
   setPage,
 } from "./pageTools";
 import { describeProperties, setProperties } from "./propertyTools";
+import { exportAnimationBytes, exportHandoutBytes } from "./exportTools";
 import {
   describeCapabilities,
   getElement,
@@ -143,6 +144,8 @@ export const MCP_HANDLERS: Record<string, Handler> = {
   upload_chunk: (app, args) => uploadChunk(app, args),
   upload_drop: (app, args) => uploadDrop(app, args),
   place_image: (app, args) => placeImage(app, args),
+  export_animation_bytes: (app, args) => exportAnimationBytes(app, args),
+  export_handout_bytes: (app, args) => exportHandoutBytes(app, args),
   select_elements: (app, args) => selectElements(app, args),
   go_to_page: (app, args) => goToPage(app, args),
   screenshot: (app, args) => screenshot(app, args),

@@ -8,6 +8,10 @@ import { randomBytes } from "node:crypto";
 import { basename, dirname } from "node:path";
 
 import { sniffType } from "../../excalidraw/mcp/imageSize";
+import {
+  MCP_MAX_EXPORT_BYTES,
+  exportTooLargeMessage,
+} from "../../excalidraw/mcp/protocol";
 
 import { McpCallError } from "./pageLink";
 import { FILE_LIMITS, FolderError } from "./folders";
@@ -19,6 +23,9 @@ import type { McpErrorCode } from "../../excalidraw/mcp/protocol";
 
 /** a piece of a file, in bytes, before it is text */
 export const PIECE_BYTES = 3 * 1024 * 1024;
+
+/** how long the page may take to make a file, in milliseconds (D-438) */
+export const EXPORT_TIMEOUT_MS = 10 * 60_000;
 
 /** the most the server takes from the internet, in bytes */
 export const FETCH_MAX_BYTES = 25 * 1024 * 1024;
@@ -185,6 +192,48 @@ export const createFileTools = ({
       await link.call("upload_drop", { id }).catch(() => undefined);
       throw error;
     }
+  };
+
+  /**
+   * The bytes the page made, written into an allowed folder (D-438).
+   *
+   * The answer the assistant gets says where the file is and how big it is; the
+   * bytes themselves are not in it - they are on the disk. A file that is
+   * already there is never written over, and a name that is not a name for a
+   * file is refused: the folder's own rule says so, and nothing is written.
+   */
+  const saveExport = async (answer: unknown) => {
+    if (
+      !isRecord(answer) ||
+      typeof answer.data !== "string" ||
+      typeof answer.filename !== "string" ||
+      !answer.filename.length
+    ) {
+      return fail(
+        "failed",
+        "The whiteboard did not give the bytes of the file.",
+      );
+    }
+
+    const bytes = Buffer.from(answer.data, "base64");
+
+    if (bytes.length > MCP_MAX_EXPORT_BYTES) {
+      return fail("too-large", exportTooLargeMessage(bytes.length));
+    }
+
+    const saved = await folders.write(`exports/${answer.filename}`, bytes);
+
+    // the bytes are on the disk now: the answer says where they are
+    const rest = Object.fromEntries(
+      Object.entries(answer).filter(([key]) => key !== "data"),
+    );
+
+    return {
+      ...rest,
+      name: answer.filename,
+      bytes: bytes.length,
+      savedTo: saved,
+    };
   };
 
   return {
@@ -642,6 +691,40 @@ export const createFileTools = ({
           bytes: fetched.bytes.length,
           savedTo: saved,
         };
+      } catch (error) {
+        return asCallError(error);
+      }
+    },
+
+    export_animation: async (raw) => {
+      const args = argsOf(raw);
+
+      try {
+        // the page makes the file; it may take a while, so it gets more time
+        // than an ordinary call has
+        const answer = await link.call(
+          "export_animation_bytes",
+          { ...args },
+          EXPORT_TIMEOUT_MS,
+        );
+
+        return await saveExport(answer);
+      } catch (error) {
+        return asCallError(error);
+      }
+    },
+
+    export_handout: async (raw) => {
+      const args = argsOf(raw);
+
+      try {
+        const answer = await link.call(
+          "export_handout_bytes",
+          { ...args },
+          EXPORT_TIMEOUT_MS,
+        );
+
+        return await saveExport(answer);
       } catch (error) {
         return asCallError(error);
       }

@@ -75,6 +75,8 @@ The elements come in the order they are drawn, bottom first. `list_elements` giv
 ### Export and insert
 
 - `export_scene` - Export as a PNG (an image), SVG or the saved-document JSON (text): a page, the whole document (scope all) or the selection.
+- `export_animation` - Export the animation of a flow chart as a file: a GIF, an animated WebP or an MP4.
+- `export_handout` - Export the pages of the whiteboard as a handout: one PDF with a page each, every page at its own size with its own frame and number.
 - `insert_document` - Put a saved whiteboard document (the text of an .excalidraw file) on a page, beside what is there.
 
 ### Library, stickers, tables, code

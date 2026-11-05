@@ -77,7 +77,12 @@ export const MCP_TOOL_GROUPS: readonly McpToolGroup[] = [
   },
   {
     title: "Export and insert",
-    tools: ["export_scene", "insert_document"],
+    tools: [
+      "export_scene",
+      "export_animation",
+      "export_handout",
+      "insert_document",
+    ],
   },
   {
     title: "Library, stickers, tables, code",

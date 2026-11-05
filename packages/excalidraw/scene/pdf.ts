@@ -14,12 +14,32 @@
  *   wrapper PDF's `/FlateDecode` expects.
  * - **JPEG** — the fallback when `CompressionStream` is unavailable. Lossy, but
  *   universally supported and a fraction of the size.
+ *
+ * The writer lives in the library and not in the app (D-438): the teacher's own
+ * "export all pages" and the assistant's handout are then the same file, made
+ * by the same code, and a change to one is a change to the other.
  */
+
+import type { OrderedExcalidrawElement } from "@excalidraw/element/types";
+
+import { restoreAppState, restoreElements } from "../data/restore";
+
+import { exportToCanvas } from "./export";
+import {
+  getOrderedElementsForPage,
+  getPageDecoration,
+  getPageRect,
+} from "./pages";
+
+import type { AppState, BinaryFiles, ExcalidrawPage } from "../types";
 
 const encoder = new TextEncoder();
 
 /** points per pixel at 96dpi, the CSS reference resolution */
 const POINTS_PER_PIXEL = 0.75;
+
+/** scale 1 so every page comes out at exactly its own size */
+const PAGE_EXPORT_SCALE = 1;
 
 export type PdfPageImage = {
   /** pixel dimensions of the raster */
@@ -236,4 +256,91 @@ export const buildPdf = ({
   });
 
   return writer.finish(objectCount, "1 0 R");
+};
+
+/**
+ * Renders the given pages and stitches them into one multi-page PDF.
+ *
+ * Every page is rendered at **its own** size (scale 1) using only that page's
+ * elements, and the rasters are stitched into a **single multi-page PDF** — one
+ * file, one page each, in the order the pages are given.
+ *
+ * The pages given are the pages that go into the file; where each of them sits
+ * is a fact about the whole document, so a file of some of the pages still
+ * draws them where they are.
+ *
+ * A page's size is a fact about the page (D-144): a page picked a preset comes
+ * out in that preset's shape, and the page's frame and number (if it has them)
+ * are drawn into the export, so the exported page looks like the page the
+ * teacher sees.
+ *
+ * This is the one writer both the app and the assistant use (D-438), so the
+ * handout the assistant writes is the file the teacher's own "export all pages"
+ * would have produced.
+ */
+export const buildPagesPdf = async ({
+  elements,
+  appState,
+  files,
+  pages,
+}: {
+  elements: readonly OrderedExcalidrawElement[];
+  appState: AppState;
+  files: BinaryFiles;
+  /** the pages to put in the file, in the order they should appear */
+  pages: readonly ExcalidrawPage[];
+}): Promise<Uint8Array> => {
+  if (!pages.length) {
+    throw new Error("A PDF needs at least one page");
+  }
+
+  // scale 1 so every page comes out at exactly its own size
+  const exportAppState = { ...appState, exportScale: PAGE_EXPORT_SCALE };
+  const restoredAppState = restoreAppState(exportAppState, null);
+
+  // where a page sits is a fact about **all** the pages of the document, not
+  // about the ones that happen to be in this file: a file of the second page
+  // alone still draws that page where it is
+  const documentPages = appState.pages.length ? appState.pages : pages;
+
+  const images: PdfPageImage[] = [];
+
+  for (const page of pages) {
+    const pageElements = getOrderedElementsForPage(elements, page.id);
+
+    const canvas = await exportToCanvas(
+      restoreElements(pageElements, null, { deleteInvisibleElements: true }),
+      {
+        ...restoredAppState,
+        offsetTop: 0,
+        offsetLeft: 0,
+        width: 0,
+        height: 0,
+      },
+      files,
+      {
+        exportBackground: restoredAppState.exportBackground,
+        viewBackgroundColor: restoredAppState.viewBackgroundColor,
+        // the page's own rect — pages may differ in size, so the index alone
+        // does not tell us where the page sits
+        pageRect: getPageRect(documentPages, page.id),
+        // the page's own frame and number (D-144)
+        pageDecoration: getPageDecoration({
+          pages: documentPages,
+          pageId: page.id,
+        }),
+      },
+      (width: number, height: number) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+
+        return { canvas, scale: 1 };
+      },
+    );
+
+    images.push(await encodeCanvasForPdf(canvas));
+  }
+
+  return buildPdf({ pages: images });
 };

@@ -616,6 +616,82 @@ export const MCP_TOOLS: readonly McpToolSpec[] = [
     },
   },
   {
+    name: "export_animation",
+    description:
+      "Export the animation of a flow chart as a file: a GIF, an animated WebP or an MP4. The chart is the one named with chartId, or the one that is selected. The whiteboard makes the file itself, the same picture and the same bytes the Flow tab exports, and the server writes it into an allowed folder as exports/<name>.<ending>, where the name is the name of the document. A file that is already there is never written over: the document has to be given another name. The answer says where the file is, how big it is, its size in pixels and how many steps it walks.",
+    changes: false,
+    server: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        chartId: {
+          type: "string",
+          description:
+            "The chart to export, as list_flow_charts gives it. Defaults to the chart that is selected, or to the only chart of the document.",
+        },
+        format: {
+          type: "string",
+          enum: ["gif", "webp", "mp4"],
+          description:
+            "GIF, animated WebP or MP4. Defaults to GIF. A browser that cannot write the format refuses it.",
+        },
+        fps: {
+          type: "integer",
+          enum: [5, 10, 15, 24, 30, 60],
+          description:
+            "How many pictures a second. A GIF cannot be faster than 30. Defaults to 10.",
+        },
+        size: {
+          type: "integer",
+          enum: [480, 720, 1080, 1920],
+          description:
+            "The longest side of the picture in pixels. Defaults to 720.",
+        },
+        shape: {
+          type: "string",
+          enum: ["chart", "landscape", "square", "portrait"],
+          description:
+            "The shape of the picture: as the chart, 16:9, square or portrait 9:16. Defaults to as the chart.",
+        },
+        withBackground: {
+          type: "boolean",
+          description:
+            "On the page's background (true) or on nothing (false). Defaults to true.",
+        },
+        camera: {
+          type: "boolean",
+          description:
+            "The picture flies to each step, as the view does with the camera on. Defaults to false.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "export_handout",
+    description:
+      "Export the pages of the whiteboard as a handout: one PDF with a page each, every page at its own size with its own frame and number. Give the pages you want by their numbers, from 1 as the person sees them; all of them when you do not say. The whiteboard makes the file itself, the same file its own export makes, and the server writes it into an allowed folder as exports/<name>.pdf. A file that is already there is never written over, so give another name. The answer says where the file is, how big it is and how many pages it has.",
+    changes: false,
+    server: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        pages: {
+          type: "array",
+          items: { type: "integer", minimum: 1 },
+          description:
+            "The pages to put in the file, by their numbers as the person sees them (1 is the first). All of them when not given.",
+        },
+        name: {
+          type: "string",
+          description:
+            "The name of the file, without its ending. Defaults to the name of the document.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "insert_document",
     description:
       "Put a saved whiteboard document (the text of an .excalidraw file) on a page, beside what is there. Its elements get ids of their own. One undo step.",
@@ -1415,6 +1491,44 @@ export const MCP_TOOLS: readonly McpToolSpec[] = [
         source: { type: "object", additionalProperties: true },
       },
       required: ["upload", "pdfPage"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "export_animation_bytes",
+    description:
+      "The animation of a chart as the bytes of the file (the server's own).",
+    changes: false,
+    hidden: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        chartId: { type: "string" },
+        format: { type: "string", enum: ["gif", "webp", "mp4"] },
+        fps: { type: "integer" },
+        size: { type: "integer" },
+        shape: {
+          type: "string",
+          enum: ["chart", "landscape", "square", "portrait"],
+        },
+        withBackground: { type: "boolean" },
+        camera: { type: "boolean" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "export_handout_bytes",
+    description:
+      "The pages of the whiteboard as the bytes of one PDF (the server's own).",
+    changes: false,
+    hidden: true,
+    inputSchema: {
+      type: "object",
+      properties: {
+        pages: { type: "array", items: { type: "integer", minimum: 1 } },
+        name: { type: "string" },
+      },
       additionalProperties: false,
     },
   },
