@@ -34,3 +34,24 @@ fs.mkdirSync(dirname(file), { recursive: true });
 fs.writeFileSync(file, skillMarkdown(), "utf8");
 
 process.stdout.write(`wrote ${file}\n`);
+
+// the other skills (D-447): one folder and one SKILL.md each, from skills.ts
+const skillsOut = join(tmpdir(), "mcp-skills.bundle.mjs");
+
+await build({
+  entryPoints: [`${W}packages/mcp-server/src/skills.ts`],
+  outfile: skillsOut,
+  bundle: true,
+  platform: "node",
+  format: "esm",
+});
+
+const { SKILLS, skillFile } = await import(pathToFileURL(skillsOut).href);
+
+for (const skill of SKILLS) {
+  const skillPath = `${W}packages/mcp-server/skill/${skill.name}/SKILL.md`;
+
+  fs.mkdirSync(dirname(skillPath), { recursive: true });
+  fs.writeFileSync(skillPath, skillFile(skill), "utf8");
+  process.stdout.write(`wrote ${skillPath}\n`);
+}
