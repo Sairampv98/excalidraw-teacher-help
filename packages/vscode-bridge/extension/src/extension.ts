@@ -85,6 +85,20 @@ import type { CoalescedPublisher } from "./publish";
  * It uses NO VS Code-only API, so it installs and runs in VSCodium as well.
  */
 
+/**
+ * Node's built-in `fetch` when this VS Code has it (Node 18 and later), and - on the
+ * Node 16 of VS Code 1.70 - a fetch that says why it cannot (D-448): the captions of
+ * a YouTube video are the only user of it, and they need the internet anyway.
+ */
+const globalFetch: typeof fetch =
+  typeof fetch === "function"
+    ? fetch
+    : ((() =>
+        Promise.reject(
+          new Error(
+            "This VS Code is too old to fetch captions: it needs Node 18 or newer.",
+          ),
+        )) as unknown as typeof fetch);
 const CONFIG_SECTION = "excalidraw-bridge";
 
 /** The extension's own version, from its manifest. */
@@ -650,7 +664,7 @@ export async function activate(
     const answer = await resolveYouTubeCaptions({
       videoId: request.videoId,
       apiKey: youtubeApiKey,
-      fetchImpl: fetch,
+      fetchImpl: globalFetch,
     });
 
     // the message carries the tier that answered (D-129)
