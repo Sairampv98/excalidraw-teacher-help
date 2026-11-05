@@ -20,6 +20,7 @@ import { McpCallError } from "../src/pageLink";
 import { MCP_PROMPTS } from "../src/prompts";
 import { SERVER_NAME, contentOf, createMcpServer } from "../src/server";
 import { SKILL_DESCRIPTION, SKILL_NAME, skillMarkdown } from "../src/skill";
+import { SKILLS } from "../src/skills";
 
 import type { PageLink } from "../src/pageLink";
 
@@ -320,7 +321,8 @@ describe("the prompts, the resources and the skill", () => {
     const { client } = await connectClient(fakeLink({ connected: false }).link);
     const { resources } = await client.listResources();
 
-    expect(resources).toHaveLength(1);
+    // the guide first, and then a resource for each skill (D-447)
+    expect(resources).toHaveLength(1 + SKILLS.length);
     expect(resources[0]).toMatchObject({
       uri: GUIDE_URI,
       mimeType: "text/plain",

@@ -107,6 +107,47 @@ export const MCP_PROMPTS: readonly McpPrompt[] = [
         .join(" "),
   },
   {
+    name: "teach_a_topic",
+    description:
+      "A lesson on a data structure for beginners, by the teacher's method, in the voice the audience wants.",
+    arguments: [
+      {
+        name: "topic",
+        description: "The structure: queue, tree, trie or graph.",
+        required: true,
+      },
+      {
+        name: "voice",
+        description:
+          "fast (for students who like acronyms and short videos), rigorous (a university style), or balanced. Balanced when it is not given.",
+      },
+      {
+        name: "languages",
+        description:
+          "The languages the code is in. C, C++, Python and Java when it is not given.",
+      },
+    ],
+    text: (args) => {
+      const voice =
+        args.voice === "fast"
+          ? "voice-fast-and-funny"
+          : args.voice === "rigorous"
+          ? "voice-rigorous"
+          : "voice-balanced";
+
+      return [
+        `Make the lesson on the ${
+          args.topic ?? "topic the teacher names"
+        } for beginners.`,
+        `Before you draw anything read these skills, served as resources: whiteboard-workflow, whiteboard-text-only (if you cannot look at pictures), lesson-page-format, dsa-lesson-method and ${voice}.`,
+        `Follow the steps of dsa-lesson-method. The code is in ${
+          args.languages ?? "C, C++, Python and Java"
+        }, and you run it before it goes on a page.`,
+        "Check each page with check_page, and tell the teacher the page numbers and anything you were not sure of.",
+      ].join(" ");
+    },
+  },
+  {
     name: "check_the_page",
     description:
       "A check of a page before a class, so that nothing is broken on the screen.",
