@@ -600,3 +600,109 @@ describe("AC-240 it is clear how to exit the animation", () => {
     field.remove();
   });
 });
+
+describe("AC-538 the view flying to each step is a switch you can reach", () => {
+  const camera = () => editorJotaiStore.get(flowAnimationStateAtom).camera;
+
+  afterEach(() => {
+    stopFlowAnimation();
+    updateFlowAnimationSettings({ camera: false });
+  });
+
+  it("AC-538 the bar's top row has the switch, and it is the same setting as the checkbox below", async () => {
+    await mount();
+    select([shapes()[1]]);
+
+    const toggle = screen.getByTestId("flow-bar-camera");
+
+    expect(camera()).toBe(false);
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(toggle.textContent).toBe("Fly: off");
+
+    act(() => {
+      fireEvent.click(toggle);
+    });
+
+    expect(camera()).toBe(true);
+    expect(screen.getByTestId("flow-bar-camera").textContent).toBe("Fly: on");
+    expect(
+      (screen.getByLabelText("Fly the view to each step") as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+
+    act(() => {
+      fireEvent.click(screen.getByTestId("flow-bar-camera"));
+    });
+
+    expect(camera()).toBe(false);
+  });
+
+  it("AC-538 while stepping through the chart, the switch is still there and still works", async () => {
+    await mount();
+    select([shapes()[1]]);
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "Present steps" }));
+    });
+
+    expect(editorJotaiStore.get(flowAnimationStateAtom).mode).toBe("present");
+
+    act(() => {
+      fireEvent.click(screen.getByTestId("flow-bar-camera"));
+    });
+
+    expect(camera()).toBe(true);
+    // turning it on does not end the presentation
+    expect(editorJotaiStore.get(flowAnimationStateAtom).active).toBe(true);
+  });
+
+  it("AC-538 the collapsed pill has the switch while something runs, and not otherwise", async () => {
+    await mount();
+    select([shapes()[1]]);
+    act(() => {
+      fireEvent.click(
+        screen.getByLabelText("Collapse the animation bar into a pill"),
+      );
+    });
+
+    expect(screen.queryByTestId("flow-bar-pill-camera")).toBeNull();
+
+    act(() => {
+      pill()!.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          clientX: 1,
+          clientY: 1,
+        }),
+      );
+      window.dispatchEvent(
+        new PointerEvent("pointerup", {
+          bubbles: true,
+          clientX: 1,
+          clientY: 1,
+        }),
+      );
+    });
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "Present steps" }));
+    });
+    act(() => {
+      fireEvent.click(
+        screen.getByLabelText("Collapse the animation bar into a pill"),
+      );
+    });
+
+    const toggle = screen.getByTestId("flow-bar-pill-camera");
+
+    expect(toggle.textContent).toBe("Fly: off");
+
+    act(() => {
+      fireEvent.click(toggle);
+    });
+
+    expect(camera()).toBe(true);
+    expect(screen.getByTestId("flow-bar-pill-camera").textContent).toBe(
+      "Fly: on",
+    );
+    expect(editorJotaiStore.get(flowAnimationStateAtom).active).toBe(true);
+  });
+});

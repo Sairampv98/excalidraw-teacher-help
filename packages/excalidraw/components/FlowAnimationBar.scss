@@ -173,6 +173,27 @@
   }
 }
 
+// the switch for flying the view to each step: pressed (on) is filled, so that
+// it can be told from one that is off at a glance (D-446)
+.excalidraw__flow-bar-camera-toggle[aria-pressed="true"],
+.excalidraw__flow-bar-pill-camera[aria-pressed="true"] {
+  background-color: var(--color-primary, #6965db);
+  color: var(--color-surface-lowest, #fff);
+}
+
+.excalidraw__flow-bar-pill-camera {
+  padding: 0.25rem 0.625rem;
+  border: 1px solid var(--color-primary, #6965db);
+  border-radius: 999px;
+  background-color: var(--island-bg-color);
+  color: var(--color-primary, #6965db);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
 .excalidraw__flow-bar-pill-stop {
   padding: 0.25rem 0.625rem;
   border: 1px solid var(--color-danger, #c92a2a);
