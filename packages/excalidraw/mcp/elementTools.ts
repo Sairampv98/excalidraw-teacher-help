@@ -180,7 +180,22 @@ const roundnessOf = (type: string, value: unknown) => {
     };
   }
 
-  return fail("bad-arguments", "roundness must be sharp or round.");
+  // the form the file itself holds: {type: 2} (proportional) or {type: 3}
+  // (adaptive). A model that read an element back sends the same shape (D-441).
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    ((value as { type?: unknown }).type === ROUNDNESS.LEGACY ||
+      (value as { type?: unknown }).type === ROUNDNESS.PROPORTIONAL_RADIUS ||
+      (value as { type?: unknown }).type === ROUNDNESS.ADAPTIVE_RADIUS)
+  ) {
+    return { type: (value as { type: number }).type };
+  }
+
+  return fail(
+    "bad-arguments",
+    "roundness must be sharp, round, null or {type: 1|2|3}.",
+  );
 };
 
 const pointsOf = (value: unknown, name: string): [number, number][] => {
@@ -425,9 +440,18 @@ export const createElements = (app: McpApp, rawArgs: unknown) => {
     );
   }
 
-  const taken = new Set(
-    app.scene.getElementsIncludingDeleted().map((element) => element.id),
-  );
+  // Only a LIVE element holds its id (D-439). A deleted element is a tombstone:
+  // an id it held can be used again, and the tombstone is dropped below so that
+  // the document never carries two elements of one id.
+  const taken = new Map<string, string>();
+  const reusedIds = new Set<string>();
+  for (const element of app.scene.getElementsIncludingDeleted()) {
+    if (element.isDeleted) {
+      reusedIds.add(element.id);
+    } else {
+      taken.set(element.id, `a live ${element.type}`);
+    }
+  }
   const skeletons: Skeleton[] = [];
   const freedraws: ReturnType<typeof newFreeDrawElement>[] = [];
 
@@ -435,11 +459,18 @@ export const createElements = (app: McpApp, rawArgs: unknown) => {
     const { skeleton, freedraw } = skeletonOf(raw, entry.rect, index);
     const id = (skeleton?.id ?? freedraw?.id) as string | undefined;
 
-    if (id && skeleton?.id !== undefined && taken.has(id)) {
-      fail(
-        "bad-arguments",
-        `elements[${index}].id ${id} is already in the document.`,
-      );
+    if (id && skeleton?.id !== undefined) {
+      const holder = taken.get(id);
+
+      if (holder) {
+        fail(
+          "bad-arguments",
+          `elements[${index}].id ${id} is already in the document (held by ${holder}).`,
+        );
+      }
+
+      // the second element of one id in one call is refused too (D-440)
+      taken.set(id, `elements[${index}] of this call`);
     }
 
     if (skeleton) {
@@ -460,8 +491,22 @@ export const createElements = (app: McpApp, rawArgs: unknown) => {
 
   stampCurrentPage(made, entry.page.id);
 
+  const madeIds = new Set(made.map((element) => element.id));
+
   app.updateScene({
-    elements: [...app.scene.getElementsIncludingDeleted(), ...made],
+    elements: [
+      ...app.scene
+        .getElementsIncludingDeleted()
+        .filter(
+          (element) =>
+            !(
+              element.isDeleted &&
+              reusedIds.has(element.id) &&
+              madeIds.has(element.id)
+            ),
+        ),
+      ...made,
+    ],
     captureUpdate: CaptureUpdateAction.IMMEDIATELY,
   });
 

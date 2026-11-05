@@ -532,6 +532,14 @@ export const checkPage = (app: McpApp, rawArgs: unknown) => {
         continue;
       }
 
+      // a text lying on a card is the card's content, not a clash (D-442)
+      if (
+        (isTextElement(a) && lies(a, b)) ||
+        (isTextElement(b) && lies(b, a))
+      ) {
+        continue;
+      }
+
       const smaller = Math.min(a.width * a.height, b.width * b.height) || 1;
 
       if ((w * h) / smaller > 0.3) {
@@ -562,15 +570,43 @@ export const checkPage = (app: McpApp, rawArgs: unknown) => {
         kind: "small-text",
         severity: "problem",
         ids: [text.id],
-        message: `The text ${text.id} is ${text.fontSize} tall; under ${SMALL_TEXT} is small to read on a page.`,
+        message: `The text ${text.id}${
+          text.containerId && map.get(text.containerId)
+            ? ` (the label of ${map.get(text.containerId)!.type} ${
+                text.containerId
+              })`
+            : ""
+        } is ${
+          text.fontSize
+        } tall; under ${SMALL_TEXT} is small to read on a page.`,
       });
     }
 
     const container = text.containerId ? map.get(text.containerId) : null;
-    const behind =
+    // the colour behind a text: its container's fill, or - for a text that
+    // is only drawn over a shape - the fill of the topmost filled shape under
+    // it (a code card is a dark rectangle with free text on top), or the paper
+    const under = container
+      ? null
+      : [...things]
+          .reverse()
+          .find(
+            (candidate) =>
+              candidate !== text &&
+              !isTextElement(candidate) &&
+              candidate.backgroundColor !== "transparent" &&
+              onPage.indexOf(candidate) <
+                onPage.findIndex((element) => element.id === text.id) &&
+              lies(text, candidate),
+          );
+    const fill =
       container && container.backgroundColor !== "transparent"
         ? container.backgroundColor
-        : paper;
+        : under?.backgroundColor;
+    const behind = fill ?? paper;
+    const labelOf = container
+      ? ` (the label of ${container.type} ${container.id})`
+      : "";
     const front = rgbOf(text.strokeColor);
     const back = rgbOf(behind);
 
@@ -583,7 +619,7 @@ export const checkPage = (app: McpApp, rawArgs: unknown) => {
           kind: "low-contrast",
           severity: "problem",
           ids: [text.id],
-          message: `The text ${text.id} (${
+          message: `The text ${text.id}${labelOf} (${
             text.strokeColor
           }) on ${behind} has a contrast of ${ratio.toFixed(
             1,
@@ -614,7 +650,142 @@ export const checkPage = (app: McpApp, rawArgs: unknown) => {
             getCommonBounds(onPage)[0],
             getCommonBounds(onPage)[1],
           ),
+          // where the content ends, whether all of it is on the page, and the
+          // element that reaches lowest: what a model that cannot see needs
+          // to know to stay on the page (D-443)
+          contentEndsAt: toPageSpace(
+            rect,
+            getCommonBounds(onPage)[2],
+            getCommonBounds(onPage)[3],
+          ),
+          fits: !issues.some((issue) => issue.kind === "outside-page"),
+          pageSize: { width: rect.width, height: rect.height },
+          lowest: lowestOf(onPage, rect),
         }
       : {}),
+  };
+};
+
+/** the most a description of a page lists, so one answer stays small */
+const DESCRIBE_LIMIT = 200;
+
+/**
+ * The page in words, for a model that cannot look at a picture (D-444): every
+ * thing in reading order - top to bottom, then left to right - with its place
+ * in page space, its size, the words in it, its fill, and for an arrow what it
+ * joins. `lines` is the same list as plain sentences.
+ */
+export const describePage = (app: McpApp, rawArgs: unknown) => {
+  const args = argsOf(rawArgs);
+  const entry = resolvePage(app, readInteger(args, "page", { min: 1 }));
+  const map = liveElementsById(app);
+  const onPage = app.scene
+    .getNonDeletedElements()
+    .filter((element) => element.pageId === entry.page.id);
+  const labelOf = (element: ExcalidrawElement | undefined) => {
+    if (!element) {
+      return undefined;
+    }
+
+    if (isTextElement(element)) {
+      return element.text;
+    }
+
+    const bound = onPage.find(
+      (candidate) =>
+        isTextElement(candidate) && candidate.containerId === element.id,
+    );
+
+    return bound && isTextElement(bound) ? bound.text : undefined;
+  };
+  const nameOf = (id: string | undefined) => {
+    const target = id ? map.get(id) : undefined;
+
+    return target
+      ? labelOf(target) ?? `${target.type} ${target.id}`
+      : undefined;
+  };
+
+  const rows = onPage
+    .filter((element) => !(isTextElement(element) && element.containerId))
+    .map((element) => {
+      const at = toPageSpace(entry.rect, element.x, element.y);
+      const text = labelOf(element);
+      const fill =
+        element.backgroundColor !== "transparent"
+          ? element.backgroundColor
+          : undefined;
+
+      return {
+        id: element.id,
+        type: element.type,
+        x: Math.round(at.x),
+        y: Math.round(at.y),
+        width: Math.round(element.width),
+        height: Math.round(element.height),
+        ...(text ? { text } : {}),
+        ...(fill && !isTextElement(element) ? { fill } : {}),
+        ...(element.type === "arrow"
+          ? {
+              from: nameOf(
+                (element as { startBinding?: { elementId: string } | null })
+                  .startBinding?.elementId,
+              ),
+              to: nameOf(
+                (element as { endBinding?: { elementId: string } | null })
+                  .endBinding?.elementId,
+              ),
+            }
+          : {}),
+      };
+    })
+    .sort((a, b) => Math.round(a.y / 20) - Math.round(b.y / 20) || a.x - b.x);
+
+  const shown = rows.slice(0, DESCRIBE_LIMIT);
+
+  return {
+    page: entry.number,
+    pageSize: { width: entry.rect.width, height: entry.rect.height },
+    elements: rows.length,
+    ...(rows.length > shown.length ? { truncated: true } : {}),
+    outline: shown,
+    lines: shown.map(
+      (row) =>
+        `${row.type} ${row.id} at (${row.x}, ${row.y}) ${row.width}x${
+          row.height
+        }${row.text ? ` "${row.text.replace(/\s+/g, " ")}"` : ""}${
+          row.fill ? ` fill ${row.fill}` : ""
+        }${
+          row.type === "arrow" && (row.from || row.to)
+            ? ` from "${row.from ?? "nothing"}" to "${row.to ?? "nothing"}"`
+            : ""
+        }`,
+    ),
+  };
+};
+
+/** a text (or any element) lies on a shape when its box is inside the shape's */
+const lies = (inner: ExcalidrawElement, outer: ExcalidrawElement) =>
+  inner.x >= outer.x - 1 &&
+  inner.y >= outer.y - 1 &&
+  inner.x + inner.width <= outer.x + outer.width + 1 &&
+  inner.y + inner.height <= outer.y + outer.height + 1;
+
+const lowestOf = (
+  elements: readonly ExcalidrawElement[],
+  rect: { x: number; y: number; width: number; height: number },
+) => {
+  let lowest = elements[0];
+
+  for (const element of elements) {
+    if (getCommonBounds([element])[3] > getCommonBounds([lowest])[3]) {
+      lowest = element;
+    }
+  }
+
+  return {
+    id: lowest.id,
+    type: lowest.type,
+    bottom: Math.round(getCommonBounds([lowest])[3] - rect.y),
   };
 };

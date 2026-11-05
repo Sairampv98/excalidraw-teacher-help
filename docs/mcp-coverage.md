@@ -17,6 +17,7 @@ Positions are page-relative: (0, 0) is the top-left of the page, in scene units;
 | `get_stats` | The numbers the stats panel shows: how many elements of each type, how many on each page, and for the selection (or for ids) where it is on its page and how large | reads |
 | `find_text` | Find the words in the document: every text, and the shape it is in, that has the query in it | reads |
 | `check_page` | Look at a page for what would not read well: things that reach outside the page, things that lie on each other, text that is small, and text whose colour is too near the colour behind it | reads |
+| `describe_page` | The page in words, for a model that cannot look at a picture: every thing on it in reading order (top to bottom, then left to right) with its id, type, place and size in page space, the words in it, its fill, and for an arrow what it joins | reads |
 
 ## Create, change, delete
 
@@ -76,6 +77,8 @@ Positions are page-relative: (0, 0) is the top-left of the page, in scene units;
 | Tool | What it does |  |
 | --- | --- | --- |
 | `export_scene` | Export as a PNG (an image), SVG or the saved-document JSON (text): a page, the whole document (scope all) or the selection | reads |
+| `export_animation` | Export the animation of a flow chart as a file: a GIF, an animated WebP or an MP4 | reads, server |
+| `export_handout` | Export the pages of the whiteboard as a handout: one PDF with a page each, every page at its own size with its own frame and number | reads, server |
 | `insert_document` | Put a saved whiteboard document (the text of an .excalidraw file) on a page, beside what is there | changes |
 
 ## Library, stickers, tables, code

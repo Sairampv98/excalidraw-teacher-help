@@ -352,6 +352,17 @@ describe("a call to the page", () => {
     });
   });
 
+  it("AC-537 the timeout says that the tab may be in the background", async () => {
+    const port = await startLink();
+
+    await pair(port);
+
+    await expect(link!.call("list_pages", {}, 50)).rejects.toMatchObject({
+      code: "timeout",
+      message: expect.stringContaining("in the background"),
+    });
+  });
+
   it("AC-459 a page that goes away ends the calls that wait for it", async () => {
     const port = await startLink();
     const client = await pair(port);
