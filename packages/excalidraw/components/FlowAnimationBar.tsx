@@ -389,6 +389,25 @@ export const FlowAnimationBar = ({
         {running && (
           <button
             type="button"
+            className="excalidraw__flow-bar-pill-camera"
+            data-testid="flow-bar-pill-camera"
+            aria-pressed={state.camera}
+            title={
+              state.camera
+                ? "The view flies to each step - click to keep the view still"
+                : "The view stays still - click to fly the view to each step"
+            }
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() =>
+              updateFlowAnimationSettings({ camera: !state.camera })
+            }
+          >
+            Fly: {state.camera ? "on" : "off"}
+          </button>
+        )}
+        {running && (
+          <button
+            type="button"
             className="excalidraw__flow-bar-pill-stop"
             data-testid="flow-bar-pill-stop"
             aria-label="Stop the animation"
@@ -470,6 +489,20 @@ export const FlowAnimationBar = ({
           }}
         >
           {presenting ? "Stop presenting" : "Present steps"}
+        </button>
+        <button
+          type="button"
+          className="excalidraw__flow-bar-camera-toggle"
+          data-testid="flow-bar-camera"
+          aria-pressed={state.camera}
+          title={
+            state.camera
+              ? "The view flies to each step - click to keep the view still"
+              : "The view stays still - click to fly the view to each step"
+          }
+          onClick={() => updateFlowAnimationSettings({ camera: !state.camera })}
+        >
+          Fly: {state.camera ? "on" : "off"}
         </button>
         {running && (
           <button
