@@ -23,6 +23,7 @@ export const overlayScript = () => {
         color: #fff; font: 600 20px/1.35 system-ui, "Segoe UI", sans-serif; text-align: center; pointer-events: none;
         opacity: 0; transition: opacity .25s ease; }
       #${BAR}.on { opacity: 1; }
+      #${BAR}.top { bottom: auto; top: 20px; }
     `;
     document.head.appendChild(style);
 
@@ -51,7 +52,9 @@ export const overlayScript = () => {
       true,
     );
 
-    window.__clipCaption = (text) => {
+    window.__clipCaption = (text, where) => {
+      bar.classList.toggle("top", where === "top");
+
       if (text) {
         bar.textContent = text;
         bar.classList.add("on");

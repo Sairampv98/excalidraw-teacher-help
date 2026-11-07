@@ -16,6 +16,7 @@ import {
   runFfmpeg,
   webmArgs,
 } from "./ffmpeg.mjs";
+import { ensureAssets } from "./assets.mjs";
 import { overlayScript } from "./overlay.mjs";
 import {
   CLIP_SIZE,
@@ -27,15 +28,30 @@ import {
 } from "./plan.mjs";
 
 /** what a clip's script is given: the page, and the few things a teacher does with it */
-const makeHelper = (page) => {
+const makeHelper = (page, assets) => {
   let at = { x: 640, y: 360 };
 
   const helper = {
     page,
+    assets,
+    /** a button that opens the file chooser is pressed, and the chooser is given files */
+    choose: async (button, files) => {
+      await helper.glide(button);
+      const [chooser] = await Promise.all([
+        page.waitForEvent("filechooser"),
+        helper.click(button),
+      ]);
+
+      await chooser.setFiles(files);
+      await page.waitForTimeout(1500);
+    },
     wait: (ms) => page.waitForTimeout(ms),
     /** a caption at the bottom, held long enough to read */
-    say: async (text, { hold } = {}) => {
-      await page.evaluate((words) => window.__clipCaption?.(words), text);
+    say: async (text, { hold, at } = {}) => {
+      await page.evaluate(
+        ([words, where]) => window.__clipCaption?.(words, where),
+        [text, at],
+      );
       await page.waitForTimeout(hold ?? readingTime(text));
     },
     hush: () => page.evaluate(() => window.__clipCaption?.("")),
@@ -126,6 +142,7 @@ export const recordClip = async (
 
     await page.goto(server.url, { waitUntil: "load" });
     await page.locator("canvas").first().waitFor({ state: "attached" });
+    await page.mouse.move(640, 400);
     await page.waitForTimeout(1200);
 
     // the film is the frames Chrome sends of the page, gathered as they come
@@ -158,9 +175,18 @@ export const recordClip = async (
       everyNthFrame: 1,
     });
 
-    const helper = makeHelper(page);
+    const helper = makeHelper(page, ensureAssets(path.join(rawDir, "assets")));
 
-    await clip.run(helper);
+    try {
+      await clip.run(helper);
+    } catch (error) {
+      // a picture of the moment it went wrong, to look at
+      const shot = path.join(rawDir, `${clip.id}-FAILED.png`);
+
+      await page.screenshot({ path: shot }).catch(() => {});
+      error.message += ` (a picture: ${shot})`;
+      throw error;
+    }
     await helper.hush();
     await page.waitForTimeout(600);
     seconds = (Date.now() - startedAt) / 1000;
