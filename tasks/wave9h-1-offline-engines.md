@@ -5,4 +5,4 @@ base: main
 status: open
 ---
 
-(describe the task here)
+The PDF reader, the reading of words in a picture and Python in the browser load their engines from copies the app carries, so they work with no internet; the engine files are fetched once at build time and checked by their hashes.
