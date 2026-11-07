@@ -1,0 +1,85 @@
+.GuidedTour {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+
+  &__shield {
+    position: absolute;
+    inset: 0;
+  }
+
+  &__dim {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    pointer-events: none;
+  }
+
+  &__spot {
+    position: absolute;
+    border-radius: 12px;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55), 0 0 0 3px var(--color-primary);
+    pointer-events: none;
+    transition: all 0.25s ease;
+  }
+
+  &__card {
+    position: absolute;
+    box-sizing: border-box;
+    padding: 1rem 1.125rem;
+    border-radius: 12px;
+    background: var(--island-bg-color);
+    color: var(--text-primary-color);
+    box-shadow: var(--shadow-island);
+    font-size: 0.9375rem;
+    line-height: 1.45;
+  }
+
+  &__count {
+    font-size: 0.75rem;
+    opacity: 0.65;
+  }
+
+  &__title {
+    margin-top: 0.125rem;
+    font-size: 1.0625rem;
+    font-weight: 700;
+  }
+
+  &__text {
+    margin-top: 0.5rem;
+  }
+
+  &__buttons {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1rem;
+  }
+
+  &__spacer {
+    flex: 1;
+  }
+
+  &__skip,
+  &__back,
+  &__next {
+    padding: 0.5rem 0.875rem;
+    border-radius: 8px;
+    border: 1px solid var(--color-primary);
+    background: transparent;
+    color: var(--color-primary);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  &__skip {
+    border-color: transparent;
+    opacity: 0.8;
+  }
+
+  &__next {
+    background: var(--color-primary);
+    color: #fff;
+  }
+}

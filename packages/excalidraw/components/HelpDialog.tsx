@@ -7,6 +7,7 @@ import { KEYS } from "@excalidraw/common";
 import { getShortcutFromShortcutName } from "../actions/shortcuts";
 import { probablySupportsClipboardBlob } from "../clipboard";
 import { t } from "../i18n";
+import { guideForTool } from "../guides/toolGuides";
 import { getShortcutKey } from "../shortcut";
 
 import { Dialog } from "./Dialog";
@@ -56,6 +57,31 @@ const Header = () => (
     </a>
   </div>
 );
+
+export const ToolGuideCard = ({
+  tool,
+}: {
+  tool: string | null | undefined;
+}) => {
+  const guide = guideForTool(tool);
+
+  if (!guide) {
+    return null;
+  }
+
+  return (
+    <div className="HelpDialog__guide" data-testid="help-tool-guide">
+      <div className="HelpDialog__guide-title">{guide.title}</div>
+      <div className="HelpDialog__guide-summary">{guide.summary}</div>
+      <ol className="HelpDialog__guide-steps">
+        {guide.steps.map((step) => (
+          <li key={step}>{step}</li>
+        ))}
+      </ol>
+      {guide.tip && <div className="HelpDialog__guide-tip">{guide.tip}</div>}
+    </div>
+  );
+};
 
 const Section = (props: { title: string; children: React.ReactNode }) => (
   <>
@@ -123,7 +149,14 @@ const ShortcutKey = (props: { children: React.ReactNode }) => (
   <kbd className="HelpDialog__key" {...props} />
 );
 
-export const HelpDialog = ({ onClose }: { onClose?: () => void }) => {
+export const HelpDialog = ({
+  onClose,
+  tool,
+}: {
+  onClose?: () => void;
+  /** the tool in use: its guide is shown first */
+  tool?: string | null;
+}) => {
   const handleClose = React.useCallback(() => {
     if (onClose) {
       onClose();
@@ -138,6 +171,7 @@ export const HelpDialog = ({ onClose }: { onClose?: () => void }) => {
         className={"HelpDialog"}
       >
         <Header />
+        <ToolGuideCard tool={tool} />
         <Section title={t("helpDialog.shortcuts")}>
           <ShortcutIsland
             className="HelpDialog__island--tools"

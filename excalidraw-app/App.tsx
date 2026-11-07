@@ -179,6 +179,7 @@ import { openImageCrop } from "./sidebar/imageCropState";
 import { NodeMediaDrop } from "./sidebar/NodeMediaPanel";
 import { ExcalidrawPlusIframeExport } from "./ExcalidrawPlusIframeExport";
 import { isPresenterWindow } from "./presenter/presenterChannel";
+import { GuidedTourHost } from "./tour/GuidedTourHost";
 import { openPresenterView } from "./presenter/openPresenterView";
 import { PresenterView } from "./presenter/PresenterView";
 import { usePresenterBroadcaster } from "./presenter/usePresenterBroadcaster";
@@ -1853,6 +1854,9 @@ const ExcalidrawWrapper = () => {
 
         {/* pages system: page chips + add page + export all pages */}
         <PageBar />
+
+        {/* the tour of the first launch, and when the menu asks for it */}
+        <GuidedTourHost />
 
         {/* emoji and GIF bar: bundled stickers, dragged or clicked onto the page */}
         <StickerBar />

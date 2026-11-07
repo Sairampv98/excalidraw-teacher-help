@@ -35,7 +35,12 @@ export const VIEWPORT = { width: 1600, height: 900 };
  * goes wrong while it runs: console errors, and requests that leave this computer
  * (those are refused, so a run is the same with or without the internet).
  */
-export const launchApp = async ({ url, headed = false, slowMo = 0 }) => {
+export const launchApp = async ({
+  url,
+  headed = false,
+  slowMo = 0,
+  showTour = false,
+}) => {
   const browser = await chromium.launch({
     executablePath: findBrowser(),
     headless: !headed,
@@ -48,6 +53,17 @@ export const launchApp = async ({ url, headed = false, slowMo = 0 }) => {
     acceptDownloads: true,
   });
   const faults = { console: [], outside: [] };
+
+  // the first-launch tour covers the board: a scenario sees it only when it asks to
+  if (!showTour) {
+    await context.addInitScript(() => {
+      try {
+        window.localStorage.setItem("excalidraw-classroom-tour-seen", "yes");
+      } catch {
+        // storage blocked: nothing to set
+      }
+    });
+  }
 
   await context.route("**/*", (route) => {
     const target = route.request().url();

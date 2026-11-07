@@ -2,6 +2,7 @@ import {
   eyeIcon,
   presentationIcon,
   codeIcon,
+  HelpIcon,
 } from "@excalidraw/excalidraw/components/icons";
 import { MainMenu } from "@excalidraw/excalidraw/index";
 import React from "react";
@@ -12,6 +13,7 @@ import type { Theme } from "@excalidraw/element/types";
 
 import { LanguageList } from "../app-language/LanguageList";
 import { openPresenterView } from "../presenter/openPresenterView";
+import { openTour } from "../tour/tourState";
 
 import { saveDebugState } from "./DebugCanvas";
 
@@ -69,6 +71,9 @@ export const AppMainMenu: React.FC<{
       <MainMenu.DefaultItems.CommandPalette className="highlighted" />
       <MainMenu.DefaultItems.SearchMenu />
       <MainMenu.DefaultItems.Help />
+      <MainMenu.Item icon={HelpIcon} onSelect={openTour}>
+        Take the tour
+      </MainMenu.Item>
       <MainMenu.DefaultItems.ClearCanvas />
       {isDevEnv() && (
         <MainMenu.Item
