@@ -62,7 +62,7 @@ export const checkClip = (clip) => {
  * frame stays for as long as it was on the screen. A screencast sends a frame
  * only when the picture changes, so the times are not even.
  */
-export const concatList = (frames, { lastFor = 0.5, startAt } = {}) => {
+export const concatList = (frames, { lastFor = 0.5, startAt, endAt } = {}) => {
   const lines = [];
 
   // two windows filmed together start at the same moment: the first picture is held until its own turn
@@ -75,7 +75,9 @@ export const concatList = (frames, { lastFor = 0.5, startAt } = {}) => {
 
   frames.forEach((frame, index) => {
     const next = frames[index + 1];
-    const seconds = next ? Math.max(0.001, next.at - frame.at) : lastFor;
+    const seconds = next
+      ? Math.max(0.001, next.at - frame.at)
+      : Math.max(lastFor, endAt === undefined ? 0 : endAt - frame.at);
 
     lines.push(`file '${frame.file}'`, `duration ${seconds.toFixed(3)}`);
   });

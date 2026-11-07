@@ -12,6 +12,8 @@
 
 | D-458 | a clip can film two windows, and one clip can go online | locked | A clip that sets `split` is filmed in two windows of half the film each: the teacher's editing window on the left and the presenter window (the same app opened with the presenter address) on the right, each frame stream is kept as long as it was on the screen, both start at the same moment, and the two films are joined side by side. A clip may name the addresses it reaches (`allowHosts`); every other clip, and every other address, stays refused. Only the YouTube clip names any, and only the video player, its pictures and its streams. The owner allowed this on 2026-11-07. |
 
+| D-459 | the clips of the app, and what they showed | locked | The clips in `excalidraw-app/public/clips/` are the tour of the additions of this version, and each is made by the recorder from the real app: pages, the deleted-page list, the presenter next to the editor, a video, a YouTube link, stickers and GIFs, a picture and its crop, the code editor, the flow studio, and the assistant (the real MCP server answering real tool calls, with a terminal window beside the board). The assistant clip is also a GIF in `docs/media/` for a README, where a GIF plays by itself. A clip is silent, with captions in the film. A feature that cannot be filmed without the internet (reading a PDF, reading the words of a picture, running Python in the browser) is not filmed until it works without the internet. |
+
 # SPEC — excalidraw fork
 
 The source of truth for this project. Rows are `D-n` (decisions) and `AC-n` (acceptance, each naming the test file that checks it). Format required by `.tins/kit/src/spec.mjs`:

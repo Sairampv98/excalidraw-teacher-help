@@ -5,18 +5,28 @@
       "title": "Pages",
       "line": "A class is a series of pages, not one endless board.",
       "group": "Pages",
-      "seconds": 27.4,
-      "bytes": 237913,
+      "seconds": 27.5,
+      "bytes": 236361,
       "video": "clips/pages.webm",
       "poster": "clips/pages.jpg"
+    },
+    {
+      "id": "undo-page-delete",
+      "title": "Bring back a deleted page",
+      "line": "A page you delete is kept, and can be brought back, even after a reload.",
+      "group": "Pages",
+      "seconds": 35.9,
+      "bytes": 345902,
+      "video": "clips/undo-page-delete.webm",
+      "poster": "clips/undo-page-delete.jpg"
     },
     {
       "id": "presenter-split",
       "title": "Editor and projector, half the screen each",
       "line": "Teach in one window while the class sees the presenter window, which follows every stroke.",
       "group": "Presenting to a class",
-      "seconds": 26.6,
-      "bytes": 250633,
+      "seconds": 26.9,
+      "bytes": 248156,
       "video": "clips/presenter-split.webm",
       "poster": "clips/presenter-split.jpg"
     },
@@ -25,8 +35,8 @@
       "title": "A video on the board",
       "line": "Open a video from the Files tab and it plays on the board, with its captions beside it.",
       "group": "Video and media",
-      "seconds": 26.2,
-      "bytes": 317667,
+      "seconds": 26.1,
+      "bytes": 307677,
       "video": "clips/video-sidebar.webm",
       "poster": "clips/video-sidebar.jpg"
     },
@@ -35,8 +45,8 @@
       "title": "A YouTube link on the board",
       "line": "Paste a YouTube link in the Files tab and the video plays on the board.",
       "group": "Video and media",
-      "seconds": 21.6,
-      "bytes": 257050,
+      "seconds": 21.5,
+      "bytes": 254851,
       "video": "clips/youtube.webm",
       "poster": "clips/youtube.jpg"
     },
@@ -45,10 +55,50 @@
       "title": "Stickers, emoji and GIFs",
       "line": "A bar of emoji and GIFs that come with the app: click one and it lands on the page.",
       "group": "Video and media",
-      "seconds": 26.9,
-      "bytes": 495453,
+      "seconds": 26.8,
+      "bytes": 481505,
       "video": "clips/stickers.webm",
       "poster": "clips/stickers.jpg"
+    },
+    {
+      "id": "picture-crop",
+      "title": "Put a picture on the board and crop it",
+      "line": "Open a picture from the Files tab, put it on the board, and crop it to the part you need.",
+      "group": "Files, documents and pictures",
+      "seconds": 34.4,
+      "bytes": 379109,
+      "video": "clips/picture-crop.webm",
+      "poster": "clips/picture-crop.jpg"
+    },
+    {
+      "id": "code-editor",
+      "title": "Write and run code on the board",
+      "line": "A code editor in the browser: write a short program, press run, and its output appears below.",
+      "group": "Teaching with code",
+      "seconds": 34.2,
+      "bytes": 362718,
+      "video": "clips/code-editor.webm",
+      "poster": "clips/code-editor.jpg"
+    },
+    {
+      "id": "flow-studio",
+      "title": "An animated flowchart",
+      "line": "Pick a kind of chart in the Flow tab, put it on the page, and play it step by step.",
+      "group": "Animated flowcharts",
+      "seconds": 39.4,
+      "bytes": 536037,
+      "video": "clips/flow-studio.webm",
+      "poster": "clips/flow-studio.jpg"
+    },
+    {
+      "id": "assistant-mcp",
+      "title": "Connect an AI assistant to the board",
+      "line": "Add the MCP server to your assistant, pair the board with a code, and the assistant draws on it.",
+      "group": "Assistant (AI)",
+      "seconds": 35.1,
+      "bytes": 400192,
+      "video": "clips/assistant-mcp.webm",
+      "poster": "clips/assistant-mcp.jpg"
     }
   ]
 }
