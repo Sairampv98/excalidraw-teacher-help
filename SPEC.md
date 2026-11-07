@@ -4,6 +4,8 @@
 
 | D-454 | the help icon brings up the guide of the tool in use | locked | The help dialog opens with the guide of the tool that is selected on top of the shortcuts: its name, what it is for, three moves to follow, and one thing easy to miss. Every tool of the toolbar has a guide. Picking another tool and pressing the help again shows the other guide. Short recorded clips for these guides, and the clips of the tour, come in a later task. |
 
+| D-455 | the first click on a control is never lost | locked | A press on a control outside the open side panel (a tool, the help icon) still closes the panel, because the screen gives the room back, but the close waits for the press to end, so the control is still under the pointer when the click lands and the click is delivered. A press on the drawing surface closes the panel at once, as before. A dialog that the click itself opens does not keep the panel open. |
+
 # SPEC — excalidraw fork
 
 The source of truth for this project. Rows are `D-n` (decisions) and `AC-n` (acceptance, each naming the test file that checks it). Format required by `.tins/kit/src/spec.mjs`:
@@ -1480,3 +1482,4 @@ The owner asked for a **fully featured creation tool** for flowcharts and tier c
 | AC-548 | the tour of the first launch | `excalidraw-app/tests/guidedTour.test.tsx` | The steps begin with a welcome, end with the card that sends the newcomer to draw, and each step in between names a control; the card is placed beside the control on the side with room and kept on the screen; Next, Back, Skip and Escape work; the tour is remembered as seen (D-453). Tests: `AC-548`. |
 | AC-549 | the tour when the browser keeps nothing | `excalidraw-app/tests/guidedTour.test.tsx` | When storage is blocked the tour is simply offered again and nothing breaks (D-453). Tests: `AC-549`. |
 | AC-550 | the help shows the guide of the tool | `excalidraw-app/tests/guidedTour.test.tsx` | Every tool of the toolbar has a guide with at least three moves; the guide shown is the one of the tool given, and none is shown for a tool that has no guide (D-454). Tests: `AC-550`. |
+| AC-551 | the first click lands | `scripts/ui/scenarios/first-click-lands.mjs` | On a fresh first screen with the side panel open, one click on the help icon opens the help and the panel is closed after it, and one click on the rectangle tool selects it (D-455). This is checked in the real browser by the UI gate, scenario `first-click-lands`. |

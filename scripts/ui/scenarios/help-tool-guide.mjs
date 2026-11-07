@@ -11,9 +11,6 @@ export default defineScenario({
     await ui.step(
       "choose the rectangle tool and press the help icon",
       async () => {
-        // a click on the empty board first: see the card `first-screen-steady` for why
-        await ui.page.mouse.click(700, 400);
-        await ui.wait(400);
         await ui.page.keyboard.press("r");
         await ui.page.locator(".help-icon").click();
         await guide(ui.page).waitFor({ state: "visible", timeout: 5000 });
