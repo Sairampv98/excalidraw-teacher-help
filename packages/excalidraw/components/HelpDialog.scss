@@ -128,4 +128,32 @@
       line-height: 1;
     }
   }
+
+  &__guide {
+    margin: 0 0 1.25rem;
+    padding: 0.875rem 1rem;
+    border-radius: var(--border-radius-lg);
+    background: var(--color-primary-light);
+    font-size: 0.875rem;
+    line-height: 1.45;
+  }
+
+  &__guide-title {
+    font-weight: 700;
+    font-size: 1rem;
+  }
+
+  &__guide-summary {
+    margin-top: 0.125rem;
+  }
+
+  &__guide-steps {
+    margin: 0.5rem 0 0;
+    padding-inline-start: 1.25rem;
+  }
+
+  &__guide-tip {
+    margin-top: 0.5rem;
+    font-style: italic;
+  }
 }

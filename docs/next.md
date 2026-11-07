@@ -47,7 +47,7 @@ v2.1 is the release of the small fixes and improvements made after v2.0.0. v3 ("
 
 ### The UI gate (2026-11-07)
 
-`node scripts/ui/build.mjs` then `node scripts/ui/run.mjs` drives the built app in the Chrome of this computer (D-450, D-451). Scenarios live in `scripts/ui/scenarios/`; a failing one is a discrepancy and the owner gets a repro card with `node scripts/ui/replay.mjs <scenario>`. Nothing is changed on a discrepancy until the owner answers. `launch-clean` guards that the app opens without any request to another computer (D-452; the fonts are the app's own files and the analytics script is gone, in the web app and the offline setup). To do: the fly-switch scenario (AC-538), a matrix of rows to scenarios, then the guided tour.
+`node scripts/ui/build.mjs` then `node scripts/ui/run.mjs` drives the built app in the Chrome of this computer (D-450, D-451). Scenarios live in `scripts/ui/scenarios/`; a failing one is a discrepancy and the owner gets a repro card with `node scripts/ui/replay.mjs <scenario>`. Nothing is changed on a discrepancy until the owner answers. `launch-clean` guards that the app opens without any request to another computer (D-452; the fonts are the app's own files and the analytics script is gone, in the web app and the offline setup). The first-launch tour and the help-icon guides are in (D-453, D-454, scenarios `tour-first-launch`, `help-tool-guide`). Waiting on the owner: the card `first-screen-steady` (the help icon sits 300 px left of its place on the first screen, so the first click on it is lost). To do: the recorded clips, the fly-switch scenario (AC-538), a matrix of rows to scenarios.
 
 ### The v2.0.0 state (2026-11-02)
 

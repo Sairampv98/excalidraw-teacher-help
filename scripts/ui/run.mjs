@@ -139,6 +139,7 @@ export const main = async (argv) => {
       url: server.url,
       headed: args.headed,
       slowMo: args.slow,
+      showTour: Boolean(scenario.tour),
     });
     const shoot = async (label) => {
       const file = path.join(shotsDir, `${safe(label)}.png`);

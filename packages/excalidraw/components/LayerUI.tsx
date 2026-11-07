@@ -554,6 +554,7 @@ const LayerUI = ({
       )}
       {appState.openDialog?.name === "help" && (
         <HelpDialog
+          tool={appState.activeTool.type}
           onClose={() => {
             setAppState({ openDialog: null });
           }}

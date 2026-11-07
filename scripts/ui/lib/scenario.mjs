@@ -2,6 +2,7 @@
 //
 //   export default defineScenario({
 //     id: "fly-switch",
+//     tour: false,                   // true: the first-launch tour is left on the screen
 //     rows: ["AC-538"],              // the requirement rows it speaks for
 //     title: "the Fly button of the animation bar",
 //     async run(ui) {
