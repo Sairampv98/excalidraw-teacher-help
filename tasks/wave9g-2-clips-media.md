@@ -5,4 +5,4 @@ base: main
 status: open
 ---
 
-(describe the task here)
+The next clips of the app: the stickers and GIFs bar and a video from the Files tab put on the board as a panel.
