@@ -5,4 +5,4 @@ base: main
 status: open
 ---
 
-(describe the task here)
+The first click on a control outside the open side panel is no longer lost: the panel still closes, but after that click has finished, so a control that moves when the panel closes still gets its click.
