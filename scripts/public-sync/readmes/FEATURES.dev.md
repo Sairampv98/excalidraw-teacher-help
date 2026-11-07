@@ -53,7 +53,7 @@ The mirrored text is a **real editor**, not a read-only dump.
 
 A panel that needs no VS Code: choose **Code editor (in the browser)** in the main menu.
 
-- **Python and JavaScript run in the browser.** Python is downloaded the first time it runs (a download of several megabytes from a public CDN) and kept by the browser; JavaScript runs in a worker. Nothing is installed.
+- **Python and JavaScript run in the browser.** Python is carried by the app (the runtime is about 14 MB) so it runs with no internet; JavaScript runs in a worker. Nothing is installed.
 - The **Input** box under the console holds the lines a program reads with `input()`. When a program asks for more than was typed it says so, and says what to do.
 - A program that runs **too long** is stopped after 10 seconds, and the console says it may be an infinite loop. A program that prints too much is stopped at the output limit. A program that dies is reported as a crash. A browser can end a program that uses too much memory without a word - that case is reported, not prevented.
 - Each **Run starts on an empty output**.
@@ -90,7 +90,7 @@ You do not have to choose an engine: the machine chooses, and it says what it ch
 | order | engine | when | rough speed |
 | --- | --- | --- | --- |
 | 1 | **indra** | the bridge is connected and _indra_ is installed | ~150 ms |
-| 2 | **tesseract** | always: it runs in the browser (downloaded the first time) or in the bridge | ~250–500 ms |
+| 2 | **tesseract** | always: it runs in the browser (carried by the app, so it works with no internet) or in the bridge | ~250–500 ms |
 
 A slow read is **visible**: the panel says it is reading, and you are not left looking at a dead button. An engine that is not installed is an **explicit, actionable** state. _indra_ is a Python package, so it runs in a small helper that the VS Code extension starts - it cannot run inside a web page.
 
@@ -157,7 +157,7 @@ A text on the canvas can have **parts** that are bold, italic or both.
 
 ## PDFs
 
-A PDF opens in a viewer of its own (pdf.js, downloaded the first time it is used), so it does not depend on the browser having a PDF plug-in.
+A PDF opens in a viewer of its own (pdf.js, carried by the app, so it opens with no internet), so it does not depend on the browser having a PDF plug-in.
 
 - The page opens **fitted** to the panel. **Fit width**, **Fit page** and **Read this page** are icon buttons in the row of the zoom, outside the part that scrolls, so they are always in view. Ctrl and the wheel (or a pinch) zoom, the plain wheel scrolls, and the **middle mouse button** drags the page about. A zoom keeps the part of the document you were looking at in the middle of the view.
 - It stays smooth at a high zoom: every page has its room at once, only the pages near the view are drawn, and a page that goes far from the view gives its pixels back.

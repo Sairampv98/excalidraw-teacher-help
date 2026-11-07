@@ -45,7 +45,7 @@ export const TOUR_STEPS: TourStep[] = [
   {
     id: "help",
     title: "Help, for the tool in use",
-    text: "This icon brings up the guide for the tool you have selected, with its shortcuts. Pick another tool and press it again.",
+    text: "This icon brings up the guide for the tool you have selected, and below it a short clip for every addition of this version. Pick another tool and press it again.",
     targets: [".help-icon"],
   },
   {
