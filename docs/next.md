@@ -15,7 +15,9 @@ Then, in this order:
 
 Statuses used below: `DONE`, `NEXT`, `HELD` (the owner decided to wait; do not start it), `DROPPED` (the owner removed it; reopen only when asked).
 
-## v2.1 - where it stands (2026-11-07) - READ THIS FIRST
+## Where things stand (2026-11-07)
+
+### v2.1 - READ THIS FIRST
 
 v2.1 is the release of the small fixes and improvements made after v2.0.0. v3 ("Studio": explainer videos made from pages) is **HELD**; its design is a file outside the repository, `D:\workspace\v3-studio-design.md`, and nothing of it is built.
 
@@ -43,9 +45,9 @@ v2.1 is the release of the small fixes and improvements made after v2.0.0. v3 ("
 
 **The Windows 7 offline pack** lives outside the repository (`D:\workspace\DSA-Class-Pack`, built by `D:\workspace\dsa-classroom-v2\tools\assemble-pack.ps1`): the app with Chromium 109 (32-bit), a PowerShell 2.0 web server on plain sockets, GCC 16.2 (32-bit), Java 8, Python 3.4.4, the verified course code in four languages, 49 lesson pages, PDF and MP4 files. It was tested on a Windows 7 SP1 32-bit virtual machine (Hyper-V; the machine and its helpers are in `D:\workspace\win7-pack\vm`). **Windows 7 without Service Pack 1 is untested** (the only installation medium has SP1 inside). Its scripts should move into `installer/` in a later task.
 
-## Where things stand (2026-11-02, the v2.0.0 state)
+### The v2.0.0 state (2026-11-02)
 
-- **Private `main`: `67cff5a`** (the merge of wave 9c-8, the published tree's own tests; 9c-1, 9c-2 and 9c-3 steps A, B and C are under it). It is pushed to both private remotes with that merge: `github` = `Sairampv98/excalidraw-teacher-help`, private; `origin` = `D:\excalidraw-backup\excalidraw-teacher-help.git`).
+- **Private `main`: `6151b5c`** (the merge of wave 9e-4, the bridge on VS Code 1.70; every task listed under v2.1 above is under it, and the release task merges on top). It is pushed to both private remotes with that merge: `github` = `Sairampv98/excalidraw-teacher-help`, private; `origin` = `D:\excalidraw-backup\excalidraw-teacher-help.git`).
 - **Public repository `Sairampv98/excalidraw-classroom`** (remote `github-public`, local clone `C:\Users\user\Desktop\NITTE - C\excalidraw-public`): pushed on 2026-11-02 with `main` 0c8f51c (the second release), `dev` b4ca255 (the development line) and `dev-draft` 2007513 (where the contributors work). `v1` 0ca4125 and `v1.1` 1d2ec7f are kept as they were. That is the scrubbed private tree **up to `67cff5a`**. The history was written again from the root (16 commits, the root one the scrubbed tree of the first public release), so the old tips are **not** ancestors of the new ones - they are kept on this machine as `old-plan/pub-*-2026-11-02`. The layout for the second release: public `main` **is** the second release, `dev` and `dev-draft` are synced from it, `v1` and `v1.1` are kept, and there is **no `v2` branch** - the owner names `v2` when v3 supersedes it.
 - **The second release is published.** The GitHub releases `v2.0.0-rc.1` (a pre-release) and `v2.0.0` (the final one) carry the three artifacts: `setup.exe`, `excalidraw-bridge-0.2.0.vsix` and `excalidraw-mcp-server.mjs`. Both tags point at the public `main` 0c8f51c. **What a teacher can do now:** clone the public repository, install the extension from the `.vsix`, and point an MCP client at the published server file - the assistant can then draw, edit and lay out on the canvas.
 - **The published tree was checked on its own** and it typechecks, lints, formats and passes its tests (302 test files, 3314 tests) - a teacher who clones it can build and run it.
