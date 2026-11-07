@@ -45,6 +45,10 @@ v2.1 is the release of the small fixes and improvements made after v2.0.0. v3 ("
 
 **The Windows 7 offline pack** lives outside the repository (`D:\workspace\DSA-Class-Pack`, built by `D:\workspace\dsa-classroom-v2\tools\assemble-pack.ps1`): the app with Chromium 109 (32-bit), a PowerShell 2.0 web server on plain sockets, GCC 16.2 (32-bit), Java 8, Python 3.4.4, the verified course code in four languages, 49 lesson pages, PDF and MP4 files. It was tested on a Windows 7 SP1 32-bit virtual machine (Hyper-V; the machine and its helpers are in `D:\workspace\win7-pack\vm`). **Windows 7 without Service Pack 1 is untested** (the only installation medium has SP1 inside). Its scripts should move into `installer/` in a later task.
 
+### The UI gate (2026-11-07)
+
+`node scripts/ui/build.mjs` then `node scripts/ui/run.mjs` drives the built app in the Chrome of this computer (D-450, D-451). Scenarios live in `scripts/ui/scenarios/`; a failing one is a discrepancy and the owner gets a repro card with `node scripts/ui/replay.mjs <scenario>`. Nothing is changed on a discrepancy until the owner answers. `launch-clean` guards that the app opens without any request to another computer (D-452; the fonts are the app's own files and the analytics script is gone, in the web app and the offline setup). To do: the fly-switch scenario (AC-538), a matrix of rows to scenarios, then the guided tour.
+
 ### The v2.0.0 state (2026-11-02)
 
 - **Private `main`: `6151b5c`** (the merge of wave 9e-4, the bridge on VS Code 1.70; every task listed under v2.1 above is under it, and the release task merges on top). It is pushed to both private remotes with that merge: `github` = `Sairampv98/excalidraw-teacher-help`, private; `origin` = `D:\excalidraw-backup\excalidraw-teacher-help.git`).
