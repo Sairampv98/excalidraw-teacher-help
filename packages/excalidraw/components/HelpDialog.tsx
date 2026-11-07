@@ -11,6 +11,7 @@ import { guideForTool } from "../guides/toolGuides";
 import { getShortcutKey } from "../shortcut";
 
 import { Dialog } from "./Dialog";
+import { FeatureClips } from "./FeatureClips";
 import { ExternalLinkIcon, GithubIcon, youtubeIcon } from "./icons";
 
 import "./HelpDialog.scss";
@@ -172,6 +173,7 @@ export const HelpDialog = ({
       >
         <Header />
         <ToolGuideCard tool={tool} />
+        <FeatureClips />
         <Section title={t("helpDialog.shortcuts")}>
           <ShortcutIsland
             className="HelpDialog__island--tools"

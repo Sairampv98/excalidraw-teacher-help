@@ -1,0 +1,86 @@
+.excalidraw {
+  .FeatureClips {
+    margin: 0 0 1.25rem;
+
+    &__title {
+      font-weight: 700;
+      font-size: 1rem;
+      margin-bottom: 0.5rem;
+    }
+
+    &__group-name {
+      margin: 0.75rem 0 0.25rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      opacity: 0.65;
+    }
+
+    &__row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.375rem 0;
+      border-bottom: 1px solid var(--color-gray-20, rgba(0, 0, 0, 0.08));
+    }
+
+    &__poster {
+      flex: 0 0 auto;
+      width: 96px;
+      height: 54px;
+      object-fit: cover;
+      border-radius: 6px;
+      background: var(--color-gray-10, rgba(0, 0, 0, 0.05));
+    }
+
+    &__text {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    &__name {
+      font-weight: 600;
+      font-size: 0.875rem;
+    }
+
+    &__line {
+      font-size: 0.8125rem;
+      line-height: 1.35;
+      opacity: 0.8;
+    }
+
+    &__button {
+      flex: 0 0 auto;
+      padding: 0.375rem 0.75rem;
+      border: 1px solid var(--color-primary);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--color-primary);
+      font: inherit;
+      font-size: 0.8125rem;
+      cursor: pointer;
+
+      &--watch {
+        background: var(--color-primary);
+        color: #fff;
+        white-space: nowrap;
+      }
+    }
+
+    &__player-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    &__video {
+      display: block;
+      width: 100%;
+      border-radius: 8px;
+      background: #000;
+      margin-bottom: 0.5rem;
+    }
+  }
+}

@@ -49,6 +49,10 @@ v2.1 is the release of the small fixes and improvements made after v2.0.0. v3 ("
 
 `node scripts/ui/build.mjs` then `node scripts/ui/run.mjs` drives the built app in the Chrome of this computer (D-450, D-451). Scenarios live in `scripts/ui/scenarios/`; a failing one is a discrepancy and the owner gets a repro card with `node scripts/ui/replay.mjs <scenario>`. Nothing is changed on a discrepancy until the owner answers. `launch-clean` guards that the app opens without any request to another computer (D-452; the fonts are the app's own files and the analytics script is gone, in the web app and the offline setup). The first-launch tour and the help-icon guides are in (D-453, D-454, scenarios `tour-first-launch`, `help-tool-guide`). The first click on a control outside the open side panel now lands (D-455, scenario `first-click-lands`). To do: the recorded clips, the fly-switch scenario (AC-538), a matrix of rows to scenarios.
 
+### The Features list (2026-11-08)
+
+The help (the **?**) lists every clip of `public/clips/manifest.json` under **What this version adds**, each with a Watch button that plays it there (D-462, `packages/excalidraw/components/FeatureClips.tsx`). The first screen has **Connect an AI assistant**, which opens the help on that clip. The assistant clip is also a GIF at the top of the public readme. Still to film: the VS Code mirror (opened with `code .`, needs the owner's VS Code), the flow export, and the clips of the engines (PDF reader, reading a picture, Python: now possible with no internet).
+
 ### The engines (2026-11-08)
 
 The PDF reader, the reader of words in a picture and Python for the browser editor are carried by the app in `public/vendor/` (D-460): `node scripts/vendor/engines.mjs` fetches them (33 MB, checked by hash against `scripts/vendor/engines.manifest.json`; not in git) and the build does it first. A new machine that builds the app needs the internet once for this. Scenarios `pdf-opens-offline`, `python-runs-offline` and `picture-words-offline` prove they work with no internet. The offline setup carries them because it is made from a build.
