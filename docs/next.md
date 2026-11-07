@@ -15,7 +15,35 @@ Then, in this order:
 
 Statuses used below: `DONE`, `NEXT`, `HELD` (the owner decided to wait; do not start it), `DROPPED` (the owner removed it; reopen only when asked).
 
-## Where things stand (2026-11-02)
+## v2.1 - where it stands (2026-11-07) - READ THIS FIRST
+
+v2.1 is the release of the small fixes and improvements made after v2.0.0. v3 ("Studio": explainer videos made from pages) is **HELD**; its design is a file outside the repository, `D:\workspace\v3-studio-design.md`, and nothing of it is built.
+
+**Merged into private `main` since v2.0.0 (all gated):**
+
+- `wave9c-3d-export-tools` (D-438, AC-529 to AC-531): the assistant exports a chart's animation (GIF, WebP, MP4) and a handout (one PDF) into an allowed folder.
+- `wave9d-0-gate-hygiene`: the OCR benchmark test no longer demands the exact RAM of the machine that recorded it.
+- `wave9e-1-mcp-server-fixes` (D-439 to D-445, AC-532 to AC-537): an id of a deleted element can be used again, two of one id in one call are refused, `roundness` takes `{type: 1|2|3}`, `check_page` reads a text against the shape it lies on and says where the content ends, `describe_page` (the page in words, for a model that cannot see), and a clearer timeout.
+- `wave9e-2-present-camera-toggle` (D-446, AC-538): a **Fly: on / off** button on the animation bar and on the collapsed pill - the view flying to each step is now a switch the presenter can reach, also while presenting.
+- `wave9e-3-skills` (D-447, AC-539 to AC-541): nine skills served as MCP resources and written as `skill/<name>/SKILL.md` (workflow, text-only, flow charts, animation, lesson-page format, three voices, the data-structure lesson method), and the prompt `teach_a_topic`.
+- `wave9e-4-bridge-vscode170` (D-448, AC-542): the VS Code extension asks for **VS Code 1.70** (it asked for 1.91 for no reason it needed), uses a CRC-32 table where `zlib.crc32` (Node 20.15) is missing, and answers plainly where the built-in `fetch` (Node 18) is missing.
+- `wave9e-5-v2-1-release`: the extension is **0.2.1**, the public texts say what v2.1 holds.
+
+**To run the gate on this machine** (it matters): put `%LOCALAPPDATA%\nvm\v20.19.6` first on PATH (the shell's default Node 20.3.1 fails `windowCapture`; Node 24 fails `videoPanel` AC-135), add `C:\Program Files\Git\cmd`, set `GATE_JOBS=2`, never `nvm use`. The timing test AC-253 (`flowLargePresets`, 1000 ms) fails by a few milliseconds when the machine is busy: run the gate again. Always `kit task new` + a junction of `node_modules` + `kit start --task <id>` (a `kit close` without a start infers a wrong base).
+
+**Found and NOT fixed (the next tasks):**
+
+1. **The window helpers fail on Windows 7's PowerShell 2.0** (`extension/media/capture.ps1`, `window.ps1`, `input.ps1`): `Add-Type` compiles their C# with the C# 2.0 compiler. Plan: a `compat.ps1` that shadows `Add-Type` for PowerShell older than 3 and compiles with `CSharpCodeProvider` and `CompilerVersion=v3.5` (Windows 7 has .NET 3.5); `window.ps1` line ~401 uses `ConvertTo-Json` (PowerShell 3+). Test it in the Windows 7 virtual machine.
+2. **Program output staircases in VS Code's terminal** when the program prints LF only (the course's programs do): the extension's pseudoterminal should turn `\n` into `\r\n`.
+3. **`build_page`**: code blocks are drawn at 16 px (and `check_page` flags them), wrap at about 73 characters; titles and headings wrap in narrow boxes; bullets overlap at 28 px; table text is small for a projector. `add_page` with `after: 0` puts pages out of order. `export_animation` ignores `name`.
+4. **Flow trees with a missing left child** (F11).
+5. **An offline build mode** (local fonts, no CDN, no analytics, Pyodide/OCR/pdf.js vendored) so the offline pack no longer needs the built `index.html` patched by hand.
+6. **Step E** (a VS Code terminal tool): not built; it was flagged as a remote-code-execution surface and the owner wants it.
+7. The `OfflineSetup.exe` on the releases page must be rebuilt for each release (it carries a built copy of the app and the extension).
+
+**The Windows 7 offline pack** lives outside the repository (`D:\workspace\DSA-Class-Pack`, built by `D:\workspace\dsa-classroom-v2\tools\assemble-pack.ps1`): the app with Chromium 109 (32-bit), a PowerShell 2.0 web server on plain sockets, GCC 16.2 (32-bit), Java 8, Python 3.4.4, the verified course code in four languages, 49 lesson pages, PDF and MP4 files. It was tested on a Windows 7 SP1 32-bit virtual machine (Hyper-V; the machine and its helpers are in `D:\workspace\win7-pack\vm`). **Windows 7 without Service Pack 1 is untested** (the only installation medium has SP1 inside). Its scripts should move into `installer/` in a later task.
+
+## Where things stand (2026-11-02, the v2.0.0 state)
 
 - **Private `main`: `67cff5a`** (the merge of wave 9c-8, the published tree's own tests; 9c-1, 9c-2 and 9c-3 steps A, B and C are under it). It is pushed to both private remotes with that merge: `github` = `Sairampv98/excalidraw-teacher-help`, private; `origin` = `D:\excalidraw-backup\excalidraw-teacher-help.git`).
 - **Public repository `Sairampv98/excalidraw-classroom`** (remote `github-public`, local clone `C:\Users\user\Desktop\NITTE - C\excalidraw-public`): pushed on 2026-11-02 with `main` 0c8f51c (the second release), `dev` b4ca255 (the development line) and `dev-draft` 2007513 (where the contributors work). `v1` 0ca4125 and `v1.1` 1d2ec7f are kept as they were. That is the scrubbed private tree **up to `67cff5a`**. The history was written again from the root (16 commits, the root one the scrubbed tree of the first public release), so the old tips are **not** ancestors of the new ones - they are kept on this machine as `old-plan/pub-*-2026-11-02`. The layout for the second release: public `main` **is** the second release, `dev` and `dev-draft` are synced from it, `v1` and `v1.1` are kept, and there is **no `v2` branch** - the owner names `v2` when v3 supersedes it.

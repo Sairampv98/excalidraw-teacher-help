@@ -127,8 +127,8 @@ node packages/vscode-bridge/scripts/build-setup-exe.mjs
 The extension is the **bridge**: it is what connects the editor to the canvas.
 
 ```bash
-code    --install-extension packages/vscode-bridge/excalidraw-bridge-0.2.0.vsix --force
-codium  --install-extension packages/vscode-bridge/excalidraw-bridge-0.2.0.vsix --force
+code    --install-extension packages/vscode-bridge/excalidraw-bridge-0.2.1.vsix --force
+codium  --install-extension packages/vscode-bridge/excalidraw-bridge-0.2.1.vsix --force
 ```
 
 It works in **VS Code** and in **VSCodium** — the same file, both editors.

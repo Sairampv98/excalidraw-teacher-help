@@ -61,7 +61,7 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-EXTENSION_RELATIVE="packages/vscode-bridge/excalidraw-bridge-0.2.0.vsix"
+EXTENSION_RELATIVE="packages/vscode-bridge/excalidraw-bridge-0.2.1.vsix"
 EXTENSION_ID="excalidraw-teacher-help.excalidraw-bridge"
 NODE_MINIMUM=20
 

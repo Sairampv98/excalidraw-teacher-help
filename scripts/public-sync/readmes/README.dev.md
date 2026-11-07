@@ -31,6 +31,7 @@ A **modified Excalidraw**: a fork that adds the things a teacher needs when a VS
 | **Control, parking and the virtual display** | Drive the editor's window from the canvas; park it out of the way or move it onto a **virtual display** for the projector, and bring it back — only when **you** choose to. |
 | **YouTube captions** | Three tiers, and the panel says which tier answered. |
 | **Flow studio** | Charts built from a script: presets (process, decision, steps, network, cycle, tiers, integration), arrowless layouts (list, grid, matrix, pyramid, funnel, timeline, target, venn, hierarchy), an animation with a look of its own, a class loop and a step-by-step presenter. |
+| **Present steps** | Step through a chart by hand, full screen. A **Fly: on / off** button on the animation bar - also while presenting - decides whether the view flies to each step; it is off unless you turn it on. |
 | **The emoji and GIF bar** | A floating bar of emoji, stickers and GIFs to drop on the canvas; it folds into a round button. |
 | **Media in a chart** | A picture, GIF or video inside a node of a chart, cut to the node's shape, with four fits and a crop screen. |
 | **Ink looks** | Neon, chalk, marker and pencil on text, freehand and shapes. |
@@ -191,12 +192,14 @@ More in [`docker/README.md`](docker/README.md).
 
 ### Build and install the extension
 
-The extension is published as a **release asset** - download `excalidraw-bridge-0.2.0.vsix` from the [releases page](https://github.com/Sairampv98/excalidraw-classroom/releases) and install it:
+The extension is published as a **release asset** - download `excalidraw-bridge-0.2.1.vsix` from the [releases page](https://github.com/Sairampv98/excalidraw-classroom/releases) and install it:
 
 ```bash
-code    --install-extension excalidraw-bridge-0.2.0.vsix --force
-codium  --install-extension excalidraw-bridge-0.2.0.vsix --force
+code    --install-extension excalidraw-bridge-0.2.1.vsix --force
+codium  --install-extension excalidraw-bridge-0.2.1.vsix --force
 ```
+
+The extension asks for **VS Code 1.70 or newer** (VSCodium of the same age works too), so it also runs on the older editor of a classroom computer. On a computer that old, the window-capture helpers (the live picture of the editor's window) need a newer PowerShell than Windows 7 has; the mirror of the open file and the output of a program do not.
 
 Or build it yourself from this repository - one command, no extra tooling:
 
@@ -255,7 +258,7 @@ It does that through a **small server that runs on your own computer**. The boar
 - **Allow changes.** The tab has an **Allow changes** switch. With it off the assistant may look at the board but not change it; with it on it may draw, edit and delete. **Every change it makes is one undo step** - Ctrl+Z takes the whole of it back.
 - **Allow internet**, off by default: nothing is fetched from the web until you turn it on.
 
-The tools are in **groups** - what the board can look at, what it can change, the pages, the pictures and files, the charts, the slides and the lesson pages - so a model finds the right one. The server also offers ready-made **prompts** (a deck of slides for a lesson, a chart of a process, a lesson page out of a document, a check of a page before a class), a **guide** to the tools, and a **skill** an assistant can load.
+The tools are in **groups** - what the board can look at, what it can change, the pages, the pictures and files, the charts, the slides and the lesson pages - so a model finds the right one. The server also offers ready-made **prompts** (a deck of slides for a lesson, a chart of a process, a lesson page out of a document, a check of a page before a class), a **guide** to the tools, and **nine short skills** an assistant can load - how to work on the board, what to do when it cannot look at pictures, how to make a chart and animate it, the layout of a lesson page, three teaching voices (fast and funny, rigorous, balanced) and a method for teaching a data structure. A text-only model has `describe_page`, the page in words, and `check_page`, which says where the content ends and whether it fits. The assistant can also export a chart's animation (GIF, WebP or MP4) and a handout (one PDF) into a folder you allowed.
 
 ---
 
