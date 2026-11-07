@@ -98,15 +98,50 @@ export const SidebarInner = forwardRef(
 
     const editorInterface = useEditorInterface();
 
-    const closeLibrary = useCallback(() => {
-      const isDialogOpen = !!document.querySelector(".Dialog");
+    const closeLibrary = useCallback(
+      (opts?: { ignoreDialogOpenedSince?: boolean }) => {
+        const isDialogOpen = !!document.querySelector(".Dialog");
 
-      // Prevent closing if any dialog is open
-      if (isDialogOpen) {
+        // Prevent closing if any dialog is open (unless the dialog is the
+        // result of the very click that asks for the close)
+        if (isDialogOpen && !opts?.ignoreDialogOpenedSince) {
+          return;
+        }
+        setAppState({ openSidebar: null });
+      },
+      [setAppState],
+    );
+
+    // A press on a control outside the sidebar (a tool, the help icon) closes
+    // it, and closing gives the screen its room back, so the control moves
+    // under the pointer and the click that was on its way is lost. So the
+    // close waits for the press to end: the control is still where it was
+    // when the click lands. A press on the drawing surface closes at once.
+    const closeAfterPressPending = useRef(false);
+
+    const closeAfterPress = useCallback(() => {
+      if (closeAfterPressPending.current) {
         return;
       }
-      setAppState({ openSidebar: null });
-    }, [setAppState]);
+      closeAfterPressPending.current = true;
+
+      const dialogWasOpen = !!document.querySelector(".Dialog");
+
+      const onRelease = () => {
+        document.removeEventListener("pointerup", onRelease, true);
+        document.removeEventListener("touchend", onRelease, true);
+        document.removeEventListener("pointercancel", onRelease, true);
+        // after the click that ends the press has been delivered
+        window.setTimeout(() => {
+          closeAfterPressPending.current = false;
+          closeLibrary({ ignoreDialogOpenedSince: !dialogWasOpen });
+        }, 60);
+      };
+
+      document.addEventListener("pointerup", onRelease, true);
+      document.addEventListener("touchend", onRelease, true);
+      document.addEventListener("pointercancel", onRelease, true);
+    }, [closeLibrary]);
 
     useOutsideClick(
       islandRef,
@@ -118,10 +153,14 @@ export const SidebarInner = forwardRef(
             return;
           }
           if (!docked || !editorInterface.canFitSidebar) {
-            closeLibrary();
+            if (event.target instanceof HTMLCanvasElement) {
+              closeLibrary();
+            } else {
+              closeAfterPress();
+            }
           }
         },
-        [closeLibrary, docked, editorInterface.canFitSidebar],
+        [closeLibrary, closeAfterPress, docked, editorInterface.canFitSidebar],
       ),
     );
 
