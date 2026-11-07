@@ -1,0 +1,14 @@
+{
+  "clips": [
+    {
+      "id": "pages",
+      "title": "Pages",
+      "line": "A class is a series of pages, not one endless board.",
+      "group": "Pages",
+      "seconds": 27.2,
+      "bytes": 238289,
+      "video": "clips/pages.webm",
+      "poster": "clips/pages.jpg"
+    }
+  ]
+}
