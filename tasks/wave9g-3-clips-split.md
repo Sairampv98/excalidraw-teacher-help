@@ -5,4 +5,4 @@ base: main
 status: open
 ---
 
-(describe the task here)
+The recorder films two windows side by side, and lets one named clip reach one named address on the internet; the clips of the presenter view next to the editor and of the YouTube link are made with it.
