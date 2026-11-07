@@ -1,4 +1,5 @@
 // Films one clip: the real app, in the browser of this computer, doing what a teacher does.
+// A clip can film one window, or two side by side (the editor and the presenter).
 import fs from "node:fs";
 import path from "node:path";
 
@@ -8,28 +9,31 @@ import { findBrowser } from "../../ui/lib/app.mjs";
 import { isLocalUrl } from "../../ui/lib/guard.mjs";
 import { serveFolder } from "../../ui/lib/staticServer.mjs";
 
+import { ensureAssets } from "./assets.mjs";
 import {
   findFfmpeg,
   framesToFilmArgs,
   gifArgs,
+  hstackArgs,
   posterArgs,
   runFfmpeg,
   webmArgs,
 } from "./ffmpeg.mjs";
-import { ensureAssets } from "./assets.mjs";
 import { overlayScript } from "./overlay.mjs";
 import {
   CLIP_SIZE,
+  HALF_SIZE,
   checkClip,
   concatList,
   glidePoints,
+  hostAllowed,
   manifestEntry,
   readingTime,
 } from "./plan.mjs";
 
 /** what a clip's script is given: the page, and the few things a teacher does with it */
-const makeHelper = (page, assets) => {
-  let at = { x: 640, y: 360 };
+const makeHelper = (page, assets, size) => {
+  let at = { x: size.width / 2, y: size.height / 2 };
 
   const helper = {
     page,
@@ -46,11 +50,11 @@ const makeHelper = (page, assets) => {
       await page.waitForTimeout(1500);
     },
     wait: (ms) => page.waitForTimeout(ms),
-    /** a caption at the bottom, held long enough to read */
-    say: async (text, { hold, at } = {}) => {
+    /** a caption, held long enough to read (at the bottom, or at the top with `at: "top"`) */
+    say: async (text, { hold, at: where } = {}) => {
       await page.evaluate(
-        ([words, where]) => window.__clipCaption?.(words, where),
-        [text, at],
+        ([words, place]) => window.__clipCaption?.(words, place),
+        [text, where],
       );
       await page.waitForTimeout(hold ?? readingTime(text));
     },
@@ -97,6 +101,53 @@ const makeHelper = (page, assets) => {
   return helper;
 };
 
+/** the film of a window is the frames Chrome sends of it, gathered as they come */
+const startCapture = async (context, page, dir, size) => {
+  const cdp = await context.newCDPSession(page);
+  const frames = [];
+
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  cdp.on("Page.screencastFrame", (frame) => {
+    const file = path.join(
+      dir,
+      `${String(frames.length).padStart(5, "0")}.jpg`,
+    );
+
+    fs.writeFileSync(file, Buffer.from(frame.data, "base64"));
+    frames.push({
+      file: file.replaceAll("\\", "/"),
+      at: frame.metadata.timestamp,
+    });
+    cdp
+      .send("Page.screencastFrameAck", { sessionId: frame.sessionId })
+      .catch(() => {});
+  });
+  await cdp.send("Page.startScreencast", {
+    format: "jpeg",
+    quality: 90,
+    maxWidth: size.width,
+    maxHeight: size.height,
+    everyNthFrame: 1,
+  });
+
+  return {
+    frames,
+    stop: () => cdp.send("Page.stopScreencast"),
+  };
+};
+
+const openWindow = async (context, url, size) => {
+  const page = await context.newPage();
+
+  await page.setViewportSize(size);
+  await page.goto(url, { waitUntil: "load" });
+  await page.locator("canvas").first().waitFor({ state: "attached" });
+  await page.mouse.move(size.width / 2, size.height / 2);
+
+  return page;
+};
+
 export const recordClip = async (
   clip,
   { appDir, outDir, rawDir, withGif = false },
@@ -110,25 +161,32 @@ export const recordClip = async (
   fs.mkdirSync(outDir, { recursive: true });
   fs.mkdirSync(rawDir, { recursive: true });
 
+  const split = clip.split === true;
+  const size = split ? HALF_SIZE : CLIP_SIZE;
   const server = await serveFolder(appDir, { port: 0 });
   const browser = await chromium.launch({
     executablePath: findBrowser(),
     headless: true,
   });
   const startedAt = Date.now();
+  const ffmpeg = findFfmpeg();
   let seconds = 0;
   let rawFile;
 
   try {
     const context = await browser.newContext({
-      viewport: CLIP_SIZE,
+      viewport: size,
       serviceWorkers: "block",
     });
 
-    // nothing leaves this computer while a clip is made
-    await context.route("**/*", (route) =>
-      isLocalUrl(route.request().url()) ? route.continue() : route.abort(),
-    );
+    // nothing leaves this computer while a clip is made, except at the addresses a clip names for itself
+    await context.route("**/*", (route) => {
+      const url = route.request().url();
+
+      return isLocalUrl(url) || hostAllowed(url, clip.allowHosts)
+        ? route.continue()
+        : route.abort();
+    });
     await context.addInitScript(() => {
       try {
         window.localStorage.setItem("excalidraw-classroom-tour-seen", "yes");
@@ -138,44 +196,30 @@ export const recordClip = async (
     });
     await context.addInitScript(overlayScript);
 
-    const page = await context.newPage();
+    const page = await openWindow(context, server.url, size);
+    const second = split
+      ? await openWindow(context, `${server.url}/?presenter=true`, size)
+      : null;
 
-    await page.goto(server.url, { waitUntil: "load" });
-    await page.locator("canvas").first().waitFor({ state: "attached" });
-    await page.mouse.move(640, 400);
+    await page.bringToFront();
     await page.waitForTimeout(1200);
 
-    // the film is the frames Chrome sends of the page, gathered as they come
-    const cdp = await context.newCDPSession(page);
-    const frames = [];
     const frameDir = path.join(rawDir, clip.id);
+    const left = await startCapture(
+      context,
+      page,
+      path.join(frameDir, "left"),
+      size,
+    );
+    const right = second
+      ? await startCapture(context, second, path.join(frameDir, "right"), size)
+      : null;
+    const assets = ensureAssets(path.join(rawDir, "assets"));
+    const helper = makeHelper(page, assets, size);
 
-    fs.rmSync(frameDir, { recursive: true, force: true });
-    fs.mkdirSync(frameDir, { recursive: true });
-    cdp.on("Page.screencastFrame", (frame) => {
-      const file = path.join(
-        frameDir,
-        `${String(frames.length).padStart(5, "0")}.jpg`,
-      );
-
-      fs.writeFileSync(file, Buffer.from(frame.data, "base64"));
-      frames.push({
-        file: file.replaceAll("\\", "/"),
-        at: frame.metadata.timestamp,
-      });
-      cdp
-        .send("Page.screencastFrameAck", { sessionId: frame.sessionId })
-        .catch(() => {});
-    });
-    await cdp.send("Page.startScreencast", {
-      format: "jpeg",
-      quality: 90,
-      maxWidth: CLIP_SIZE.width,
-      maxHeight: CLIP_SIZE.height,
-      everyNthFrame: 1,
-    });
-
-    const helper = makeHelper(page, ensureAssets(path.join(rawDir, "assets")));
+    if (second) {
+      helper.right = makeHelper(second, assets, size);
+    }
 
     try {
       await clip.run(helper);
@@ -188,23 +232,44 @@ export const recordClip = async (
       throw error;
     }
     await helper.hush();
+    await helper.right?.hush();
     await page.waitForTimeout(600);
     seconds = (Date.now() - startedAt) / 1000;
 
-    await cdp.send("Page.stopScreencast");
+    await left.stop();
+    await right?.stop();
     await context.close();
 
-    const listFile = path.join(frameDir, "frames.txt");
+    // both windows start at the same moment, whichever sent its first picture first
+    const startAt = Math.min(
+      left.frames[0].at,
+      right ? right.frames[0].at : Infinity,
+    );
+    const film = (capture, name) => {
+      const list = path.join(frameDir, `${name}.txt`);
+      const out = path.join(rawDir, `${clip.id}-${name}.mp4`);
 
-    fs.writeFileSync(listFile, concatList(frames));
+      fs.writeFileSync(list, concatList(capture.frames, { startAt }));
+      runFfmpeg(ffmpeg, framesToFilmArgs(list, out));
+
+      return out;
+    };
+
     rawFile = path.join(rawDir, `${clip.id}.mp4`);
-    runFfmpeg(findFfmpeg(), framesToFilmArgs(listFile, rawFile));
+
+    if (right) {
+      runFfmpeg(
+        ffmpeg,
+        hstackArgs(film(left, "left"), film(right, "right"), rawFile),
+      );
+    } else {
+      fs.copyFileSync(film(left, "left"), rawFile);
+    }
   } finally {
     await browser.close();
     await server.close();
   }
 
-  const ffmpeg = findFfmpeg();
   const webm = path.join(outDir, `${clip.id}.webm`);
   const poster = path.join(outDir, `${clip.id}.jpg`);
 

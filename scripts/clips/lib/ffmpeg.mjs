@@ -47,6 +47,24 @@ export const framesToFilmArgs = (listFile, output, { fps = 24 } = {}) => [
   output,
 ];
 
+/** two films side by side as one (the left one and the right one), as long as the shorter */
+export const hstackArgs = (left, right, output) => [
+  "-y",
+  "-i",
+  left,
+  "-i",
+  right,
+  "-filter_complex",
+  "[0:v][1:v]hstack=inputs=2:shortest=1",
+  "-c:v",
+  "libx264",
+  "-crf",
+  "14",
+  "-pix_fmt",
+  "yuv420p",
+  output,
+];
+
 /** a short web video: small, silent, plays in every browser the app runs in (also Chrome 109) */
 export const webmArgs = (input, output, { width = 960, fps = 24 } = {}) => [
   "-y",
