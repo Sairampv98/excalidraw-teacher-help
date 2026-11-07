@@ -1,3 +1,5 @@
+| D-452 | the app asks no other computer for anything when it opens | locked | The fonts of the built app are the app's own files: the page names its own root as the place of the fonts (no CDN, no second address), the preloads point at files the build holds, and the interface font is bundled by the build from the package. The analytics script, the old analytics snippet and the connections to a font host are gone from the page. This holds for the web app and for the offline setup alike, and the UI gate checks it on every run (a request that leaves the computer, or a font that fails to load, is a discrepancy). |
+
 # SPEC — excalidraw fork
 
 The source of truth for this project. Rows are `D-n` (decisions) and `AC-n` (acceptance, each naming the test file that checks it). Format required by `.tins/kit/src/spec.mjs`:
@@ -1470,3 +1472,4 @@ The owner asked for a **fully featured creation tool** for flowcharts and tier c
 | AC-544 | the fingerprint of the elements | `excalidraw-app/tests/presenterInPlace.test.tsx` | The fingerprint is the same for the same elements (or a copy of the list), changes when an element is edited in place or added or taken away, and notices a change of the version alone and of the version nonce alone (D-449). Tests: `AC-544`. |
 | AC-545 | the gate judges a scenario | `scripts/ui/tests/uiGate.test.mjs` | A scenario whose checks hold passes; one whose check fails is a discrepancy that names the step; a scenario without rows or a run is refused; the repro card carries the replay command and the question (D-450, D-451). Tests: `AC-545`. |
 | AC-546 | the gate stays on this computer | `scripts/ui/tests/uiGate.test.mjs` | The rows are read from the SPEC, local and outside addresses are told apart and counted by host, and the static server does not leave its folder (D-450). Tests: `AC-546`. |
+| AC-547 | no font host and no analytics | `excalidraw-app/tests/localFonts.test.ts` | The page the build writes names the app's own root for its fonts and holds no address of another computer; the interface font is left to the build; the page holds no analytics script and no connection to a font host (D-452). Tests: `AC-547`. |

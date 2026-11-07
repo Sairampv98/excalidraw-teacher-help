@@ -33,6 +33,36 @@ export default defineScenario({
       });
     });
 
+    await ui.step(
+      "the fonts the app uses are loaded from its own files",
+      async () => {
+        const state = await ui.page.evaluate(async () => {
+          await document.fonts.ready;
+          const faces = [...document.fonts];
+
+          return {
+            failed: faces
+              .filter((face) => face.status === "error")
+              .map((face) => face.family),
+            loaded: faces
+              .filter((face) => face.status === "loaded")
+              .map((face) => face.family),
+          };
+        });
+
+        ui.expect(
+          state.failed.length === 0 && state.loaded.includes("Assistant"),
+          {
+            expected:
+              "no font file failed, and the interface font (Assistant) is loaded",
+            observed: `failed: ${state.failed.join(", ") || "none"}; loaded: ${
+              state.loaded.join(", ") || "none"
+            }`,
+          },
+        );
+      },
+    );
+
     await ui.step("nothing was sent outside this computer", async () => {
       const hosts = outsideByHost(ui.faults.outside);
 
