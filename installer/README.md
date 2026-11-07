@@ -38,7 +38,7 @@ Both scripts do the same checks, in the same order, with the same wording.
 | Yarn | on the PATH, or Corepack is there to provide it |
 | VS Code | the `code` command, or the standard install path |
 | VSCodium | the `codium` command, or the standard install path |
-| the extension | `packages/vscode-bridge/excalidraw-bridge-0.2.0.vsix` is built |
+| the extension | `packages/vscode-bridge/excalidraw-bridge-0.2.1.vsix` is built |
 | the app's dependencies | `node_modules` is at the repository root |
 | the language runtimes | `node`, `python` and `java` are on the PATH - these are what the panel's **Run** can execute |
 

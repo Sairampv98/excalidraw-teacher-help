@@ -58,7 +58,7 @@ export const ACTION_IDS = [
 
 /** The `.vsix` the setup builds and installs. */
 export const EXTENSION_FILE =
-  "packages/vscode-bridge/excalidraw-bridge-0.2.0.vsix";
+  "packages/vscode-bridge/excalidraw-bridge-0.2.1.vsix";
 
 /**
  * The facts about a machine, as the scripts found them.

@@ -27,8 +27,8 @@ The `.vsix` is a zip that either editor installs with one click.
 If double-clicking does nothing (some Windows setups do not associate `.vsix` with an editor), install it from the command line instead:
 
 ```powershell
-code --install-extension "C:\path\to\excalidraw-bridge-0.2.0.vsix"
-codium --install-extension "C:\path\to\excalidraw-bridge-0.2.0.vsix"
+code --install-extension "C:\path\to\excalidraw-bridge-0.2.1.vsix"
+codium --install-extension "C:\path\to\excalidraw-bridge-0.2.1.vsix"
 ```
 
 ## What you should see

@@ -2,7 +2,7 @@
   "name": "excalidraw-bridge",
   "displayName": "Excalidraw Bridge",
   "description": "Mirrors the active editor into an Excalidraw canvas panel, and runs the program so that its output can be shown there too.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "excalidraw-teacher-help",
   "license": "MIT",
   "engines": {
