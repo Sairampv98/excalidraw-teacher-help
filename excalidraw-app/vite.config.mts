@@ -10,6 +10,7 @@ import { createHtmlPlugin } from "vite-plugin-html";
 import Sitemap from "vite-plugin-sitemap";
 
 import { woff2BrowserPlugin } from "../scripts/woff2/woff2-vite-plugins";
+import { ensureEngines } from "../scripts/vendor/engines.mjs";
 export default defineConfig(({ mode }) => {
   // To load .env variables
   const envVars = loadEnv(mode, `../`);
@@ -148,6 +149,14 @@ export default defineConfig(({ mode }) => {
         generateRobotsTxt: false,
       }),
       woff2BrowserPlugin(),
+      {
+        // the engines the app carries (D-460) are in place before a build copies the public folder
+        name: "engines",
+        apply: "build",
+        async buildStart() {
+          await ensureEngines();
+        },
+      },
       react(),
       checker({
         typescript: true,
@@ -176,6 +185,10 @@ export default defineConfig(({ mode }) => {
             "**/locales/**",
             "service-worker.js",
             "**/*.chunk-*.js",
+            // the engines are big and are fetched when first used, not with the app
+            "**/vendor/**",
+            // so are the clips (videos), which are played as they come
+            "**/clips/**",
             // CodeMirrorEditor can't be assigned a `.chunk` name via
             // manualChunks because Rollup would hoist shared deps (React)
             // via a static import from the main bundle, defeating lazy

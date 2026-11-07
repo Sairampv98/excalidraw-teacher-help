@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import type { TextStyleRun } from "@excalidraw/element/types";
 
 import { OcrEnginePicker } from "../components/OcrEnginePicker";
+import { ENGINE_FILES, engineUrl } from "../engines/enginePaths";
 
 import { mergeRuns, pdfRegionRuns, runsStyledText } from "./pdfSelection";
 
@@ -23,15 +24,15 @@ import type { ReactNode } from "react";
  * the same selection bar the markdown viewer has works on it, and a scanned
  * page can be read with OCR.
  *
- * pdf.js is not a dependency of the app. It is fetched the first time a PDF is
- * opened, from a pinned version, so a teacher who never opens a PDF never pays
- * for it - the same way the in-browser Python runtime is fetched (D-268).
+ * pdf.js is not a dependency of the app. It is a file the app carries beside
+ * its own (D-460), loaded the first time a PDF is opened, so a teacher who
+ * never opens a PDF never pays for it - and it works with no internet.
  */
 
 /** the version of pdf.js that is fetched, pinned */
 export const PDFJS_VERSION = "4.10.38";
 
-const PDFJS_BASE = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/`;
+/** the engine is carried by the app (D-460), the version it was fetched at is in `scripts/vendor/engines.manifest.json` */
 
 /** the most pages drawn: a book is not drawn all at once */
 export const PDF_MAX_PAGES = 300;
@@ -149,9 +150,11 @@ export const loadPdfJs = (): Promise<PdfJs> => {
     );
   }
 
-  loading ??= import(/* @vite-ignore */ `${PDFJS_BASE}pdf.min.mjs`)
+  loading ??= import(/* @vite-ignore */ engineUrl(ENGINE_FILES.pdfjs.module))
     .then((module: PdfJs) => {
-      module.GlobalWorkerOptions.workerSrc = `${PDFJS_BASE}pdf.worker.min.mjs`;
+      module.GlobalWorkerOptions.workerSrc = engineUrl(
+        ENGINE_FILES.pdfjs.worker,
+      );
 
       return module;
     })

@@ -12,6 +12,8 @@
  * is, so a read that takes a while is never a button that seems to do nothing.
  */
 
+import { ENGINE_FILES, engineUrl } from "../engines/enginePaths";
+
 import type {
   OcrLine,
   OcrRegion,
@@ -20,7 +22,8 @@ import type {
 
 export const TESSERACT_VERSION = "5.1.1";
 
-const TESSERACT_URL = `https://cdn.jsdelivr.net/npm/tesseract.js@${TESSERACT_VERSION}/dist/tesseract.min.js`;
+/** the reader is carried by the app (D-460), so it works with no internet */
+const tesseractUrl = () => engineUrl(ENGINE_FILES.tesseract.script);
 
 /** what a read is doing, and how far it is (`null`: it cannot tell) */
 export type OcrProgress = { label: string; fraction: number | null };
@@ -45,7 +48,12 @@ export type TesseractApi = {
   createWorker: (
     language: string,
     engineMode?: number,
-    options?: { logger?: TesseractLogger },
+    options?: {
+      logger?: TesseractLogger;
+      workerPath?: string;
+      corePath?: string;
+      langPath?: string;
+    },
   ) => Promise<TesseractWorker>;
 };
 
@@ -63,7 +71,7 @@ export const loadTesseract = (): Promise<TesseractApi> => {
   loading ??= new Promise<TesseractApi>((resolve, reject) => {
     const script = document.createElement("script");
 
-    script.src = TESSERACT_URL;
+    script.src = tesseractUrl();
     script.async = true;
     script.onload = () => {
       const api = (window as unknown as { Tesseract?: TesseractApi }).Tesseract;
@@ -78,7 +86,7 @@ export const loadTesseract = (): Promise<TesseractApi> => {
       loading = null;
       reject(
         new Error(
-          "the OCR engine could not be downloaded: check the connection",
+          "the OCR engine could not be loaded: it is missing from the app",
         ),
       );
     };
@@ -92,8 +100,7 @@ export const loadTesseract = (): Promise<TesseractApi> => {
 const LABELS: Record<string, string> = {
   "loading tesseract core": "Loading the reader",
   "initializing tesseract": "Starting the reader",
-  "loading language traineddata":
-    "Downloading the language (the first read only)",
+  "loading language traineddata": "Loading the language (the first read only)",
   "initializing api": "Starting the reader",
   "recognizing text": "Reading the text",
 };
@@ -150,6 +157,9 @@ export const createBrowserOcr = ({
     const tesseract = await load();
 
     return tesseract.createWorker("eng", 1, {
+      workerPath: engineUrl(ENGINE_FILES.tesseract.worker),
+      corePath: engineUrl(ENGINE_FILES.tesseract.core),
+      langPath: engineUrl(ENGINE_FILES.tesseract.languages),
       logger: ({ status, progress }) =>
         report({
           label: LABELS[status] ?? "Working",

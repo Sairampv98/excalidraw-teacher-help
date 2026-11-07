@@ -1,0 +1,77 @@
+{
+  "about": "The engines the app carries (D-460). `path` is under public/vendor/. Change a version here, then run: node scripts/vendor/engines.mjs --record",
+  "files": [
+    {
+      "path": "pdfjs/pdf.min.mjs",
+      "url": "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs",
+      "sha256": "27fc2a057a00f92a4334ad06e17dbd7259912954e9fb7f76400bcca5fd190a9c",
+      "bytes": 352645
+    },
+    {
+      "path": "pdfjs/pdf.worker.min.mjs",
+      "url": "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs",
+      "sha256": "1baa1844c89c80a5b2797c916e75ab29254be46d8e9cb53cb6364d7aad84be36",
+      "bytes": 1375838
+    },
+    {
+      "path": "tesseract/tesseract.min.js",
+      "url": "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js",
+      "sha256": "a8e29918d098b2b06e1012bdaeffb4aec0445c5d5654709023e0bd1f442a80e8",
+      "bytes": 66695
+    },
+    {
+      "path": "tesseract/worker.min.js",
+      "url": "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js",
+      "sha256": "aca1229639fc9907d86f96e825955a2b7c5716d17f3bc3acd71f9c7ab66181fc",
+      "bytes": 123724
+    },
+    {
+      "path": "tesseract/core/tesseract-core-lstm.wasm.js",
+      "url": "https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.0/tesseract-core-lstm.wasm.js",
+      "sha256": "50ec33088c93e69135b09917072c1b2c8cb77eb256946f16723cf6a83c7f8e49",
+      "bytes": 3938276
+    },
+    {
+      "path": "tesseract/core/tesseract-core-simd-lstm.wasm.js",
+      "url": "https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.0/tesseract-core-simd-lstm.wasm.js",
+      "sha256": "18797eef96bab787636c40b53efaa445cf5ca1c97abd735c4fd8dc3d03652959",
+      "bytes": 3938656
+    },
+    {
+      "path": "tesseract/lang/eng.traineddata.gz",
+      "url": "https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0/eng.traineddata.gz",
+      "sha256": "ed350f3752f81ee8f38769edc14d92d997dababe23b565c59879372cc46a2468",
+      "bytes": 10923060
+    },
+    {
+      "path": "pyodide/pyodide.js",
+      "url": "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js",
+      "sha256": "c0069107621d5b942a659e737a12e774cc0451feaa2256f475d72e071d844ec7",
+      "bytes": 14761
+    },
+    {
+      "path": "pyodide/pyodide.asm.js",
+      "url": "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.asm.js",
+      "sha256": "919560652ed3dad3707cb3a394785da1e046fb13dc0defa162058ff230cb7eed",
+      "bytes": 1229099
+    },
+    {
+      "path": "pyodide/pyodide.asm.wasm",
+      "url": "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.asm.wasm",
+      "sha256": "b7e66a19427a55010ac3367c1b6c64b893f9826f783412945fdf0c3337f3bc94",
+      "bytes": 10088051
+    },
+    {
+      "path": "pyodide/python_stdlib.zip",
+      "url": "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/python_stdlib.zip",
+      "sha256": "72894522b791858b9d613ac786b951d8b5094035dcf376313ea24a466810f336",
+      "bytes": 2341872
+    },
+    {
+      "path": "pyodide/pyodide-lock.json",
+      "url": "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide-lock.json",
+      "sha256": "cd50b49de944c579045e122fe8628b31f9ce446379f032f36c05e273d38766e0",
+      "bytes": 106335
+    }
+  ]
+}

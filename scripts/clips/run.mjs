@@ -39,8 +39,7 @@ export const main = async (argv) => {
   const args = parse(argv);
   const appDir =
     args.app ?? path.join(ROOT, "node_modules", ".cache", "ui-gate", "build");
-  const outDir =
-    args.out ?? path.join(ROOT, "excalidraw-app", "public", "clips");
+  const outDir = args.out ?? path.join(ROOT, "public", "clips");
   const rawDir = path.join(ROOT, "node_modules", ".cache", "clips", "raw");
 
   if (!fs.existsSync(path.join(appDir, "index.html"))) {

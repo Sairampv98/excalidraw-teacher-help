@@ -8,9 +8,12 @@
  * freezing the page.
  */
 
-/** where the runtime comes from, and the version it is pinned to */
+import { ENGINE_FILES, engineUrl } from "../engines/enginePaths";
+
+/** the version of the runtime the app carries (the file is in `scripts/vendor/engines.manifest.json`) */
 export const PYODIDE_VERSION = "0.26.4";
-export const PYODIDE_INDEX_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
+/** the runtime is carried by the app (D-460), so Python runs with no internet */
+export const pyodideIndexUrl = () => engineUrl(ENGINE_FILES.pyodide.folder);
 
 /** the program is stopped after this long, as the extension's run is */
 export const PYTHON_TIMEOUT_MS = 10_000;
@@ -132,7 +135,7 @@ export type PythonWorker = {
 
 const createBlobWorker = (): PythonWorker => {
   const url = URL.createObjectURL(
-    new Blob([workerSource(PYODIDE_INDEX_URL)], { type: "text/javascript" }),
+    new Blob([workerSource(pyodideIndexUrl())], { type: "text/javascript" }),
   );
 
   return new Worker(url) as unknown as PythonWorker;
