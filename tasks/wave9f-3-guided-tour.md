@@ -5,4 +5,4 @@ base: main
 status: open
 ---
 
-(describe the task here)
+A guided tour on the first launch that highlights the real controls of the app, and a help icon that brings up the guide for the tool in use.
