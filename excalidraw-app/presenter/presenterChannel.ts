@@ -82,6 +82,13 @@ export type PresenterCamera = {
 export type PresenterScene = {
   elements: readonly OrderedExcalidrawElement[];
   camera: PresenterCamera;
+  /**
+   * What the elements were when this scene was made (D-449). The editor edits an
+   * element where it stands - a follow step of the VS Code mirror does - and then
+   * hands over the very same list, so the list alone cannot say that nothing
+   * changed. Absent where nobody asked for it.
+   */
+  fingerprint?: string;
 };
 
 /**
@@ -153,11 +160,36 @@ export const pointerCollaborators = (
 const samePages = (a: PresenterCamera["pages"], b: PresenterCamera["pages"]) =>
   a === b || JSON.stringify(a) === JSON.stringify(b);
 
+/**
+ * A short string that changes when any element changes (D-449): every change of
+ * an element gives it a new version and a new random version nonce, so the two
+ * together, mixed over all the elements, tell a list that was edited in place from
+ * the same list as it was. It reads each element once and keeps nothing.
+ */
+export const elementsFingerprint = (
+  elements: readonly { version: number; versionNonce: number }[],
+): string => {
+  let mixed = elements.length | 0;
+  let versions = 0;
+
+  for (const element of elements) {
+    mixed = (Math.imul(mixed, 31) + element.versionNonce) | 0;
+    versions = (versions + element.version) | 0;
+  }
+
+  return `${mixed}:${versions}:${elements.length}`;
+};
+
 export const isViewOnlyChange = (
   previous: PresenterScene | null,
   next: PresenterScene,
 ): boolean => {
   if (!previous || previous.elements !== next.elements) {
+    return false;
+  }
+
+  // the same list, but an element in it was edited where it stood (D-449)
+  if (previous.fingerprint !== next.fingerprint) {
     return false;
   }
 
