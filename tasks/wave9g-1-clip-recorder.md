@@ -5,4 +5,4 @@ base: main
 status: open
 ---
 
-(describe the task here)
+A recorder that films the real app doing what a teacher does, with captions, and turns it into short web videos, a poster picture and a README GIF; the first clip (pages) is made with it.
