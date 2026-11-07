@@ -4,7 +4,7 @@ A **modified Excalidraw**: a fork that adds the things a teacher needs when a VS
 
 ![An AI assistant on the board: the server is added to the assistant, the board is paired with a code, and the assistant draws a flowchart. A real run, 35 seconds.](docs/media/assistant-mcp.gif)
 
-*Above: an assistant connected to the board. The terminal on the right is the assistant's side, the board is on the left. Every other feature has a short clip too: press the **?** in the corner of the app, and open **What this version adds**.*
+_Above: an assistant connected to the board. The terminal on the right is the assistant's side, the board is on the left. Every other feature has a short clip too: press the **?** in the corner of the app, and open **What this version adds**._
 
 > ### Read this first
 >
