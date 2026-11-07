@@ -20,6 +20,7 @@ import type { FlowAnimationSnapshot } from "@excalidraw/excalidraw/components/Fl
 
 import {
   createPresenterChannel,
+  elementsFingerprint,
   getPresenterCamera,
   isPresenterFileWithinLimit,
   isViewOnlyChange,
@@ -119,6 +120,7 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
     const next: PresenterScene = {
       elements: scene.elements,
       camera: getPresenterCamera(scene.appState, pagesEnabledRef.current),
+      fingerprint: elementsFingerprint(scene.elements),
     };
 
     try {
@@ -149,6 +151,7 @@ export const usePresenterBroadcaster = (pagesEnabled = false) => {
       isViewOnlyChange(last, {
         elements: scene.elements,
         camera: getPresenterCamera(scene.appState, pagesEnabledRef.current),
+        fingerprint: elementsFingerprint(scene.elements),
       })
     );
   }, []);
