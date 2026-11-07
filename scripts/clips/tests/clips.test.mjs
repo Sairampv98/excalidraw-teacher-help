@@ -8,11 +8,18 @@
 import { describe, expect, it } from "vitest";
 
 import { CLIPS } from "../clips/index.mjs";
-import { gifArgs, mp4Args, posterArgs, webmArgs } from "../lib/ffmpeg.mjs";
+import {
+  gifArgs,
+  hstackArgs,
+  mp4Args,
+  posterArgs,
+  webmArgs,
+} from "../lib/ffmpeg.mjs";
 import {
   checkClip,
   concatList,
   glidePoints,
+  hostAllowed,
   manifestEntry,
   readingTime,
 } from "../lib/plan.mjs";
@@ -117,5 +124,58 @@ describe("AC-553 what is asked of ffmpeg", () => {
     expect(args.join(" ")).toContain("palettegen");
     expect(args.join(" ")).toContain("paletteuse");
     expect(args[args.indexOf("-loop") + 1]).toBe("0");
+  });
+});
+
+describe("AC-554 two windows side by side, and one clip online", () => {
+  it("AC-554 two windows start at the same moment: the later one holds its first picture", () => {
+    const list = concatList(
+      [
+        { file: "b1.jpg", at: 10.4 },
+        { file: "b2.jpg", at: 11 },
+      ],
+      { startAt: 10 },
+    );
+
+    expect(list.startsWith("file 'b1.jpg'\nduration 0.400\n")).toBe(true);
+    expect(list).toContain("file 'b1.jpg'\nduration 0.600");
+
+    // the first window needs no wait
+    expect(
+      concatList([{ file: "a1.jpg", at: 10 }], { startAt: 10 }).startsWith(
+        "file 'a1.jpg'\nduration 0.500",
+      ),
+    ).toBe(true);
+  });
+
+  it("AC-554 the two films are put side by side as one, as long as the shorter", () => {
+    const args = hstackArgs("l.mp4", "r.mp4", "o.mp4");
+
+    expect(args.join(" ")).toContain("hstack=inputs=2:shortest=1");
+    expect(args[args.length - 1]).toBe("o.mp4");
+  });
+
+  it("AC-554 a clip reaches only the addresses it names, and their sub-addresses", () => {
+    const hosts = ["youtube.com", "ytimg.com"];
+
+    expect(hostAllowed("https://www.youtube.com/embed/x", hosts)).toBe(true);
+    expect(hostAllowed("https://i.ytimg.com/vi/x.jpg", hosts)).toBe(true);
+    expect(hostAllowed("https://youtube.com.evil.example/x", hosts)).toBe(
+      false,
+    );
+    expect(hostAllowed("https://example.com/", hosts)).toBe(false);
+    expect(hostAllowed("not a url", hosts)).toBe(false);
+
+    // a clip that names nothing reaches nothing
+    expect(hostAllowed("https://www.youtube.com/", undefined)).toBe(false);
+  });
+
+  it("AC-554 only the clips that need the internet name addresses, and nothing but video hosts", () => {
+    for (const clip of CLIPS.filter((c) => c.allowHosts)) {
+      expect(clip.id).toBe("youtube");
+      expect(
+        clip.allowHosts.every((host) => /youtube|ytimg|googlevideo/.test(host)),
+      ).toBe(true);
+    }
   });
 });

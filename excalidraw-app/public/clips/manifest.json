@@ -11,6 +11,16 @@
       "poster": "clips/pages.jpg"
     },
     {
+      "id": "presenter-split",
+      "title": "Editor and projector, half the screen each",
+      "line": "Teach in one window while the class sees the presenter window, which follows every stroke.",
+      "group": "Presenting to a class",
+      "seconds": 26.6,
+      "bytes": 250633,
+      "video": "clips/presenter-split.webm",
+      "poster": "clips/presenter-split.jpg"
+    },
+    {
       "id": "video-sidebar",
       "title": "A video on the board",
       "line": "Open a video from the Files tab and it plays on the board, with its captions beside it.",
@@ -19,6 +29,16 @@
       "bytes": 317667,
       "video": "clips/video-sidebar.webm",
       "poster": "clips/video-sidebar.jpg"
+    },
+    {
+      "id": "youtube",
+      "title": "A YouTube link on the board",
+      "line": "Paste a YouTube link in the Files tab and the video plays on the board.",
+      "group": "Video and media",
+      "seconds": 21.6,
+      "bytes": 257050,
+      "video": "clips/youtube.webm",
+      "poster": "clips/youtube.jpg"
     },
     {
       "id": "stickers",

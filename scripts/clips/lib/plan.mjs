@@ -62,8 +62,16 @@ export const checkClip = (clip) => {
  * frame stays for as long as it was on the screen. A screencast sends a frame
  * only when the picture changes, so the times are not even.
  */
-export const concatList = (frames, { lastFor = 0.5 } = {}) => {
+export const concatList = (frames, { lastFor = 0.5, startAt } = {}) => {
   const lines = [];
+
+  // two windows filmed together start at the same moment: the first picture is held until its own turn
+  if (frames.length && startAt !== undefined && frames[0].at > startAt) {
+    lines.push(
+      `file '${frames[0].file}'`,
+      `duration ${(frames[0].at - startAt).toFixed(3)}`,
+    );
+  }
 
   frames.forEach((frame, index) => {
     const next = frames[index + 1];
@@ -78,4 +86,23 @@ export const concatList = (frames, { lastFor = 0.5 } = {}) => {
   }
 
   return `${lines.join("\n")}\n`;
+};
+
+/** a clip may reach the internet only at the addresses it names (and then only that clip) */
+export const hostAllowed = (url, hosts = []) => {
+  try {
+    const { hostname } = new URL(url);
+
+    return hosts.some(
+      (host) => hostname === host || hostname.endsWith(`.${host}`),
+    );
+  } catch {
+    return false;
+  }
+};
+
+/** the size of each window when a clip films two side by side: half the film each */
+export const HALF_SIZE = {
+  width: CLIP_SIZE.width / 2,
+  height: CLIP_SIZE.height,
 };
