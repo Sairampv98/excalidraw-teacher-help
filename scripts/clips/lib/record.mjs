@@ -20,6 +20,7 @@ import {
   webmArgs,
 } from "./ffmpeg.mjs";
 import { overlayScript } from "./overlay.mjs";
+import { terminalActions, terminalHtml } from "./terminal.mjs";
 import {
   CLIP_SIZE,
   HALF_SIZE,
@@ -148,6 +149,15 @@ const openWindow = async (context, url, size) => {
   return page;
 };
 
+const openTerminal = async (context, title, size) => {
+  const page = await context.newPage();
+
+  await page.setViewportSize(size);
+  await page.setContent(terminalHtml(title));
+
+  return page;
+};
+
 export const recordClip = async (
   clip,
   { appDir, outDir, rawDir, withGif = false },
@@ -197,9 +207,11 @@ export const recordClip = async (
     await context.addInitScript(overlayScript);
 
     const page = await openWindow(context, server.url, size);
-    const second = split
-      ? await openWindow(context, `${server.url}/?presenter=true`, size)
-      : null;
+    const second = !split
+      ? null
+      : clip.second === "terminal"
+      ? await openTerminal(context, clip.title, size)
+      : await openWindow(context, `${server.url}/?presenter=true`, size);
 
     await page.bringToFront();
     await page.waitForTimeout(1200);
@@ -218,7 +230,10 @@ export const recordClip = async (
     const helper = makeHelper(page, assets, size);
 
     if (second) {
-      helper.right = makeHelper(second, assets, size);
+      helper.right = {
+        ...makeHelper(second, assets, size),
+        ...(clip.second === "terminal" ? terminalActions(second) : {}),
+      };
     }
 
     try {
@@ -236,6 +251,9 @@ export const recordClip = async (
     await page.waitForTimeout(600);
     seconds = (Date.now() - startedAt) / 1000;
 
+    // each window keeps its last picture on until the film ends, the same moment for both
+    const endAt = Date.now() / 1000;
+
     await left.stop();
     await right?.stop();
     await context.close();
@@ -249,7 +267,7 @@ export const recordClip = async (
       const list = path.join(frameDir, `${name}.txt`);
       const out = path.join(rawDir, `${clip.id}-${name}.mp4`);
 
-      fs.writeFileSync(list, concatList(capture.frames, { startAt }));
+      fs.writeFileSync(list, concatList(capture.frames, { startAt, endAt }));
       runFfmpeg(ffmpeg, framesToFilmArgs(list, out));
 
       return out;
