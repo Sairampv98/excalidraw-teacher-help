@@ -5,10 +5,30 @@
       "title": "Pages",
       "line": "A class is a series of pages, not one endless board.",
       "group": "Pages",
-      "seconds": 27.2,
-      "bytes": 238289,
+      "seconds": 27.4,
+      "bytes": 237913,
       "video": "clips/pages.webm",
       "poster": "clips/pages.jpg"
+    },
+    {
+      "id": "video-sidebar",
+      "title": "A video on the board",
+      "line": "Open a video from the Files tab and it plays on the board, with its captions beside it.",
+      "group": "Video and media",
+      "seconds": 26.2,
+      "bytes": 317667,
+      "video": "clips/video-sidebar.webm",
+      "poster": "clips/video-sidebar.jpg"
+    },
+    {
+      "id": "stickers",
+      "title": "Stickers, emoji and GIFs",
+      "line": "A bar of emoji and GIFs that come with the app: click one and it lands on the page.",
+      "group": "Video and media",
+      "seconds": 26.9,
+      "bytes": 495453,
+      "video": "clips/stickers.webm",
+      "poster": "clips/stickers.jpg"
     }
   ]
 }
