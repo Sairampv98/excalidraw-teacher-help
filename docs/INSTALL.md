@@ -12,6 +12,22 @@ Whichever way you came in, the **VS Code / VSCodium extension** is what connects
 
 ---
 
+## The click-through installer (no internet, no administrator)
+
+`ClassroomSetup.exe` is one file that carries everything: double-click it, press **Next** three times, and it installs the board and the tools of the class **for you alone**. It needs no internet and asks for no administrator rights.
+
+1. **Welcome**, then **What to install**: the board (always), VS Code, Python, Java, C and C++, Node.js, and, off by default, **Better text reading (Indra OCR)**. The page scrolls if your screen is small.
+2. **Ready** says what will be done. **Install** does it; the bar shows how far it is.
+3. **Finished** can open the board. It has a shortcut on the desktop and in the Start menu, and a small icon by the clock while it runs (right-click it, then **Quit**).
+
+To take it away: **Uninstall** in the Start menu, or **Apps** in the Windows settings. It removes what it installed, and puts your PATH back as it was. Your drawings are kept by the browser and are not deleted.
+
+**For students:** `ClassTools-Setup.exe` is the same installer with the tools alone (VS Code, Python, Java, C and C++, Node.js) and no board. A teacher can pass this one file to a class so that every computer is ready.
+
+**If Windows says "Windows protected your PC":** the setup is not signed with a paid certificate (D-466), so SmartScreen does not know it yet. Press **More info**, then **Run anyway**. The checksum (SHA-256) of each file is published beside it: compare it before you run it on a computer that matters.
+
+**Silent install** (for a lab): `ClassroomSetup.exe /silent /dir="C:\Tools\Classroom" /components=app,python,java,gcc,node /log=setup.log`. The exit code is 0 when it installed.
+
 ## 1. The setup
 
 The setup is the whole point of this project: a person with a laptop, an editor and a class to teach should not have to work out that they need Node, that Yarn comes from Corepack, and that the extension is installed from a `.vsix`.
