@@ -45,6 +45,12 @@ v2.1 is the release of the small fixes and improvements made after v2.0.0. v3 ("
 
 **The Windows 7 offline pack** lives outside the repository (`D:\workspace\DSA-Class-Pack`, built by `D:\workspace\dsa-classroom-v2\tools\assemble-pack.ps1`): the app with Chromium 109 (32-bit), a PowerShell 2.0 web server on plain sockets, GCC 16.2 (32-bit), Java 8, Python 3.4.4, the verified course code in four languages, 49 lesson pages, PDF and MP4 files. It was tested on a Windows 7 SP1 32-bit virtual machine (Hyper-V; the machine and its helpers are in `D:\workspace\win7-pack\vm`). **Windows 7 without Service Pack 1 is untested** (the only installation medium has SP1 inside). Its scripts should move into `installer/` in a later task.
 
+### After v2.2: the small update 2.2.1 (D-477, owner 2026-11-08)
+
+1. **The editor mirror on Windows 7**: `extension/media/capture.ps1`, `window.ps1`, `input.ps1` fail on PowerShell 2.0 (`Add-Type` compiles with C# 2.0; `window.ps1` uses `ConvertTo-Json`). Write a `compat.ps1` that shadows `Add-Type` for PowerShell older than 3 with `CSharpCodeProvider` and `CompilerVersion=v3.5`; test on the Windows 7 machines (32 and 64 bit). The panel shows "Waiting for the editor's window" until then.
+2. **The assistant (MCP server) on Windows 7**: not possible (Node 12 is the newest there); the setup says so; the first screen's "Connect an AI assistant" should say it is not available on Windows 7.
+3. **The better text reader (Indra OCR) on Windows 7**: not in the Windows 7 setup (it needs Python 3.12). Look into a Python 3.8 build of its libraries; the board's own reader works without Python.
+
 ### The UI gate (2026-11-07)
 
 `node scripts/ui/build.mjs` then `node scripts/ui/run.mjs` drives the built app in the Chrome of this computer (D-450, D-451). Scenarios live in `scripts/ui/scenarios/`; a failing one is a discrepancy and the owner gets a repro card with `node scripts/ui/replay.mjs <scenario>`. Nothing is changed on a discrepancy until the owner answers. `launch-clean` guards that the app opens without any request to another computer (D-452; the fonts are the app's own files and the analytics script is gone, in the web app and the offline setup). The first-launch tour and the help-icon guides are in (D-453, D-454, scenarios `tour-first-launch`, `help-tool-guide`). The first click on a control outside the open side panel now lands (D-455, scenario `first-click-lands`). To do: the recorded clips, the fly-switch scenario (AC-538), a matrix of rows to scenarios.

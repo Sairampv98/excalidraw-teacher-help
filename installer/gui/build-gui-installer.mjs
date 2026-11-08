@@ -15,6 +15,7 @@
  */
 import { execFileSync } from "node:child_process";
 import {
+  copyFileSync,
   createReadStream,
   createWriteStream,
   existsSync,
@@ -40,11 +41,18 @@ const CSC_CANDIDATES = [
 const PIECE_SIZE = 16 * 1024 * 1024;
 
 const SOURCES = {
-  launcher: ["Common.cs", "Server.cs", "Download.cs", "Launcher.cs"],
+  launcher: [
+    "Common.cs",
+    "Server.cs",
+    "Download.cs",
+    "ZipLite.cs",
+    "Launcher.cs",
+  ],
   setup: [
     "Common.cs",
     "Server.cs",
     "Download.cs",
+    "ZipLite.cs",
     "Engine.cs",
     "Wizard.cs",
     "SelfTest.cs",
@@ -61,6 +69,24 @@ const REFERENCES = [
 
 export const findCsc = () => CSC_CANDIDATES.find((p) => existsSync(p)) ?? null;
 
+/**
+ * The Windows 7 build: the .NET 3.5 compiler (C# 3), which is what Windows 7 with Service Pack 1 has, and the symbol
+ * NET35, which switches the few places that need .NET 4 (zip files, Path.Combine of many parts...) to their own code.
+ */
+const CSC35_CANDIDATES = [
+  "C:/Windows/Microsoft.NET/Framework64/v3.5/csc.exe",
+  "C:/Windows/Microsoft.NET/Framework/v3.5/csc.exe",
+];
+
+export const findCsc35 = () =>
+  CSC35_CANDIDATES.find((p) => existsSync(p)) ?? null;
+const REFERENCES35 = [
+  "System.Web.Extensions.dll",
+  "System.Core.dll",
+  "System.Windows.Forms.dll",
+  "System.Drawing.dll",
+];
+
 /** the version of the program: three numbers, in an attribute the compiler reads */
 const versionSource = (version) =>
   `using System.Reflection;\n[assembly: AssemblyVersion("${version}.0")]\n[assembly: AssemblyTitle("Excalidraw Classroom")]\n[assembly: AssemblyProduct("Excalidraw Classroom")]\n`;
@@ -73,6 +99,7 @@ export const compile = ({
   sources,
   version,
   resources = [],
+  net35 = false,
 }) => {
   mkdirSync(dirname(out), { recursive: true });
 
@@ -89,7 +116,8 @@ export const compile = ({
     `/out:${out}`,
     `/win32icon:${join(ROOT, "public", "favicon.ico")}`,
     `/win32manifest:${join(HERE, "app.manifest")}`,
-    ...REFERENCES.map((r) => `/reference:${r}`),
+    ...(net35 ? ["/define:NET35"] : []),
+    ...(net35 ? REFERENCES35 : REFERENCES).map((r) => `/reference:${r}`),
     ...resources.map(([file, name]) => `/resource:${file},${name}`),
     versionFile,
     ...sources.map((s) => join(HERE, s)),
@@ -115,6 +143,8 @@ const parseArgs = (argv) => {
     version: "2.1.1",
     withPayload: true,
     online: null,
+    win7: false,
+    folder: false,
     edition: "classroom",
     name: null,
   };
@@ -128,6 +158,10 @@ const parseArgs = (argv) => {
       args.version = argv[++i];
     } else if (argv[i] === "--no-payload") {
       args.withPayload = false;
+    } else if (argv[i] === "--folder") {
+      args.folder = true;
+    } else if (argv[i] === "--win7") {
+      args.win7 = true;
     } else if (argv[i] === "--online") {
       args.online = resolve(argv[++i]);
       args.withPayload = false;
@@ -143,7 +177,7 @@ const parseArgs = (argv) => {
 
 export const main = async (argv) => {
   const args = parseArgs(argv);
-  const csc = findCsc();
+  const csc = args.win7 ? findCsc35() : findCsc();
 
   if (!csc) {
     console.error(
@@ -171,6 +205,7 @@ export const main = async (argv) => {
     compile({
       csc,
       out: launcher,
+      net35: args.win7,
       target: "winexe",
       sources: SOURCES.launcher,
       version: args.version,
@@ -184,6 +219,7 @@ export const main = async (argv) => {
   compile({
     csc,
     out: uninstall,
+    net35: args.win7,
     target: "winexe",
     sources: SOURCES.setup,
     version: args.version,
@@ -201,7 +237,7 @@ export const main = async (argv) => {
   }
   const pieces = [];
 
-  if (args.withPayload) {
+  if (args.withPayload && !args.folder) {
     if (!existsSync(args.payload)) {
       console.error(
         `there is no payload at ${args.payload}\nbuild it first: node installer/offline/build-payload.mjs`,
@@ -254,6 +290,14 @@ export const main = async (argv) => {
     console.log(
       `   the payload is ${files.length} file(s) in ${pieces.length} piece(s)`,
     );
+  } else if (args.folder) {
+    // the payload stays as files beside the setup (copied after the compile): the setup is small
+    if (!existsSync(join(args.payload, "manifest.json"))) {
+      console.error(`there is no payload at ${args.payload}`);
+
+      return 2;
+    }
+    console.log("   the payload stays as files in a folder beside the setup");
   } else if (args.online) {
     // the online setup carries a list of addresses with a size and a hash for each file, and no file
     resources.push([args.online, "online.json"]);
@@ -265,7 +309,11 @@ export const main = async (argv) => {
   const setup = join(
     args.out,
     args.name ??
-      (student
+      (args.win7
+        ? student
+          ? "ClassTools-Win7.exe"
+          : "ClassroomSetup-Win7.exe"
+        : student
         ? args.online
           ? "ClassTools-Online.exe"
           : "ClassTools-Setup.exe"
@@ -277,11 +325,24 @@ export const main = async (argv) => {
   compile({
     csc,
     out: setup,
+    net35: args.win7,
     target: "winexe",
     sources: SOURCES.setup,
     version: args.version,
     resources,
   });
+  if (args.folder) {
+    const target = join(args.out, "payload");
+
+    rmSync(target, { recursive: true, force: true });
+    mkdirSync(target, { recursive: true });
+    for (const name of readdirSync(args.payload).filter(
+      (n) => !n.startsWith("."),
+    )) {
+      copyFileSync(join(args.payload, name), join(target, name));
+    }
+    console.log(`   the payload is in ${target}`);
+  }
   rmSync(work, { recursive: true, force: true });
 
   console.log(

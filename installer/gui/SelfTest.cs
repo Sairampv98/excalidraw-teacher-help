@@ -67,30 +67,51 @@ namespace ExcalidrawClassroom
                     env.RemoveFromPath("C:\\Tools\\Z");
                     Check("a PATH of the shape [" + odd + "] comes back exactly", env.GetPath() == odd);
                 }
+                env.SetVariable("Path", "C:\\Keep;C:\\Inst\\tools\\python\\Scripts\\;C:\\Inst\\tools\\python\\;C:\\InstOther;C:\\Inst;C:\\Also");
+                Check("every PATH entry inside the install folder is taken out, a sibling that starts the same is not",
+                    env.RemoveFromPathUnder("C:\\Inst") == 3 && env.GetPath() == "C:\\Keep;C:\\InstOther;C:\\Also");
+#if NET35
+                Check("Windows 7 with Service Pack 1 is accepted, 32 and 64 bit", Supported.Problem(false, 7601) == null && Supported.Problem(true, 7601) == null);
+                Check("Windows 7 without Service Pack 1 is told to install it", (Supported.Problem(true, 7600) ?? "").Contains("Service Pack 1"));
+                Check("Windows 10 and 11 are sent to the other setup", (Supported.Problem(true, 19045) ?? "").Contains("other setup") && (Supported.Problem(true, 22631) ?? "").Contains("other setup"));
+                Check("a build that cannot be read is let through", Supported.Problem(true, 0) == null);
+#else
                 Check("Windows 11 and a current Windows 10 are accepted", Supported.Problem(true, 22631) == null && Supported.Problem(true, 19045) == null && Supported.Problem(true, Supported.LowestBuild) == null);
                 Check("32-bit Windows is refused, and the reason says why", (Supported.Problem(false, 22631) ?? "").Contains("64-bit"));
                 Check("Windows 7 is sent to the Windows 7 setup", (Supported.Problem(true, 7601) ?? "").Contains("Windows 7 setup"));
                 Check("a Windows 10 older than the lowest build is told to update", (Supported.Problem(true, 17134) ?? "").Contains("update Windows"));
                 Check("a build that cannot be read is let through", Supported.Problem(true, 0) == null);
+#endif
+                Check("the C compiler stays where it is when the path has no space", Engine.GccTarget(@"C:\Users\a\Programs\X") == @"C:\Users\a\Programs\X\tools\mingw64");
+                Check("the C compiler goes to a path with no space when the install path has one", Engine.GccTarget(@"C:\Users\Jo Ann\Programs\X").IndexOf(' ') < 0);
+                Check("the Windows build is read from the registry", Supported.Build() >= 7600);
                 env.SetVariable("JAVA_HOME", "C:\\jdk");
                 Check("a variable is set", env.GetVariable("JAVA_HOME") == "C:\\jdk");
                 env.RemoveVariable("JAVA_HOME");
                 Check("a variable is removed", env.GetVariable("JAVA_HOME") == null);
-                Registry.CurrentUser.DeleteSubKeyTree(@"Software\ExcalidrawClassroomSelfTest", false);
+                Files.DeleteKeyTree(Registry.CurrentUser, @"Software\ExcalidrawClassroomSelfTest");
 
                 // ---- archives
                 string zipPath = Path.Combine(temp, "tool.zip");
+#if NET35
+                ZipLite.Write(zipPath, new string[] { "jdk-21/bin/java.exe", "jdk-21/lib/x.txt" }, new string[] { "java", "x" });
+#else
                 using (ZipArchive zip = ZipFile.Open(zipPath, ZipArchiveMode.Create))
                 {
                     AddEntry(zip, "jdk-21/bin/java.exe", "java");
                     AddEntry(zip, "jdk-21/lib/x.txt", "x");
                 }
+#endif
                 string target = Path.Combine(temp, "jdk");
                 Files.ExtractZip(zipPath, target, null);
-                Check("an archive with one top folder is unpacked without it", File.Exists(Path.Combine(target, "bin", "java.exe")) && !Directory.Exists(Path.Combine(target, "jdk-21")));
+                Check("an archive with one top folder is unpacked without it", File.Exists(Files.Join(target, "bin", "java.exe")) && !Directory.Exists(Path.Combine(target, "jdk-21")));
 
                 string evil = Path.Combine(temp, "evil.zip");
+#if NET35
+                ZipLite.Write(evil, new string[] { "../outside.txt" }, new string[] { "no" });
+#else
                 using (ZipArchive zip = ZipFile.Open(evil, ZipArchiveMode.Create)) AddEntry(zip, "../outside.txt", "no");
+#endif
                 bool refused = false;
                 try { Files.ExtractZip(evil, Path.Combine(temp, "safe"), null); } catch (InvalidDataException) { refused = true; }
                 Check("an archive that points outside its folder is refused", refused && !File.Exists(Path.Combine(temp, "outside.txt")));
@@ -102,7 +123,7 @@ namespace ExcalidrawClassroom
                 string root = Path.Combine(temp, "app");
                 Directory.CreateDirectory(Path.Combine(root, "clips"));
                 File.WriteAllText(Path.Combine(root, "index.html"), "<html>the app</html>");
-                File.WriteAllText(Path.Combine(root, "clips", "a.webm"), "0123456789");
+                File.WriteAllText(Files.Join(root, "clips", "a.webm"), "0123456789");
                 StaticServer server = new StaticServer(root);
                 int port = server.Start(47900, 20);
                 int status; long length; string type;
@@ -170,17 +191,19 @@ namespace ExcalidrawClassroom
             finally
             {
                 try { Files.DeleteFolder(temp); } catch { }
-                try { Registry.CurrentUser.DeleteSubKeyTree(@"Software\ExcalidrawClassroomSelfTest", false); } catch { }
+                try { Files.DeleteKeyTree(Registry.CurrentUser, @"Software\ExcalidrawClassroomSelfTest"); } catch { }
             }
             Console.WriteLine(failed == 0 ? "all ok" : failed + " failed");
             return failed;
         }
 
+#if !NET35
         private static void AddEntry(ZipArchive zip, string name, string text)
         {
             ZipArchiveEntry e = zip.CreateEntry(name);
             using (StreamWriter w = new StreamWriter(e.Open())) w.Write(text);
         }
+#endif
 
         private static PayloadFile Fake(string name, string role, long size)
         {

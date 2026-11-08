@@ -3,6 +3,7 @@
  * AC-562 - the two editions: the classroom setup carries the launcher, the student setup does not.
  * AC-567 - the proofs for clean Windows machines are here, and tied to no computer.
  * AC-568 - the setup says which Windows it is not for, and a PATH comes back exactly.
+ * AC-573 - the Windows 7 build of the setup compiles with the .NET 3.5 compiler and checks itself.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -13,7 +14,7 @@ import { fileURLToPath } from "node:url";
 
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { findCsc } from "../build-gui-installer.mjs";
+import { findCsc, findCsc35 } from "../build-gui-installer.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BUILD = path.join(HERE, "..", "build-gui-installer.mjs");
@@ -154,4 +155,43 @@ describe("AC-567 the proofs for clean Windows machines are in the repository", (
       },
     );
   }
+});
+
+const hasCompiler35 = Boolean(findCsc35()) && process.platform === "win32";
+const windows7Only = hasCompiler35 ? describe : describe.skip;
+
+windows7Only("AC-573 the Windows 7 build of the setup", () => {
+  const folder = path.join(out, "win7");
+
+  beforeAll(() => {
+    execFileSync(
+      process.execPath,
+      [BUILD, "--win7", "--no-payload", "--out", folder],
+      { timeout: 240_000 },
+    );
+  }, 300_000);
+
+  it("AC-573 it is built by the .NET 3.5 compiler and its self test passes", () => {
+    const exe = path.join(folder, "ClassroomSetup-Win7.exe");
+
+    expect(fs.existsSync(exe)).toBe(true);
+
+    const run = spawnSync(exe, ["/selftest"], {
+      encoding: "utf8",
+      timeout: 120_000,
+    });
+    const lines = run.stdout.split("\n").map((line) => line.trim());
+
+    expect(lines.filter((line) => line.startsWith("not ok"))).toEqual([]);
+    expect(lines).toContain(
+      "ok - Windows 7 with Service Pack 1 is accepted, 32 and 64 bit",
+    );
+    expect(lines).toContain(
+      "ok - Windows 7 without Service Pack 1 is told to install it",
+    );
+    expect(lines).toContain(
+      "ok - Windows 10 and 11 are sent to the other setup",
+    );
+    expect(lines).toContain("all ok");
+  });
 });

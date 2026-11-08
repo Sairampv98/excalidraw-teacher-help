@@ -98,6 +98,10 @@ namespace ExcalidrawClassroom
                     // the window fits a small screen too (1024x768 and the like): never wider or taller than the working area
                     Rectangle area = Screen.PrimaryScreen.WorkingArea;
                     int width = Math.Min(1500, area.Width - 40), height = Math.Min(950, area.Height - 40);
+                    // the Chromium that is not Google's own build says that it has no Google keys: told "no", it says nothing
+                    Environment.SetEnvironmentVariable("GOOGLE_API_KEY", "no");
+                    Environment.SetEnvironmentVariable("GOOGLE_DEFAULT_CLIENT_ID", "no");
+                    Environment.SetEnvironmentVariable("GOOGLE_DEFAULT_CLIENT_SECRET", "no");
                     Process.Start(browser, "--app=" + url + " --window-size=" + width + "," + height + " --window-position=" + area.Left + "," + area.Top);
                     return;
                 }
@@ -113,6 +117,8 @@ namespace ExcalidrawClassroom
             string local = Environment.GetEnvironmentVariable("LocalAppData");
             string[] candidates = new string[]
             {
+                // the browser the Windows 7 setup puts beside the program (Windows 7 has none that can run the board)
+                Combine(AppDomain.CurrentDomain.BaseDirectory, "tools\\chromium\\chrome.exe"),
                 Combine(pf86, "Microsoft\\Edge\\Application\\msedge.exe"),
                 Combine(pf, "Microsoft\\Edge\\Application\\msedge.exe"),
                 Combine(pf, "Google\\Chrome\\Application\\chrome.exe"),

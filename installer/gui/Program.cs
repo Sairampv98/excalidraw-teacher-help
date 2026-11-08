@@ -62,7 +62,7 @@ namespace ExcalidrawClassroom
 
         private static int Installer(Dictionary<string, string> o, bool silent)
         {
-            string problem = Supported.Problem(Environment.Is64BitOperatingSystem, Supported.Build());
+            string problem = Supported.Problem(Supported.Is64(), Supported.Build());
             if (problem != null && !o.ContainsKey("force"))
             {
                 if (!silent) MessageBox.Show(problem, Product.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -97,6 +97,7 @@ namespace ExcalidrawClassroom
             {
                 foreach (string id in list.Split(',')) options.Components.Add(id.Trim());
                 options.Components.Add("app");
+                options.Components.Add("browser");
             }
             else
             {

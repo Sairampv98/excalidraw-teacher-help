@@ -198,7 +198,7 @@ The exit code of `/silent`: 0 installed; 1 failed; 3 this Windows is not one the
 
 ## Which Windows
 
-64-bit Windows 10 version 1809 (build 17763) or newer, and Windows 11. The tools are 64-bit only, so 32-bit Windows 10 is refused. Windows 7 has its own setup. The oldest Windows 10 builds have not been tried: the lowest build is a careful choice, not a measured one. Windows 10 in S mode cannot run the setup (it is not signed; see "If something does not work").
+64-bit Windows 10 version 1809 (build 17763) or newer, and Windows 11. The tools are 64-bit only, so 32-bit Windows 10 is refused. Windows 7 has its own setup: see [WIN7.md](./WIN7.md). The oldest Windows 10 builds have not been tried: the lowest build is a careful choice, not a measured one. Windows 10 in S mode cannot run the setup (it is not signed; see "If something does not work").
 
 ## Pen tablets
 

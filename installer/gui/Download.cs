@@ -117,7 +117,11 @@ namespace ExcalidrawClassroom
             request.Timeout = 30000;
             request.ReadWriteTimeout = 30000;
             request.AllowAutoRedirect = true;
+            #if NET35
+            if (have > 0) request.AddRange((int)have);
+#else
             if (have > 0) request.AddRange(have);
+#endif
 
             using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
             {

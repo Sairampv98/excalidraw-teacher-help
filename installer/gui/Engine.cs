@@ -43,6 +43,10 @@ namespace ExcalidrawClassroom
             List<Component> list = new List<Component>();
             Add(list, byRole, "app", "app", "The classroom board",
                 "The app itself, with its short videos. Works with no internet.", true, true);
+            // Windows 7 has no browser that can run the board: its setup carries one (Chromium 109, the last for Windows 7)
+            Add(list, byRole, "browser", "browser", "Chromium (the browser for the board)",
+                "The last browser that runs on Windows 7. Only the board uses it; your own browser is not changed.", true, true);
+            AddUpdates(list, files);
             Add(list, byRole, "editor", "vscode", "VS Code (the editor)",
                 Edition.Student
                     ? "Installed for you alone, with no administrator."
@@ -54,12 +58,48 @@ namespace ExcalidrawClassroom
             Add(list, byRole, "gcc", "gcc", "C and C++ (GCC)",
                 "A compiler, unpacked for you alone. For the lessons in C and C++.", false, true);
             Add(list, byRole, "node", "node", "Node.js",
+                
+#if NET35
+                "Unpacked for you alone. For JavaScript (the assistant of the board needs a newer Windows than 7).", false, true);
+#else
                 "Unpacked for you alone. For JavaScript and the assistant's server.", false, true);
+#endif
             Add(list, byRole, "ocr", "indra-models", "Better text reading (Indra OCR)",
                 "Reads the words in a picture or a PDF faster and better than the built-in reader. Needs the editor and Python.", false, false);
 
             // the extension travels with the editor: it is not a choice of its own
             return list;
+        }
+
+        /// <summary>Windows 7 without the universal C runtime cannot run Python 3.8: its setup carries the updates that bring it.</summary>
+        public static bool UcrtPresent()
+        {
+            return File.Exists(Path.Combine(Environment.SystemDirectory, "ucrtbase.dll"));
+        }
+
+        /// <summary>The update files for this Windows (32 or 64 bit), in the order they are to go in.</summary>
+        public static List<PayloadFile> UpdatesFor(List<PayloadFile> files)
+        {
+            string arch = Supported.Is64() ? "x64" : "x86";
+            List<PayloadFile> list = new List<PayloadFile>();
+            foreach (PayloadFile f in files) if (f.Role == "update" && f.Arch == arch) list.Add(f);
+            return list;
+        }
+
+        private static void AddUpdates(List<Component> list, List<PayloadFile> files)
+        {
+            if (UcrtPresent()) return;
+            List<PayloadFile> updates = UpdatesFor(files);
+            if (updates.Count == 0) return;
+            Component c = new Component();
+            c.Id = "updates";
+            c.Role = "update";
+            c.Title = "Windows updates (the C runtime that Python needs)";
+            c.Detail = "Asks for an administrator, and Windows must be restarted after it. Python goes in when you run the setup again.";
+            c.Required = false;
+            c.Checked = true;
+            foreach (PayloadFile f in updates) c.Bytes += f.Size;
+            list.Add(c);
         }
 
         private static void Add(List<Component> list, Dictionary<string, PayloadFile> byRole, string id, string role,
@@ -95,6 +135,26 @@ namespace ExcalidrawClassroom
 
         /// <summary>The tools that could not be put in (the rest still were): the exit code and the last page say so.</summary>
         public List<string> NotInstalled = new List<string>();
+
+        /// <summary>A Windows update was put in: Windows must be restarted before the rest can finish.</summary>
+        public bool RestartNeeded;
+
+        private List<PayloadFile> allFiles = new List<PayloadFile>();
+
+        private void InstallUpdates(string temp)
+        {
+            Step("Installing the Windows updates (this asks for an administrator, and takes a few minutes)");
+            foreach (PayloadFile update in Components.UpdatesFor(allFiles))
+            {
+                string path = Payload.Extract(update, temp, delegate (long n) { Advance(n); });
+                Log("  " + update.Version + ": " + update.Name);
+                int code = Run.Program("wusa.exe", "\"" + path + "\" /quiet /norestart", delegate (string line) { Log("  " + line); }, 40 * 60 * 1000);
+                // 0 done; 3010 done and Windows must restart; 2359302 (0x240006) it is there already
+                if (code != 0 && code != 3010 && code != 2359302) throw new IOException("the update " + update.Version + " ended with code " + code);
+                if (code != 2359302) RestartNeeded = true;
+            }
+            if (RestartNeeded) Log("! Restart Windows, then run this setup again: Python goes in after the restart.");
+        }
         /// <summary>fraction 0..1 of the whole, and the words for what is being done now</summary>
         public Action<double, string> Progress = delegate { };
 
@@ -153,6 +213,7 @@ namespace ExcalidrawClassroom
             Downloader.KeepFolder = options.KeepFolder;
             Downloader.Log = Log;
             List<PayloadFile> files = Payload.Files();
+            allFiles = files;
             List<Component> all = Components.All(files);
             Dictionary<string, PayloadFile> byRole = new Dictionary<string, PayloadFile>();
             foreach (PayloadFile f in files) if (!string.IsNullOrEmpty(f.Role)) byRole[f.Role] = f;
@@ -270,13 +331,25 @@ namespace ExcalidrawClassroom
         private void InstallTool(Component c, Dictionary<string, PayloadFile> byRole, string temp, string dir,
             InstallRecord record, UserEnvironment env, string pythonTargetOverride)
         {
+            if (c.Id == "updates") { InstallUpdates(temp); return; }
             PayloadFile file = byRole[c.Role];
             Step("Installing " + c.Title);
+            if (c.Id == "python" && File.Exists(Path.Combine(Environment.SystemDirectory, "kernel32.dll")) && Environment.OSVersion.Version.Major == 6 && Environment.OSVersion.Version.Minor < 2 && !Components.UcrtPresent())
+            {
+                // Windows 7 without the C runtime: Python 3.8 would refuse (and say so); the updates come first, then a restart
+                throw new IOException("Python needs the Windows update for the C runtime. Install the Windows updates (and restart Windows), then run the setup again.");
+            }
             string path = Payload.Extract(file, temp, delegate (long n) { Advance(n); });
 
-            if (c.Id == "java")
+            if (c.Id == "browser")
             {
-                string target = Path.Combine(dir, "tools", "jdk");
+                string target = Files.Join(dir, "tools", "chromium");
+                Files.DeleteFolder(target);
+                Files.ExtractZip(path, target, null);
+            }
+            else if (c.Id == "java")
+            {
+                string target = Files.Join(dir, "tools", "jdk");
                 Files.DeleteFolder(target);
                 Files.ExtractZip(path, target, null);
                 env.SetVariable("JAVA_HOME", target);
@@ -285,22 +358,28 @@ namespace ExcalidrawClassroom
             }
             else if (c.Id == "node")
             {
-                string target = Path.Combine(dir, "tools", "node");
+                string target = Files.Join(dir, "tools", "node");
                 Files.DeleteFolder(target);
                 Files.ExtractZip(path, target, null);
                 AddPath(record, env, target);
             }
             else if (c.Id == "gcc")
             {
-                string target = Path.Combine(dir, "tools", "mingw64");
+                string target = GccTarget(dir);
+                if (!string.Equals(target, Files.Join(dir, "tools", "mingw64"), StringComparison.OrdinalIgnoreCase))
+                {
+                    Log("  the install folder has a space in its path, which the C compiler cannot work from: it goes to " + target);
+                    string top = Path.GetDirectoryName(target);
+                    if (!record.ExtraFolders.Contains(top)) record.ExtraFolders.Add(top);
+                }
                 Files.DeleteFolder(target);
                 Files.ExtractZip(path, target, null);
                 AddPath(record, env, Path.Combine(target, "bin"));
             }
             else if (c.Id == "python")
             {
-                string target = pythonTargetOverride ?? Path.Combine(dir, "tools", "python");
-                string keep = Path.Combine(dir, "tools", "installers");
+                string target = pythonTargetOverride ?? Files.Join(dir, "tools", "python");
+                string keep = Files.Join(dir, "tools", "installers");
                 Directory.CreateDirectory(keep);
                 string installer = Path.Combine(keep, file.Name);
                 File.Copy(path, installer, true);
@@ -314,7 +393,7 @@ namespace ExcalidrawClassroom
             else if (c.Id == "ocr")
             {
                 // the models: a folder the reader is told of by an environment variable, so it downloads nothing
-                string models = Path.Combine(dir, "tools", "indra-models");
+                string models = Files.Join(dir, "tools", "indra-models");
                 Files.DeleteFolder(models);
                 Files.ExtractZip(path, models, null);
                 env.SetVariable("INDRA_OCR_MODEL_DIR", models);
@@ -346,9 +425,18 @@ namespace ExcalidrawClassroom
                     int exit = Run.Program(path, "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES /MERGETASKS=!runcode,addcontextmenufiles,addcontextmenufolders,addtopath",
                         delegate (string line) { Log("  " + line); }, 20 * 60 * 1000);
                     if (exit != 0) throw new IOException("the editor's installer ended with code " + exit);
-                    string home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Microsoft VS Code");
-                    string unins = Path.Combine(home, "unins000.exe");
-                    if (File.Exists(unins)) record.Uninstallers.Add(unins + "|/VERYSILENT /NORESTART");
+                    // for this user alone (the setup of the Windows 10/11 tools), or for the computer (the Windows 7 one, a system setup)
+                    string[] homes = new string[]
+                    {
+                        Files.Join(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Microsoft VS Code"),
+                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Microsoft VS Code"),
+                        Path.Combine(Environment.GetEnvironmentVariable("ProgramFiles(x86)") ?? "", "Microsoft VS Code"),
+                    };
+                    foreach (string home in homes)
+                    {
+                        string unins = Path.Combine(home, "unins000.exe");
+                        if (File.Exists(unins)) { record.Uninstallers.Add(unins + "|/VERYSILENT /NORESTART"); break; }
+                    }
                     code = EditorCli();
                 }
                 PayloadFile ext;
@@ -370,11 +458,23 @@ namespace ExcalidrawClassroom
             string root = Environment.GetEnvironmentVariable("CLASSROOM_SETUP_EXTENSIONS_DIR");
             if (string.IsNullOrEmpty(root))
             {
-                root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".vscode", "extensions");
+                root = Files.Join(Environment.GetEnvironmentVariable("USERPROFILE"), ".vscode", "extensions");
             }
             if (!Directory.Exists(root)) return null;
             string[] found = Directory.GetDirectories(root, "*excalidraw-bridge*");
             return found.Length == 0 ? null : found[found.Length - 1];
+        }
+
+        /// <summary>
+        /// Where the C compiler goes. GCC cannot compile from a path that has a space in it (its linker cuts the path at the
+        /// space), and a person's name may be in the install path, so then it goes to a folder of its own on the system drive.
+        /// </summary>
+        public static string GccTarget(string dir)
+        {
+            string inside = Files.Join(dir, "tools", "mingw64");
+            if (inside.IndexOf(' ') < 0) return inside;
+            string root = (Environment.GetEnvironmentVariable("SystemDrive") ?? "C:") + Path.DirectorySeparatorChar;
+            return Files.Join(root, "ClassroomTools", Product.DirName, "mingw64");
         }
 
         private static void AddPath(InstallRecord record, UserEnvironment env, string folder)
@@ -392,8 +492,9 @@ namespace ExcalidrawClassroom
             string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             string[] candidates = new string[]
             {
-                Path.Combine(local, "Programs", "Microsoft VS Code", "bin", "code.cmd"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Microsoft VS Code", "bin", "code.cmd"),
+                Files.Join(local, "Programs", "Microsoft VS Code", "bin", "code.cmd"),
+                Files.Join(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Microsoft VS Code", "bin", "code.cmd"),
+                Files.Join(Environment.GetEnvironmentVariable("ProgramFiles(x86)") ?? "", "Microsoft VS Code", "bin", "code.cmd"),
             };
             foreach (string c in candidates) if (File.Exists(c)) return c;
             return null;
@@ -427,6 +528,7 @@ namespace ExcalidrawClassroom
 
             // the launcher may be running: it is asked to quit first (a file in use cannot be deleted)
             StopLauncher(dir);
+            StopProgramsUnder(dir);
 
             foreach (string u in record.Uninstallers)
             {
@@ -439,7 +541,19 @@ namespace ExcalidrawClassroom
                 notes.Add(Path.GetFileName(exe) + " ended with code " + code);
             }
             foreach (string p in record.PathEntries) env.RemoveFromPath(p);
+            // what a tool's own installer put on the PATH from our folder (Python adds its Scripts folder): not left behind
+            env.RemoveFromPathUnder(dir);
             foreach (string v in record.Variables) env.RemoveVariable(v);
+            foreach (string extra in record.ExtraFolders)
+            {
+                try
+                {
+                    Files.DeleteFolder(extra);
+                    string parent = Path.GetDirectoryName(extra);
+                    if (Directory.Exists(parent) && Directory.GetFileSystemEntries(parent).Length == 0) Directory.Delete(parent);
+                }
+                catch { }
+            }
             UserEnvironment.Broadcast();
 
             foreach (string lnk in record.Shortcuts)
@@ -453,7 +567,7 @@ namespace ExcalidrawClassroom
             }
             catch { }
 
-            try { Registry.CurrentUser.DeleteSubKeyTree(Product.UninstallKey, false); } catch { }
+            try { Files.DeleteKeyTree(Registry.CurrentUser, Product.UninstallKey); } catch { }
 
             // the folder: everything but the uninstaller that is running now; that one goes after it has ended
             if (Directory.Exists(dir))
@@ -471,6 +585,30 @@ namespace ExcalidrawClassroom
                 if (!keepRunningProgram) { try { Directory.Delete(dir); } catch { } }
             }
             return notes;
+        }
+
+        /// <summary>
+        /// Programs running from the install folder (the browser the board is in, a tool left open) would keep their files
+        /// from being deleted: they are ended first. This program itself is left alone.
+        /// </summary>
+        public static void StopProgramsUnder(string dir)
+        {
+            string prefix = dir.TrimEnd('\\') + "\\";
+            int self = Process.GetCurrentProcess().Id;
+            foreach (Process p in Process.GetProcesses())
+            {
+                try
+                {
+                    if (p.Id == self) continue;
+                    string where = p.MainModule.FileName;
+                    if (where.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        p.Kill();
+                        p.WaitForExit(4000);
+                    }
+                }
+                catch { }
+            }
         }
 
         public static void StopLauncher(string dir)

@@ -40,6 +40,7 @@ namespace ExcalidrawClassroom
         private Thread worker;
         private bool installOk;
         private string missing;
+        private bool restartNeeded;
         private string failure;
         private string existing;
 
@@ -127,12 +128,12 @@ namespace ExcalidrawClassroom
                 Edition.Student
                     ? "This sets up this computer for the class: the editor (VS Code) and the languages the lessons use - " +
                       "Python, Java, C and C++, and Node.js.\r\n\r\n" +
-                      (Payload.Online ? "This small setup downloads what it installs, so it needs the internet while it runs. " : "Everything is in this one file. It needs no internet, and ") +
+                      (Payload.Online ? "This small setup downloads what it installs, so it needs the internet while it runs. " : (Payload.Folder() != null ? "Everything is in the folder this file is in, so keep them together. It needs no internet, and " : "Everything is in this one file. It needs no internet, and ")) +
                       "it asks for no administrator rights: " +
                       "it is installed for you alone, and nothing is changed for other people who use this computer."
                     : "This sets up " + Product.Name + " on this computer: a board you draw on while you teach, with pages, " +
                       "a code editor, a presenter window, animated flowcharts, and an assistant.\r\n\r\n" +
-                      (Payload.Online ? "This small setup downloads what it installs, so it needs the internet while it runs. " : "Everything is in this one file. It needs no internet, and ") +
+                      (Payload.Online ? "This small setup downloads what it installs, so it needs the internet while it runs. " : (Payload.Folder() != null ? "Everything is in the folder this file is in, so keep them together. It needs no internet, and " : "Everything is in this one file. It needs no internet, and ")) +
                       "it asks for no administrator rights: " +
                       "it is installed for you alone.");
             w.Font = new Font("Segoe UI", 10.5f);
@@ -144,6 +145,8 @@ namespace ExcalidrawClassroom
                 LinkLabel remove = new LinkLabel();
                 remove.Text = "Remove it instead";
                 remove.AutoSize = true;
+                // not a stop of the Tab key: with the focus on it, Enter would remove the program instead of going on
+                remove.TabStop = false;
                 remove.Location = new Point(32, 222);
                 remove.LinkClicked += delegate
                 {
@@ -193,7 +196,7 @@ namespace ExcalidrawClassroom
                 using (FolderBrowserDialog d = new FolderBrowserDialog())
                 {
                     d.Description = "Choose the folder to install into";
-                    if (d.ShowDialog(this) == DialogResult.OK) dirBox.Text = Path.Combine(d.SelectedPath, Product.Folder);
+                    if (d.ShowDialog(this) == DialogResult.OK) dirBox.Text = Path.Combine(d.SelectedPath, Product.DirName);
                 }
             };
             choose.Controls.Add(dirBox);
@@ -346,7 +349,13 @@ namespace ExcalidrawClassroom
                     finishText.Text = installOk
                         ? "Open it from the desktop shortcut or the Start menu. A small icon by the clock shows that it is running; right-click it and choose Quit to stop it.\r\n\r\nTo take it away again, use Uninstall in the Start menu, or Apps in Windows settings."
                         : (failure ?? "Something went wrong.") + "\r\n\r\nThe log is on the previous page.";
-                    if (installOk && !string.IsNullOrEmpty(missing))
+                    if (installOk && restartNeeded)
+                    {
+                        headTitle.Text = "Restart Windows to finish";
+                        headSub.Text = "A Windows update was put in.";
+                        finishText.Text = "Restart Windows now, then run this setup again: it puts in Python, which needs the update." + (string.IsNullOrEmpty(missing) ? "" : "\r\n\r\nNot installed yet: " + missing + ".");
+                    }
+                    else if (installOk && !string.IsNullOrEmpty(missing))
                     {
                         headTitle.Text = "Installed, but not everything";
                         headSub.Text = "Some tools could not be put in.";
@@ -417,6 +426,7 @@ namespace ExcalidrawClassroom
                     engine.Install(options, null);
                     installOk = true;
                     if (engine.NotInstalled.Count > 0) missing = string.Join(", ", engine.NotInstalled.ToArray());
+                    restartNeeded = engine.RestartNeeded;
                 }
                 catch (Exception e)
                 {

@@ -2,7 +2,8 @@
 # AC-567. Copy ClassTools-Setup.exe to C:\test and run this as the test user.
 $ErrorActionPreference = "Continue"
 $Setup = "C:\test\ClassTools-Setup.exe"
-$inst = "C:\test\student"
+# a space in the path on purpose: the C compiler cannot work from one, so the setup puts it elsewhere
+$inst = "C:\test\stu dent"
 $failed = 0
 function Check($name, $ok) { if ($ok) { "ok - $name" } else { "not ok - $name"; $script:failed++ } }
 
@@ -32,7 +33,9 @@ Check "python, java, gcc and node by name run" (($fresh -match "python: Python 3
 
 $w = "C:\test\work"; New-Item -ItemType Directory -Force $w | Out-Null
 Set-Content "$w\hello.c" -Encoding ASCII -Value '#include <stdio.h>', 'int main(void){ printf("hello from C\n"); return 0; }'
-& "$inst\tools\mingw64\bin\gcc.exe" "$w\hello.c" -o "$w\hello.exe"
+$gccExe = (Get-ChildItem "C:\ClassroomTools" -Recurse -Filter gcc.exe -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+Check "the C compiler is on a path with no space ($gccExe)" ($gccExe -and $gccExe.IndexOf(' ') -lt 0)
+& $gccExe "$w\hello.c" -o "$w\hello.exe"
 Check "a C program compiles and runs" ((& "$w\hello.exe") -eq "hello from C")
 Set-Content "$w\Hello.java" -Encoding ASCII -Value 'public class Hello { public static void main(String[] a){ System.out.println("hello from Java"); } }'
 Check "a Java program runs" ((& "$inst\tools\jdk\bin\java.exe" "$w\Hello.java") -eq "hello from Java")
@@ -47,4 +50,5 @@ Check "the PATH is exactly as it was" ($after -eq $before)
 Check "the editor was taken out again" (-not (Test-Path $code))
 Check "the entry in the uninstall list is gone" (-not (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ClassTools'))
 Check "the install folder is gone" (-not (Test-Path $inst))
+Check "the compiler's folder is gone too" (-not (Test-Path "C:\ClassroomTools"))
 if ($failed -eq 0) { "all ok" } else { "$failed failed" }

@@ -3,7 +3,8 @@
 # as the test user.
 param([string]$Setup = "C:\test\ClassroomSetup.exe")
 $ErrorActionPreference = "Continue"
-$inst = "C:\test\install"
+# a space in the path on purpose: the C compiler cannot work from one, so the setup puts it elsewhere
+$inst = "C:\test\in stall"
 $failed = 0
 function Check($name, $ok) { if ($ok) { "ok - $name" } else { "not ok - $name"; $script:failed++ } }
 
@@ -32,13 +33,17 @@ if (Test-Path $code) {
   $ext = cmd /c "`"$code`" --list-extensions 2>&1" | Out-String
   Check "the board's connection is in the editor ($($ext.Trim() -replace "`r?`n", ' '))" ($ext -match "excalidraw")
 }
-"--- extension folders:"; Get-ChildItem "$env:USERPROFILE.vscodeextensions" -ErrorAction SilentlyContinue | % { "   $($_.FullName)"; Get-ChildItem $_.FullName -Recurse -Filter *.whl -ErrorAction SilentlyContinue | % { "      wheel: $($_.Name)" } }
 Check "the extension's folder has the Indra libraries" ((Get-ChildItem (Get-ChildItem "$env:USERPROFILE\.vscode\extensions" -Directory | ? Name -like "*excalidraw*").FullName -Recurse -Filter "indra_ocr*.whl" -ErrorAction SilentlyContinue | Measure-Object).Count -eq 1)
 
 $java = cmd /c "`"$inst\tools\jdk\bin\java.exe`" -version 2>&1" | Out-String
 Check "Java runs ($(($java -split "`n")[0].Trim()))" ($java -match "21\.")
 Check "Node runs ($(& "$inst\tools\node\node.exe" -v))" $true
-Check "the C compiler runs" ((& "$inst\tools\mingw64\bin\gcc.exe" --version | Select-Object -First 1) -match "gcc")
+$gccExe = (Get-ChildItem "C:\ClassroomTools" -Recurse -Filter gcc.exe -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+Check "the C compiler is on a path with no space ($gccExe)" ($gccExe -and $gccExe.IndexOf(' ') -lt 0)
+Check "the C compiler runs" ((& $gccExe --version | Select-Object -First 1) -match "gcc")
+Set-Content "C:\test\hello.c" -Encoding ASCII -Value '#include <stdio.h>', 'int main(void){ printf("hello from C\n"); return 0; }'
+& $gccExe "C:\test\hello.c" -o "C:\test\hello.exe"
+Check "a C program compiles and runs" ((Test-Path "C:\test\hello.exe") -and ((& "C:\test\hello.exe") -eq "hello from C"))
 Check "Python runs ($(& "$inst\tools\python\python.exe" --version))" (Test-Path "$inst\tools\python\python.exe")
 
 $envNow = Get-ItemProperty 'HKCU:\Environment'
@@ -74,6 +79,7 @@ $u = Start-Process -FilePath "$inst\Uninstall.exe" -ArgumentList "/silent" -Pass
 Check "the uninstall ends well (exit $($u.ExitCode))" ($u.ExitCode -eq 0)
 Start-Sleep -Seconds 8
 Check "the install folder is gone" (-not (Test-Path $inst))
+Check "the compiler's folder is gone too" (-not (Test-Path "C:\ClassroomTools"))
 "PATH after: [" + (Get-ItemProperty 'HKCU:Environment').Path + "]"
 "--- env before:"; $envBefore
 "--- env after:"; (Get-ItemProperty 'HKCU:Environment' | Format-List | Out-String)
