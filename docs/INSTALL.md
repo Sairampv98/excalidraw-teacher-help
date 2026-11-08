@@ -188,6 +188,18 @@ Everything here works on **Windows on ARM** — but two things differ, and it is
 
 ---
 
+## The small setup (it downloads what it installs)
+
+`ClassroomSetup-Online.exe` and `ClassTools-Online.exe` are the same wizard as the large setups, as a file of a fraction of a megabyte. They need the internet while they run: each tool is fetched from its maker (Python from python.org, Java from Adoptium on GitHub, the C compiler from winlibs on GitHub, Node.js from nodejs.org, VS Code from Microsoft), with mirrors tried after it and this project's own copy last. **Every file is checked against a SHA-256 recorded in the setup**, so a mirror need not be trusted and a file that is not the recorded one is never used. A download that stops is carried on from where it stopped.
+
+On the last page before Install there is **Keep the downloaded files, to install on another computer with no internet**; from a script, `/keep=<folder>` does the same. Run the setup again on the other computer with the same `/keep=<folder>`: it takes the files from there and downloads nothing.
+
+The exit code of `/silent`: 0 installed; 1 failed; 3 this Windows is not one the setup is made for; 4 some tools were not installed (the log says which).
+
+## Which Windows
+
+64-bit Windows 10 version 1809 (build 17763) or newer, and Windows 11. The tools are 64-bit only, so 32-bit Windows 10 is refused. Windows 7 has its own setup. The oldest Windows 10 builds have not been tried: the lowest build is a careful choice, not a measured one. Windows 10 in S mode cannot run the setup (it is not signed; see "If something does not work").
+
 ## Pen tablets
 
 The setup does not carry the drivers of pen tablets. A tablet works as a mouse with no driver on most Windows; the maker's driver adds pressure and the buttons. Take the driver from the maker's own page:

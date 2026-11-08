@@ -40,10 +40,11 @@ const CSC_CANDIDATES = [
 const PIECE_SIZE = 16 * 1024 * 1024;
 
 const SOURCES = {
-  launcher: ["Common.cs", "Server.cs", "Launcher.cs"],
+  launcher: ["Common.cs", "Server.cs", "Download.cs", "Launcher.cs"],
   setup: [
     "Common.cs",
     "Server.cs",
+    "Download.cs",
     "Engine.cs",
     "Wizard.cs",
     "SelfTest.cs",
@@ -113,6 +114,7 @@ const parseArgs = (argv) => {
     out: join(HERE, "dist"),
     version: "2.1.1",
     withPayload: true,
+    online: null,
     edition: "classroom",
     name: null,
   };
@@ -125,6 +127,9 @@ const parseArgs = (argv) => {
     } else if (argv[i] === "--version") {
       args.version = argv[++i];
     } else if (argv[i] === "--no-payload") {
+      args.withPayload = false;
+    } else if (argv[i] === "--online") {
+      args.online = resolve(argv[++i]);
       args.withPayload = false;
     } else if (argv[i] === "--edition") {
       args.edition = argv[++i];
@@ -249,13 +254,24 @@ export const main = async (argv) => {
     console.log(
       `   the payload is ${files.length} file(s) in ${pieces.length} piece(s)`,
     );
+  } else if (args.online) {
+    // the online setup carries a list of addresses with a size and a hash for each file, and no file
+    resources.push([args.online, "online.json"]);
+    console.log(`   the online list: ${args.online}`);
   } else {
     console.log("   WITHOUT a payload (it says so when it runs)");
   }
 
   const setup = join(
     args.out,
-    args.name ?? (student ? "ClassTools-Setup.exe" : "ClassroomSetup.exe"),
+    args.name ??
+      (student
+        ? args.online
+          ? "ClassTools-Online.exe"
+          : "ClassTools-Setup.exe"
+        : args.online
+        ? "ClassroomSetup-Online.exe"
+        : "ClassroomSetup.exe"),
   );
 
   compile({

@@ -39,6 +39,7 @@ namespace ExcalidrawClassroom
 
         private Thread worker;
         private bool installOk;
+        private string missing;
         private string failure;
         private string existing;
 
@@ -117,6 +118,7 @@ namespace ExcalidrawClassroom
         // ---------------------------------------------------------------------------------- the pages
 
         private Panel welcome, choose, ready, installing, finished;
+        private CheckBox keepBox;
 
         private void BuildPages()
         {
@@ -125,11 +127,13 @@ namespace ExcalidrawClassroom
                 Edition.Student
                     ? "This sets up this computer for the class: the editor (VS Code) and the languages the lessons use - " +
                       "Python, Java, C and C++, and Node.js.\r\n\r\n" +
-                      "Everything is in this one file. It needs no internet, and it asks for no administrator rights: " +
+                      (Payload.Online ? "This small setup downloads what it installs, so it needs the internet while it runs. " : "Everything is in this one file. It needs no internet, and ") +
+                      "it asks for no administrator rights: " +
                       "it is installed for you alone, and nothing is changed for other people who use this computer."
                     : "This sets up " + Product.Name + " on this computer: a board you draw on while you teach, with pages, " +
                       "a code editor, a presenter window, animated flowcharts, and an assistant.\r\n\r\n" +
-                      "Everything is in this one file. It needs no internet, and it asks for no administrator rights: " +
+                      (Payload.Online ? "This small setup downloads what it installs, so it needs the internet while it runs. " : "Everything is in this one file. It needs no internet, and ") +
+                      "it asks for no administrator rights: " +
                       "it is installed for you alone.");
             w.Font = new Font("Segoe UI", 10.5f);
             if (!string.IsNullOrEmpty(existing))
@@ -222,7 +226,22 @@ namespace ExcalidrawClassroom
 
             ready = NewPage();
             Lab(ready, 32, 14, 650, 24, "Ready to install. This is what will be done:").Font = new Font("Segoe UI Semibold", 10f);
-            summary = Lab(ready, 32, 46, 650, 280, "");
+            summary = Lab(ready, 32, 46, 650, 250, "");
+            if (Payload.Online)
+            {
+                keepBox = new CheckBox();
+                keepBox.Text = "Keep the downloaded files, to install on another computer with no internet";
+                keepBox.AutoSize = true;
+                keepBox.Location = new Point(32, 310);
+                keepBox.CheckedChanged += delegate
+                {
+                    options.KeepFolder = keepBox.Checked
+                        ? Path.Combine(Path.Combine(Environment.GetEnvironmentVariable("USERPROFILE") ?? "", "Downloads"), Product.Folder + " files")
+                        : null;
+                    summary.Text = string.Join("\r\n", Engine.DescribePlan(options, components).ToArray());
+                };
+                ready.Controls.Add(keepBox);
+            }
 
             installing = NewPage();
             status = Lab(installing, 32, 18, 650, 22, "Starting...");
@@ -327,6 +346,12 @@ namespace ExcalidrawClassroom
                     finishText.Text = installOk
                         ? "Open it from the desktop shortcut or the Start menu. A small icon by the clock shows that it is running; right-click it and choose Quit to stop it.\r\n\r\nTo take it away again, use Uninstall in the Start menu, or Apps in Windows settings."
                         : (failure ?? "Something went wrong.") + "\r\n\r\nThe log is on the previous page.";
+                    if (installOk && !string.IsNullOrEmpty(missing))
+                    {
+                        headTitle.Text = "Installed, but not everything";
+                        headSub.Text = "Some tools could not be put in.";
+                        finishText.Text = "These were not installed: " + missing + ".\r\n\r\nThe log (on the previous page) says why. Run the setup again to try those; what is already in place stays.";
+                    }
                     openNow.Visible = installOk;
                     break;
             }
@@ -391,6 +416,7 @@ namespace ExcalidrawClassroom
                 {
                     engine.Install(options, null);
                     installOk = true;
+                    if (engine.NotInstalled.Count > 0) missing = string.Join(", ", engine.NotInstalled.ToArray());
                 }
                 catch (Exception e)
                 {

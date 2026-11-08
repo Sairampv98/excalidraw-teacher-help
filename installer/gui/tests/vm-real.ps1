@@ -1,7 +1,8 @@
 ﻿# Runs inside a Windows virtual machine (the machine itself is the test): the real install of every part, with nothing stood in for.
-# AC-567. Copy ClassroomSetup.exe to C:\test and run this as the test user.
+# AC-567, AC-571. Copy the setup (the offline one, or the online one: pass its path as -Setup) to C:\test and run this
+# as the test user.
+param([string]$Setup = "C:\test\ClassroomSetup.exe")
 $ErrorActionPreference = "Continue"
-$Setup = "C:\test\ClassroomSetup.exe"
 $inst = "C:\test\install"
 $failed = 0
 function Check($name, $ok) { if ($ok) { "ok - $name" } else { "not ok - $name"; $script:failed++ } }

@@ -26,6 +26,7 @@ namespace ExcalidrawClassroom
         public HashSet<string> Components = new HashSet<string>();
         public bool DesktopShortcut = true;
         public bool StartMenuShortcut = true;
+        public string KeepFolder;   // the online setup: also keep what it downloads here, to install elsewhere with no internet
     }
 
     internal static class Components
@@ -91,6 +92,9 @@ namespace ExcalidrawClassroom
     internal sealed class Engine
     {
         public Action<string> Log = delegate { };
+
+        /// <summary>The tools that could not be put in (the rest still were): the exit code and the last page say so.</summary>
+        public List<string> NotInstalled = new List<string>();
         /// <summary>fraction 0..1 of the whole, and the words for what is being done now</summary>
         public Action<double, string> Progress = delegate { };
 
@@ -123,6 +127,8 @@ namespace ExcalidrawClassroom
                 bytes += c.Bytes;
             }
             lines.Add("");
+            if (Payload.Online) lines.Add("About " + Files.Size(bytes) + " is downloaded from the internet first.");
+            if (!string.IsNullOrEmpty(options.KeepFolder)) lines.Add("The downloaded files are kept in " + options.KeepFolder + ".");
             lines.Add("About " + Files.Size(bytes * 2) + " of disk space is used while it installs.");
             if (options.DesktopShortcut) lines.Add("A shortcut on the desktop.");
             if (options.StartMenuShortcut) lines.Add("A shortcut in the Start menu, with an uninstaller.");
@@ -144,6 +150,8 @@ namespace ExcalidrawClassroom
 
         public InstallRecord Install(InstallOptions options, string pythonTargetOverride)
         {
+            Downloader.KeepFolder = options.KeepFolder;
+            Downloader.Log = Log;
             List<PayloadFile> files = Payload.Files();
             List<Component> all = Components.All(files);
             Dictionary<string, PayloadFile> byRole = new Dictionary<string, PayloadFile>();
@@ -207,6 +215,7 @@ namespace ExcalidrawClassroom
                     catch (Exception e)
                     {
                         Log("! " + c.Title + " could not be installed: " + e.Message);
+                        NotInstalled.Add(c.Title);
                     }
                     record.Save();
                 }

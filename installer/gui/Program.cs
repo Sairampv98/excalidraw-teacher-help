@@ -50,8 +50,9 @@ namespace ExcalidrawClassroom
         private static string Help()
         {
             return "ClassroomSetup.exe [/silent] [/dir=<folder>] [/components=app,editor,python,java,gcc,node] [/nodesktop] [/nostartmenu] [/log=<file>]\r\n" +
-                   "  /silent        no window; the exit code says how it went (0 = installed)\r\n" +
+                   "  /silent        no window; the exit code says how it went (0 = installed; 1 failed; 3 not for this Windows; 4 some tools not installed)\r\n" +
                    "  /components    what to install; the default is everything the setup carries\r\n" +
+                   "  /keep=<folder> the online setup also keeps the files it downloads in <folder>\r\n" +
                    "  /force         go on although this Windows is one the setup is not made for\r\n" +
                    "  /pictures=<f>  draw each page of the wizard to a picture in <f>\r\n" +
                    "Uninstall.exe [/silent]   removes what was installed";
@@ -101,6 +102,8 @@ namespace ExcalidrawClassroom
             {
                 foreach (Component c in all) options.Components.Add(c.Id);
             }
+            string keep;
+            if (o.TryGetValue("keep", out keep) && keep.Length > 0) options.KeepFolder = keep;
             options.DesktopShortcut = !o.ContainsKey("nodesktop");
             options.StartMenuShortcut = !o.ContainsKey("nostartmenu");
 
@@ -116,6 +119,11 @@ namespace ExcalidrawClassroom
             try
             {
                 engine.Install(options, null);
+                if (engine.NotInstalled.Count > 0)
+                {
+                    engine.Log("! not everything was installed: " + string.Join(", ", engine.NotInstalled.ToArray()));
+                    return 4;
+                }
                 return 0;
             }
             catch (Exception e)

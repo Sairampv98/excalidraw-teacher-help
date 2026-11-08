@@ -45,7 +45,7 @@ namespace ExcalidrawClassroom
 
         public static int Build()
         {
-            using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SOFTWAREMicrosoftWindows NTCurrentVersion"))
+            using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion"))
             {
                 int build;
                 object v = key == null ? null : key.GetValue("CurrentBuildNumber");
@@ -74,7 +74,7 @@ namespace ExcalidrawClassroom
         public static bool HasModernBrowser()
         {
             string[] roots = { Environment.GetEnvironmentVariable("ProgramFiles"), Environment.GetEnvironmentVariable("ProgramFiles(x86)"), Environment.GetEnvironmentVariable("LOCALAPPDATA") };
-            string[] files = { @"MicrosoftEdgeApplicationmsedge.exe", @"GoogleChromeApplicationchrome.exe", @"Mozilla Firefoxirefox.exe", @"BraveSoftwareBrave-BrowserApplicationrave.exe" };
+            string[] files = { @"Microsoft\Edge\Application\msedge.exe", @"Google\Chrome\Application\chrome.exe", @"Mozilla Firefox\firefox.exe", @"BraveSoftware\Brave-Browser\Application\brave.exe" };
             foreach (string r in roots)
             {
                 if (string.IsNullOrEmpty(r)) continue;
@@ -414,6 +414,7 @@ namespace ExcalidrawClassroom
         public long Size;
         public string Sha256;
         public List<string> Chunks = new List<string>();
+        public List<string> Urls = new List<string>();   // the online setup: where the file is, the maker's first, then mirrors
     }
 
     /// <summary>
@@ -424,9 +425,19 @@ namespace ExcalidrawClassroom
     {
         private static readonly Assembly Self = Assembly.GetExecutingAssembly();
 
+        /// <summary>The online setup carries a list of addresses (online.json) and no files; a test may name a list of its own.</summary>
+        private static string OnlineText()
+        {
+            string test = Environment.GetEnvironmentVariable("CLASSROOM_SETUP_ONLINE_MANIFEST");
+            if (!string.IsNullOrEmpty(test) && File.Exists(test)) return File.ReadAllText(test, Encoding.UTF8);
+            return ReadText("online.json");
+        }
+
+        public static bool Online { get { return OnlineText() != null; } }
+
         public static bool Present()
         {
-            return Self.GetManifestResourceStream("payload.index.json") != null;
+            return Online || Self.GetManifestResourceStream("payload.index.json") != null;
         }
 
         public static bool HasResource(string name)
@@ -447,6 +458,24 @@ namespace ExcalidrawClassroom
         public static List<PayloadFile> Files()
         {
             List<PayloadFile> list = new List<PayloadFile>();
+            string onlineText = OnlineText();
+            if (onlineText != null)
+            {
+                foreach (object o in Json.List(Json.Parse(onlineText), "files"))
+                {
+                    Dictionary<string, object> f = o as Dictionary<string, object>;
+                    if (f == null) continue;
+                    PayloadFile file = new PayloadFile();
+                    file.Name = Json.Text(f, "name");
+                    file.Role = Json.Text(f, "role");
+                    file.Version = Json.Text(f, "version");
+                    file.Size = Json.Number(f, "size");
+                    file.Sha256 = Json.Text(f, "sha256");
+                    foreach (object u in Json.List(f, "urls")) file.Urls.Add(u.ToString());
+                    list.Add(file);
+                }
+                return list;
+            }
             string indexText = ReadText("payload.index.json");
             if (indexText == null) return list;
 
@@ -503,6 +532,7 @@ namespace ExcalidrawClassroom
         /// <summary>Writes one payload file out, once, and checks its hash as it goes.</summary>
         public static string Extract(PayloadFile file, string folder, Action<long> progress)
         {
+            if (file.Urls.Count > 0) return Downloader.Fetch(file, folder, progress);
             Directory.CreateDirectory(folder);
             string target = Path.Combine(folder, file.Name);
             if (File.Exists(target) && new FileInfo(target).Length == file.Size && Files_Sha(target) == file.Sha256)
