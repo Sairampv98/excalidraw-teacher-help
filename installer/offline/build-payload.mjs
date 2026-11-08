@@ -33,10 +33,11 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateRawSync } from "node:zlib";
 
@@ -338,11 +339,11 @@ export const writeManifest = (dir, manifest) => {
 // ---------------------------------------------------------------------------
 
 /**
- * The Node.js MSI.
+ * Node.js, as a ZIP.
  *
- * The index at nodejs.org lists the MSI as "win-x64-msi", but the FILE it names
- * is "node-<version>-x64.msi" - the "win-" is in the index's name, not in the
- * file's. Getting this wrong is a 404.
+ * The MSI needs administrator rights; the zip is unpacked into the user's own
+ * folder and needs none. The index at nodejs.org lists it as "win-x64-zip", and
+ * the FILE it names is "node-<version>-win-x64.zip".
  */
 export const resolveNode = async (arch) => {
   const index = await fetchJson("https://nodejs.org/dist/index.json");
@@ -350,29 +351,58 @@ export const resolveNode = async (arch) => {
     (entry) =>
       entry.lts &&
       Array.isArray(entry.files) &&
-      entry.files.includes("win-" + arch + "-msi"),
+      entry.files.includes("win-" + arch + "-zip"),
   );
 
   if (!release) {
     throw new Error(
-      "nodejs.org lists no LTS release with a win-" + arch + " MSI",
+      "nodejs.org lists no LTS release with a win-" + arch + " zip",
     );
   }
 
   const version = release.version;
+  const name = "node-" + version + "-win-" + arch + ".zip";
 
   return {
     role: "node",
-    name: "node-" + version + "-" + arch + ".msi",
+    name,
     version,
-    url:
-      "https://nodejs.org/dist/" +
-      version +
-      "/node-" +
-      version +
-      "-" +
-      arch +
-      ".msi",
+    url: "https://nodejs.org/dist/" + version + "/" + name,
+  };
+};
+
+/**
+ * A C and C++ compiler (GCC), as a ZIP: the winlibs build of MinGW-w64 with the
+ * universal C runtime. It is unpacked into the user's own folder and needs no
+ * administrator rights.
+ */
+export const resolveGcc = async (arch) => {
+  if (arch !== "x64") {
+    throw new Error("the C and C++ compiler is carried for x64 only");
+  }
+
+  const release = await fetchJson(
+    "https://api.github.com/repos/brechtsanders/winlibs_mingw/releases/latest",
+  );
+  const asset = release.assets.find((entry) =>
+    /^winlibs-x86_64-posix-seh-gcc-[\d.]+-mingw-w64ucrt-[\d.]+-r\d+\.zip$/.test(
+      entry.name,
+    ),
+  );
+
+  if (!asset) {
+    throw new Error(
+      "the winlibs release " +
+        release.tag_name +
+        " has no x86_64 posix-seh ucrt zip",
+    );
+  }
+
+  return {
+    role: "gcc",
+    name: asset.name,
+    version: release.tag_name,
+    url: asset.browser_download_url,
   };
 };
 
@@ -439,12 +469,17 @@ export const resolveVSCodium = async (arch) => {
  * Python is OPTIONAL: the default OCR engine (tesseract) is WebAssembly inside
  * the extension. Python is only for the `indra` and `paddle` engines.
  */
-export const resolvePython = async () => {
+export const resolvePython = async (minor = "3.12") => {
   const listing = await fetchWithAgent("https://www.python.org/ftp/python/");
   const html = await listing.text();
   const versions = new Set();
 
-  for (const match of html.matchAll(/href="(3\.1[56]\.\d+)\//g)) {
+  const wanted = new RegExp(
+    'href="(' + minor.replace(".", "\\.") + "\\.\\d+)/",
+    "g",
+  );
+
+  for (const match of html.matchAll(wanted)) {
     versions.add(match[1]);
   }
 
@@ -468,7 +503,124 @@ export const resolvePython = async () => {
     }
   }
 
-  throw new Error("python.org has no 3.15/3.16 amd64 installer to fetch");
+  throw new Error("python.org has no " + minor + " amd64 installer to fetch");
+};
+
+/**
+ * The Indra OCR engine, carried whole (D-463).
+ *
+ * Indra is Python (its libraries: numpy, onnxruntime, opencv, pypdfium2...) and its models,
+ * which the package would download from Hugging Face on first use. Both are carried:
+ *   - the wheels, for Python 3.12 on Windows x64, in a zip the extension's \`wheels/\` folder takes
+ *     (the extension installs from them with no index: D-353);
+ *   - the models of the tag the package was built for, in a zip unpacked into a folder that
+ *     INDRA_OCR_MODEL_DIR names, so nothing is downloaded when a page is read.
+ * The models' own licence (OpenRAIL-M) travels in the zip.
+ */
+const INDRA_MODEL_REPO = "datalab-to/indra-ocr";
+const INDRA_MODEL_TAG = "v1.1.0";
+const INDRA_PYTHON = "3.12";
+
+export const buildIndra = async (outDir) => {
+  const wheelsZip = join(outDir, "indra-wheels-cp312-win-x64.zip");
+  const modelsZip = join(outDir, "indra-models-" + INDRA_MODEL_TAG + ".zip");
+
+  if (!existsSync(wheelsZip)) {
+    const folder = join(outDir, ".indra-wheels");
+
+    mkdirSync(folder, { recursive: true });
+    console.log(
+      "   pip   the wheels of indra-ocr (Python " + INDRA_PYTHON + ")",
+    );
+    execFileSync(
+      "python",
+      [
+        "-m",
+        "pip",
+        "download",
+        "indra-ocr",
+        "-d",
+        folder,
+        "--only-binary=:all:",
+        "--platform",
+        "win_amd64",
+        "--python-version",
+        INDRA_PYTHON,
+        "--implementation",
+        "cp",
+      ],
+      { stdio: "inherit" },
+    );
+    zipFolder(folder, wheelsZip);
+    rmSync(folder, { recursive: true, force: true });
+  } else {
+    console.log("   have  " + basename(wheelsZip));
+  }
+
+  if (!existsSync(modelsZip)) {
+    const folder = join(outDir, ".indra-models");
+    const tree = await fetchJson(
+      "https://huggingface.co/api/models/" +
+        INDRA_MODEL_REPO +
+        "/tree/" +
+        INDRA_MODEL_TAG,
+    );
+    // what the package asks for (*.onnx, meta.json, lm*.npz) and the maths models, and the licence
+    const wanted = tree.filter(
+      (entry) =>
+        entry.type === "file" &&
+        (/\.onnx$/.test(entry.path) ||
+          /^(meta|math_meta)\.json$/.test(entry.path) ||
+          /^lm.*\.npz$/.test(entry.path) ||
+          entry.path === "LICENSE"),
+    );
+
+    mkdirSync(folder, { recursive: true });
+
+    for (const entry of wanted) {
+      console.log("   get   " + entry.path);
+
+      const response = await fetchWithAgent(
+        "https://huggingface.co/" +
+          INDRA_MODEL_REPO +
+          "/resolve/" +
+          INDRA_MODEL_TAG +
+          "/" +
+          entry.path,
+      );
+
+      if (!response.ok) {
+        throw new Error(entry.path + " answered " + response.status);
+      }
+
+      writeFileSync(
+        join(folder, entry.path),
+        Buffer.from(await response.arrayBuffer()),
+      );
+    }
+
+    zipFolder(folder, modelsZip);
+    rmSync(folder, { recursive: true, force: true });
+  } else {
+    console.log("   have  " + basename(modelsZip));
+  }
+
+  return [
+    {
+      role: "indra-wheels",
+      name: basename(wheelsZip),
+      version: "indra-ocr (cp312, win x64)",
+      url: null,
+      built: true,
+    },
+    {
+      role: "indra-models",
+      name: basename(modelsZip),
+      version: INDRA_MODEL_TAG,
+      url: null,
+      built: true,
+    },
+  ];
 };
 
 /**
@@ -677,6 +829,10 @@ const main = async () => {
     artifacts.push(await resolveVSCodium(args.arch));
   }
 
+  if (wanted("gcc")) {
+    artifacts.push(await resolveGcc(args.arch));
+  }
+
   if (wanted("python")) {
     artifacts.push(await resolvePython());
   }
@@ -685,20 +841,26 @@ const main = async () => {
     artifacts.push(await resolveJava(args.arch));
   }
 
-  const extension = resolveExtension(outDir);
-  const vsixPath = join(outDir, extension.name);
-
-  if (!existsSync(vsixPath) || statSync(vsixPath).size === 0) {
-    console.log("building the extension");
-    execFileSync(process.execPath, [VSIX_SCRIPT, "--out", vsixPath], {
-      cwd: ROOT,
-      stdio: "inherit",
-    });
-  } else {
-    console.log("   have  " + extension.name);
+  if (wanted("indra")) {
+    artifacts.push(...(await buildIndra(outDir)));
   }
 
-  artifacts.push(extension);
+  if (wanted("extension")) {
+    const extension = resolveExtension(outDir);
+    const vsixPath = join(outDir, extension.name);
+
+    if (!existsSync(vsixPath) || statSync(vsixPath).size === 0) {
+      console.log("building the extension");
+      execFileSync(process.execPath, [VSIX_SCRIPT, "--out", vsixPath], {
+        cwd: ROOT,
+        stdio: "inherit",
+      });
+    } else {
+      console.log("   have  " + extension.name);
+    }
+
+    artifacts.push(extension);
+  }
 
   // the app: the prebuilt static bundle, zipped. No node_modules, no npm
   // tarballs - the app is served as files and needs nothing to run it, so

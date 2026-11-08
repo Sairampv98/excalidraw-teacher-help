@@ -217,10 +217,12 @@ describe("the offline setup: one file, no internet, nothing to install", () => {
     // and not the virtual display driver: nothing needs it any more (D-329)
     expect(builder).not.toContain("Virtual-Display-Driver");
 
-    // the MSI's NAME has no "win-" in it - the index calls it that, the file
-    // does not, and getting it wrong is a 404
-    expect(builder).toContain('"node-" + version + "-" + arch + ".msi"');
-    expect(builder).not.toContain('"node-" + version + "-win-"');
+    // Node is a ZIP, unpacked into the user's own folder, because the MSI
+    // needs administrator rights (D-463). Its NAME has "win-" in it, and the
+    // index calls it "win-x64-zip"; getting it wrong is a 404
+    expect(builder).toContain('"node-" + version + "-win-" + arch + ".zip"');
+    expect(builder).toContain('"win-" + arch + "-zip"');
+    expect(builder).not.toContain('"-" + arch + ".msi"');
 
     // the per-user VSCodium installer, which is the one a classroom machine
     // wants: it needs no administrator rights

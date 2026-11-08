@@ -12,6 +12,22 @@ Whichever way you came in, the **VS Code / VSCodium extension** is what connects
 
 ---
 
+## The click-through installer (no internet, no administrator)
+
+`ClassroomSetup.exe` is one file that carries everything: double-click it, press **Next** three times, and it installs the board and the tools of the class **for you alone**. It needs no internet and asks for no administrator rights.
+
+1. **Welcome**, then **What to install**: the board (always), VS Code, Python, Java, C and C++, Node.js, and, off by default, **Better text reading (Indra OCR)**. The page scrolls if your screen is small.
+2. **Ready** says what will be done. **Install** does it; the bar shows how far it is.
+3. **Finished** can open the board. It has a shortcut on the desktop and in the Start menu, and a small icon by the clock while it runs (right-click it, then **Quit**).
+
+To take it away: **Uninstall** in the Start menu, or **Apps** in the Windows settings. It removes what it installed, and puts your PATH back as it was. Your drawings are kept by the browser and are not deleted.
+
+**For students:** `ClassTools-Setup.exe` is the same installer with the tools alone (VS Code, Python, Java, C and C++, Node.js) and no board. A teacher can pass this one file to a class so that every computer is ready.
+
+**If Windows says "Windows protected your PC":** the setup is not signed with a paid certificate (D-466), so SmartScreen does not know it yet. Press **More info**, then **Run anyway**. The checksum (SHA-256) of each file is published beside it: compare it before you run it on a computer that matters.
+
+**Silent install** (for a lab): `ClassroomSetup.exe /silent /dir="C:\Tools\Classroom" /components=app,python,java,gcc,node /log=setup.log`. The exit code is 0 when it installed.
+
 ## 1. The setup
 
 The setup is the whole point of this project: a person with a laptop, an editor and a class to teach should not have to work out that they need Node, that Yarn comes from Corepack, and that the extension is installed from a `.vsix`.
@@ -171,6 +187,30 @@ Everything here works on **Windows on ARM** — but two things differ, and it is
 **The container** is a Linux image, so it runs the same on an ARM64 machine as on an x64 one — through Docker's own emulation if it has to.
 
 ---
+
+## The small setup (it downloads what it installs)
+
+`ClassroomSetup-Online.exe` and `ClassTools-Online.exe` are the same wizard as the large setups, as a file of a fraction of a megabyte. They need the internet while they run: each tool is fetched from its maker (Python from python.org, Java from Adoptium on GitHub, the C compiler from winlibs on GitHub, Node.js from nodejs.org, VS Code from Microsoft), with mirrors tried after it and this project's own copy last. **Every file is checked against a SHA-256 recorded in the setup**, so a mirror need not be trusted and a file that is not the recorded one is never used. A download that stops is carried on from where it stopped.
+
+On the last page before Install there is **Keep the downloaded files, to install on another computer with no internet**; from a script, `/keep=<folder>` does the same. Run the setup again on the other computer with the same `/keep=<folder>`: it takes the files from there and downloads nothing.
+
+The exit code of `/silent`: 0 installed; 1 failed; 3 this Windows is not one the setup is made for; 4 some tools were not installed (the log says which).
+
+## Which Windows
+
+64-bit Windows 10 version 1809 (build 17763) or newer, and Windows 11. The tools are 64-bit only, so 32-bit Windows 10 is refused. Windows 7 has its own setup: see [WIN7.md](./WIN7.md). The oldest Windows 10 builds have not been tried: the lowest build is a careful choice, not a measured one. Windows 10 in S mode cannot run the setup (it is not signed; see "If something does not work").
+
+## Pen tablets
+
+The setup does not carry the drivers of pen tablets. A tablet works as a mouse with no driver on most Windows; the maker's driver adds pressure and the buttons. Take the driver from the maker's own page:
+
+- Wacom: <https://www.wacom.com/support/product-support/drivers>. For an older Windows the files are named `WacomTablet_6.3.x` under <https://cdn.wacom.com/u/productsupport/drivers/win/professional/> (for example 6.3.40-3 and 6.3.41-1); take the newest one the page says is for your Windows and your tablet.
+- Huion: <https://www.huion.com/download/>
+- XP-Pen: <https://www.xp-pen.com/download>
+- Gaomon: <https://www.gaomon.net/download.html>
+- Veikk: <https://www.veikk.com/download>
+
+A pen tablet has not been tried on Windows 7 here (a USB tablet cannot be passed to the test machine); a tablet that worked as a mouse on that computer before will do so with the board.
 
 ## If something does not work
 

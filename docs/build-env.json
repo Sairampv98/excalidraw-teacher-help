@@ -1,0 +1,68 @@
+{
+  "capturedAt": "2026-11-08T00:57:09.564Z",
+  "machine": {
+    "os": "Windows_NT 10.0.22631",
+    "windowsVersion": "Microsoft Windows [Version 10.0.22631.2428]",
+    "arch": "x64",
+    "cpus": 12,
+    "memoryGB": 14,
+    "dotNetFrameworkRelease": 533320
+  },
+  "tools": {
+    "node": {
+      "version": "20.3.1",
+      "says": "v20.3.1",
+      "at": "C:\\nvm4w\\nodejs\\node.exe",
+      "why": "everything: the app, the builders, the gate"
+    },
+    "yarn": {
+      "version": "1.22.22",
+      "says": "1.22.22",
+      "at": "yarn",
+      "why": "installs the packages, runs the app and the tests"
+    },
+    "git": {
+      "version": "2.56.0",
+      "says": "git version 2.56.0.windows.4",
+      "at": "git",
+      "why": "the repository, the sessions, the public mirror"
+    },
+    "ffmpeg": {
+      "version": "9.0.2",
+      "says": "ffmpeg version 9.0.2-essentials_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers",
+      "at": "ffmpeg",
+      "why": "the clips and the GIF"
+    },
+    "python": {
+      "version": "3.15.2",
+      "says": "Python 3.15.2",
+      "at": "python",
+      "why": "downloads the wheels of the Indra reader (pip download)"
+    },
+    "powershell": {
+      "version": "5.1.22621.2428",
+      "says": "5.1.22621.2428",
+      "at": "powershell",
+      "why": "the proofs of the installers and the control of the virtual machines"
+    },
+    "csc": {
+      "version": "4.8.9032.0",
+      "says": "Microsoft (R) Visual C# Compiler version 4.8.9032.0",
+      "at": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe",
+      "why": "compiles the installers (the C# compiler that ships with Windows)"
+    },
+    "browser": {
+      "version": "157.0.8103.39",
+      "at": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+      "why": "the UI gate and the clips drive the real browser of the computer (nothing is downloaded)"
+    }
+  },
+  "packages": {
+    "playwright-core": "1.64.1",
+    "vite": "5.0.12",
+    "vitest": "3.0.6",
+    "typescript": "5.9.3"
+  },
+  "lockfileSha256": "a4795e85f9e6b9d58a4846b67b723e843e89bbc03ff114a9171875b90ee5f083",
+  "repositoryHead": "2d344873fba9f9a06efb0e4665b09a379a866a5c"
+}
