@@ -82,8 +82,8 @@ namespace ExcalidrawClassroom
                 Check("a Windows 10 older than the lowest build is told to update", (Supported.Problem(true, 17134) ?? "").Contains("update Windows"));
                 Check("a build that cannot be read is let through", Supported.Problem(true, 0) == null);
 #endif
-                Check("the C compiler stays where it is when the path has no space", Engine.GccTarget(@"C:\Users\a\Programs\X") == @"C:\Users\a\Programs\X\tools\mingw64");
-                Check("the C compiler goes to a path with no space when the install path has one", Engine.GccTarget(@"C:\Users\Jo Ann\Programs\X").IndexOf(' ') < 0);
+                Check("the C compiler stays where it is when the path has no space", Engine.GccTarget(@"D:\Apps\X") == @"D:\Apps\X\tools\mingw64");
+                Check("the C compiler goes to a path with no space when the install path has one", Engine.GccTarget(@"D:\My Apps\X").IndexOf(' ') < 0);
                 Check("the Windows build is read from the registry", Supported.Build() >= 7600);
                 env.SetVariable("JAVA_HOME", "C:\\jdk");
                 Check("a variable is set", env.GetVariable("JAVA_HOME") == "C:\\jdk");
