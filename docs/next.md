@@ -15,7 +15,29 @@ Then, in this order:
 
 Statuses used below: `DONE`, `NEXT`, `HELD` (the owner decided to wait; do not start it), `DROPPED` (the owner removed it; reopen only when asked).
 
-## Where things stand (2026-11-07)
+## Where things stand (2026-11-09) - READ THIS FIRST
+
+**2.2.0 is published** (public `main` = the release commit of 2.2, `v2.1` keeps the second release, the files are on the releases page). The private `main` is `11e6faf` or later, on both remotes (`github`, `origin`).
+
+**The setups** (all in `installer/`): `gui/` is the wizard (C#, built by `gui/build-gui-installer.mjs`: `--win7` for the .NET 3.5 build, `--folder` for a payload beside the setup, `--online <list>` for the small one, `--edition student`); `offline/build-payload.mjs` makes the Windows 10/11 payload; `win7/build-win7-payload.mjs` the Windows 7 one; `online/make-online-manifest.mjs` the list the small setup carries; `scripts/release/build-release.ps1` builds a release, `scan-release.mjs` looks through it, `publish-release.mjs` publishes it.
+
+**The next minor update (2.2.1) - the owner's list, in D-477, D-478, D-479:**
+
+1. **VSCodium in every published setup** (the setups carry Microsoft's VS Code today: a licence risk the owner knows about). The small setup keeps taking VS Code from Microsoft. VSCodium 1.70 has a per-user setup for Windows 7 (no administrator for the editor).
+2. **The editor window on Windows 7**: the helper scripts of the extension (`packages/vscode-bridge/extension/media/*.ps1`) fail on PowerShell 2.0; plan: a `compat.ps1` that shadows `Add-Type` with `CSharpCodeProvider` (v3.5). Test on the two Windows 7 machines.
+3. **The uninstaller with choices** (which tools to remove); the install record must keep each tool's PATH entries, variables, folders and uninstallers apart.
+4. The assistant is not available on Windows 7: the first screen should say so. The better text reader (Indra) is not in the Windows 7 setup: look into Python 3.8.
+5. The student edition of the small setup (`ClassTools-Online.exe`) is built by the same script but was never tried.
+
+**The test machines** (Hyper-V; disks, images and the owner's discs are on D:, nothing of them is in git): `Windows 10 MSIX packaging environment` (user `admin`) and `Windows 11 dev environment` (user `user`), each with a checkpoint `clean-win10` / `clean-win11`; `Win7Test` (32-bit) and `Win7x64`, each with `clean-win7sp1-installed`; the Windows 7 ones have no network (files go in on a disc made by `installer/win7/vm/make-iso.ps1`; `new-vm.ps1` makes such a machine; `check-tools.bat`, `check-after.bat`, `run-silent.bat` are what runs inside). The accounts are throwaway (password `Test1234!`). The proofs for Windows 10/11: `installer/gui/tests/vm-real.ps1` and `vm-student.ps1` through PowerShell Direct (set the execution policy to Bypass for the process). **Start the machines only when needed: all of them together run the computer out of memory.** The keyboard of a Windows 7 machine is driven through WMI (`installer/win7/vm/vm-*.ps1`); the owner can also click by hand and report.
+
+**Rules the owner gave and that hold:** tell the owner before anything goes public, and the merge of a task pushes the public `dev` through the mirror; no code signing; the data-structures course stays out of the repository; all that makes a setup, a clip or a proof is in the repository and names no machine or person (test AC-565); decisions go to SPEC.md; start kit sessions with `--model <model>/effort-<n>`; batch the work in a few tasks and run the gate once.
+
+**Things that cost time and should be known:** the gate needs Node 20.19.6 first on the PATH and `GATE_JOBS=2`; `kit merge` leaves the merge to be concluded with `git commit` (message `tins: merge task <id>` and a `Tins-Merge:` trailer); a Windows 7 build is compiled by the .NET 3.5 compiler (`C:/Windows/Microsoft.NET/Framework64/v3.5/csc.exe`) with the symbol NET35, C# 3, no `Path.Combine` of three parts, no `ZipFile` (use `Files.Join`, `ZipLite`); GCC cannot work from a path with a space; backslashes in a `node -e` or a heredoc are eaten in this shell: write files with the Write and Edit tools; a sleep of more than a few seconds in the foreground is refused: run the wait in the background.
+
+**The held big update (v3):** see "V3 - HELD" below and `D:workspace 3-studio-design.md` (§15: a native rewrite in Rust or Zig, D-472). It starts when the owner says so.
+
+### (older) Where things stand (2026-11-07)
 
 ### v2.1 - READ THIS FIRST
 
