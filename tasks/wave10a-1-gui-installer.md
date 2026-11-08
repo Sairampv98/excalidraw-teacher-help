@@ -1,6 +1,6 @@
 ---
 id: wave10a-1-gui-installer
-paths: installer,package.json,.gitignore,.prettierignore,.eslintignore,SPEC.md,docs,tasks,sessions
+paths: installer,scripts/release,scripts/env,packages/vscode-bridge/tests/offline.test.ts,package.json,.gitignore,.prettierignore,.eslintignore,SPEC.md,docs,tasks,sessions
 base: main
 status: open
 ---
