@@ -175,7 +175,7 @@ namespace ExcalidrawClassroom
                 detail.ForeColor = Color.FromArgb(90, 90, 110);
                 y += 46;
             }
-            Lab(choose, 32, y + 4, 90, 20, "Install to:");
+            Lab(choose, 32, y + 4, 76, 20, "Install to:");
             dirBox = new TextBox();
             dirBox.SetBounds(112, y + 2, 450, 24);
             dirBox.Text = options.Dir;

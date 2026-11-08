@@ -188,6 +188,18 @@ Everything here works on **Windows on ARM** — but two things differ, and it is
 
 ---
 
+## Pen tablets
+
+The setup does not carry the drivers of pen tablets. A tablet works as a mouse with no driver on most Windows; the maker's driver adds pressure and the buttons. Take the driver from the maker's own page:
+
+- Wacom: <https://www.wacom.com/support/product-support/drivers>. For an older Windows the files are named `WacomTablet_6.3.x` under <https://cdn.wacom.com/u/productsupport/drivers/win/professional/> (for example 6.3.40-3 and 6.3.41-1); take the newest one the page says is for your Windows and your tablet.
+- Huion: <https://www.huion.com/download/>
+- XP-Pen: <https://www.xp-pen.com/download>
+- Gaomon: <https://www.gaomon.net/download.html>
+- Veikk: <https://www.veikk.com/download>
+
+A pen tablet has not been tried on Windows 7 here (a USB tablet cannot be passed to the test machine); a tablet that worked as a mouse on that computer before will do so with the board.
+
 ## If something does not work
 
 | what you see | what it means |

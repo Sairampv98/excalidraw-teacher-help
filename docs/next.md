@@ -159,6 +159,8 @@ Three candidates are staged in the kit's inbox, in `D:\Takeu-Forward\tins-kit\ki
 - **C1** a named handoff file: a `next` key in `tins.json`, a line for it in the protocol file, its first NEXT item shown by `kit status`, a warning from `kit close` when a merged task left it untouched, and a template.
 - **C2** a task merged through an integration task still says `status: open`, so every later task needs `--overlap-ok`.
 - **C3** the kit has no abandon or rename command for a task (the task `wave9b-browser-setup` now carries a name that is no longer true).
+- **C4** (owner, 2026-11-08) one shared `node_modules` for every worktree: the kit should make the junction (or a symlink) to the main checkout's `node_modules` itself when it adds a worktree, and refuse to delete the target while a worktree points to it. Today each worktree needs the link made by hand after `git worktree add` (51 worktrees here already share one copy this way).
+- **C5** (owner, 2026-11-08) the kit should record, for a project, where its big build caches and test machines live, so a full disk is seen before a test starts, not after (here the test machines filled the system drive).
 
 The installed kit in this repository (`.tins/kit`) must not be edited by hand; any change goes through the kit source, and its new version is then installed here. Nothing in the kit was changed, only the candidates were written.
 

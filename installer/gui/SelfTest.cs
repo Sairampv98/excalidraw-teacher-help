@@ -60,6 +60,18 @@ namespace ExcalidrawClassroom
                 Check("the same folder is not added twice, whatever its case or trailing slash", !env.AddToPath("c:\\tools\\a\\") && env.GetPath() == "C:\\Existing;C:\\Tools\\A");
                 Check("a folder that is not there is not removed", !env.RemoveFromPath("C:\\Nope"));
                 Check("the folder is taken out, and the rest stays", env.RemoveFromPath("C:\\TOOLS\\A") && env.GetPath() == "C:\\Existing");
+                foreach (string odd in new string[] { "C:\\Existing;", "C:\\A;;C:\\B", "%USERPROFILE%\\bin;C:\\B;", "" })
+                {
+                    env.SetVariable("Path", odd);
+                    env.AddToPath("C:\\Tools\\Z");
+                    env.RemoveFromPath("C:\\Tools\\Z");
+                    Check("a PATH of the shape [" + odd + "] comes back exactly", env.GetPath() == odd);
+                }
+                Check("Windows 11 and a current Windows 10 are accepted", Supported.Problem(true, 22631) == null && Supported.Problem(true, 19045) == null && Supported.Problem(true, Supported.LowestBuild) == null);
+                Check("32-bit Windows is refused, and the reason says why", (Supported.Problem(false, 22631) ?? "").Contains("64-bit"));
+                Check("Windows 7 is sent to the Windows 7 setup", (Supported.Problem(true, 7601) ?? "").Contains("Windows 7 setup"));
+                Check("a Windows 10 older than the lowest build is told to update", (Supported.Problem(true, 17134) ?? "").Contains("update Windows"));
+                Check("a build that cannot be read is let through", Supported.Problem(true, 0) == null);
                 env.SetVariable("JAVA_HOME", "C:\\jdk");
                 Check("a variable is set", env.GetVariable("JAVA_HOME") == "C:\\jdk");
                 env.RemoveVariable("JAVA_HOME");

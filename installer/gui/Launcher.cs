@@ -95,7 +95,10 @@ namespace ExcalidrawClassroom
             {
                 if (browser != null)
                 {
-                    Process.Start(browser, "--app=" + url + " --window-size=1500,950");
+                    // the window fits a small screen too (1024x768 and the like): never wider or taller than the working area
+                    Rectangle area = Screen.PrimaryScreen.WorkingArea;
+                    int width = Math.Min(1500, area.Width - 40), height = Math.Min(950, area.Height - 40);
+                    Process.Start(browser, "--app=" + url + " --window-size=" + width + "," + height + " --window-position=" + area.Left + "," + area.Top);
                     return;
                 }
             }

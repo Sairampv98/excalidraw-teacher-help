@@ -1,6 +1,8 @@
 /**
  * AC-561 - the pieces of the installer check themselves: it is compiled and its own self test is run.
  * AC-562 - the two editions: the classroom setup carries the launcher, the student setup does not.
+ * AC-567 - the proofs for clean Windows machines are here, and tied to no computer.
+ * AC-568 - the setup says which Windows it is not for, and a PATH comes back exactly.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -57,6 +59,27 @@ windowsOnly("AC-561 the installer checks its own parts", () => {
     expect(run.status).toBe(0);
   });
 
+  it("AC-568 the setup says which Windows it is not for, and a PATH of any shape comes back exactly", () => {
+    const run = spawnSync(
+      path.join(folder, "ClassroomSetup.exe"),
+      ["/selftest"],
+      { encoding: "utf8", timeout: 120_000 },
+    );
+    const lines = run.stdout.split("\n").map((line) => line.trim());
+
+    for (const wanted of [
+      "ok - 32-bit Windows is refused, and the reason says why",
+      "ok - Windows 7 is sent to the Windows 7 setup",
+      "ok - a Windows 10 older than the lowest build is told to update",
+      "ok - a PATH of the shape [C:\\Existing;] comes back exactly",
+      "ok - a PATH of the shape [C:\\A;;C:\\B] comes back exactly",
+      "ok - a PATH of the shape [%USERPROFILE%\\bin;C:\\B;] comes back exactly",
+      "ok - a PATH of the shape [] comes back exactly",
+    ]) {
+      expect(lines).toContain(wanted);
+    }
+  });
+
   it("AC-561 without a payload the setup says so and installs nothing", () => {
     const run = spawnSync(
       path.join(folder, "ClassroomSetup.exe"),
@@ -111,4 +134,24 @@ windowsOnly("AC-562 the classroom setup and the student setup", () => {
     expect(run.stdout).toContain("all ok");
     expect(run.status).toBe(0);
   });
+});
+
+describe("AC-567 the proofs for clean Windows machines are in the repository", () => {
+  for (const name of ["vm-real.ps1", "vm-student.ps1"]) {
+    it(
+      "AC-567 " +
+        name +
+        " checks the install, the tools by name, and that the uninstall leaves the PATH as it was",
+      () => {
+        const text = fs.readFileSync(path.join(HERE, name), "utf8");
+
+        expect(text).toMatch(/silent install ends well/);
+        expect(text).toMatch(/by name|fresh terminal/);
+        expect(text).toMatch(/PATH is (exactly )?as it was/);
+        expect(text).toMatch(/uninstall ends well/);
+        // not tied to one computer: no drive path of a person, no user name
+        expect(text).not.toMatch(/C:\\Users\\[A-Za-z]/);
+      },
+    );
+  }
 });

@@ -36,6 +36,54 @@ namespace ExcalidrawClassroom
         public static bool Student { get { return id == "student"; } }
     }
 
+    // Which Windows this setup is made for: 64-bit Windows 10 (build 17763, version 1809) or newer, and Windows 11.
+    // The tools it carries are 64-bit and ask for a Windows 10 of that age or later. The lowest build is a careful
+    // choice, not a measured one: the builds below 19041 have not been tried.
+    internal static class Supported
+    {
+        public const int LowestBuild = 17763;
+
+        public static int Build()
+        {
+            using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SOFTWAREMicrosoftWindows NTCurrentVersion"))
+            {
+                int build;
+                object v = key == null ? null : key.GetValue("CurrentBuildNumber");
+                return v != null && int.TryParse(v.ToString(), out build) ? build : 0;
+            }
+        }
+
+        // null when this computer is one the setup is made for, else what to tell the person
+        public static string Problem(bool is64, int build)
+        {
+            if (!is64)
+            {
+                return "This setup needs 64-bit Windows. The tools it carries (Java, Node, Python, the C compiler) are 64-bit only, and this computer runs 32-bit Windows.";
+            }
+            if (build > 0 && build < 10240)
+            {
+                return "This setup is for Windows 10 and 11. For Windows 7, 8 or 8.1 use the Windows 7 setup from the same download page.";
+            }
+            if (build > 0 && build < LowestBuild)
+            {
+                return "This Windows 10 is too old (build " + build + "). The setup needs Windows 10 version 1809 (build " + LowestBuild + ") or newer: update Windows first.";
+            }
+            return null;
+        }
+
+        public static bool HasModernBrowser()
+        {
+            string[] roots = { Environment.GetEnvironmentVariable("ProgramFiles"), Environment.GetEnvironmentVariable("ProgramFiles(x86)"), Environment.GetEnvironmentVariable("LOCALAPPDATA") };
+            string[] files = { @"MicrosoftEdgeApplicationmsedge.exe", @"GoogleChromeApplicationchrome.exe", @"Mozilla Firefoxirefox.exe", @"BraveSoftwareBrave-BrowserApplicationrave.exe" };
+            foreach (string r in roots)
+            {
+                if (string.IsNullOrEmpty(r)) continue;
+                foreach (string f in files) if (File.Exists(Path.Combine(r, f))) return true;
+            }
+            return false;
+        }
+    }
+
     internal static class Product
     {
         public static readonly string Name = Edition.Student ? "Class Tools" : "Excalidraw Classroom";
@@ -154,7 +202,8 @@ namespace ExcalidrawClassroom
             {
                 if (part.Trim().Length > 0 && Normal(part) == Normal(folder)) return false;
             }
-            string joined = current.Length == 0 || current.EndsWith(";") ? current + folder : current + ";" + folder;
+            // a PATH that ends with ";" keeps ending with it, so taking the folder out again gives back the very same text
+            string joined = current.Length == 0 ? folder : current.EndsWith(";") ? current + folder + ";" : current + ";" + folder;
             SetPath(joined);
             return true;
         }
@@ -165,8 +214,8 @@ namespace ExcalidrawClassroom
             bool removed = false;
             foreach (string part in GetPath().Split(';'))
             {
-                if (part.Trim().Length == 0) continue;
-                if (Normal(part) == Normal(folder)) { removed = true; continue; }
+                // the other parts stay as they were, an empty one too: only our folder goes
+                if (part.Trim().Length > 0 && Normal(part) == Normal(folder)) { removed = true; continue; }
                 kept.Add(part);
             }
             if (removed) SetPath(string.Join(";", kept.ToArray()));

@@ -485,9 +485,13 @@ namespace ExcalidrawClassroom
         /// <summary>After the uninstaller has ended, its own file and the folder go: a small script waits for it.</summary>
         public static void RemoveSelfLater(string dir)
         {
-            string script = "/c ping 127.0.0.1 -n 3 > nul & del /f /q \"" + Path.Combine(dir, Product.UninstallExe) + "\" & rmdir \"" + dir + "\"";
+            // the uninstaller may still be on the screen (its last message waits for a click), so the file cannot go at once:
+            // try again every second, for up to ten minutes, until it is gone; then the folder
+            string exe = Path.Combine(dir, Product.UninstallExe);
+            string script = "/c for /l %i in (1,1,600) do @if exist \"" + exe + "\" (del /f /q \"" + exe + "\" 2>nul & ping 127.0.0.1 -n 2 >nul)" + " & rmdir \"" + dir + "\"";
             ProcessStartInfo info = new ProcessStartInfo("cmd.exe", script);
             info.CreateNoWindow = true;
+            info.WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System); // not the folder that is to go: a folder in use cannot be removed
             info.UseShellExecute = false;
             Process.Start(info);
         }

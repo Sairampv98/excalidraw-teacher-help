@@ -52,6 +52,7 @@ namespace ExcalidrawClassroom
             return "ClassroomSetup.exe [/silent] [/dir=<folder>] [/components=app,editor,python,java,gcc,node] [/nodesktop] [/nostartmenu] [/log=<file>]\r\n" +
                    "  /silent        no window; the exit code says how it went (0 = installed)\r\n" +
                    "  /components    what to install; the default is everything the setup carries\r\n" +
+                   "  /force         go on although this Windows is one the setup is not made for\r\n" +
                    "  /pictures=<f>  draw each page of the wizard to a picture in <f>\r\n" +
                    "Uninstall.exe [/silent]   removes what was installed";
         }
@@ -60,6 +61,13 @@ namespace ExcalidrawClassroom
 
         private static int Installer(Dictionary<string, string> o, bool silent)
         {
+            string problem = Supported.Problem(Environment.Is64BitOperatingSystem, Supported.Build());
+            if (problem != null && !o.ContainsKey("force"))
+            {
+                if (!silent) MessageBox.Show(problem, Product.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                else Console.Error.WriteLine(problem);
+                return 3;
+            }
             if (!Payload.Present())
             {
                 if (!silent) MessageBox.Show("This copy of the setup has nothing inside it to install.\r\nDownload the full setup file again.", Product.Name);
