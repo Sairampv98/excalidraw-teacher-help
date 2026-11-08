@@ -45,6 +45,10 @@ v2.1 is the release of the small fixes and improvements made after v2.0.0. v3 ("
 
 **The Windows 7 offline pack** lives outside the repository (`D:\workspace\DSA-Class-Pack`, built by `D:\workspace\dsa-classroom-v2\tools\assemble-pack.ps1`): the app with Chromium 109 (32-bit), a PowerShell 2.0 web server on plain sockets, GCC 16.2 (32-bit), Java 8, Python 3.4.4, the verified course code in four languages, 49 lesson pages, PDF and MP4 files. It was tested on a Windows 7 SP1 32-bit virtual machine (Hyper-V; the machine and its helpers are in `D:\workspace\win7-pack\vm`). **Windows 7 without Service Pack 1 is untested** (the only installation medium has SP1 inside). Its scripts should move into `installer/` in a later task.
 
+### v2.2.0 is published (2026-11-08)
+
+Public `main` is the release commit of 2.2, `v2.1` keeps the second release, the release files are on the releases page (built by `scripts/release/build-release.ps1`, looked through by `scripts/release/scan-release.mjs`, published by `scripts/release/publish-release.mjs`). The small update that follows (D-477, D-478, D-479): the editor window on Windows 7, the uninstaller with choices, **VSCodium in every published setup** (a licence matter: the setups carry Microsoft's VS Code today), the student edition of the small setup (built, never tried), the assistant note on the first screen on Windows 7.
+
 ### After v2.2: the small update 2.2.1 (D-477, owner 2026-11-08)
 
 1. **The editor mirror on Windows 7**: `extension/media/capture.ps1`, `window.ps1`, `input.ps1` fail on PowerShell 2.0 (`Add-Type` compiles with C# 2.0; `window.ps1` uses `ConvertTo-Json`). Write a `compat.ps1` that shadows `Add-Type` for PowerShell older than 3 with `CSharpCodeProvider` and `CompilerVersion=v3.5`; test on the Windows 7 machines (32 and 64 bit). The panel shows "Waiting for the editor's window" until then.
