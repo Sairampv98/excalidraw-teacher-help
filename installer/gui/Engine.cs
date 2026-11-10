@@ -41,13 +41,14 @@ namespace ExcalidrawClassroom
             }
 
             List<Component> list = new List<Component>();
-            Add(list, byRole, "app", "app", "The classroom board",
+            Add(list, byRole, "app", "app", Engine.AppTitle,
                 "The app itself, with its short videos. Works with no internet.", true, true);
             // Windows 7 has no browser that can run the board: its setup carries one (Chromium 109, the last for Windows 7)
             Add(list, byRole, "browser", "browser", "Chromium (the browser for the board)",
                 "The last browser that runs on Windows 7. Only the board uses it; your own browser is not changed.", true, true);
             AddUpdates(list, files);
-            Add(list, byRole, "editor", "vscode", "VS Code (the editor)",
+            string editorRole = byRole.ContainsKey("vscodium") ? "vscodium" : "vscode";
+            Add(list, byRole, "editor", editorRole, Engine.EditorKind.For(editorRole).Title + " (the editor)",
                 Edition.Student
                     ? "Installed for you alone, with no administrator."
                     : "Installed for you alone, with no administrator. The connection to the board is added to it.", false, true);
@@ -131,6 +132,9 @@ namespace ExcalidrawClassroom
 
     internal sealed class Engine
     {
+        /// <summary>The name of the board among the choices (and in the record, so the uninstaller can say it).</summary>
+        public const string AppTitle = "The classroom board";
+
         public Action<string> Log = delegate { };
 
         /// <summary>The tools that could not be put in (the rest still were): the exit code and the last page say so.</summary>
@@ -254,13 +258,17 @@ namespace ExcalidrawClassroom
                 PayloadFile app;
                 if (byRole.TryGetValue("app", out app) && options.Components.Contains("app"))
                 {
+                    record.BeginTool("app", AppTitle);
+                    if (hasLauncher) record.AddFolder(Path.Combine(dir, Product.LauncherExe));
                     Step("Unpacking the board");
                     string appZip = Payload.Extract(app, temp, delegate (long n) { Advance(n); });
                     string appDir = Path.Combine(dir, "app");
+                    record.AddFolder(appDir);
                     Files.DeleteFolder(appDir);
                     Files.ExtractZip(appZip, appDir, null);
                     Advance(app.Size);
                     AddComponent(record, "app");
+                    record.EndTool();
                 }
                 record.Save();
 
@@ -278,6 +286,7 @@ namespace ExcalidrawClassroom
                         Log("! " + c.Title + " could not be installed: " + e.Message);
                         NotInstalled.Add(c.Title);
                     }
+                    record.EndTool();
                     record.Save();
                 }
 
@@ -285,11 +294,16 @@ namespace ExcalidrawClassroom
                 Step("Making the shortcuts");
                 string launcher = Path.Combine(dir, Product.LauncherExe);
                 bool hasBoard = File.Exists(launcher);
+                // the board's shortcuts are the board's share of the record (taking the board away takes them); the shortcut
+                // to the uninstaller is nobody's but the whole install's
+                ToolRecord boardTool = record.FindTool("app");
                 if (options.DesktopShortcut && hasBoard)
                 {
                     string lnk = Path.Combine(Shortcuts.Desktop(), Product.Name + ".lnk");
                     Shortcuts.Create(lnk, launcher, "", dir, launcher + ",0", "Draw, teach and run code");
-                    if (!record.Shortcuts.Contains(lnk)) record.Shortcuts.Add(lnk);
+                    if (boardTool != null) record.BeginTool("app", boardTool.Title);
+                    record.AddShortcut(lnk);
+                    record.EndTool();
                 }
                 if (options.StartMenuShortcut)
                 {
@@ -299,10 +313,12 @@ namespace ExcalidrawClassroom
                     if (hasBoard)
                     {
                         Shortcuts.Create(lnk, launcher, "", dir, launcher + ",0", "Draw, teach and run code");
-                        if (!record.Shortcuts.Contains(lnk)) record.Shortcuts.Add(lnk);
+                        if (boardTool != null) record.BeginTool("app", boardTool.Title);
+                        record.AddShortcut(lnk);
+                        record.EndTool();
                     }
                     Shortcuts.Create(unlnk, Path.Combine(dir, Product.UninstallExe), "", dir, "", "Remove " + Product.Name);
-                    if (!record.Shortcuts.Contains(unlnk)) record.Shortcuts.Add(unlnk);
+                    record.AddShortcut(unlnk);
                 }
                 RegisterUninstall(dir, record);
                 UserEnvironment.Broadcast();
@@ -333,6 +349,8 @@ namespace ExcalidrawClassroom
         {
             if (c.Id == "updates") { InstallUpdates(temp); return; }
             PayloadFile file = byRole[c.Role];
+            // what this tool puts in is kept as its own share of the record, so it can be taken away alone (D-478)
+            record.BeginTool(c.Id, c.Title);
             Step("Installing " + c.Title);
             if (c.Id == "python" && File.Exists(Path.Combine(Environment.SystemDirectory, "kernel32.dll")) && Environment.OSVersion.Version.Major == 6 && Environment.OSVersion.Version.Minor < 2 && !Components.UcrtPresent())
             {
@@ -344,21 +362,24 @@ namespace ExcalidrawClassroom
             if (c.Id == "browser")
             {
                 string target = Files.Join(dir, "tools", "chromium");
+                record.AddFolder(target);
                 Files.DeleteFolder(target);
                 Files.ExtractZip(path, target, null);
             }
             else if (c.Id == "java")
             {
                 string target = Files.Join(dir, "tools", "jdk");
+                record.AddFolder(target);
                 Files.DeleteFolder(target);
                 Files.ExtractZip(path, target, null);
                 env.SetVariable("JAVA_HOME", target);
-                if (!record.Variables.Contains("JAVA_HOME")) record.Variables.Add("JAVA_HOME");
+                record.AddVariable("JAVA_HOME");
                 AddPath(record, env, Path.Combine(target, "bin"));
             }
             else if (c.Id == "node")
             {
                 string target = Files.Join(dir, "tools", "node");
+                record.AddFolder(target);
                 Files.DeleteFolder(target);
                 Files.ExtractZip(path, target, null);
                 AddPath(record, env, target);
@@ -370,8 +391,9 @@ namespace ExcalidrawClassroom
                 {
                     Log("  the install folder has a space in its path, which the C compiler cannot work from: it goes to " + target);
                     string top = Path.GetDirectoryName(target);
-                    if (!record.ExtraFolders.Contains(top)) record.ExtraFolders.Add(top);
+                    record.AddExtraFolder(top);
                 }
+                record.AddFolder(target);
                 Files.DeleteFolder(target);
                 Files.ExtractZip(path, target, null);
                 AddPath(record, env, Path.Combine(target, "bin"));
@@ -380,6 +402,8 @@ namespace ExcalidrawClassroom
             {
                 string target = pythonTargetOverride ?? Files.Join(dir, "tools", "python");
                 string keep = Files.Join(dir, "tools", "installers");
+                record.AddFolder(target);
+                record.AddFolder(keep);
                 Directory.CreateDirectory(keep);
                 string installer = Path.Combine(keep, file.Name);
                 File.Copy(path, installer, true);
@@ -388,16 +412,17 @@ namespace ExcalidrawClassroom
                     "/quiet InstallAllUsers=0 PrependPath=1 Include_launcher=0 Include_test=0 Include_doc=0 Include_pip=1 TargetDir=\"" + target + "\"",
                     delegate (string line) { Log("  " + line); }, 20 * 60 * 1000);
                 if (code != 0) throw new IOException("the Python installer ended with code " + code);
-                record.Uninstallers.Add(installer + "|/uninstall /quiet");
+                record.AddUninstaller(installer + "|/uninstall /quiet");
             }
             else if (c.Id == "ocr")
             {
                 // the models: a folder the reader is told of by an environment variable, so it downloads nothing
                 string models = Files.Join(dir, "tools", "indra-models");
+                record.AddFolder(models);
                 Files.DeleteFolder(models);
                 Files.ExtractZip(path, models, null);
                 env.SetVariable("INDRA_OCR_MODEL_DIR", models);
-                if (!record.Variables.Contains("INDRA_OCR_MODEL_DIR")) record.Variables.Add("INDRA_OCR_MODEL_DIR");
+                record.AddVariable("INDRA_OCR_MODEL_DIR");
 
                 // the wheels: into the extension's own folder, where it looks for them (it installs from them, with no index)
                 PayloadFile wheels;
@@ -411,6 +436,7 @@ namespace ExcalidrawClassroom
                     }
                     else
                     {
+                        record.AddFolder(Path.Combine(extensionDir, "wheels"));
                         Files.ExtractZip(wheelsZip, Path.Combine(extensionDir, "wheels"), null);
                         Log("  the reader's libraries are in " + Path.Combine(extensionDir, "wheels"));
                     }
@@ -419,25 +445,21 @@ namespace ExcalidrawClassroom
             }
             else if (c.Id == "editor")
             {
-                string code = EditorCli();
+                EditorKind kind = EditorKind.For(c.Role);
+                string code = EditorCli(kind);
                 if (code == null)
                 {
                     int exit = Run.Program(path, "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES /MERGETASKS=!runcode,addcontextmenufiles,addcontextmenufolders,addtopath",
                         delegate (string line) { Log("  " + line); }, 20 * 60 * 1000);
                     if (exit != 0) throw new IOException("the editor's installer ended with code " + exit);
                     // for this user alone (the setup of the Windows 10/11 tools), or for the computer (the Windows 7 one, a system setup)
-                    string[] homes = new string[]
-                    {
-                        Files.Join(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Microsoft VS Code"),
-                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Microsoft VS Code"),
-                        Path.Combine(Environment.GetEnvironmentVariable("ProgramFiles(x86)") ?? "", "Microsoft VS Code"),
-                    };
+                    string[] homes = kind.Homes();
                     foreach (string home in homes)
                     {
                         string unins = Path.Combine(home, "unins000.exe");
-                        if (File.Exists(unins)) { record.Uninstallers.Add(unins + "|/VERYSILENT /NORESTART"); break; }
+                        if (File.Exists(unins)) { record.AddUninstaller(unins + "|/VERYSILENT /NORESTART"); break; }
                     }
-                    code = EditorCli();
+                    code = EditorCli(kind);
                 }
                 PayloadFile ext;
                 if (code != null && !Edition.Student && byRole.TryGetValue("extension", out ext))
@@ -458,7 +480,15 @@ namespace ExcalidrawClassroom
             string root = Environment.GetEnvironmentVariable("CLASSROOM_SETUP_EXTENSIONS_DIR");
             if (string.IsNullOrEmpty(root))
             {
-                root = Files.Join(Environment.GetEnvironmentVariable("USERPROFILE"), ".vscode", "extensions");
+                // VSCodium keeps its extensions in .vscode-oss, VS Code in .vscode: the board's is in whichever editor has it
+                foreach (string name in new string[] { ".vscode-oss", ".vscode" })
+                {
+                    string candidate = Files.Join(Environment.GetEnvironmentVariable("USERPROFILE"), name, "extensions");
+                    if (!Directory.Exists(candidate)) continue;
+                    string[] there = Directory.GetDirectories(candidate, "*excalidraw-bridge*");
+                    if (there.Length > 0) return there[there.Length - 1];
+                }
+                return null;
             }
             if (!Directory.Exists(root)) return null;
             string[] found = Directory.GetDirectories(root, "*excalidraw-bridge*");
@@ -479,24 +509,48 @@ namespace ExcalidrawClassroom
 
         private static void AddPath(InstallRecord record, UserEnvironment env, string folder)
         {
-            if (env.AddToPath(folder) && !record.PathEntries.Contains(folder)) record.PathEntries.Add(folder);
+            if (env.AddToPath(folder)) record.AddPathEntry(folder);
+        }
+
+        /// <summary>The two editors a setup may carry: VSCodium (the full setups, D-479) and Microsoft's VS Code (the small setup).</summary>
+        public class EditorKind
+        {
+            public string Title;
+            public string Folder;
+            public string Cli;
+
+            public static EditorKind For(string role)
+            {
+                EditorKind k = new EditorKind();
+                if (role == "vscodium") { k.Title = "VSCodium"; k.Folder = "VSCodium"; k.Cli = "codium.cmd"; }
+                else { k.Title = "VS Code"; k.Folder = "Microsoft VS Code"; k.Cli = "code.cmd"; }
+                return k;
+            }
+
+            /// <summary>Where it lives: for this user alone first, then for the computer.</summary>
+            public string[] Homes()
+            {
+                return new string[]
+                {
+                    Files.Join(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", Folder),
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), Folder),
+                    Path.Combine(Environment.GetEnvironmentVariable("ProgramFiles(x86)") ?? "", Folder),
+                };
+            }
         }
 
         /// <summary>The command line of an editor that is already there, or null.</summary>
-        public static string EditorCli()
+        public static string EditorCli(EditorKind kind)
         {
             // a test names a stand-in for the editor's command, so a real editor is never touched
             string overridden = Environment.GetEnvironmentVariable("CLASSROOM_SETUP_CODE_CLI");
             if (!string.IsNullOrEmpty(overridden)) return File.Exists(overridden) ? overridden : null;
 
-            string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            string[] candidates = new string[]
+            foreach (string home in kind.Homes())
             {
-                Files.Join(local, "Programs", "Microsoft VS Code", "bin", "code.cmd"),
-                Files.Join(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Microsoft VS Code", "bin", "code.cmd"),
-                Files.Join(Environment.GetEnvironmentVariable("ProgramFiles(x86)") ?? "", "Microsoft VS Code", "bin", "code.cmd"),
-            };
-            foreach (string c in candidates) if (File.Exists(c)) return c;
+                string c = Files.Join(home, "bin", kind.Cli);
+                if (File.Exists(c)) return c;
+            }
             return null;
         }
 
@@ -519,12 +573,47 @@ namespace ExcalidrawClassroom
 
         // ------------------------------------------------------------------------------------------ uninstall
 
+        /// <summary>The environment the uninstall changes: the user's own, unless a test names another.</summary>
+        public UserEnvironment Env;
+
+        /// <summary>True when the last Uninstall took the whole install away (the folder, the uninstaller's entry, everything).</summary>
+        public bool RemovedEverything;
+
         /// <summary>Takes out exactly what the record says was put in. Returns the notes it made.</summary>
         public List<string> Uninstall(string dir, bool keepRunningProgram)
         {
+            return Uninstall(dir, keepRunningProgram, null);
+        }
+
+        /// <summary>
+        /// Takes out what the record says was put in; with <paramref name="only"/> (the ids of tools), just those tools,
+        /// and the rest stays installed (D-478). Taking out every tool that is there takes out the whole install.
+        /// </summary>
+        public List<string> Uninstall(string dir, bool keepRunningProgram, List<string> only)
+        {
             List<string> notes = new List<string>();
             InstallRecord record = InstallRecord.Load(dir);
-            UserEnvironment env = UserEnvironment.Real();
+            UserEnvironment env = Env ?? UserEnvironment.Real();
+            RemovedEverything = false;
+
+            if (only != null && only.Count > 0)
+            {
+                if (record.Tools.Count == 0)
+                {
+                    // a record from a setup before the tools were kept apart: what each tool put in is not known
+                    notes.Add("This was installed by an older setup, which did not keep the tools apart, so it can only be removed whole.");
+                    return notes;
+                }
+                bool everything = true;
+                foreach (ToolRecord t in record.Tools)
+                {
+                    bool named = false;
+                    foreach (string id in only) if (string.Equals(id, t.Id, StringComparison.OrdinalIgnoreCase)) named = true;
+                    if (!named) everything = false;
+                }
+                if (!everything) return RemoveTools(dir, record, only, env, keepRunningProgram, notes);
+            }
+            RemovedEverything = true;
 
             // the launcher may be running: it is asked to quit first (a file in use cannot be deleted)
             StopLauncher(dir);
@@ -584,6 +673,77 @@ namespace ExcalidrawClassroom
                 }
                 if (!keepRunningProgram) { try { Directory.Delete(dir); } catch { } }
             }
+            return notes;
+        }
+
+        /// <summary>Takes away the named tools, each by its own share of the record, and leaves everything else as it is.</summary>
+        private List<string> RemoveTools(string dir, InstallRecord record, List<string> only, UserEnvironment env,
+            bool keepRunningProgram, List<string> notes)
+        {
+            foreach (string id in only)
+            {
+                ToolRecord t = record.FindTool(id);
+                if (t == null) { notes.Add("\"" + id + "\" is not installed here."); continue; }
+                Log("Removing " + t.Title);
+
+                // a program of the tool that is running would keep its files from being deleted
+                if (t.Id == "app") StopLauncher(dir);
+                foreach (string f in t.Folders) StopProgramsUnder(f);
+
+                foreach (string u in t.Uninstallers)
+                {
+                    int bar = u.IndexOf('|');
+                    string exe = bar < 0 ? u : u.Substring(0, bar);
+                    string args = bar < 0 ? "" : u.Substring(bar + 1);
+                    if (!File.Exists(exe)) continue;
+                    Log("Removing with " + Path.GetFileName(exe));
+                    int code = Run.Program(exe, args, null, 10 * 60 * 1000);
+                    notes.Add(Path.GetFileName(exe) + " ended with code " + code);
+                }
+                foreach (string p in t.PathEntries) env.RemoveFromPath(p);
+                // what the tool's own installer put on the PATH from its folder (Python adds its Scripts folder)
+                foreach (string f in t.Folders) env.RemoveFromPathUnder(f);
+                foreach (string v in t.Variables) env.RemoveVariable(v);
+
+                foreach (string f in t.Folders)
+                {
+                    try
+                    {
+                        if (Directory.Exists(f)) Files.DeleteFolder(f);
+                        else if (File.Exists(f)) { File.SetAttributes(f, FileAttributes.Normal); File.Delete(f); }
+                    }
+                    catch (Exception e) { notes.Add("could not remove " + f + ": " + e.Message); }
+                }
+                foreach (string extra in t.ExtraFolders)
+                {
+                    try
+                    {
+                        Files.DeleteFolder(extra);
+                        string parent = Path.GetDirectoryName(extra);
+                        if (Directory.Exists(parent) && Directory.GetFileSystemEntries(parent).Length == 0) Directory.Delete(parent);
+                    }
+                    catch { }
+                }
+                foreach (string lnk in t.Shortcuts)
+                {
+                    try { if (File.Exists(lnk)) File.Delete(lnk); } catch { }
+                }
+
+                record.Forget(t);
+                record.Save();
+            }
+            UserEnvironment.Broadcast();
+
+            // the folder of the tools, when nothing is left in it
+            try
+            {
+                string tools = Path.Combine(dir, "tools");
+                if (Directory.Exists(tools) && Directory.GetFileSystemEntries(tools).Length == 0) Directory.Delete(tools);
+            }
+            catch { }
+
+            // nothing of it is left: that is the whole install taken away
+            if (record.Tools.Count == 0) notes.AddRange(Uninstall(dir, keepRunningProgram, null));
             return notes;
         }
 

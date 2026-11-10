@@ -1,7 +1,9 @@
 # Runs inside a Windows virtual machine: the student setup for real (the real editor too), then the uninstall.
 # AC-567. Copy ClassTools-Setup.exe to C:\test and run this as the test user.
+# -Setup is the student setup (the full one, or the small one that downloads: ClassTools-Online.exe); -Editor says which editor
+# it carries: VSCodium in the full setup (D-480), Microsoft's VS Code in the small one that downloads.
+param([string]$Setup = "C:\test\ClassTools-Setup.exe", [ValidateSet("VSCodium", "VS Code")][string]$Editor = "VSCodium")
 $ErrorActionPreference = "Continue"
-$Setup = "C:\test\ClassTools-Setup.exe"
 # a space in the path on purpose: the C compiler cannot work from one, so the setup puts it elsewhere
 $inst = "C:\test\stu dent"
 $failed = 0
@@ -19,7 +21,7 @@ Check "the silent install ends well (exit $($p.ExitCode), $([int]$t.TotalSeconds
 
 Check "there is no board in the student setup" (-not (Test-Path "$inst\app") -and -not (Test-Path "$inst\ExcalidrawClassroom.exe"))
 Check "the uninstaller is there" (Test-Path "$inst\Uninstall.exe")
-$code = "$env:LOCALAPPDATA\Programs\Microsoft VS Code\bin\code.cmd"
+$code = if ($Editor -eq "VSCodium") { "$env:LOCALAPPDATA\Programs\VSCodium\bin\codium.cmd" } else { "$env:LOCALAPPDATA\Programs\Microsoft VS Code\bin\code.cmd" }
 Check "the editor was installed for this user alone" (Test-Path $code)
 if (Test-Path $code) { $v = cmd /c "`"$code`" --version 2>&1" | Out-String; Check "the editor runs ($(($v -split "`n")[0].Trim()))" ($v -match "^\d+\.\d+") }
 
@@ -46,7 +48,9 @@ Check "the uninstall ends well (exit $($u.ExitCode))" ($u.ExitCode -eq 0)
 Start-Sleep -Seconds 8
 $after = [string](Get-ItemProperty 'HKCU:\Environment').Path
 "PATH after: [$after]"
-Check "the PATH is exactly as it was" ($after -eq $before)
+# the editor's own uninstaller may drop an empty part (a trailing ;): the entries are what is compared
+$norm = { param($p) (([string]$p -split ';') | Where-Object { $_ }) -join ';' }
+Check "the PATH is as it was" ((& $norm $after) -eq (& $norm $before))
 Check "the editor was taken out again" (-not (Test-Path $code))
 Check "the entry in the uninstall list is gone" (-not (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ClassTools'))
 Check "the install folder is gone" (-not (Test-Path $inst))

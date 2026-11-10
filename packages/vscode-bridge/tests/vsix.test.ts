@@ -342,6 +342,10 @@ describe("the .vsix", () => {
         ["extension/media/window.ps1", "The window helper"],
         ["extension/media/input.ps1", "The input helper"],
         ["extension/media/capture.ps1", "The capture helper"],
+        [
+          "extension/media/compat.ps1",
+          "The shim that lets the editor-window helpers",
+        ],
       ]) {
         expect(names).toContain(name);
 

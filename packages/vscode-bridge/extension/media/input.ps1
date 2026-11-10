@@ -59,10 +59,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# PowerShell 2.0 (Windows 7) lacks ConvertTo-Json, [ordered] and [IntPtr]::new (D-481):
+# compat.ps1 stands in for them; on PowerShell 3 and later it changes nothing.
+. (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'compat.ps1')
 
 $code = @'
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -70,6 +72,37 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 
+/// A queue of lines that one thread fills and another takes from, with the
+/// three things the loop needs: Add, CompleteAdding and TryTake with a wait.
+/// The blocking queue of the framework is .NET 4, and PowerShell 2.0 (Windows 7) runs on the
+/// .NET 2.0 / 3.5 runtime, so the helper holds its own (D-481).
+public class LineQueue {
+  readonly Queue<string> lines = new Queue<string>();
+  bool done = false;
+
+  public void Add(string line) {
+    lock (lines) { lines.Enqueue(line); Monitor.PulseAll(lines); }
+  }
+
+  public void CompleteAdding() {
+    lock (lines) { done = true; Monitor.PulseAll(lines); }
+  }
+
+  /// Takes the next line, waiting up to the given time for one to come.
+  public bool TryTake(out string line, int waitMs) {
+    lock (lines) {
+      if (lines.Count == 0 && !done) Monitor.Wait(lines, waitMs);
+      if (lines.Count > 0) { line = lines.Dequeue(); return true; }
+    }
+    line = null;
+    return false;
+  }
+
+  /// Nothing more will come and nothing is left.
+  public bool IsCompleted {
+    get { lock (lines) { return done && lines.Count == 0; } }
+  }
+}
 public static class InputEngine {
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
   [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
@@ -109,6 +142,7 @@ public static class InputEngine {
   [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr h, uint flags);
   [DllImport("user32.dll")] static extern uint GetDoubleClickTime();
   [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr c);
+  [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
 
   const uint WM_MOUSEMOVE = 0x0200, WM_MOUSEWHEEL = 0x020A, WM_MOUSEHWHEEL = 0x020E;
   const uint WM_KEYDOWN = 0x0100, WM_KEYUP = 0x0101, WM_CHAR = 0x0102, WM_SYSKEYDOWN = 0x0104, WM_SYSKEYUP = 0x0105;
@@ -133,7 +167,8 @@ public static class InputEngine {
   static IntPtr prevForeground = IntPtr.Zero;
   static POINT prevCursor;
   static int focusMods = 0;
-  static BlockingCollection<string> queue = new BlockingCollection<string>();
+  // the lines the reader thread has read and the loop has not taken yet
+  static LineQueue queue = new LineQueue();
 
   static void Say(string line) {
     Console.Out.WriteLine(line);
@@ -635,7 +670,9 @@ public static class InputEngine {
   }
 
   public static void Run(string process, string title, string setting) {
-    SetProcessDpiAwarenessContext(new IntPtr(-4));
+    // Windows 10 (1607) has the per-monitor call; Windows 7 has only SetProcessDPIAware (D-481)
+    try { SetProcessDpiAwarenessContext(new IntPtr(-4)); }
+    catch (EntryPointNotFoundException) { SetProcessDPIAware(); }
     processName = process;
     titleLike = title;
     routeSetting = setting;

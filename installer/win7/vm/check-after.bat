@@ -8,8 +8,8 @@ echo --- the install folder
 if exist "%D%" (echo STILL THERE: & dir /s /b "%D%") else echo gone
 echo --- the compiler's own folder
 if exist "%SystemDrive%\ClassroomTools" (echo STILL THERE) else echo gone
-echo --- VS Code
-if exist "%ProgramFiles%\Microsoft VS Code" (echo STILL THERE) else if exist "%ProgramFiles(x86)%\Microsoft VS Code" (echo STILL THERE) else echo gone
+echo --- VSCodium
+if exist "%LOCALAPPDATA%\Programs\VSCodium" (echo STILL THERE) else if exist "%ProgramFiles(x86)%\VSCodium" (echo STILL THERE) else echo gone
 echo --- the user's PATH and JAVA_HOME
 reg query HKCU\Environment /v Path 2>nul
 reg query HKCU\Environment /v JAVA_HOME 2>nul

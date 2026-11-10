@@ -12,9 +12,9 @@ echo --- the tools in %D%
 "%D%\tools\jdk\bin\java.exe" -version 2>&1 | findstr /i "version"
 "%GCC%" --version 2>&1 | findstr /i "gcc"
 "%D%\tools\python\python.exe" --version
-set CODE=%ProgramFiles%\Microsoft VS Code\bin\code.cmd
-if not exist "%CODE%" set CODE=%ProgramFiles(x86)%\Microsoft VS Code\bin\code.cmd
-if exist "%CODE%" ("%CODE%" --version 2>&1 | findstr /r "^[0-9]") else echo VS Code is NOT there
+set CODE=%LOCALAPPDATA%\Programs\VSCodium\bin\codium.cmd
+if not exist "%CODE%" set CODE=%ProgramFiles(x86)%\VSCodium\bin\codium.cmd
+if exist "%CODE%" ("%CODE%" --version 2>&1 | findstr /r "^[0-9]") else echo VSCodium is NOT there
 if exist "%D%\tools\chromium\chrome.exe" (echo Chromium is there) else echo Chromium is NOT there
 echo --- a C program and a Java program
 set W=%TEMP%\w7check

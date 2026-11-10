@@ -118,6 +118,13 @@ namespace ExcalidrawClassroom
 
         // ---------------------------------------------------------------------------------- the pages
 
+        // what the first screen says the board comes with: on Windows 7 there is no assistant (D-477)
+#if NET35
+        private const string Extras = "a code editor, a presenter window and animated flowcharts.";
+#else
+        private const string Extras = "a code editor, a presenter window, animated flowcharts, and an assistant.";
+#endif
+
         private Panel welcome, choose, ready, installing, finished;
         private CheckBox keepBox;
 
@@ -126,13 +133,13 @@ namespace ExcalidrawClassroom
             welcome = NewPage();
             Label w = Lab(welcome, 32, 22, 690, 140,
                 Edition.Student
-                    ? "This sets up this computer for the class: the editor (VS Code) and the languages the lessons use - " +
+                    ? "This sets up this computer for the class: the editor (VSCodium, or VS Code in the small setup) and the languages the lessons use - " +
                       "Python, Java, C and C++, and Node.js.\r\n\r\n" +
                       (Payload.Online ? "This small setup downloads what it installs, so it needs the internet while it runs. " : (Payload.Folder() != null ? "Everything is in the folder this file is in, so keep them together. It needs no internet, and " : "Everything is in this one file. It needs no internet, and ")) +
                       "it asks for no administrator rights: " +
                       "it is installed for you alone, and nothing is changed for other people who use this computer."
                     : "This sets up " + Product.Name + " on this computer: a board you draw on while you teach, with pages, " +
-                      "a code editor, a presenter window, animated flowcharts, and an assistant.\r\n\r\n" +
+                      Extras + "\r\n\r\n" +
                       (Payload.Online ? "This small setup downloads what it installs, so it needs the internet while it runs. " : (Payload.Folder() != null ? "Everything is in the folder this file is in, so keep them together. It needs no internet, and " : "Everything is in this one file. It needs no internet, and ")) +
                       "it asks for no administrator rights: " +
                       "it is installed for you alone.");
@@ -155,6 +162,17 @@ namespace ExcalidrawClassroom
                 };
                 welcome.Controls.Add(remove);
             }
+#if NET35
+            // Windows 7: the assistant (the board's MCP server) needs a newer Node.js than Windows 7 can run, so it is not
+            // offered; the first screen says so, before the person chooses anything (D-477)
+            if (!Edition.Student)
+            {
+                // below the text; below the "already installed" lines when they are there
+                Label noAssistant = Lab(welcome, 32, string.IsNullOrEmpty(existing) ? 160 : 252, 650, 44,
+                    "The assistant is not available on Windows 7: it needs a newer Windows. The board, the editor and the lessons in code all work.");
+                noAssistant.ForeColor = Color.FromArgb(150, 80, 0);
+            }
+#endif
             Lab(welcome, 32, 300, 650, 40, "Click Next to choose what to install.").ForeColor = Color.FromArgb(90, 90, 110);
 
             choose = NewPage();

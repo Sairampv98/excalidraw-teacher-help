@@ -1,7 +1,9 @@
 # Builds the files of a release from the payload folders (see installer/offline and installer/win7), with the checksums:
 #   powershell -File scripts\release\build-release.ps1 -Version 2.2.0 -Out <folder> -Repo <owner/name>
 # The payloads are made first by installer/offline/build-payload.mjs (the Windows 10/11 setups) and
-# installer/win7/build-win7-payload.mjs (the Windows 7 setup).
+# installer/win7/build-win7-payload.mjs (the Windows 7 setup). A third, small payload holds Microsoft's VS Code for the
+# small setup's list alone: node installer/offline/build-payload.mjs --editor vscode --out <Cache>\gui-payload-vscode
+#   --skip node,gcc,python,java,indra,extension
 param(
   [Parameter(Mandatory = $true)][string]$Version,
   [Parameter(Mandatory = $true)][string]$Out,
@@ -23,8 +25,11 @@ node $build --version $Version --payload "$Cache\gui-payload" --out "$work\class
 node $build --version $Version --payload "$Cache\gui-payload-student" --edition student --out "$work\student"
 Copy-Item "$work\classroom\ClassroomSetup.exe", "$work\student\ClassTools-Setup.exe" $Out -Force
 
-# the small setup that downloads: its list names this release for the files that are the project's own
-node (Join-Path $root "installer\online\make-online-manifest.mjs") --payload "$Cache\gui-payload" --release-base $base --out "$work\online.json"
+# the small setup that downloads: its list names this release for the files that are the project's own.
+# The payloads carry VSCodium (D-479); the small setup takes Microsoft's VS Code from Microsoft, so its list is made
+# with a payload that holds only that installer (build-payload.mjs --editor vscode --skip node,gcc,python,java,indra,extension).
+if (-not (Test-Path "$Cache\gui-payload-vscode\manifest.json")) { throw "the VS Code payload for the small setup is missing: $Cache\gui-payload-vscode (see the header of this file)" }
+node (Join-Path $root "installer\online\make-online-manifest.mjs") --payload "$Cache\gui-payload" --vscode-payload "$Cache\gui-payload-vscode" --release-base $base --out "$work\online.json"
 node $build --version $Version --online "$work\online.json" --out "$work\online"
 Copy-Item "$work\online\ClassroomSetup-Online.exe" $Out -Force
 foreach ($own in "app.zip", "excalidraw-bridge-*.vsix", "indra-wheels-*.zip", "indra-models-*.zip") {
