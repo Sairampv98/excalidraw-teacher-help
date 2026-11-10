@@ -67,6 +67,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# PowerShell 2.0 (Windows 7) lacks ConvertTo-Json, [ordered] and [IntPtr]::new (D-481):
+# compat.ps1 stands in for them; on PowerShell 3 and later it changes nothing.
+. (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'compat.ps1')
 Add-Type -AssemblyName System.Drawing
 
 $code = @'
@@ -81,6 +84,7 @@ public class PwCap {
   [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr h, ref POINT p);
   [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
   [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr context);
+  [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
 
   // The helper's process is DPI AWARE: on a screen at 150% a process that is
   // not told it is aware is handed VIRTUALISED sizes - a 1920 by 1008 window
@@ -90,7 +94,9 @@ public class PwCap {
   // teacher's own machine, 2026-10-29). Per-monitor v2 (-4) gives the real
   // pixels, the same ones the input helper delivers to.
   public static void BeDpiAware() {
-    SetProcessDpiAwarenessContext(new IntPtr(-4));
+    // Windows 10 (1607) has the per-monitor call; Windows 7 has only SetProcessDPIAware (D-481)
+    try { SetProcessDpiAwarenessContext(new IntPtr(-4)); }
+    catch (EntryPointNotFoundException) { SetProcessDPIAware(); }
   }
 
   [StructLayout(LayoutKind.Sequential)]
@@ -115,7 +121,12 @@ public class PwCap {
   public static bool Shot(IntPtr hwnd, Bitmap bmp) {
     using (Graphics g = Graphics.FromImage(bmp)) {
       IntPtr hdc = g.GetHdc();
-      try { return PrintWindow(hwnd, hdc, 3); } finally { g.ReleaseHdc(hdc); }
+      try {
+        if (PrintWindow(hwnd, hdc, 3)) return true;
+        // Windows 7 does not know PW_RENDERFULLCONTENT (Windows 8.1) and refuses the call: the client area
+        // alone (flag 1) is what it can do, and it draws the window itself (D-481)
+        return PrintWindow(hwnd, hdc, 1);
+      } finally { g.ReleaseHdc(hdc); }
     }
   }
 
@@ -357,7 +368,8 @@ function Write-Perf([string]$text) {
 }
 
 for ($i = 0; ($MaxFrames -le 0) -or ($i -lt $MaxFrames); $i++) {
-  $clock.Restart()
+  # Stopwatch.Restart is .NET 4; PowerShell 2.0 (Windows 7) has the 2.0 runtime (D-481)
+  $clock.Reset(); $clock.Start()
   $now = [DateTime]::UtcNow
 
   # --- the window, RE-RESOLVED whenever it is not usable (D-112) ---
@@ -455,7 +467,7 @@ for ($i = 0; ($MaxFrames -le 0) -or ($i -lt $MaxFrames); $i++) {
   # --- the capture ---
   $mem.SetLength(0)
 
-  $shotClock.Restart()
+  $shotClock.Reset(); $shotClock.Start()
   $shotOk = [PwCap]::Shot($hwnd, $bmp)
   $shotClock.Stop()
   $shotMs = [int]$shotClock.ElapsedMilliseconds

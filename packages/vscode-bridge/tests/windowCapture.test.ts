@@ -555,7 +555,8 @@ describe("the capture of the editor's own window", () => {
 
     // the wait is what is left of the frame's time, so the frame rate that is
     // asked for is the one that is made
-    expect(script).toContain("$clock.Restart()");
+    // Reset + Start, not Restart: Restart is .NET 4 and Windows 7's PowerShell 2.0 has the 2.0 runtime (D-481)
+    expect(script).toContain("$clock.Reset(); $clock.Start()");
     expect(script).toContain("$delay - [int]$clock.ElapsedMilliseconds");
 
     // at the window's own size there is no resampling: the picture is saved as

@@ -449,7 +449,8 @@ describe("the helper's numbers reach the extension", () => {
     );
 
     // the time of PrintWindow itself, and one message a second
-    expect(script).toContain("$shotClock.Restart()");
+    // Reset + Start, not Restart: Restart is .NET 4 and Windows 7's PowerShell 2.0 has the 2.0 runtime (D-481)
+    expect(script).toContain("$shotClock.Reset(); $shotClock.Start()");
     expect(script).toMatch(/\$shotOk = \[PwCap\]::Shot\(\$hwnd, \$bmp\)/);
     expect(script).toContain("Write-Perf ('PERF '");
     expect(script).toContain("-ge 1000");

@@ -414,7 +414,8 @@ copyFileSync(
 // installed folder, and a helper that is not in the package is a feature that
 // is DEAD in every install (D-151). The virtual display's helper is gone with
 // the driver (D-329).
-for (const helper of ["window.ps1", "input.ps1"]) {
+// compat.ps1 is the shim the three helpers load on PowerShell 2.0 (Windows 7, D-481).
+for (const helper of ["window.ps1", "input.ps1", "compat.ps1"]) {
   copyFileSync(
     join(extensionDir, "media", helper),
     join(stageDir, "extension", "media", helper),
@@ -455,6 +456,10 @@ const entries = [
   {
     name: "extension/media/input.ps1",
     data: readFileSync(join(stageDir, "extension", "media", "input.ps1")),
+  },
+  {
+    name: "extension/media/compat.ps1",
+    data: readFileSync(join(stageDir, "extension", "media", "compat.ps1")),
   },
 ];
 if (existsSync(join(stageDir, "extension", "README.md"))) {

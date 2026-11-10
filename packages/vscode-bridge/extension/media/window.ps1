@@ -65,6 +65,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# PowerShell 2.0 (Windows 7) lacks ConvertTo-Json, [ordered] and [IntPtr]::new (D-481):
+# compat.ps1 stands in for them; on PowerShell 3 and later it changes nothing.
+. (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'compat.ps1')
 
 $code = @'
 using System;
@@ -90,6 +93,7 @@ public class WinPark {
   [DllImport("user32.dll")]
   static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
   [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr context);
+  [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
   [DllImport("user32.dll")] static extern bool SystemParametersInfo(uint action, uint param, out RECT rect, uint flags);
 
   [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -170,7 +174,9 @@ public class WinPark {
 
   /// Every pixel this helper reads or writes is a real one.
   public static void BeDpiAware() {
-    SetProcessDpiAwarenessContext(new IntPtr(-4));
+    // Windows 10 (1607) has the per-monitor call; Windows 7 has only SetProcessDPIAware (D-481)
+    try { SetProcessDpiAwarenessContext(new IntPtr(-4)); }
+    catch (EntryPointNotFoundException) { SetProcessDPIAware(); }
   }
 
   public class WindowInfo {
@@ -420,71 +426,68 @@ try {
     }
 
     if ($matches.Count -eq 0) {
-      Write-Json ([ordered]@{ found = $false; reason = 'NO_WINDOW' })
+      Write-Json (Ordered 'found' $false 'reason' 'NO_WINDOW')
     }
     else {
       # the first one that is ON SCREEN wins; a window that is there but
       # hidden is a different, stated fact (D-113)
       $onScreen = @($matches | Where-Object { $_.Visible })
       $chosen = if ($onScreen.Count -gt 0) { $onScreen[0] } else { $matches[0] }
-      Write-Json ([ordered]@{
-        found   = $true
-        visible = ($onScreen.Count -gt 0)
-        handle  = $chosen.Handle.ToInt64()
-        title   = $chosen.Title
-        pid     = $chosen.Pid
-        x       = $chosen.X
-        y       = $chosen.Y
-        width   = $chosen.Width
-        height  = $chosen.Height
-      })
+      Write-Json (Ordered `
+        'found' $true `
+        'visible' ($onScreen.Count -gt 0) `
+        'handle' $chosen.Handle.ToInt64() `
+        'title' $chosen.Title `
+        'pid' $chosen.Pid `
+        'x' $chosen.X `
+        'y' $chosen.Y `
+        'width' $chosen.Width `
+        'height' $chosen.Height)
     }
   }
   elseif ($Mode -eq 'Place') {
-    $result = [WinPark]::Place([IntPtr]::new($Handle), $X, $Y, $Width, $Height, [bool]$Maximise)
+    $result = [WinPark]::Place((New-IntPtr $Handle), $X, $Y, $Width, $Height, [bool]$Maximise)
 
     # The MEASURED rect, and the truth about the move: a move that did not
     # happen is never reported as one (D-150).
-    Write-Json ([ordered]@{
-      placed      = $result.Placed
-      moved       = $result.Moved
-      wasMaximised = $result.WasMaximised
-      restored    = $result.Restored
-      maximised   = $result.Maximised
-      minimised   = $result.Minimised
-      handle      = $Handle
-      measuredX   = $result.X
-      measuredY   = $result.Y
-      measuredWidth  = $result.Width
-      measuredHeight = $result.Height
-      reason      = $result.Reason
-    })
+    Write-Json (Ordered `
+      'placed' $result.Placed `
+      'moved' $result.Moved `
+      'wasMaximised' $result.WasMaximised `
+      'restored' $result.Restored `
+      'maximised' $result.Maximised `
+      'minimised' $result.Minimised `
+      'handle' $Handle `
+      'measuredX' $result.X `
+      'measuredY' $result.Y `
+      'measuredWidth' $result.Width `
+      'measuredHeight' $result.Height `
+      'reason' $result.Reason)
   }
   elseif ($Mode -eq 'Displays') {
     $list = @()
 
     foreach ($display in [WinPark]::Displays()) {
-      $list += [ordered]@{
-        device  = $display.Device
-        adapter = $display.Adapter
-        virtual = $display.Virtual
-        primary = $display.Primary
-        x       = $display.X
-        y       = $display.Y
-        width   = $display.Width
-        height  = $display.Height
-      }
+      $list += Ordered `
+        'device' $display.Device `
+        'adapter' $display.Adapter `
+        'virtual' $display.Virtual `
+        'primary' $display.Primary `
+        'x' $display.X `
+        'y' $display.Y `
+        'width' $display.Width `
+        'height' $display.Height
     }
 
-    Write-Json ([ordered]@{ displays = $list })
+    Write-Json (Ordered 'displays' $list)
   }
   elseif ($Mode -eq 'Primary') {
     $area = [WinPark]::WorkArea()
-    Write-Json ([ordered]@{ x = $area[0]; y = $area[1]; width = $area[2]; height = $area[3] })
+    Write-Json (Ordered 'x' $area[0] 'y' $area[1] 'width' $area[2] 'height' $area[3])
   }
 }
 catch {
   # a failure is a MESSAGE, not a silence
-  Write-Json ([ordered]@{ error = $_.Exception.Message })
+  Write-Json (Ordered 'error' $_.Exception.Message)
   exit 1
 }
