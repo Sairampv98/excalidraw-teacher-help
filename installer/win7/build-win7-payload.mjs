@@ -52,13 +52,13 @@ export const TOOLS = [
     source: "https://www.python.org/ftp/python/3.8.10/python-3.8.10.exe",
   },
   {
-    role: "vscode",
-    // Microsoft no longer serves 1.70.3 (the last VS Code that runs on Windows 7 32-bit) from its address, so the
-    // installer must be in the cache folder, taken from a copy that was kept. It is a system setup: it asks Windows
-    // for an administrator once, and the setup says so before it starts it.
-    name: "VSCodeSetup-ia32-1.70.3.exe",
-    version: "1.70.3",
-    source: null,
+    // VSCodium (the MIT-licensed build of the editor, D-479), version 1.70: the last one that runs on Windows 7. It has a
+    // per-user setup, so the editor needs no administrator (Microsoft's VS Code 1.70.3 was a system setup). The 32-bit
+    // build runs on both the 32 and the 64-bit Windows 7.
+    role: "vscodium",
+    name: "VSCodiumUserSetup-ia32-1.70.2.22230.exe",
+    version: "1.70.2.22230",
+    source: `${GITHUB}/VSCodium/vscodium/releases/download/1.70.2.22230/VSCodiumUserSetup-ia32-1.70.2.22230.exe`,
   },
 ];
 

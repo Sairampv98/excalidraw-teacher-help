@@ -4,7 +4,10 @@
  * first address that gives bytes of that hash, so a mirror need not be trusted.
  *
  *   node installer/online/make-online-manifest.mjs --payload <payload folder> --release-base <address ending in />
- *        [--mirror-base <address ending in />] [--out online.json] [--student]
+ *        [--mirror-base <address ending in />] [--out online.json] [--student] [--vscode-payload <folder>]
+ *
+ * The payload carries VSCodium; the small setup takes Microsoft's VS Code from Microsoft, so `--vscode-payload` is a
+ * payload built with `build-payload.mjs --editor vscode` whose VS Code entry takes the place of VSCodium's.
  *
  * The files of this project (the board, the extension, the reader's libraries and models) are fetched from the release
  * (`--release-base` + file name, then `--mirror-base` + file name). The tools of other makers are fetched from the
@@ -59,7 +62,38 @@ export const addressesOf = (file, { releaseBase, mirrorBase }) => {
   return [...new Set(urls)];
 };
 
-export const makeList = ({ manifest, releaseBase, mirrorBase, student }) => {
+/**
+ * The small setup takes Microsoft's VS Code from Microsoft (D-479): the payload carries VSCodium, so its entry is
+ * swapped for the VS Code one of `vscodeManifest` (a payload built with `--editor vscode`), which has the hash.
+ */
+export const withVSCode = (manifest, vscodeManifest) => {
+  const code = vscodeManifest?.files?.find((file) => file.role === "vscode");
+
+  if (!code) {
+    throw new Error(
+      "the small setup needs a VS Code entry: build a payload with --editor vscode and pass it as --vscode-payload",
+    );
+  }
+
+  return {
+    ...manifest,
+    files: manifest.files
+      .filter((file) => file.role !== "vscode")
+      .map((file) => (file.role === "vscodium" ? code : file)),
+  };
+};
+
+export const makeList = ({
+  manifest,
+  releaseBase,
+  mirrorBase,
+  student,
+  vscodeManifest,
+}) => {
+  if (vscodeManifest) {
+    manifest = withVSCode(manifest, vscodeManifest);
+  }
+
   const wanted = student
     ? new Set(["vscode", "python", "java", "gcc", "node"])
     : null;
@@ -93,6 +127,8 @@ const parse = (argv) => {
       args.mirrorBase = argv[++i];
     } else if (key === "--out") {
       args.out = resolve(argv[++i]);
+    } else if (key === "--vscode-payload") {
+      args.vscodePayload = resolve(argv[++i]);
     } else if (key === "--student") {
       args.student = true;
     }
@@ -123,7 +159,12 @@ export const main = (argv) => {
   const manifest = JSON.parse(
     readFileSync(join(args.payload, "manifest.json"), "utf8"),
   );
-  const list = makeList({ manifest, ...args });
+  const vscodeManifest = args.vscodePayload
+    ? JSON.parse(
+        readFileSync(join(args.vscodePayload, "manifest.json"), "utf8"),
+      )
+    : undefined;
+  const list = makeList({ manifest, ...args, vscodeManifest });
 
   writeFileSync(args.out, `${JSON.stringify(list, null, 2)}\n`, "utf8");
   console.log(`${list.files.length} files listed in ${args.out}`);

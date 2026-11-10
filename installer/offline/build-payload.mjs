@@ -711,6 +711,7 @@ const parseArgs = (argv) => {
     bridgeUrl: DEFAULT_BRIDGE_URL,
     manifestOnly: false,
     skip: [],
+    editor: "vscodium",
     buildApp: false,
   };
 
@@ -730,11 +731,19 @@ const parseArgs = (argv) => {
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
+    } else if (flag === "--editor") {
+      args.editor = argv[++index];
     } else if (flag === "--manifest-only") {
       args.manifestOnly = true;
     } else if (flag === "--build-app") {
       args.buildApp = true;
     }
+  }
+
+  if (args.editor !== "vscodium" && args.editor !== "vscode") {
+    throw new Error(
+      "--editor must be vscodium or vscode (got " + args.editor + ")",
+    );
   }
 
   if (args.arch !== "x64" && args.arch !== "arm64") {
@@ -821,11 +830,13 @@ const main = async () => {
     artifacts.push(await resolveNode(args.arch));
   }
 
-  if (wanted("vscode")) {
+  // the editor: VSCodium (the MIT-licensed build) in every setup that carries one (D-479); Microsoft's VS Code
+  // only when asked for with --editor vscode, which is what the small setup's list is made from
+  if (args.editor === "vscode" && wanted("vscode")) {
     artifacts.push(await resolveVSCode(args.arch));
   }
 
-  if (wanted("vscodium")) {
+  if (args.editor === "vscodium" && wanted("vscodium")) {
     artifacts.push(await resolveVSCodium(args.arch));
   }
 
