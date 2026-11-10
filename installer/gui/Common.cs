@@ -16,7 +16,7 @@ namespace ExcalidrawClassroom
 {
     /// <summary>
     /// Which setup this is. The classroom setup carries the board and the tools. The student setup carries the
-    /// tools alone (VS Code, Python, Java, C and C++, Node.js): the one a teacher passes to students so that
+    /// tools alone (VSCodium, Python, Java, C and C++, Node.js): the one a teacher passes to students so that
     /// their computers are ready for the class. The setup says which it is by a resource, edition.json.
     /// </summary>
     internal static class Edition
@@ -774,12 +774,64 @@ namespace ExcalidrawClassroom
 
     // ---------------------------------------------------------------------------------- the record of an install
 
+    /// <summary>
+    /// What ONE tool put in, kept apart from the others so that the uninstaller can take that tool away and leave the rest
+    /// (D-478): its PATH entries, variables, shortcuts, the uninstall programs of other installers, folders outside the
+    /// install folder, and the folders and files it made inside it.
+    /// </summary>
+    internal sealed class ToolRecord
+    {
+        public string Id = "";
+        public string Title = "";
+        public List<string> PathEntries = new List<string>();
+        public List<string> Variables = new List<string>();
+        public List<string> Shortcuts = new List<string>();
+        public List<string> Uninstallers = new List<string>();
+        public List<string> ExtraFolders = new List<string>();
+        public List<string> Folders = new List<string>();
+
+        public Dictionary<string, object> ToJson()
+        {
+            Dictionary<string, object> d = new Dictionary<string, object>();
+            d["id"] = Id;
+            d["title"] = Title;
+            d["pathEntries"] = PathEntries.ToArray();
+            d["variables"] = Variables.ToArray();
+            d["shortcuts"] = Shortcuts.ToArray();
+            d["uninstallers"] = Uninstallers.ToArray();
+            d["extraFolders"] = ExtraFolders.ToArray();
+            d["folders"] = Folders.ToArray();
+            return d;
+        }
+
+        private static void Read(Dictionary<string, object> d, string key, List<string> into)
+        {
+            foreach (object o in Json.List(d, key)) into.Add(o.ToString());
+        }
+
+        public static ToolRecord FromJson(Dictionary<string, object> d)
+        {
+            ToolRecord t = new ToolRecord();
+            t.Id = Json.Text(d, "id");
+            t.Title = Json.Text(d, "title");
+            Read(d, "pathEntries", t.PathEntries);
+            Read(d, "variables", t.Variables);
+            Read(d, "shortcuts", t.Shortcuts);
+            Read(d, "uninstallers", t.Uninstallers);
+            Read(d, "extraFolders", t.ExtraFolders);
+            Read(d, "folders", t.Folders);
+            return t;
+        }
+    }
+
     /// <summary>What an install did, so that the uninstaller can undo exactly that and nothing else.</summary>
     internal sealed class InstallRecord
     {
         public string Dir = "";
         public string Version = "";
         public List<string> Components = new List<string>();
+        // the lists below are EVERYTHING the install did (the whole uninstall, and a record from before the tools were
+        // kept apart, use them); each tool's own share is in Tools
         public List<string> PathEntries = new List<string>();
         public List<string> Variables = new List<string>();
         public List<string> Shortcuts = new List<string>();
@@ -787,6 +839,61 @@ namespace ExcalidrawClassroom
         public List<string> Uninstallers = new List<string>();
         /// <summary>Folders outside the install folder that the setup made (the compiler, when the install path has a space).</summary>
         public List<string> ExtraFolders = new List<string>();
+        /// <summary>One entry for each tool that was put in; empty in a record from an older setup (it can only be removed whole).</summary>
+        public List<ToolRecord> Tools = new List<ToolRecord>();
+
+        private ToolRecord current;
+
+        /// <summary>From here on, what is added to the record is the share of this tool.</summary>
+        public void BeginTool(string id, string title)
+        {
+            ToolRecord t = FindTool(id);
+            if (t == null)
+            {
+                t = new ToolRecord();
+                t.Id = id;
+                Tools.Add(t);
+            }
+            t.Title = title;
+            current = t;
+        }
+
+        public void EndTool()
+        {
+            current = null;
+        }
+
+        public ToolRecord FindTool(string id)
+        {
+            foreach (ToolRecord t in Tools) if (string.Equals(t.Id, id, StringComparison.OrdinalIgnoreCase)) return t;
+            return null;
+        }
+
+        private static void Put(List<string> all, List<string> mine, string value)
+        {
+            if (!all.Contains(value)) all.Add(value);
+            if (mine != null && !mine.Contains(value)) mine.Add(value);
+        }
+
+        public void AddPathEntry(string v) { Put(PathEntries, current == null ? null : current.PathEntries, v); }
+        public void AddVariable(string v) { Put(Variables, current == null ? null : current.Variables, v); }
+        public void AddShortcut(string v) { Put(Shortcuts, current == null ? null : current.Shortcuts, v); }
+        public void AddUninstaller(string v) { Put(Uninstallers, current == null ? null : current.Uninstallers, v); }
+        public void AddExtraFolder(string v) { Put(ExtraFolders, current == null ? null : current.ExtraFolders, v); }
+        /// <summary>A folder or a file that the current tool made inside the install folder.</summary>
+        public void AddFolder(string v) { if (current != null && !current.Folders.Contains(v)) current.Folders.Add(v); }
+
+        /// <summary>Takes a tool out of the record, with everything of it from the lists of the whole.</summary>
+        public void Forget(ToolRecord t)
+        {
+            foreach (string v in t.PathEntries) PathEntries.Remove(v);
+            foreach (string v in t.Variables) Variables.Remove(v);
+            foreach (string v in t.Shortcuts) Shortcuts.Remove(v);
+            foreach (string v in t.Uninstallers) Uninstallers.Remove(v);
+            foreach (string v in t.ExtraFolders) ExtraFolders.Remove(v);
+            Components.Remove(t.Id);
+            Tools.Remove(t);
+        }
 
         private static object[] Array(List<string> list)
         {
@@ -804,6 +911,9 @@ namespace ExcalidrawClassroom
             d["shortcuts"] = Array(Shortcuts);
             d["uninstallers"] = Array(Uninstallers);
             d["extraFolders"] = Array(ExtraFolders);
+            List<object> tools = new List<object>();
+            foreach (ToolRecord t in Tools) tools.Add(t.ToJson());
+            d["tools"] = tools.ToArray();
             Directory.CreateDirectory(Dir);
             File.WriteAllText(Path.Combine(Dir, Product.RecordFile), Json.Write(d), Encoding.UTF8);
         }
@@ -822,6 +932,11 @@ namespace ExcalidrawClassroom
             foreach (object o in Json.List(d, "shortcuts")) r.Shortcuts.Add(o.ToString());
             foreach (object o in Json.List(d, "uninstallers")) r.Uninstallers.Add(o.ToString());
             foreach (object o in Json.List(d, "extraFolders")) r.ExtraFolders.Add(o.ToString());
+            foreach (object o in Json.List(d, "tools"))
+            {
+                Dictionary<string, object> td = o as Dictionary<string, object>;
+                if (td != null) r.Tools.Add(ToolRecord.FromJson(td));
+            }
             return r;
         }
     }

@@ -4,6 +4,8 @@
  * AC-567 - the proofs for clean Windows machines are here, and tied to no computer.
  * AC-568 - the setup says which Windows it is not for, and a PATH comes back exactly.
  * AC-573 - the Windows 7 build of the setup compiles with the .NET 3.5 compiler and checks itself.
+ * AC-577 - the uninstaller can take one tool away and leave the rest.
+ * AC-578 - the first screen of the Windows 7 setup says the assistant is not available there.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -78,6 +80,41 @@ windowsOnly("AC-561 the installer checks its own parts", () => {
       "ok - a PATH of the shape [] comes back exactly",
     ]) {
       expect(lines).toContain(wanted);
+    }
+  });
+
+  it("AC-577 each tool's share of the record is kept, and one tool can be taken away alone", () => {
+    const run = spawnSync(
+      path.join(folder, "ClassroomSetup.exe"),
+      ["/selftest"],
+      { encoding: "utf8", timeout: 120_000 },
+    );
+    const lines = run.stdout.split("\n").map((line) => line.trim());
+
+    for (const wanted of [
+      "ok - each tool's own share of the record is kept, and read back",
+      "ok - a record from an older setup has no tools and still reads",
+      "ok - one tool taken away: its folder, its PATH entry, its variable and its shortcut are gone",
+      "ok - and the other tool stays whole: its folder, PATH entry and variable",
+      "ok - the record says which is left, and the whole install was not taken away",
+      "ok - a tool that is not there is said so, and nothing else is touched",
+    ]) {
+      expect(lines).toContain(wanted);
+    }
+  });
+
+  it("AC-577 the uninstaller's help names /remove, and the proof for a machine takes the tools away one by one", () => {
+    const run = spawnSync(path.join(folder, "ClassroomSetup.exe"), ["/help"], {
+      encoding: "utf8",
+      timeout: 60_000,
+    });
+
+    expect(run.stdout).toContain("/remove=");
+
+    const proof = fs.readFileSync(path.join(HERE, "vm-real.ps1"), "utf8");
+
+    for (const said of ["/remove=node", "/remove=java,gcc", "/remove=python"]) {
+      expect(proof).toContain(said);
     }
   });
 
@@ -193,5 +230,26 @@ windows7Only("AC-573 the Windows 7 build of the setup", () => {
       "ok - Windows 10 and 11 are sent to the other setup",
     );
     expect(lines).toContain("all ok");
+  });
+
+  it("AC-578 its first screen says the assistant is not available on Windows 7, and the other setup's does not", () => {
+    // a C# program keeps its text in UTF-16
+    const textOf = (file) => fs.readFileSync(file).toString("utf16le");
+    const textOfOdd = (file) =>
+      fs.readFileSync(file).subarray(1).toString("utf16le");
+    const has = (file, words) =>
+      textOf(file).includes(words) || textOfOdd(file).includes(words);
+
+    const win7 = path.join(folder, "ClassroomSetup-Win7.exe");
+    const classroom = path.join(out, "classroom", "ClassroomSetup.exe");
+
+    expect(has(win7, "The assistant is not available on Windows 7")).toBe(true);
+    // and it does not promise one in the first words
+    expect(has(win7, "animated flowcharts, and an assistant")).toBe(false);
+
+    expect(has(classroom, "The assistant is not available on Windows 7")).toBe(
+      false,
+    );
+    expect(has(classroom, "animated flowcharts, and an assistant")).toBe(true);
   });
 });

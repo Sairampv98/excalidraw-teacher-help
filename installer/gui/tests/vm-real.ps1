@@ -1,5 +1,5 @@
 ﻿# Runs inside a Windows virtual machine (the machine itself is the test): the real install of every part, with nothing stood in for.
-# AC-567, AC-571. Copy the setup (the offline one, or the online one: pass its path as -Setup) to C:\test and run this
+# AC-567, AC-571, AC-575 (VSCodium is the editor), AC-577 (a tool is taken away alone, the rest stays). Copy the setup (the offline one, or the online one: pass its path as -Setup) to C:\test and run this
 # as the test user.
 param([string]$Setup = "C:\test\ClassroomSetup.exe")
 $ErrorActionPreference = "Continue"
@@ -25,15 +25,15 @@ Check "the board is in place" (Test-Path "$inst\app\index.html")
 Check "the launcher and the uninstaller are in place" ((Test-Path "$inst\ExcalidrawClassroom.exe") -and (Test-Path "$inst\Uninstall.exe"))
 
 # a new logon sees the user's new PATH, so the tools are looked for as a student would
-$code = "$env:LOCALAPPDATA\Programs\Microsoft VS Code\bin\code.cmd"
-Check "VS Code was installed for this user alone" (Test-Path $code)
+$code = "$env:LOCALAPPDATA\Programs\VSCodium\bin\codium.cmd"
+Check "VSCodium was installed for this user alone" (Test-Path $code)
 if (Test-Path $code) {
   $v = cmd /c "`"$code`" --version 2>&1" | Out-String
-  Check "VS Code runs ($(($v -split "`n")[0].Trim()))" ($v -match "^\d+\.\d+")
+  Check "VSCodium runs ($(($v -split "`n")[0].Trim()))" ($v -match "^\d+\.\d+")
   $ext = cmd /c "`"$code`" --list-extensions 2>&1" | Out-String
   Check "the board's connection is in the editor ($($ext.Trim() -replace "`r?`n", ' '))" ($ext -match "excalidraw")
 }
-Check "the extension's folder has the Indra libraries" ((Get-ChildItem (Get-ChildItem "$env:USERPROFILE\.vscode\extensions" -Directory | ? Name -like "*excalidraw*").FullName -Recurse -Filter "indra_ocr*.whl" -ErrorAction SilentlyContinue | Measure-Object).Count -eq 1)
+Check "the extension's folder has the Indra libraries" ((Get-ChildItem (Get-ChildItem "$env:USERPROFILE\.vscode-oss\extensions" -Directory | ? Name -like "*excalidraw*").FullName -Recurse -Filter "indra_ocr*.whl" -ErrorAction SilentlyContinue | Measure-Object).Count -eq 1)
 
 $java = cmd /c "`"$inst\tools\jdk\bin\java.exe`" -version 2>&1" | Out-String
 Check "Java runs ($(($java -split "`n")[0].Trim()))" ($java -match "21\.")
@@ -74,6 +74,29 @@ try {
 } catch { Check "the launcher answers ($($_.Exception.Message))" $false }
 Get-Process -Name "ExcalidrawClassroom" -ErrorAction SilentlyContinue | Stop-Process -Force
 
+"--- uninstall one tool at a time, the rest stays (D-478)"
+$u = Start-Process -FilePath "$inst\Uninstall.exe" -ArgumentList "/silent /remove=node" -PassThru -Wait
+Check "removing Node alone ends well (exit $($u.ExitCode))" ($u.ExitCode -eq 0)
+$envNow = Get-ItemProperty 'HKCU:\Environment'
+Check "Node's folder is gone" (-not (Test-Path "$inst\tools\node"))
+$nodeLeft = ($envNow.Path -split ';') | ? { $_ -like "*tools\node*" }
+Check "Node's entry on the PATH is gone [$nodeLeft]" (-not $nodeLeft)
+Check "the others are whole: the board, Python, Java and the C compiler" ((Test-Path "$inst\app\index.html") -and (Test-Path "$inst\tools\python\python.exe") -and (Test-Path "$inst\tools\jdk\bin\java.exe") -and $gccExe -and (Test-Path $gccExe) -and ($envNow.JAVA_HOME -eq "$inst\tools\jdk"))
+Check "the uninstaller and its entry in the Apps list are still there" ((Test-Path "$inst\Uninstall.exe") -and (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ExcalidrawClassroom'))
+Check "Python is still on the PATH" ((($envNow.Path -split ';') | ? { $_ -like "*tools\python*" }).Count -ge 1)
+
+$u = Start-Process -FilePath "$inst\Uninstall.exe" -ArgumentList "/silent /remove=java,gcc" -PassThru -Wait
+Check "removing Java and the C compiler ends well (exit $($u.ExitCode))" ($u.ExitCode -eq 0)
+$envNow = Get-ItemProperty 'HKCU:\Environment'
+Check "Java is gone with JAVA_HOME, the compiler's own folder is gone" ((-not (Test-Path "$inst\tools\jdk")) -and (-not $envNow.JAVA_HOME) -and (-not (Test-Path "C:\ClassroomTools")))
+Check "Python and the board are still whole" ((Test-Path "$inst\tools\python\python.exe") -and (Test-Path "$inst\app\index.html"))
+
+$u = Start-Process -FilePath "$inst\Uninstall.exe" -ArgumentList "/silent /remove=python" -PassThru -Wait
+Check "removing Python alone ends well (exit $($u.ExitCode))" ($u.ExitCode -eq 0)
+$envNow = Get-ItemProperty 'HKCU:\Environment'
+Check "Python is gone: its folder, and its entries on the PATH" ((-not (Test-Path "$inst\tools\python")) -and -not (($envNow.Path -split ';') | ? { $_ -like "*tools\python*" }))
+Check "the editor and the board are still there" ((Test-Path $code) -and (Test-Path "$inst\app\index.html") -and (Test-Path "$inst\Uninstall.exe"))
+
 "--- uninstall"
 $u = Start-Process -FilePath "$inst\Uninstall.exe" -ArgumentList "/silent" -PassThru -Wait
 Check "the uninstall ends well (exit $($u.ExitCode))" ($u.ExitCode -eq 0)
@@ -83,8 +106,10 @@ Check "the compiler's folder is gone too" (-not (Test-Path "C:\ClassroomTools"))
 "PATH after: [" + (Get-ItemProperty 'HKCU:Environment').Path + "]"
 "--- env before:"; $envBefore
 "--- env after:"; (Get-ItemProperty 'HKCU:Environment' | Format-List | Out-String)
-Check "the PATH is as it was" (([string](Get-ItemProperty 'HKCU:\Environment').Path) -eq ([string]$pathBefore))
-Check "VS Code was taken out again" (-not (Test-Path $code))
+# the editor's own uninstaller may drop an empty part (a trailing ;): the entries are what is compared
+$norm = { param($p) (([string]$p -split ';') | Where-Object { $_ } ) -join ';' }
+Check "the PATH is as it was" ((& $norm (Get-ItemProperty 'HKCU:\Environment').Path) -eq (& $norm $pathBefore))
+Check "VSCodium was taken out again" (-not (Test-Path $code))
 Check "the uninstall entry is gone" (-not (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ExcalidrawClassroom'))
 
 if ($failed -eq 0) { "all ok" } else { "$failed failed" }

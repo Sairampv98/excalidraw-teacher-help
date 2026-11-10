@@ -157,6 +157,61 @@ namespace ExcalidrawClassroom
                     back.Version == "1.2.3" && back.Components[0] == "app" && back.PathEntries[0] == "C:\\x\\bin" &&
                     back.Variables[0] == "JAVA_HOME" && back.Shortcuts[0] == "C:\\x.lnk" && back.Uninstallers[0] == "C:\\u.exe|/quiet");
 
+                // ---- what each tool put in is kept apart, so one tool can be taken away and the rest stay (D-478)
+                string home = Path.Combine(temp, "two");
+                string pyDir = Files.Join(home, "tools", "python");
+                string nodeDir = Files.Join(home, "tools", "node");
+                Directory.CreateDirectory(pyDir);
+                Directory.CreateDirectory(nodeDir);
+                File.WriteAllText(Path.Combine(pyDir, "python.txt"), "p");
+                File.WriteAllText(Path.Combine(nodeDir, "node.txt"), "n");
+                string lnkOfNode = Path.Combine(temp, "node-shortcut.txt");
+                File.WriteAllText(lnkOfNode, "x");
+                UserEnvironment two = new UserEnvironment(@"Software\ExcalidrawClassroomSelfTest\two");
+                two.SetVariable("PY_HOME", pyDir);
+                two.SetVariable("NODE_HOME", nodeDir);
+                two.AddToPath(pyDir);
+                two.AddToPath(nodeDir);
+                InstallRecord rec2 = new InstallRecord();
+                rec2.Dir = home;
+                rec2.BeginTool("python", "Python");
+                rec2.AddFolder(pyDir); rec2.AddPathEntry(pyDir); rec2.AddVariable("PY_HOME");
+                rec2.Components.Add("python");
+                rec2.EndTool();
+                rec2.BeginTool("node", "Node.js");
+                rec2.AddFolder(nodeDir); rec2.AddPathEntry(nodeDir); rec2.AddVariable("NODE_HOME"); rec2.AddShortcut(lnkOfNode);
+                rec2.Components.Add("node");
+                rec2.EndTool();
+                rec2.Save();
+                InstallRecord back2 = InstallRecord.Load(home);
+                Check("each tool's own share of the record is kept, and read back",
+                    back2.Tools.Count == 2 && back2.FindTool("node").Title == "Node.js" && back2.FindTool("node").Folders.Count == 1 &&
+                    back2.FindTool("python").PathEntries.Count == 1 && back2.FindTool("node").Shortcuts[0] == lnkOfNode &&
+                    back2.PathEntries.Count == 2 && back2.Variables.Count == 2);
+                Check("a record from an older setup has no tools and still reads", InstallRecord.Load(record.Dir).Tools.Count == 0);
+
+                Engine two2 = new Engine();
+                two2.Env = two;
+                List<string> onlyNode = new List<string>();
+                onlyNode.Add("node");
+                two2.Uninstall(home, true, onlyNode);
+                InstallRecord after = InstallRecord.Load(home);
+                Check("one tool taken away: its folder, its PATH entry, its variable and its shortcut are gone",
+                    !Directory.Exists(nodeDir) && !File.Exists(lnkOfNode) && two.GetVariable("NODE_HOME") == null &&
+                    !two.GetPath().ToLowerInvariant().Contains("node"));
+                Check("and the other tool stays whole: its folder, PATH entry and variable",
+                    File.Exists(Path.Combine(pyDir, "python.txt")) && two.GetVariable("PY_HOME") == pyDir &&
+                    two.GetPath().ToLowerInvariant().Contains("python"));
+                Check("the record says which is left, and the whole install was not taken away",
+                    after.Tools.Count == 1 && after.Tools[0].Id == "python" && after.Components.Count == 1 &&
+                    after.PathEntries.Count == 1 && after.Variables.Count == 1 && !two2.RemovedEverything);
+                List<string> noSuch = new List<string>();
+                noSuch.Add("nothing-like-this");
+                List<string> said = two2.Uninstall(home, true, noSuch);
+                Check("a tool that is not there is said so, and nothing else is touched",
+                    said.Count == 1 && said[0].Contains("not installed") && Directory.Exists(pyDir));
+                two.RemoveVariable("PY_HOME");
+
                 // ---- the choices
                 List<PayloadFile> files = new List<PayloadFile>();
                 files.Add(Fake("app.zip", "app", 100));
@@ -165,6 +220,16 @@ namespace ExcalidrawClassroom
                 files.Add(Fake("code.exe", "vscode", 200));
                 List<Component> all = Components.All(files);
                 Check("the choices are made from what the setup carries", all.Count == 3 && all[0].Id == "app" && all[0].Required && all[1].Id == "editor" && all[2].Id == "python");
+                Check("a payload with Microsoft's VS Code (the small setup) offers VS Code", all[1].Title.StartsWith("VS Code"));
+                // AC-575: the full setups carry VSCodium, the small one that downloads keeps Microsoft's VS Code
+                List<PayloadFile> codium = new List<PayloadFile>();
+                codium.Add(Fake("codium.exe", "vscodium", 200));
+                List<Component> withCodium = Components.All(codium);
+                Check("a payload with VSCodium (the full setups) offers VSCodium, not VS Code",
+                    withCodium.Count == 1 && withCodium[0].Id == "editor" && withCodium[0].Role == "vscodium" && withCodium[0].Title.StartsWith("VSCodium"));
+                Check("VSCodium is looked for in its own folder, with its own command",
+                    Engine.EditorKind.For("vscodium").Folder == "VSCodium" && Engine.EditorKind.For("vscodium").Cli == "codium.cmd" &&
+                    Engine.EditorKind.For("vscode").Folder == "Microsoft VS Code" && Engine.EditorKind.For("vscode").Cli == "code.cmd");
                 Check("the editor's size includes the connection to the board (except in the student setup, which has none)", all[1].Bytes == (Edition.Student ? 200 : 210));
 
                 // the Indra reader is a choice only when both its parts are carried, it is not chosen by default
