@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /* eslint-disable no-console */
 /**
  * Looks in the files of a release for what must not be published (the words and ids of the way this repository is
@@ -13,9 +12,32 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { describeFinding, scanText } from "../public-sync/guard.mjs";
+// The rules this scan holds the files against are the leak guard's, and the guard is not part of the published tree
+// (it lists the words that must not be published). So they are loaded when they are there, and when they are not (a
+// copy of the published tree) the scan says so and stops, instead of failing on a missing file.
+const guardFile = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "public-sync",
+  "guard.mjs",
+);
+const guard = fs.existsSync(guardFile)
+  ? await import(pathToFileURL(guardFile).href)
+  : null;
+
+const needGuard = () => {
+  if (!guard) {
+    throw new Error(
+      "the leak rules (scripts/public-sync/guard.mjs) are not in this tree: run this scan from the tree the releases are made in",
+    );
+  }
+
+  return guard;
+};
+const scanText = (...args) => needGuard().scanText(...args);
+const describeFinding = (...args) => needGuard().describeFinding(...args);
 
 const isText = (buffer) => !buffer.subarray(0, 8000).includes(0);
 

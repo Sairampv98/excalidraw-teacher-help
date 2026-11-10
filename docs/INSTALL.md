@@ -20,7 +20,7 @@ Whichever way you came in, the **VS Code / VSCodium extension** is what connects
 2. **Ready** says what will be done. **Install** does it; the bar shows how far it is.
 3. **Finished** can open the board. It has a shortcut on the desktop and in the Start menu, and a small icon by the clock while it runs (right-click it, then **Quit**).
 
-To take it away: **Uninstall** in the Start menu, or **Apps** in the Windows settings. It removes what it installed, and puts your PATH back as it was. Your drawings are kept by the browser and are not deleted.
+To take it away: **Uninstall** in the Start menu, or **Apps** in the Windows settings. It shows what was installed (the board, the editor, Python, Java, the C compiler, Node.js...) with a tick for each: leave all ticked to remove everything, or untick what you want to keep and the rest stays installed and keeps working (run Uninstall again to take more away later). It puts your PATH back as it was. From a script: `Uninstall.exe /silent /remove=python,node` takes away only those, and `Uninstall.exe /silent` takes away everything. Your drawings are kept by the browser and are not deleted.
 
 **For students:** `ClassTools-Setup.exe` is the same installer with the tools alone (VS Code, Python, Java, C and C++, Node.js) and no board. A teacher can pass this one file to a class so that every computer is ready.
 
