@@ -1,6 +1,6 @@
 ---
 id: wave11a-4-win7-note
-paths: installer,packages/vscode-bridge,docs,SPEC.md,scripts/release,scripts/public-sync
+paths: installer,packages/vscode-bridge,docs,SPEC.md,scripts/release,scripts/public-sync,tasks,sessions
 base: main
 status: open
 ---
