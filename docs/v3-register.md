@@ -8,6 +8,7 @@ This register describes usable entry points. Assistant tool names below are prop
 | --- | --- | --- | --- | --- |
 | Look tab: layout, selection, shape, fit and colours | D-535 | packages/excalidraw/components/FlowAnimationBar.tsx | Select one node and change the chart look | set_flow_look |
 | Look tab table: a colour chip and a neon switch for Shape, Text, Animation and Arrow, one shared swatch pad (the colour presets are removed) | D-535 | packages/excalidraw/components/FlowAnimationBar.tsx | Colour every part of a chart from one table | set_flow_colours |
+| Hex code box under the colour pad of the Look tab (3 or 6 digits, empty is the default) | D-535 | packages/excalidraw/components/flowPanel/FlowHexInput.tsx | Type a brand colour for a part | set_flow_colours |
 | Chart choice as a tab-like button at the start of the tabs | D-535 | packages/excalidraw/components/FlowAnimationBar.tsx | Choose which chart of a combo the tabs act on | select_flow_target |
 | Animation tab: nodes, arrows, speed, step and loop | D-535 | packages/excalidraw/components/FlowAnimationBar.tsx | Combine a node highlight with arrow tokens | set_flow_animation |
 | Script tab: preset, script, validation, Apply and examples | D-535 | packages/excalidraw/components/FlowScriptEditor.tsx | Correct a script line and apply once | edit_flow_chart |

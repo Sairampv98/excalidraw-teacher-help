@@ -30,6 +30,7 @@ import {
   hueDistance,
 } from "../scene/flowPalette";
 import { buildFlowPreset } from "../scene/flowPresets";
+import { parseHexCode } from "../components/flowPanel/FlowHexInput";
 
 import { API } from "./helpers/api";
 import { act, fireEvent, render, screen, within } from "./test-utils";
@@ -265,5 +266,73 @@ describe("AC-233 the colour presets", () => {
         nodeColor: state().nodeColor,
       });
     }
+  });
+
+  it("AC-233 a hex code typed in the box sets the colour of the chosen part", async () => {
+    await lookOpen();
+
+    const box = () =>
+      screen.getByLabelText("Shape hex code") as HTMLInputElement;
+    const type = (value: string) =>
+      act(() => {
+        fireEvent.change(box(), { target: { value } });
+      });
+
+    // a whole code sets the colour, in lower case; a short one is widened
+    type("FFEC99");
+    expect(state().nodeColor).toBe("#ffec99");
+    type("#f0a");
+    expect(state().nodeColor).toBe("#ff00aa");
+
+    // the swatch pad and the box are one choice: the box follows the pad
+    act(() => {
+      fireEvent.click(
+        within(
+          screen.getByRole("radiogroup", { name: "Shape colour" }),
+        ).getByRole("radio", { name: "Shape colour: Blue" }),
+      );
+    });
+    expect(box().value).toBe("3d7bff");
+
+    // a code that is not whole is marked and sets nothing; leaving the box puts the colour back
+    type("12zz");
+    expect(box().getAttribute("aria-invalid")).toBe("true");
+    expect(state().nodeColor).toBe("#3d7bff");
+    act(() => {
+      fireEvent.blur(box());
+    });
+    expect(box().value).toBe("3d7bff");
+
+    // an empty box is the default colour
+    type("");
+    expect(state().nodeColor).toBeNull();
+  });
+
+  it("AC-233 the hex box is for the part chosen in the table", async () => {
+    await lookOpen();
+
+    act(() => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Choose the arrow colour" }),
+      );
+    });
+    act(() => {
+      fireEvent.change(screen.getByLabelText("Arrow hex code"), {
+        target: { value: "00ff00" },
+      });
+    });
+
+    expect(state().arrowColor).toBe("#00ff00");
+    expect(state().nodeColor).toBeNull();
+    expect(screen.queryByLabelText("Shape hex code")).toBeNull();
+  });
+
+  it("AC-233 a hex code is read as it is meant", () => {
+    expect(parseHexCode("ABC")).toBe("#aabbcc");
+    expect(parseHexCode(" #AbCdEf ")).toBe("#abcdef");
+    expect(parseHexCode("12")).toBeNull();
+    expect(parseHexCode("12345")).toBeNull();
+    expect(parseHexCode("gggggg")).toBeNull();
+    expect(parseHexCode("")).toBeNull();
   });
 });

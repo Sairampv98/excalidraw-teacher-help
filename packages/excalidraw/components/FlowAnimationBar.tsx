@@ -64,6 +64,7 @@ import {
   FlowAnimationOptions,
   useFlowPanelAnimation,
 } from "./flowPanel/FlowAnimationOptions";
+import { FlowHexInput } from "./flowPanel/FlowHexInput";
 import { FlowEmbeddedScriptEditor } from "./FlowScriptEditor";
 import {
   DEFAULT_FLOW_STEP_DURATION_MS,
@@ -129,13 +130,14 @@ const GripIcon = () => (
 
 const PlusIcon = () => (
   <svg
-    width="18"
-    height="18"
+    width="16"
+    height="16"
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
-    strokeWidth="3.5"
+    strokeWidth="2"
     strokeLinecap="round"
+    strokeLinejoin="round"
     aria-hidden="true"
     focusable="false"
   >
@@ -1113,6 +1115,11 @@ export const FlowAnimationBar = ({
             </table>
             <FlowColorPad
               label={`${lookRow.name} colour`}
+              value={state[lookRow.colorKey]}
+              onChange={(color) => change({ [lookRow.colorKey]: color })}
+            />
+            <FlowHexInput
+              label={`${lookRow.name} hex code`}
               value={state[lookRow.colorKey]}
               onChange={(color) => change({ [lookRow.colorKey]: color })}
             />
