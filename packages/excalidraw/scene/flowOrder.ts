@@ -262,7 +262,7 @@ export const buildFlowGraph = (
     const flowRole = element.customData?.flow?.role;
 
     // what a chart draws besides its steps is not one: a timeline's dots (D-237)
-    if (flowRole === "timeline-dot") {
+    if (flowRole === "timeline-dot" || flowRole === "background") {
       continue;
     }
 
@@ -424,6 +424,14 @@ export const buildFlowGraph = (
   }
 
   const order = orderFlowSteps([...containers.keys()], edges, readingIndex);
+  if (
+    targetElements.some(
+      (element) =>
+        element.customData?.flow?.scriptSettings?.order === "reverse",
+    )
+  ) {
+    order.reverse();
+  }
 
   const steps: FlowStep[] = order.map((containerId) => ({
     containerId,

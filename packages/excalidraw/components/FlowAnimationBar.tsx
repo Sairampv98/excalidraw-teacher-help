@@ -374,7 +374,12 @@ export const FlowAnimationBar = ({
     }
   }, [selectionAnchor, graphAnchor, scriptEditor.anchorId]);
   useFlowPanelAnimation(
-    graph ? elementsMap.get(graph.steps[0]?.containerId) : undefined,
+    graph
+      ? graph.steps
+          .map((step) => elementsMap.get(step.containerId))
+          .find((element) => element?.customData?.flowPanelAnimation) ??
+          elementsMap.get(graph.steps[0]?.containerId)
+      : undefined,
   );
   const box = graph ? flowBoxOf(graph, elementsMap) : null;
 
@@ -1042,7 +1047,13 @@ export const FlowAnimationBar = ({
           <label className="excalidraw__flow-bar-field">
             <input
               type="checkbox"
-              checked={preview}
+              checked={marked || preview}
+              disabled={marked}
+              title={
+                marked
+                  ? "Charts marked Show in class already loop automatically in the editor."
+                  : undefined
+              }
               onChange={(event) => setFlowClassPreview(event.target.checked)}
             />
             Preview class loop

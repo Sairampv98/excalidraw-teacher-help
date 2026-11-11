@@ -28,12 +28,26 @@ import type { AppClassProperties } from "../../types";
 export const panelAnimationOf = (
   value: unknown,
   fallback: FlowAnimationSettings,
-): FlowAnimationSettings => {
+): FlowAnimationSettings & { spacing?: number; marchingStyle?: string } => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return fallback;
   }
-  const data = value as Partial<FlowAnimationSettings>;
+  const data = value as Partial<FlowAnimationSettings> & {
+    spacing?: number;
+    marchingStyle?: string;
+  };
   return {
+    spacing:
+      typeof data.spacing === "number" &&
+      Number.isFinite(data.spacing) &&
+      data.spacing >= 16
+        ? data.spacing
+        : 150,
+    marchingStyle: ["marching", "marching-beam", "marching-token"].includes(
+      data.marchingStyle ?? "",
+    )
+      ? data.marchingStyle
+      : "none",
     ...readFlowLook(data),
     nodeStyle: FLOW_NODE_STYLES.some((style) => style.id === data.nodeStyle)
       ? data.nodeStyle!
@@ -163,7 +177,17 @@ export const FlowAnimationOptions = ({
         <>
           {message && <p role="alert">{message}</p>}
           <FlowChartPreview
-            elements={snapshot}
+            elements={snapshot.map((element) =>
+              element.id === graph.steps[0]?.containerId
+                ? {
+                    ...element,
+                    customData: {
+                      ...element.customData,
+                      flowPanelAnimation: draft,
+                    },
+                  }
+                : element,
+            )}
             graph={graph}
             appState={app.state}
             files={app.files}
@@ -292,6 +316,40 @@ export const FlowAnimationOptions = ({
                 value={draft.markColor}
                 onChange={(markColor) => update({ ...draft, markColor })}
               />
+              <label>
+                Marching marks alongside the step
+                <select
+                  aria-label="Marching marks alongside the step"
+                  value={draft.marchingStyle ?? "none"}
+                  onChange={(event) =>
+                    update({ ...draft, marchingStyle: event.target.value })
+                  }
+                >
+                  <option value="none">None</option>
+                  <option value="marching">Marching dashes</option>
+                  <option value="marching-beam">Marching beams</option>
+                  <option value="marching-token">Marching tokens</option>
+                </select>
+              </label>
+              <label>
+                Marching spacing
+                <input
+                  aria-label="Marching spacing"
+                  type="number"
+                  min={16}
+                  step={10}
+                  defaultValue={draft.spacing ?? 150}
+                  onBlur={(event) => {
+                    event.target.value = String(draft.spacing ?? 150);
+                  }}
+                  onChange={(event) => {
+                    const spacing = Number(event.target.value);
+                    if (Number.isFinite(spacing) && spacing >= 16) {
+                      update({ ...draft, spacing });
+                    }
+                  }}
+                />
+              </label>
             </>
           ),
         },

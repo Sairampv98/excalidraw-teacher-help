@@ -100,6 +100,7 @@ export const FLOW_NODE_SHAPES: readonly FlowNodeShape[] = [
 ];
 
 export type FlowScriptNode = {
+  look?: FlowScriptLook;
   /** `n0`, `n1`, ... in the order the nodes were first seen */
   id: string;
   label: string;
@@ -122,11 +123,25 @@ export type FlowScriptNode = {
   source?: { line: number; start: number; end: number };
 };
 
+export type FlowRouteBend = {
+  kind: "elbow" | "curve" | "straight";
+  side?: "left" | "right" | "in" | "out";
+};
+
 export type FlowScriptEdge = {
+  look?: FlowScriptLook;
   from: string;
   to: string;
   /** `yes` or `no` on a question's branches */
   label?: string;
+  route?: FlowRouteBend[];
+  fork?: {
+    id: string;
+    count: number;
+    index: number;
+    reverse: boolean;
+    loose: boolean;
+  };
 };
 
 /** something in a script that cannot be built as written, and where (D-224) */
@@ -142,6 +157,7 @@ export type ParsedFlow =
       preset: FlowPresetId;
       nodes: FlowScriptNode[];
       edges: FlowScriptEdge[];
+      settings?: Record<string, string | number | boolean>;
       /** the node ids of each tier, top first (tiers only) */
       tiers?: string[][];
       /** the node ids of each row, top first, the cells in column order (grid and matrix only) */
@@ -156,6 +172,80 @@ export type ParsedFlow =
 
 export const EMPTY_SCRIPT_ERROR =
   "Nothing to build: write one line for each node.";
+
+export type FlowScriptLook = {
+  fill?: string;
+  outline?: string;
+  glowShape?: boolean;
+  glowArrow?: boolean;
+  glowMark?: boolean;
+  arrowStyle?: string;
+  nodeStyle?: string;
+};
+
+/** Header words mirror the Flow panel; their spelling is also used by the register. */
+export const FLOW_SCRIPT_LOOK_WORDS: Record<string, string> = {
+  "node-color": "nodeColor",
+  "text-color": "textColor",
+  "mark-color": "markColor",
+  "arrow-color": "arrowColor",
+  "glow-shape": "glowShape",
+  "glow-text": "glowText",
+  "glow-mark": "glowMark",
+  "glow-arrow": "glowArrow",
+  "hide-arrow": "hideArrow",
+  highlight: "nodeTarget",
+  animation: "arrowStyle",
+  "arrow-animation": "arrowStyle",
+  "node-animation": "nodeStyle",
+  speed: "speed",
+  "step-ms": "durationMs",
+  loop: "loop",
+  background: "background",
+  order: "order",
+  shape: "shape",
+  fit: "fit",
+  arrows: "arrows",
+  layout: "layout",
+  spacing: "spacing",
+  marching: "marchingStyle",
+};
+
+const arrowStyles = [
+  "none",
+  "beam",
+  "token",
+  "marching",
+  "marching-beam",
+  "marching-token",
+  "pipe",
+];
+export const FLOW_SCRIPT_NODE_STYLES = [
+  "none",
+  "focus",
+  "pulse",
+  "ouroboros",
+  "sparkle",
+  "flowing-beam",
+  "draw-on",
+  "glint",
+  "orbit",
+  "ripple",
+  "breathing",
+  "wobble",
+  "flicker",
+  "spotlight",
+];
+const styleAlias = (value: string) =>
+  value === "marching-tokens"
+    ? "marching-token"
+    : value === "marching-beams"
+    ? "marching-beam"
+    : value === "marching-dashes"
+    ? "marching"
+    : value;
+const scriptColor = (value: string) =>
+  /^#([\da-f]{3}|[\da-f]{6}|[\da-f]{8})$/i.test(value);
 
 /** the longest label a shape can be asked to hold, in characters (D-224) */
 export const MAX_LABEL_CHARS = 120;
@@ -457,8 +547,11 @@ const parseDecision = (lines: ScriptLine[]): ParsedFlow => {
   return { ok: true, preset: "decision", nodes, edges, problems };
 };
 
-const parseNetwork = (lines: ScriptLine[]): ParsedFlow => {
-  const { nodes, edges, problems, problem, add, link } = createGraph();
+const parseNetwork = (
+  lines: ScriptLine[],
+  looks: ReadonlyMap<number, FlowScriptLook>,
+): ParsedFlow => {
+  const { nodes, edges, problems, problem, add } = createGraph();
   const byLabel = new Map<string, FlowScriptNode>();
 
   /** a node is created the first time its label is seen, with the mark it had then */
@@ -470,15 +563,116 @@ const parseNetwork = (lines: ScriptLine[]): ParsedFlow => {
     const label = readShapeMark(raw).label;
     let node = byLabel.get(label);
     if (!node) {
-      node = add(raw, "step", line, {}, span);
+      const original = lines.find((entry) => entry.no === line);
+      const offset =
+        original?.text.indexOf(
+          raw,
+          Math.max(0, span.start - (original?.offset ?? 0)),
+        ) ?? -1;
+      node = add(
+        raw,
+        "step",
+        line,
+        {},
+        offset >= 0
+          ? {
+              start: (original?.offset ?? 0) + offset,
+              end: (original?.offset ?? 0) + offset + raw.length,
+            }
+          : span,
+      );
       byLabel.set(node.label, node);
     }
     return node;
   };
 
-  for (const line of lines) {
+  for (const original of lines) {
+    const route: FlowRouteBend[] = [];
+    let count: number | undefined;
+    const text = original.text.replace(
+      /(?:^|\s)(@(?:elbow|curve|straight)(?::[^\s]+)?|@fork-[^\s]+)(?=\s|$)/g,
+      (_, word: string) => {
+        if (word.startsWith("@fork-")) {
+          const value = Number(word.slice(6));
+          if (!Number.isSafeInteger(value) || value < 2) {
+            problem(
+              original.no,
+              "A fork needs a whole number of branches, at least 2: @fork-2.",
+            );
+          } else {
+            count = value;
+          }
+        } else {
+          const parts = word.slice(1).split(":");
+          const [kind, side] = parts;
+          if (
+            parts.length > 2 ||
+            (side && !["left", "right", "in", "out"].includes(side))
+          ) {
+            problem(
+              original.no,
+              `Unknown route side ${side}; use left, right, in or out.`,
+            );
+          } else {
+            route.push({
+              kind: kind as FlowRouteBend["kind"],
+              ...(side ? { side: side as FlowRouteBend["side"] } : {}),
+            });
+          }
+        }
+        return "";
+      },
+    );
+    if (route.length > 4) {
+      problem(
+        original.no,
+        "A route takes at most four bend words. Split a longer route with another node.",
+      );
+    }
+    if (count && route.length) {
+      problem(
+        original.no,
+        "A fork already has a shared trunk and bar. Remove its bend words or put the routed arrow on another line.",
+      );
+    }
+    const line = { ...original, text: text.trim() };
+    for (const word of line.text.match(/(?:^|\s)@[^\s]+/g) ?? []) {
+      if (
+        !FLOW_NODE_SHAPES.some(
+          (shape) => word.trim().toLowerCase() === `@${shape}`,
+        )
+      ) {
+        problem(
+          line.no,
+          `Unknown word ${word
+            .trim()
+            .slice(
+              0,
+              64,
+            )}. Use @elbow, @curve, @straight or @fork-N for a route; use @fill:#abc, @outline:#abc, @glow or @style:token for looks.`,
+        );
+      }
+    }
+    if ((route.length || count) && !line.text.includes("->")) {
+      problem(line.no, "A route needs an arrow: A -> B @elbow.");
+    }
+    if (/(?:^|\s):(?:left|right|in|out)\b/.test(line.text)) {
+      problem(line.no, "A side needs a bend: write @elbow:left.");
+    }
     const pieces = piecesOf(line, "->");
     const labels = pieces.filter((piece) => piece.text);
+    if (count && pieces.length === 2 && labels.length === 1) {
+      const reverse = !pieces[0].text;
+      const trunk = nodeFor(labels[0].text, line.no, labels[0]);
+      for (let index = 0; index < count; index++) {
+        edges.push({
+          from: reverse ? "" : trunk.id,
+          to: reverse ? trunk.id : "",
+          fork: { id: `fork-${line.no}-0`, count, index, reverse, loose: true },
+        });
+      }
+      continue;
+    }
 
     if (pieces.length > 1 && labels.length < pieces.length) {
       problem(line.no, "A -> needs a name on each side.");
@@ -489,12 +683,66 @@ const parseNetwork = (lines: ScriptLine[]): ParsedFlow => {
       continue;
     }
 
-    // `A -> B -> C` is two edges
+    // Lists expand to branches; a fork retains empty ends without making nodes.
     for (let i = 0; i < labels.length - 1; i++) {
-      link(
-        nodeFor(labels[i].text, line.no, labels[i]).id,
-        nodeFor(labels[i + 1].text, line.no, labels[i + 1]).id,
+      const left = labels[i].text
+        .split(",")
+        .map((name) => name.trim())
+        .filter(Boolean);
+      const right = labels[i + 1].text
+        .split(",")
+        .map((name) => name.trim())
+        .filter(Boolean);
+      if (!left.length || !right.length) {
+        problem(
+          line.no,
+          "A list needs a node name between commas; remove its empty entries.",
+        );
+        continue;
+      }
+      const reverse = left.length > 1;
+      const names = reverse ? left : right;
+      if (
+        count &&
+        (names.length > count || (left.length > 1 && right.length > 1))
+      ) {
+        problem(
+          line.no,
+          "A fork has one trunk and at most its branch count in names; increase @fork-N.",
+        );
+        continue;
+      }
+      const trunk = nodeFor(
+        reverse ? right[0] : left[0],
+        line.no,
+        reverse ? labels[i + 1] : labels[i],
       );
+      const total = count ?? names.length;
+      for (let branch = 0; branch < total; branch++) {
+        const name = names[branch];
+        const end = name
+          ? nodeFor(name, line.no, reverse ? labels[i] : labels[i + 1]).id
+          : "";
+        edges.push({
+          from: reverse ? end : trunk.id,
+          to: reverse ? trunk.id : end,
+          ...(route.length ? { route } : {}),
+          ...(Object.keys(looks.get(line.no) ?? {}).length
+            ? { look: looks.get(line.no) }
+            : {}),
+          ...(count
+            ? {
+                fork: {
+                  id: `fork-${line.no}-${i}`,
+                  count,
+                  index: branch,
+                  reverse,
+                  loose: !name,
+                },
+              }
+            : {}),
+        });
+      }
     }
   }
 
@@ -644,7 +892,116 @@ export const parseFlowScript = (
   preset: FlowPresetId,
   text: string,
 ): ParsedFlow => {
-  const lines = scriptLines(text);
+  const originals = scriptLines(text);
+  const settings: Record<string, string | number | boolean> = {};
+  const looks = new Map<number, FlowScriptLook>();
+  const problems: FlowScriptProblem[] = [];
+  const lines: ScriptLine[] = [];
+  let inBody = false;
+  for (const original of originals) {
+    const header = /^([a-z-]+):\s+(.+)$/.exec(original.text);
+    if (header && FLOW_SCRIPT_LOOK_WORDS[header[1]]) {
+      const [, word, raw] = header;
+      const key = FLOW_SCRIPT_LOOK_WORDS[word];
+      const value = styleAlias(raw.trim());
+      let read: string | number | boolean = value;
+      let valid = !inBody;
+      let advice = "Put this setting before the first node.";
+      if (key.endsWith("Color") || key === "background") {
+        advice = "Use a hexadecimal colour such as #e7f5ff.";
+        valid = valid && scriptColor(value);
+      } else if (
+        key.startsWith("glow") ||
+        key === "hideArrow" ||
+        key === "loop"
+      ) {
+        valid = valid && ["true", "false"].includes(value);
+        advice = "Use true or false.";
+        read = value === "true";
+      } else if (["speed", "durationMs", "spacing"].includes(key)) {
+        advice = "Use a positive finite number.";
+        read = Number(value) * (key === "speed" ? 240 : 1);
+        valid = valid && Number.isFinite(read) && read > 0;
+      } else {
+        const allowed: Record<string, readonly string[]> = {
+          arrowStyle: arrowStyles,
+          marchingStyle: [
+            "none",
+            "marching",
+            "marching-beam",
+            "marching-token",
+          ],
+          nodeStyle: FLOW_SCRIPT_NODE_STYLES,
+          nodeTarget: ["shape", "shape-box", "shape-text", "box", "letters"],
+          order: ["forward", "reverse"],
+          shape: ["own", ...FLOW_NODE_SHAPES],
+          fit: ["page", "spread", "larger"],
+          arrows: ["own", "none"],
+          layout: ["TB", "LR"],
+        };
+        valid = valid && (allowed[key]?.includes(value) ?? false);
+        advice = `Use ${(allowed[key] ?? []).join(", ")}.`;
+      }
+      if (valid) {
+        settings[key] = read;
+      } else {
+        problems.push({
+          line: original.no,
+          message: `Invalid ${word}. ${
+            inBody ? "Move the setting above the first node. " : ""
+          }${advice}`,
+        });
+      }
+      continue;
+    }
+    inBody = true;
+    const look: FlowScriptLook = {};
+    const body = original.text.replace(
+      /(?:^|\s)@(fill:[^\s]+|outline:[^\s]+|glow|style:[^\s]+)(?=\s|$)/g,
+      (_, token: string) => {
+        const [word, raw] = token.split(":");
+        if (word === "glow") {
+          Object.assign(
+            look,
+            original.text.includes("->")
+              ? { glowArrow: true, glowMark: true }
+              : { glowShape: true },
+          );
+        } else if (
+          (word === "fill" || word === "outline") &&
+          scriptColor(raw)
+        ) {
+          look[word] = raw;
+        } else if (
+          word === "style" &&
+          (original.text.includes("->")
+            ? arrowStyles.includes(styleAlias(raw))
+            : FLOW_SCRIPT_NODE_STYLES.includes(raw))
+        ) {
+          if (original.text.includes("->")) {
+            look.arrowStyle = styleAlias(raw);
+          } else {
+            look.nodeStyle = raw;
+          }
+        } else {
+          problems.push({
+            line: original.no,
+            message: `Unknown or invalid @${token.slice(0, 64)}. ${
+              word === "fill" || word === "outline"
+                ? "Use a hexadecimal colour such as #e7f5ff."
+                : `Use ${(original.text.includes("->")
+                    ? arrowStyles
+                    : FLOW_SCRIPT_NODE_STYLES
+                  ).join(", ")}.`
+            }`,
+          });
+        }
+        return "";
+      },
+    );
+    looks.set(original.no, look);
+    lines.push({ ...original, text: body.trim() });
+  }
 
   if (lines.length === 0) {
     return { ok: false, error: EMPTY_SCRIPT_ERROR };
@@ -668,7 +1025,7 @@ export const parseFlowScript = (
       parsed = parseDecision(lines);
       break;
     case "network":
-      parsed = parseNetwork(lines);
+      parsed = parseNetwork(lines, looks);
       break;
     case "list":
     case "pyramid":
@@ -688,7 +1045,66 @@ export const parseFlowScript = (
   }
 
   // a script whose every line was an empty tier, a bare "?" or a stray "->"
+  if (parsed.ok && preset !== "network") {
+    for (const line of lines) {
+      for (const word of line.text.match(/(?:^|\s)@[^\s]+/g) ?? []) {
+        const token = word.trim();
+        if (
+          !FLOW_NODE_SHAPES.some(
+            (shape) => token.toLowerCase() === `@${shape}`,
+          ) &&
+          !/^@(elbow|curve|straight|fork-)/.test(token) &&
+          !parsed.problems.some((problem) => problem.line === line.no)
+        ) {
+          parsed.problems.push({
+            line: line.no,
+            message: `Unknown word ${token.slice(
+              0,
+              64,
+            )}. Use @fill:#abc, @outline:#abc, @glow or @style:focus for a node look.`,
+          });
+        }
+      }
+      if (/@(?:elbow|curve|straight|fork-\d+)\b/.test(line.text)) {
+        parsed.problems.push({
+          line: line.no,
+          message: "Routes and forks need the Network preset with A -> B.",
+        });
+      }
+    }
+  }
+  if (parsed.ok) {
+    parsed.problems.push(...problems);
+    if (Object.keys(settings).length) {
+      parsed.settings = settings;
+    }
+    for (const node of parsed.nodes) {
+      const look = node.source && looks.get(node.source.line);
+      if (
+        look &&
+        Object.keys(look).length &&
+        !originals
+          .find((line) => line.no === node.source!.line)
+          ?.text.includes("->")
+      ) {
+        node.look = look;
+      }
+    }
+  }
   if (parsed.ok && parsed.nodes.length === 0) {
+    if (
+      originals.some((line) =>
+        /@(?:elbow|curve|straight|fork-)/.test(line.text),
+      ) &&
+      parsed.problems.length
+    ) {
+      return {
+        ok: false,
+        error: parsed.problems
+          .map((problem) => `Line ${problem.line}: ${problem.message}`)
+          .join("\n"),
+      };
+    }
     return { ok: false, error: EMPTY_SCRIPT_ERROR };
   }
 

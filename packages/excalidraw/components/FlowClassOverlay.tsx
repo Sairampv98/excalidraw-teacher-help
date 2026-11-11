@@ -27,13 +27,14 @@ import {
   stepHoldsMedia,
 } from "../scene/flowHighlight";
 import { chartScaleOf } from "../scene/flowScale";
-import { flowMarksFor } from "../scene/flowStyles";
 
 import { useAtomValue } from "../editor-jotai";
 
 import {
   applyMarks,
+  marksForArrow,
   arrowsFor,
+  glowingArrowsFor,
   dashAttr,
   pointsAttr,
 } from "./FlowAnimationOverlay";
@@ -110,7 +111,13 @@ export const FlowClassOverlay = ({
   const animation = useAtomValue(flowAnimationStateAtom);
   // the editor can preview what the class gets, in the edit view (D-193)
   const preview = useAtomValue(flowClassPreviewAtom);
-  const playing = active || preview;
+  const playing = active || preview || !displayOnly;
+  const [visible, setVisible] = useState(() => !document.hidden);
+  useEffect(() => {
+    const changed = () => setVisible(!document.hidden);
+    document.addEventListener("visibilitychange", changed);
+    return () => document.removeEventListener("visibilitychange", changed);
+  }, []);
   // the Steps buttons are the class view's, never the preview's (D-185, D-193)
   const showSteps = active && !displayOnly;
   const marksRef = useRef<SVGSVGElement>(null);
@@ -163,6 +170,9 @@ export const FlowClassOverlay = ({
       return;
     }
 
+    if (!visible) {
+      return;
+    }
     AnimationController.start<{ elapsed: number }>(CLASS_KEY, () => {
       const now = performance.now();
       const current = flowsRef.current;
@@ -224,9 +234,9 @@ export const FlowClassOverlay = ({
           if (group) {
             applyMarks(
               group,
-              flowMarksFor(
+              marksForArrow(
+                arrow,
                 flow.settings.arrow,
-                arrow.path,
                 sinceStart % flow.settings.stepMs,
                 options,
               ),
@@ -246,7 +256,7 @@ export const FlowClassOverlay = ({
       AnimationController.cancel(CLASS_KEY);
     };
     // the flows are read through a ref: a moved chart must not restart the clock
-  }, [flowKeys]);
+  }, [flowKeys, visible]);
 
   // what the flows of the class loop do to their arrows is told to the
   // editor's canvas (D-204)
@@ -311,16 +321,26 @@ export const FlowClassOverlay = ({
               style={lookVars(flow.settings)}
               {...lookAttrs(flow.settings)}
             >
-              {flow.settings.glowArrow && (
-                <ArrowTubes
-                  arrows={arrowsFor(
-                    "marching",
-                    flow.graph,
-                    flow.graph.steps[indices[flow.key] ?? 0],
-                    elementsMap,
-                  )}
-                />
-              )}
+              {glowingArrowsFor(
+                flow.graph,
+                flow.graph.steps[indices[flow.key] ?? 0],
+                elementsMap,
+                flow.settings.glowArrow,
+              ).map((arrow) => (
+                <g
+                  key={`tube-${arrow.id}`}
+                  style={lookVars({
+                    ...flow.settings,
+                    ...arrow.look,
+                    arrowColor:
+                      typeof arrow.look?.outline === "string"
+                        ? arrow.look.outline
+                        : flow.settings.arrowColor,
+                  })}
+                >
+                  <ArrowTubes arrows={[arrow]} />
+                </g>
+              ))}
               <ClassMarks
                 flow={flow}
                 index={indices[flow.key] ?? 0}
@@ -380,12 +400,14 @@ const ClassMarks = ({
   return (
     <>
       {arrows.map((arrow) => {
-        const marks = flowMarksFor(flow.settings.arrow, arrow.path, 0, options);
+        const marks = marksForArrow(arrow, flow.settings.arrow, 0, options);
 
         return (
           <g
             key={`${index}-${arrow.id}`}
             data-flow-class-arrow={`${flow.key}:${arrow.id}`}
+            style={lookVars({ ...flow.settings, ...arrow.look })}
+            {...lookAttrs({ ...flow.settings, ...arrow.look })}
           >
             {marks.strokes.map((stroke, i) => (
               <polyline
@@ -435,6 +457,11 @@ const ClassNodes = ({
   if (!step) {
     return null;
   }
+  const ownStyle = elementsMap.get(step.containerId)?.customData?.flow?.look
+    ?.nodeStyle;
+  if (["none", "focus", "pulse"].includes(ownStyle)) {
+    flow = { ...flow, settings: { ...flow.settings, node: ownStyle } };
+  }
 
   // what is highlighted: the outline, the box of the label, its letters (D-201)
   const parts =
@@ -460,13 +487,19 @@ const ClassNodes = ({
             className="excalidraw__flow-animation-shape"
             data-flow-class-node={flow.settings.node}
             data-flow-media={stepHoldsMedia(step, elementsMap) ? "" : undefined}
-            {...lookAttrs(flow.settings)}
+            {...lookAttrs({
+              ...flow.settings,
+              ...element.customData?.flow?.look,
+            })}
             style={{
               width: box.width,
               height: box.height,
               transform: flowBoundsTransform(box, camera),
               transformOrigin: "0 0",
-              ...lookVars(flow.settings),
+              ...lookVars({
+                ...flow.settings,
+                ...element.customData?.flow?.look,
+              }),
             }}
           >
             <div

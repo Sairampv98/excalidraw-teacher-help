@@ -18,7 +18,11 @@ import type {
   ExcalidrawTextElement,
 } from "@excalidraw/element/types";
 
-import { arrowsFor } from "../../components/FlowAnimationOverlay";
+import {
+  arrowsFor,
+  marksForArrow,
+  glowingArrowsFor,
+} from "../../components/FlowAnimationOverlay";
 import { FLOW_FOCUS_MARGIN, flowFocusScale } from "../flowAnimation";
 import {
   highlightBoxOf,
@@ -32,7 +36,6 @@ import {
   pipeColorsFor,
   isFlowColor,
 } from "../flowLook";
-import { flowMarksFor } from "../flowStyles";
 
 import { stepAt } from "./plan";
 
@@ -365,6 +368,18 @@ const drawHighlight = (
   sinceStepMs: number,
   scale: number,
 ) => {
+  scene = {
+    ...scene,
+    look: {
+      ...scene.look,
+      ...scene.elementsMap.get(step.containerId)?.customData?.flow?.look,
+    },
+  };
+  const ownStyle = scene.elementsMap.get(step.containerId)?.customData?.flow
+    ?.look?.nodeStyle;
+  if (["none", "focus", "pulse"].includes(ownStyle)) {
+    scene = { ...scene, nodeStyle: ownStyle };
+  }
   if (scene.nodeStyle === "none") {
     return;
   }
@@ -426,17 +441,18 @@ const drawArrowTubes = (
   step: FlowStep,
   scale: number,
 ) => {
-  const color = colorOr(
-    scene.look.arrowColor ?? scene.look.markColor,
-    FLOW_ACCENT_HEX,
-  );
-
-  for (const arrow of arrowsFor(
-    "marching",
+  for (const arrow of glowingArrowsFor(
     scene.graph,
     step,
     scene.elementsMap,
+    scene.look.glowArrow,
   )) {
+    const color = colorOr(
+      (typeof arrow.look?.outline === "string" ? arrow.look.outline : null) ??
+        scene.look.arrowColor ??
+        scene.look.markColor,
+      FLOW_ACCENT_HEX,
+    );
     // three halos, one over another, as three drop shadows in a row
     for (const halo of [2, 6, 14]) {
       ctx.save();
@@ -504,9 +520,7 @@ export const drawFlowFrame = (
   );
 
   // the arrows as neon tubes, under what travels along them
-  if (scene.look.glowArrow) {
-    drawArrowTubes(ctx, scene, step, transform.scale);
-  }
+  drawArrowTubes(ctx, scene, step, transform.scale);
 
   const arrows = arrowsFor(
     scene.arrowStyle,
@@ -516,24 +530,30 @@ export const drawFlowFrame = (
   );
 
   for (const arrow of arrows) {
-    const marks = flowMarksFor(scene.arrowStyle, arrow.path, sinceStepMs, {
+    const look = { ...scene.look, ...arrow.look };
+    const marks = marksForArrow(arrow, scene.arrowStyle, sinceStepMs, {
       scale: scene.chartScale,
       speed: scene.speed,
     });
 
     for (const stroke of marks.strokes) {
-      drawStroke(ctx, stroke, scene.look, transform.scale);
+      drawStroke(
+        ctx,
+        stroke,
+        { ...scene.look, ...arrow.look },
+        transform.scale,
+      );
     }
 
     for (const dot of marks.dots) {
-      const color = colorOr(scene.look.markColor, FLOW_ACCENT_HEX);
+      const color = colorOr(look.markColor, FLOW_ACCENT_HEX);
 
       ctx.save();
       ctx.beginPath();
       ctx.arc(dot.x, dot.y, dot.radius, 0, Math.PI * 2);
-      ctx.fillStyle = scene.look.glowMark ? neonCore(color) : color;
+      ctx.fillStyle = look.glowMark ? neonCore(color) : color;
       ctx.shadowColor = color;
-      ctx.shadowBlur = blurOf(scene.look.glowMark ? 14 : 5, transform.scale);
+      ctx.shadowBlur = blurOf(look.glowMark ? 14 : 5, transform.scale);
       ctx.fill();
       ctx.restore();
     }

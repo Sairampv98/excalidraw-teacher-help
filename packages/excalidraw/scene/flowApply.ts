@@ -31,6 +31,7 @@ import {
   measureFlowText,
   shapeOfNode,
   wrapFlowLabel,
+  routeNativeFlowArrows,
 } from "./flowPresets";
 import { buildSettingsOfCustom } from "./flowCustomPresets";
 import { parseFlowScript } from "./flowScript";
@@ -90,6 +91,10 @@ type OldNode = {
 
 const flowOf = (element: ExcalidrawElement) =>
   (element.customData?.flow ?? {}) as Record<string, unknown>;
+const dataOf = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 
 /** the colours and the direction of the custom preset a chart is made from (D-228) */
 const customOptions = (args: ApplyFlowScriptArgs) =>
@@ -429,6 +434,83 @@ export const applyFlowScript = (
   if (!parsed.ok) {
     return { ok: false, error: parsed.error };
   }
+  const header = parsed.settings;
+  if (header) {
+    args = {
+      ...args,
+      ...(typeof header.shape === "string"
+        ? { shape: header.shape as FlowChartShape }
+        : {}),
+      ...(typeof header.fit === "string"
+        ? { fit: header.fit as FlowFitMode }
+        : {}),
+      ...(typeof header.arrows === "string"
+        ? { arrows: header.arrows as "own" | "none" }
+        : {}),
+    };
+  }
+  const oldPanel = args.elements.find(
+    (element) =>
+      !element.isDeleted &&
+      flowOf(element).chartId === args.chartId &&
+      element.customData?.flowPanelAnimation,
+  )?.customData?.flowPanelAnimation;
+  const finish = (result: ApplyFlowScriptResult): ApplyFlowScriptResult => {
+    if (!result.ok) {
+      return result;
+    }
+    result = {
+      ...result,
+      elements: routeNativeFlowArrows(result.elements, args.chartId),
+    };
+    if (!header && !oldPanel) {
+      return result;
+    }
+    let first = true;
+    return {
+      ...result,
+      elements: result.elements.map((element) => {
+        if (
+          element.isDeleted ||
+          flowOf(element).chartId !== args.chartId ||
+          flowOf(element).role !== "node"
+        ) {
+          return element;
+        }
+        const flow = { ...flowOf(element) };
+        const customData: Record<string, unknown> = {
+          ...element.customData,
+          flow,
+        };
+        if (first) {
+          first = false;
+          flow.scriptSettings = { ...dataOf(flow.scriptSettings), ...header };
+          customData.flowPanelAnimation = {
+            ...dataOf(customData.flowPanelAnimation),
+            ...dataOf(oldPanel),
+            ...header,
+          };
+        }
+        if (
+          flow.class &&
+          typeof flow.class === "object" &&
+          !Array.isArray(flow.class) &&
+          header
+        ) {
+          flow.class = {
+            ...flow.class,
+            ...header,
+            ...(header.nodeStyle ? { node: header.nodeStyle } : {}),
+            ...(header.arrowStyle ? { arrow: header.arrowStyle } : {}),
+            ...(typeof header.durationMs === "number"
+              ? { stepMs: header.durationMs }
+              : {}),
+          };
+        }
+        return newElementWith(element, { customData });
+      }),
+    };
+  };
 
   const byId = new Map(args.elements.map((element) => [element.id, element]));
   const legacy = new Set(args.legacyElementIds ?? []);
@@ -456,8 +538,15 @@ export const applyFlowScript = (
     args.fit !== "spread" &&
     !REBUILD_ONLY.includes(args.preset);
 
-  if (!sameKind || chart.length === 0) {
-    return rebuild(args, chart);
+  if (
+    !sameKind ||
+    chart.length === 0 ||
+    parsed.edges.some((edge) => edge.fork) ||
+    chart.some((element) => flowOf(element).fork) ||
+    header?.background !== undefined ||
+    header?.layout !== undefined
+  ) {
+    return finish(rebuild(args, chart));
   }
 
   const oldNodes = readNodes(chart, byId);
@@ -542,9 +631,16 @@ export const applyFlowScript = (
     }
 
     shape = newElementWith(shape, {
+      ...(node.look?.fill ? { backgroundColor: node.look.fill } : {}),
+      ...(node.look?.outline ? { strokeColor: node.look.outline } : {}),
       customData: {
         ...shape.customData,
-        flow: { ...flowOf(shape), nodeId: node.id, shape: wanted },
+        flow: {
+          ...flowOf(shape),
+          nodeId: node.id,
+          shape: wanted,
+          ...(node.look ? { look: node.look } : {}),
+        },
       },
     });
     updated.set(shape.id, shape);
@@ -718,6 +814,44 @@ export const applyFlowScript = (
     }
 
     edge.used = true;
+    if (edge.route || edge.look || flowOf(arrow).route || flowOf(arrow).look) {
+      const made = buildEdge(
+        nodeBoxes.get(edge.from)!,
+        nodeBoxes.get(edge.to)!,
+        shapeIdOf.get(edge.from)!,
+        shapeIdOf.get(edge.to)!,
+        edge,
+        fresh.fontSize,
+        { id: () => arrow.id, roughSeed: () => arrow.seed },
+        { pageId: args.pageId },
+      );
+      const replacement = made.elements[0] as ExcalidrawArrowElement;
+      const { id: _id, ...properties } = replacement;
+      updated.set(
+        arrow.id,
+        newElementWith(arrow, {
+          ...properties,
+          strokeColor: edge.look?.outline ?? arrow.strokeColor,
+          strokeWidth: arrow.strokeWidth,
+          strokeStyle: arrow.strokeStyle,
+          opacity: arrow.opacity,
+          startArrowhead: arrow.startArrowhead,
+          endArrowhead: arrow.endArrowhead,
+          boundElements: arrow.boundElements,
+          customData: {
+            ...arrow.customData,
+            flow: {
+              ...flowOf(arrow),
+              ...flowOf(replacement),
+              route: edge.route,
+              look: edge.look,
+              fork: edge.fork,
+            },
+          },
+        }),
+      );
+      continue;
+    }
     updated.set(
       arrow.id,
       newElementWith(arrow, {
@@ -815,12 +949,12 @@ export const applyFlowScript = (
     restamped.map((element) => [element.id, element]),
   );
 
-  return {
+  return finish({
     ok: true,
     elements: next.map((element) => byRestamped.get(element.id) ?? element),
     rebuilt: false,
     kept: matched.size,
     added: parsed.nodes.length - matched.size,
     removed: oldNodes.length - matched.size,
-  };
+  });
 };

@@ -33,7 +33,11 @@ import {
 } from "../scene/flowHighlight";
 import { arrowLooksFor } from "../scene/flowArrowLooks";
 
-import { flowMarksFor, getArrowPath } from "../scene/flowStyles";
+import {
+  FLOW_ARROW_STYLES,
+  flowMarksFor,
+  getArrowPath,
+} from "../scene/flowStyles";
 
 import { editorJotaiStore, useAtomValue } from "../editor-jotai";
 import { t } from "../i18n";
@@ -102,7 +106,31 @@ type FlowAnimationOverlayProps = {
 
 /* --------------------------------------------------------------------- marks */
 
-export type MarkedArrow = { id: string; path: PathPoint[] };
+export type MarkedArrow = {
+  id: string;
+  path: PathPoint[];
+  styles?: FlowArrowStyle[];
+  spacing?: number;
+  look?: Record<string, unknown>;
+};
+
+export const marksForArrow = (
+  arrow: MarkedArrow,
+  fallback: FlowArrowStyle,
+  elapsedMs: number,
+  options: FlowMarkOptions,
+): FlowMarks => {
+  const result: FlowMarks = { strokes: [], dots: [] };
+  for (const style of arrow.styles ?? [fallback]) {
+    const marks = flowMarksFor(style, arrow.path, elapsedMs, {
+      ...options,
+      spacing: arrow.spacing ?? options.spacing,
+    });
+    result.strokes.push(...marks.strokes);
+    result.dots.push(...marks.dots);
+  }
+  return result;
+};
 
 /**
  * The arrows a style draws on (D-166): the beam and the token travel the arrows
@@ -157,29 +185,46 @@ export const arrowsFor = (
   graph: FlowGraph | null,
   step: FlowStep | undefined,
   elementsMap: ElementsMap,
+  all = false,
 ): MarkedArrow[] => {
   if (!graph || !step) {
     return [];
   }
 
-  let edgeArrows = graph.edgeArrows;
-
-  if (style === "beam" || style === "token") {
-    edgeArrows = edgeArrows.filter((edge) => edge.from === step.containerId);
-  } else if (style !== "marching" && style !== "pipe") {
-    return [];
-  }
-
   const arrows: MarkedArrow[] = [];
+  const panel = graph.steps
+    .map(
+      (entry) =>
+        elementsMap.get(entry.containerId)?.customData?.flowPanelAnimation,
+    )
+    .find(Boolean);
 
-  for (const edge of edgeArrows) {
+  for (const edge of graph.edgeArrows) {
     const element = elementsMap.get(edge.arrowId);
 
     if (element && !element.isDeleted) {
+      const look = element.customData?.flow?.look;
+      const ownStyle =
+        !all && FLOW_ARROW_STYLES.some((entry) => entry.id === look?.arrowStyle)
+          ? (look.arrowStyle as FlowArrowStyle)
+          : style;
+      const styles = [ownStyle, panel?.marchingStyle].filter(
+        (entry): entry is FlowArrowStyle =>
+          FLOW_ARROW_STYLES.some((candidate) => candidate.id === entry) &&
+          entry !== "none" &&
+          (!(entry === "beam" || entry === "token") ||
+            edge.from === step.containerId),
+      );
+      if (!styles.length) {
+        continue;
+      }
       const path = getArrowPath(element as ExcalidrawLinearElement);
 
       arrows.push({
         id: edge.arrowId,
+        styles: [...new Set(styles)],
+        spacing: typeof panel?.spacing === "number" ? panel.spacing : undefined,
+        look,
         path:
           (style === "beam" || style === "token") &&
           element.customData?.flow?.role === "timeline-segment"
@@ -191,6 +236,16 @@ export const arrowsFor = (
 
   return arrows;
 };
+
+export const glowingArrowsFor = (
+  graph: FlowGraph | null,
+  step: FlowStep | undefined,
+  map: ElementsMap,
+  glow: boolean,
+) =>
+  arrowsFor("marching", graph, step, map, true).filter(
+    (arrow) => glow || arrow.look?.glowArrow,
+  );
 
 export const pointsAttr = (points: readonly PathPoint[]) =>
   points.map((p) => `${p.x},${p.y}`).join(" ");
@@ -308,6 +363,12 @@ export const FlowAnimationOverlay = ({
   // a mirror shows the picture and nothing to press (D-181)
   const interactive = !state.mirror;
   const step = state.active ? state.steps[state.index] : undefined;
+  const scriptedNodeStyle =
+    step &&
+    elementsMap.get(step.containerId)?.customData?.flow?.look?.nodeStyle;
+  const nodeStyle = ["none", "focus", "pulse"].includes(scriptedNodeStyle)
+    ? scriptedNodeStyle
+    : state.nodeStyle;
 
   const arrows = useMemo(
     () => arrowsFor(state.arrowStyle, state.graph, step, elementsMap),
@@ -419,7 +480,7 @@ export const FlowAnimationOverlay = ({
           if (group) {
             applyMarks(
               group,
-              flowMarksFor(state.arrowStyle, arrow.path, now, markOptions()),
+              marksForArrow(arrow, state.arrowStyle, now, markOptions()),
             );
           }
         }
@@ -674,7 +735,7 @@ export const FlowAnimationOverlay = ({
   return (
     <div
       className="excalidraw__flow-animation"
-      data-flow-node-style={state.nodeStyle}
+      data-flow-node-style={nodeStyle}
       data-flow-arrow-style={state.arrowStyle}
       data-flow-mode={state.mode}
       data-flow-mirror={state.mirror ? "" : undefined}
@@ -723,26 +784,41 @@ export const FlowAnimationOverlay = ({
       >
         <g style={{ transform: sceneTransform }} data-flow-scene="">
           {/* the arrows as neon tubes, under what travels (D-217) */}
-          {state.glowArrow && (
-            <ArrowTubes
-              arrows={arrowsFor(
-                "marching",
-                state.graph,
-                state.steps[state.index],
-                elementsMap,
-              )}
-            />
-          )}
+          {glowingArrowsFor(
+            state.graph,
+            state.steps[state.index],
+            elementsMap,
+            state.glowArrow,
+          ).map((arrow) => (
+            <g
+              key={`tube-${arrow.id}`}
+              style={lookVars({
+                ...state,
+                ...arrow.look,
+                arrowColor:
+                  typeof arrow.look?.outline === "string"
+                    ? arrow.look.outline
+                    : state.arrowColor,
+              })}
+            >
+              <ArrowTubes arrows={[arrow]} />
+            </g>
+          ))}
           {arrows.map((arrow) => {
-            const marks = flowMarksFor(
+            const marks = marksForArrow(
+              arrow,
               state.arrowStyle,
-              arrow.path,
               0,
               markOptions(),
             );
 
             return (
-              <g key={`${state.index}-${arrow.id}`} data-flow-arrow={arrow.id}>
+              <g
+                key={`${state.index}-${arrow.id}`}
+                data-flow-arrow={arrow.id}
+                style={lookVars({ ...state, ...arrow.look })}
+                {...lookAttrs({ ...state, ...arrow.look })}
+              >
                 {marks.strokes.map((stroke, i) => (
                   <polyline
                     key={i}
@@ -791,7 +867,7 @@ export const FlowAnimationOverlay = ({
         </g>
       </svg>
 
-      {state.nodeStyle !== "none" &&
+      {nodeStyle !== "none" &&
         [
           ...outlined.map((element) => ({ element, letters: false })),
           ...(parts.letters ? [{ element: parts.letters, letters: true }] : []),
@@ -808,22 +884,24 @@ export const FlowAnimationOverlay = ({
               }`}
               className="excalidraw__flow-animation-shape"
               data-flow-media={stepHasMedia ? "" : undefined}
+              {...lookAttrs({ ...state, ...element.customData?.flow?.look })}
               style={{
                 width: elementBox.width,
                 height: elementBox.height,
                 transform: flowBoundsTransform(elementBox, camera),
                 transformOrigin: "0 0",
+                ...lookVars({ ...state, ...element.customData?.flow?.look }),
               }}
             >
               <div
-                className={`excalidraw__flow-animation-focus excalidraw__flow-animation-focus--${state.nodeStyle}`}
+                className={`excalidraw__flow-animation-focus excalidraw__flow-animation-focus--${nodeStyle}`}
                 style={{
                   // only the focus style enlarges the step: the others leave it
                   // its own size so that what travels along its arrows is seen
                   transform: flowFocusTransform(
                     element.type === "text" ? elementBox : step.box,
                     elementBox,
-                    state.nodeStyle === "focus" ? undefined : 1,
+                    nodeStyle === "focus" ? undefined : 1,
                   ),
                   transformOrigin: "0 0",
                 }}
