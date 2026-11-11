@@ -30,7 +30,7 @@ import {
   writeFlowBarPlace,
 } from "../scene/flowBarPlace";
 import { flowClassOf } from "../scene/flowClass";
-import { FLOW_HIGHLIGHT_TARGETS } from "../scene/flowLook";
+import { FLOW_ACCENT_COLOR, FLOW_HIGHLIGHT_TARGETS } from "../scene/flowLook";
 import { flowOfSelection } from "../scene/flowSelection";
 import {
   FLOW_ARROW_STYLES,
@@ -42,7 +42,7 @@ import {
 import { useAtomValue } from "../editor-jotai";
 import { t } from "../i18n";
 
-import { presetLook } from "../scene/flowPalette";
+import { swatchOf } from "../scene/flowPalette";
 
 import { chartToExport } from "../scene/flowExport/chart";
 
@@ -52,7 +52,7 @@ import {
   flowScriptEditorAtom,
 } from "./FlowScriptEditorState";
 
-import { FlowColorPad, FlowColorPresets } from "./FlowColorPad";
+import { FlowColorPad } from "./FlowColorPad";
 
 import { FlowExportPanel } from "./FlowExportPanel";
 import {
@@ -113,6 +113,7 @@ type Press = {
   moved: boolean;
 };
 
+// the same six dots as the grip of the other panels
 const GripIcon = () => (
   <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
     <g fill="currentColor">
@@ -120,9 +121,59 @@ const GripIcon = () => (
       <circle cx="9.4" cy="2.6" r="1.35" />
       <circle cx="4.6" cy="7" r="1.35" />
       <circle cx="9.4" cy="7" r="1.35" />
+      <circle cx="4.6" cy="11.4" r="1.35" />
+      <circle cx="9.4" cy="11.4" r="1.35" />
     </g>
   </svg>
 );
+
+const PlusIcon = () => (
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="3.5"
+    strokeLinecap="round"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <path d="M12 4v16M4 12h16" />
+  </svg>
+);
+
+/** the parts that take a colour, each with its neon switch (D-535, Look tab) */
+const FLOW_LOOK_ROWS = [
+  {
+    id: "shape",
+    name: "Shape",
+    colorKey: "nodeColor",
+    glowKey: "glowShape",
+    neon: "Neon shape",
+  },
+  {
+    id: "text",
+    name: "Text",
+    colorKey: "textColor",
+    glowKey: "glowText",
+    neon: "Neon text",
+  },
+  {
+    id: "animation",
+    name: "Animation",
+    colorKey: "markColor",
+    glowKey: "glowMark",
+    neon: "Neon animation",
+  },
+  {
+    id: "arrow",
+    name: "Arrow",
+    colorKey: "arrowColor",
+    glowKey: "glowArrow",
+    neon: "Neon arrows",
+  },
+] as const;
 
 const CollapseIcon = () => (
   <svg
@@ -177,6 +228,11 @@ export const FlowAnimationBar = ({
 
   const [tab, setTab] = useState(readFlowPanelTab);
   const lookOpen = tab === "Look";
+  // the one colour pad of the Look tab is for the part chosen in its table
+  const [colourRow, setColourRow] =
+    useState<typeof FLOW_LOOK_ROWS[number]["id"]>("shape");
+  const lookRow =
+    FLOW_LOOK_ROWS.find((row) => row.id === colourRow) ?? FLOW_LOOK_ROWS[0];
   const [expanded, setExpanded] = useState(false);
   const [comboNotice, setComboNotice] = useState(false);
   const chooseTab = (next: FlowPanelTab) => {
@@ -585,17 +641,18 @@ export const FlowAnimationBar = ({
       // scene, so nothing under it is deselected
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <label className="flow-panel-target">
-        Chart
+      <div className="flow-panel-head">
         <select
+          className="flow-panel-chart"
           aria-label="Chart or combo"
+          title="The chart these tabs act on (a combo of charts comes with D-506)"
           value="this"
           onChange={() => setComboNotice(false)}
         >
           <option value="this">This chart</option>
         </select>
-      </label>
-      <FlowPanelTabs value={tab} onChange={chooseTab} />
+        <FlowPanelTabs value={tab} onChange={chooseTab} />
+      </div>
       {comboNotice && (
         <p role="status">
           This chart is not in a combo. The plus adds another chart to a combo
@@ -611,7 +668,16 @@ export const FlowAnimationBar = ({
           onClose={() => setExpanded(false)}
         />
       )}
-      <div className="flow-panel-strip">
+      <div
+        className="flow-panel-strip"
+        data-side={
+          // the buttons hang outside the panel; on the right edge they go left
+          (barRef.current?.getBoundingClientRect().right ?? 0) + 56 >
+          window.innerWidth
+            ? "left"
+            : "right"
+        }
+      >
         <button
           type="button"
           className="excalidraw__flow-bar-grip"
@@ -664,9 +730,10 @@ export const FlowAnimationBar = ({
           type="button"
           aria-label="Add a chart to a combo"
           aria-expanded={comboNotice}
+          title="Add another chart to combine with this one"
           onClick={() => setComboNotice((open) => !open)}
         >
-          +
+          <PlusIcon />
         </button>
       </div>
       <div
@@ -995,27 +1062,60 @@ export const FlowAnimationBar = ({
               viewport={viewport}
               lookOnly
             />
-            <FlowColorPresets
-              look={state}
-              background={app.state.viewBackgroundColor}
-              onPick={(colors) => change(presetLook(colors))}
+            <table className="flow-look-table" aria-label="Colours and neon">
+              <thead>
+                <tr>
+                  <th scope="col">Part</th>
+                  <th scope="col">Colour</th>
+                  <th scope="col">Neon</th>
+                </tr>
+              </thead>
+              <tbody>
+                {FLOW_LOOK_ROWS.map((row) => (
+                  <tr key={row.id}>
+                    <th scope="row">{row.name}</th>
+                    <td>
+                      <button
+                        type="button"
+                        className="flow-look-chip"
+                        aria-pressed={colourRow === row.id}
+                        aria-label={`Choose the ${row.name.toLowerCase()} colour`}
+                        title={`${row.name}: ${
+                          swatchOf(state[row.colorKey])?.name ??
+                          (state[row.colorKey] ? "custom" : "default")
+                        }`}
+                        onClick={() => setColourRow(row.id)}
+                      >
+                        <span
+                          className="flow-look-chip-colour"
+                          style={{
+                            backgroundColor:
+                              state[row.colorKey] ?? FLOW_ACCENT_COLOR,
+                          }}
+                        />
+                      </button>
+                    </td>
+                    <td>
+                      <label className="excalidraw__flow-bar-field">
+                        <input
+                          type="checkbox"
+                          checked={state[row.glowKey]}
+                          onChange={(event) =>
+                            change({ [row.glowKey]: event.target.checked })
+                          }
+                        />
+                        <span>{row.neon}</span>
+                      </label>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <FlowColorPad
+              label={`${lookRow.name} colour`}
+              value={state[lookRow.colorKey]}
+              onChange={(color) => change({ [lookRow.colorKey]: color })}
             />
-            <div className="excalidraw__flow-bar-row">
-              <span className="excalidraw__flow-bar-label">Shape</span>
-              <FlowColorPad
-                label="Shape colour"
-                value={state.nodeColor}
-                onChange={(nodeColor) => change({ nodeColor })}
-              />
-            </div>
-            <div className="excalidraw__flow-bar-row">
-              <span className="excalidraw__flow-bar-label">Text</span>
-              <FlowColorPad
-                label="Text colour"
-                value={state.textColor}
-                onChange={(textColor) => change({ textColor })}
-              />
-            </div>
             <div className="excalidraw__flow-bar-row">
               <label className="excalidraw__flow-bar-field">
                 <span>Highlight on</span>
@@ -1035,22 +1135,6 @@ export const FlowAnimationBar = ({
                   ))}
                 </select>
               </label>
-            </div>
-            <div className="excalidraw__flow-bar-row">
-              <span className="excalidraw__flow-bar-label">Animation</span>
-              <FlowColorPad
-                label="Animation colour"
-                value={state.markColor}
-                onChange={(markColor) => change({ markColor })}
-              />
-            </div>
-            <div className="excalidraw__flow-bar-row">
-              <span className="excalidraw__flow-bar-label">Arrow</span>
-              <FlowColorPad
-                label="Arrow colour"
-                value={state.arrowColor}
-                onChange={(arrowColor) => change({ arrowColor })}
-              />
               <label className="excalidraw__flow-bar-field">
                 <input
                   type="checkbox"
@@ -1060,48 +1144,6 @@ export const FlowAnimationBar = ({
                   }
                 />
                 <span>Hide arrow</span>
-              </label>
-            </div>
-            <div className="excalidraw__flow-bar-row">
-              <label className="excalidraw__flow-bar-field">
-                <input
-                  type="checkbox"
-                  checked={state.glowShape}
-                  onChange={(event) =>
-                    change({ glowShape: event.target.checked })
-                  }
-                />
-                <span>Neon shape</span>
-              </label>
-              <label className="excalidraw__flow-bar-field">
-                <input
-                  type="checkbox"
-                  checked={state.glowText}
-                  onChange={(event) =>
-                    change({ glowText: event.target.checked })
-                  }
-                />
-                <span>Neon text</span>
-              </label>
-              <label className="excalidraw__flow-bar-field">
-                <input
-                  type="checkbox"
-                  checked={state.glowMark}
-                  onChange={(event) =>
-                    change({ glowMark: event.target.checked })
-                  }
-                />
-                <span>Neon animation</span>
-              </label>
-              <label className="excalidraw__flow-bar-field">
-                <input
-                  type="checkbox"
-                  checked={state.glowArrow}
-                  onChange={(event) =>
-                    change({ glowArrow: event.target.checked })
-                  }
-                />
-                <span>Neon arrows</span>
               </label>
               <label className="excalidraw__flow-bar-field">
                 <input

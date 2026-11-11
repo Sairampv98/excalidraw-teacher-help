@@ -68,10 +68,37 @@ const lookOpen = async () => {
   });
 };
 
-const pad = (label: string) => screen.getByRole("radiogroup", { name: label });
+/** the one pad of the Look tab serves the part chosen in its table */
+const choose = (label: string) => {
+  const part = label.split(" ")[0].toLowerCase();
+  const chip = screen.getByRole("button", {
+    name: `Choose the ${part} colour`,
+  });
 
-const swatch = (label: string, name: string) =>
-  screen.getByRole("radio", { name: `${label}: ${name}` });
+  if (chip.getAttribute("aria-pressed") !== "true") {
+    act(() => {
+      fireEvent.click(chip);
+    });
+  }
+};
+
+const pad = (label: string) => {
+  choose(label);
+
+  return screen.getByRole("radiogroup", { name: label });
+};
+
+const swatch = (label: string, name: string) => {
+  choose(label);
+
+  return screen.getByRole("radio", { name: `${label}: ${name}` });
+};
+
+const customOf = (label: string) => {
+  choose(label);
+
+  return screen.getByLabelText(`${label}: custom`) as HTMLInputElement;
+};
 
 const state = () => editorJotaiStore.get(flowAnimationStateAtom);
 
@@ -105,9 +132,12 @@ describe("AC-229 the colours are chosen from a swatch pad", () => {
 
     // pressing a swatch sets that colour, for each of the three
     for (const { label, key } of PADS) {
-      act(() => {
-        fireEvent.click(swatch(label, "Blue"));
-      });
+      {
+        const target = swatch(label, "Blue");
+        act(() => {
+          fireEvent.click(target);
+        });
+      }
 
       expect(state()[key]).toBe("#3d7bff");
     }
@@ -122,9 +152,12 @@ describe("AC-229 the colours are chosen from a swatch pad", () => {
     expect(swatch(label, "Default").getAttribute("aria-checked")).toBe("true");
     expect(swatch(label, "Red").getAttribute("aria-checked")).toBe("false");
 
-    act(() => {
-      fireEvent.click(swatch(label, "Red"));
-    });
+    {
+      const target = swatch(label, "Red");
+      act(() => {
+        fireEvent.click(target);
+      });
+    }
 
     expect(swatch(label, "Red").getAttribute("aria-checked")).toBe("true");
     expect(swatch(label, "Default").getAttribute("aria-checked")).toBe("false");
@@ -146,15 +179,21 @@ describe("AC-229 the colours are chosen from a swatch pad", () => {
   it("AC-229 the default swatch clears the colour", async () => {
     await lookOpen();
 
-    act(() => {
-      fireEvent.click(swatch("Animation colour", "Green"));
-    });
+    {
+      const target = swatch("Animation colour", "Green");
+      act(() => {
+        fireEvent.click(target);
+      });
+    }
 
     expect(state().markColor).toBe("#39ff14");
 
-    act(() => {
-      fireEvent.click(swatch("Animation colour", "Default"));
-    });
+    {
+      const target = swatch("Animation colour", "Default");
+      act(() => {
+        fireEvent.click(target);
+      });
+    }
 
     expect(state().markColor).toBeNull();
   });
@@ -162,9 +201,7 @@ describe("AC-229 the colours are chosen from a swatch pad", () => {
   it("AC-229 a custom swatch opens the browser's picker", async () => {
     await lookOpen();
 
-    const custom = screen.getByLabelText(
-      "Arrow colour: custom",
-    ) as HTMLInputElement;
+    const custom = customOf("Arrow colour");
 
     // the native colour input: the browser's own picker
     expect(custom.type).toBe("color");
@@ -189,9 +226,7 @@ describe("AC-229 the colours are chosen from a swatch pad", () => {
   it("AC-229 a custom colour equal to a swatch rings it", async () => {
     await lookOpen();
 
-    const custom = screen.getByLabelText(
-      "Shape colour: custom",
-    ) as HTMLInputElement;
+    const custom = customOf("Shape colour");
 
     act(() => {
       // the picker gives lower case; a stored value may not
@@ -239,9 +274,12 @@ describe("AC-229 the colours are chosen from a swatch pad", () => {
     expect(state().nodeColor).toBe("#ff9100");
 
     // and it wraps: left from the first is the last
-    act(() => {
-      fireEvent.click(swatch(label, "Default"));
-    });
+    {
+      const target = swatch(label, "Default");
+      act(() => {
+        fireEvent.click(target);
+      });
+    }
     swatch(label, "Default").focus();
     act(() => {
       fireEvent.keyDown(swatch(label, "Default"), { key: "ArrowLeft" });

@@ -322,15 +322,23 @@ describe("AC-219 the highlight colour", () => {
       screen.getByRole("tab", { name: "Look" }).getAttribute("aria-selected"),
     ).toBe("true");
 
-    for (const label of [
-      "Shape colour",
-      "Text colour",
-      "Animation colour",
-      "Arrow colour",
-      "Highlight target",
-    ]) {
-      expect(screen.getByLabelText(label)).not.toBeNull();
+    // one pad serves the part chosen in the table of colours
+    for (const part of ["Shape", "Text", "Animation", "Arrow"]) {
+      act(() => {
+        fireEvent.click(
+          screen.getByRole("button", {
+            name: `Choose the ${part.toLowerCase()} colour`,
+          }),
+        );
+      });
+      expect(screen.getByLabelText(`${part} colour`)).not.toBeNull();
     }
+    act(() => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Choose the shape colour" }),
+      );
+    });
+    expect(screen.getByLabelText("Highlight target")).not.toBeNull();
 
     expect(screen.getByLabelText("Hide arrow")).not.toBeNull();
     for (const label of [

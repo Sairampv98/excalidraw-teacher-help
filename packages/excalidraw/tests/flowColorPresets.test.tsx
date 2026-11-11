@@ -28,9 +28,6 @@ import {
   LIGHT_PAGE,
   contrastRatio,
   hueDistance,
-  isDarkPage,
-  presetColorsFor,
-  presetLook,
 } from "../scene/flowPalette";
 import { buildFlowPreset } from "../scene/flowPresets";
 
@@ -38,17 +35,6 @@ import { API } from "./helpers/api";
 import { act, fireEvent, render, screen, within } from "./test-utils";
 
 const { h } = window;
-
-const NAMES = [
-  "Classic",
-  "Cyan and pink",
-  "Green and purple",
-  "Yellow and blue",
-  "Orange and cyan",
-  "Pink and lime",
-  "Fire and ice",
-  "High contrast",
-];
 
 const lookOpen = async () => {
   const built = buildFlowPreset("process", "Plan\nTeach\nReview", { seed: 2 });
@@ -79,8 +65,11 @@ const lookOpen = async () => {
   });
 };
 
-const preset = (name: string) =>
-  screen.getByRole("button", { name: `Colour preset: ${name}` });
+/** the colour pads on the page: there is one, for the part chosen in the table */
+const colourPads = () =>
+  screen
+    .getAllByRole("radiogroup")
+    .filter((group) => / colour$/.test(group.getAttribute("aria-label") ?? ""));
 
 const state = () => editorJotaiStore.get(flowAnimationStateAtom);
 
@@ -107,100 +96,6 @@ afterEach(() => {
 });
 
 describe("AC-233 the colour presets", () => {
-  it("AC-233 the Look section offers the presets", async () => {
-    await lookOpen();
-
-    const group = screen.getByRole("group", { name: "Colour presets" });
-
-    expect(
-      within(group)
-        .getAllByRole("button")
-        .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(NAMES.map((name) => `Colour preset: ${name}`));
-  });
-
-  it("AC-233 a preset sets the shape, text and animation colours and the glow together", async () => {
-    await lookOpen();
-
-    act(() => {
-      fireEvent.click(preset("Cyan and pink"));
-    });
-
-    // the page is light, so it is the variant that reads on a light page
-    expect(state().nodeColor).toBe("#008ba3");
-    expect(state().markColor).toBe("#e0007a");
-    // the text follows the shape, and the glow is on (D-206, D-208)
-    expect(state().textColor).toBeNull();
-    expect(state().glowShape).toBe(true);
-
-    // a preset with a text colour of its own sets it
-    act(() => {
-      fireEvent.click(preset("Fire and ice"));
-    });
-
-    expect(state().nodeColor).toBe("#e60023");
-    expect(state().textColor).toBe("#1e1e1e");
-    expect(state().markColor).toBe("#1f51ff");
-  });
-
-  it("AC-233 a preset leaves the arrow, the target and the speed alone", async () => {
-    await lookOpen();
-
-    act(() => {
-      updateFlowAnimationSettings({
-        arrowColor: "#111111",
-        hideArrow: true,
-        nodeTarget: "box",
-        speed: 400,
-        nodeStyle: "pulse",
-        arrowStyle: "beam",
-      });
-    });
-    act(() => {
-      fireEvent.click(preset("Green and purple"));
-    });
-
-    expect(state()).toMatchObject({
-      arrowColor: "#111111",
-      hideArrow: true,
-      nodeTarget: "box",
-      speed: 400,
-      nodeStyle: "pulse",
-      arrowStyle: "beam",
-    });
-  });
-
-  it("AC-233 the variant for the page background is applied", async () => {
-    await lookOpen();
-
-    expect(isDarkPage("#ffffff")).toBe(false);
-    expect(isDarkPage(undefined)).toBe(false);
-    expect(isDarkPage("transparent")).toBe(false);
-    expect(isDarkPage("#1e1e1e")).toBe(true);
-
-    // a dark page gets the variant that reads on a dark page
-    act(() => {
-      h.setState({ viewBackgroundColor: "#1e1e1e" });
-    });
-    act(() => {
-      fireEvent.click(preset("Cyan and pink"));
-    });
-
-    expect(state().nodeColor).toBe("#00f0ff");
-    expect(state().markColor).toBe("#ff2bd6");
-
-    // and a light one gets the other
-    act(() => {
-      h.setState({ viewBackgroundColor: "#ffffff" });
-    });
-    act(() => {
-      fireEvent.click(preset("Cyan and pink"));
-    });
-
-    expect(state().nodeColor).toBe("#008ba3");
-    expect(state().markColor).toBe("#e0007a");
-  });
-
   it("AC-233 every colour reads on its page at 3 to 1 or better", () => {
     for (const preset of FLOW_COLOR_PRESETS) {
       for (const [variant, page] of [
@@ -258,85 +153,116 @@ describe("AC-233 the colour presets", () => {
     }
   });
 
-  it("AC-233 the chosen preset shows as chosen", async () => {
+  it("AC-233 the Look tab has a table of colours and neon, and no presets", async () => {
     await lookOpen();
 
-    // nothing set: Classic is the one in use
-    expect(preset("Classic").getAttribute("aria-pressed")).toBe("true");
+    // the quick presets are gone (the owner, 2026-11-11)
+    expect(screen.queryByRole("group", { name: "Colour presets" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /^Colour preset:/ }),
+    ).toBeNull();
 
-    act(() => {
-      fireEvent.click(preset("Pink and lime"));
-    });
-
-    for (const name of NAMES) {
-      expect(preset(name).getAttribute("aria-pressed")).toBe(
-        name === "Pink and lime" ? "true" : "false",
-      );
-    }
-
-    // a colour changed by hand is no preset's any more
-    act(() => {
-      updateFlowAnimationSettings({ nodeColor: "#123456" });
-    });
+    const table = screen.getByRole("table", { name: "Colours and neon" });
 
     expect(
-      NAMES.filter(
-        (name) => preset(name).getAttribute("aria-pressed") === "true",
-      ),
-    ).toEqual([]);
+      within(table)
+        .getAllByRole("rowheader")
+        .map((cell) => cell.textContent),
+    ).toEqual(["Shape", "Text", "Animation", "Arrow"]);
+    expect(
+      within(table)
+        .getAllByRole("checkbox")
+        .map((box) => box.closest("label")!.textContent),
+    ).toEqual(["Neon shape", "Neon text", "Neon animation", "Neon arrows"]);
+
+    // one pad serves the part that is chosen, and the first is chosen
+    expect(colourPads()).toHaveLength(1);
+    expect(
+      screen.getByRole("radiogroup", { name: "Shape colour" }),
+    ).toBeTruthy();
   });
 
-  it("AC-233 a preset writes through to a marked chart", async () => {
+  it("AC-233 the pad sets the colour of the part chosen in the table, and the table shows it", async () => {
     await lookOpen();
 
-    act(() => {
-      fireEvent.click(screen.getByLabelText("Show in class"));
-    });
-    act(() => {
-      fireEvent.click(preset("Green and purple"));
-    });
+    const chip = (part: string) =>
+      screen.getByRole("button", { name: `Choose the ${part} colour` });
 
-    const colors = presetColorsFor(
-      FLOW_COLOR_PRESETS.find((p) => p.id === "green-purple")!,
-      "#ffffff",
-    );
+    expect(chip("shape").getAttribute("aria-pressed")).toBe("true");
 
-    expect(shapes().length).toBeGreaterThan(0);
+    for (const [part, group, key] of [
+      ["shape", "Shape colour", "nodeColor"],
+      ["text", "Text colour", "textColor"],
+      ["animation", "Animation colour", "markColor"],
+      ["arrow", "Arrow colour", "arrowColor"],
+    ] as const) {
+      act(() => {
+        fireEvent.click(chip(part));
+      });
 
-    for (const shape of shapes()) {
-      expect(readFlowClass(shape)).toMatchObject(presetLook(colors));
+      expect(chip(part).getAttribute("aria-pressed")).toBe("true");
+      expect(colourPads()).toHaveLength(1);
+
+      act(() => {
+        fireEvent.click(
+          within(screen.getByRole("radiogroup", { name: group })).getAllByRole(
+            "radio",
+          )[2],
+        );
+      });
+
+      const set = state()[key];
+
+      expect(set).not.toBeNull();
+      // the chip shows the colour that is set
+      expect(
+        (chip(part).firstElementChild as HTMLElement).style.backgroundColor,
+      ).not.toBe("");
+      expect(chip(part).getAttribute("title")).toContain(
+        part[0].toUpperCase() + part.slice(1),
+      );
     }
   });
 
-  it("AC-233 classic clears the colours", async () => {
+  it("AC-233 each neon switch is next to its part and sets its own glow", async () => {
+    await lookOpen();
+
+    for (const [label, key] of [
+      ["Neon shape", "glowShape"],
+      ["Neon text", "glowText"],
+      ["Neon animation", "glowMark"],
+      ["Neon arrows", "glowArrow"],
+    ] as const) {
+      expect(state()[key]).toBe(false);
+
+      act(() => {
+        fireEvent.click(screen.getByLabelText(label));
+      });
+
+      expect(state()[key]).toBe(true);
+    }
+  });
+
+  it("AC-233 a colour from the pad writes through to a marked chart", async () => {
     await lookOpen();
 
     act(() => {
       fireEvent.click(screen.getByLabelText("Show in class"));
     });
     act(() => {
-      fireEvent.click(preset("Orange and cyan"));
+      fireEvent.click(
+        within(
+          screen.getByRole("radiogroup", { name: "Shape colour" }),
+        ).getAllByRole("radio")[3],
+      );
     });
 
     expect(state().nodeColor).not.toBeNull();
-
-    act(() => {
-      fireEvent.click(preset("Classic"));
-    });
-
-    expect(state().nodeColor).toBeNull();
-    expect(state().textColor).toBeNull();
-    expect(state().markColor).toBeNull();
-    expect(state().glowShape).toBe(false);
+    expect(shapes().length).toBeGreaterThan(0);
 
     for (const shape of shapes()) {
       expect(readFlowClass(shape)).toMatchObject({
-        nodeColor: null,
-        textColor: null,
-        markColor: null,
-        glowShape: false,
-        glowText: false,
-        glowMark: false,
+        nodeColor: state().nodeColor,
       });
     }
   });

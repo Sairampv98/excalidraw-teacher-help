@@ -16,10 +16,7 @@ import {
   readFlowPanelTab,
   writeFlowPanelTab,
 } from "@excalidraw/excalidraw/components/flowPanel/FlowPanelTabs";
-import {
-  FLOW_SWATCHES,
-  FLOW_COLOR_PRESETS,
-} from "@excalidraw/excalidraw/scene/flowPalette";
+import { FLOW_SWATCHES } from "@excalidraw/excalidraw/scene/flowPalette";
 
 import { FlowTab } from "../sidebar/FlowTab";
 
@@ -211,6 +208,12 @@ it("AC-638 inventory: every old bar, editor, export and sidebar control has a re
     "Animation colour",
     "Arrow colour",
   ]) {
+    // one pad serves the part chosen in the table of colours
+    fireEvent.click(
+      panel.getByRole("button", {
+        name: `Choose the ${group.split(" ")[0].toLowerCase()} colour`,
+      }),
+    );
     for (const swatch of FLOW_SWATCHES) {
       expect(
         panel.getByRole("radio", { name: `${group}: ${swatch.name}` }),
@@ -218,11 +221,9 @@ it("AC-638 inventory: every old bar, editor, export and sidebar control has a re
     }
     expect(panel.getByLabelText(`${group}: custom`)).not.toBeNull();
   }
-  for (const preset of FLOW_COLOR_PRESETS) {
-    expect(
-      panel.getByRole("button", { name: `Colour preset: ${preset.name}` }),
-    ).not.toBeNull();
-  }
+  // the quick colour presets are gone; the table shows the neon switch of each part
+  expect(panel.queryByRole("button", { name: /^Colour preset:/ })).toBeNull();
+  expect(panel.getByRole("table", { name: "Colours and neon" })).not.toBeNull();
   expect(panel.getByLabelText("Move the animation bar")).not.toBeNull();
   expect(
     panel.getByLabelText("Collapse the animation bar into a pill"),
@@ -254,7 +255,7 @@ it("AC-638 a real chart has a single panel, useful target/plus, tab contents and
     "it remains independent",
   );
   const expected = {
-    Look: "Colour presets",
+    Look: "Colours and neon",
     Animation: "Node animation",
     Script: "Script",
     "Present in class": "Show in class",
