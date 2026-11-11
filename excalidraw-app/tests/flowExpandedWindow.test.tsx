@@ -12,11 +12,15 @@ import {
   act,
   render as renderEditor,
 } from "@excalidraw/excalidraw/tests/test-utils";
-import { flowAnimationStateAtom } from "@excalidraw/excalidraw/components/FlowAnimationState";
+import {
+  flowAnimationStateAtom,
+  updateFlowAnimationSettings,
+} from "@excalidraw/excalidraw/components/FlowAnimationState";
 import { editorJotaiStore } from "@excalidraw/excalidraw/editor-jotai";
 import { arrayToMap } from "@excalidraw/common";
 import { FlowChartPreview } from "@excalidraw/excalidraw/components/flowPanel/FlowChartPreview";
 import { flowOfSelection } from "@excalidraw/excalidraw/scene/flowSelection";
+import { flowClassOf } from "@excalidraw/excalidraw/scene/flowClass";
 import * as sceneExport from "@excalidraw/excalidraw/scene/export";
 import * as compose from "@excalidraw/excalidraw/scene/flowExport/compose";
 import { getDefaultAppState } from "@excalidraw/excalidraw/appState";
@@ -240,4 +244,67 @@ it("AC-640 real chart options stay private until one Apply and can be undone and
   expect(window.h.elements[0].customData?.flowPanelAnimation).toMatchObject({
     nodeStyle: "pulse",
   });
+});
+
+const openChart = async (seed: number, chartId: string) => {
+  localStorage.clear();
+  act(() => {
+    updateFlowAnimationSettings({ nodeStyle: "focus" });
+  });
+  const built = buildFlowPreset("process", "Plan\nTeach", { seed, chartId });
+  if (!built.ok) {
+    throw new Error(built.error);
+  }
+  await renderEditor(
+    <Excalidraw
+      handleKeyboardGlobally
+      initialData={{ elements: built.elements as never }}
+    />,
+  );
+  act(() => {
+    API.setSelectedElements([window.h.elements[0]]);
+  });
+  const graph = () =>
+    flowOfSelection(
+      { [window.h.elements[0].id]: true },
+      window.h.elements,
+      arrayToMap(window.h.elements),
+    );
+  return graph;
+};
+
+const applyPulse = () => {
+  fireEvent.click(screen.getByRole("tab", { name: "Animation" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "More animation options" }),
+  );
+  fireEvent.change(screen.getByLabelText("Preview node animation"), {
+    target: { value: "pulse" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+};
+
+it("AC-640 Apply leaves a chart that was not shown in class unmarked, and an old chart opens as it was", async () => {
+  const graph = await openChart(61, "old-chart");
+  // a chart from an older file has none of the panel's records
+  expect(window.h.elements[0].customData?.flowPanelAnimation).toBeUndefined();
+  expect(flowClassOf(graph()!, arrayToMap(window.h.elements))).toBeNull();
+  applyPulse();
+  expect(window.h.elements[0].customData?.flowPanelAnimation).toMatchObject({
+    nodeStyle: "pulse",
+  });
+  expect(flowClassOf(graph()!, arrayToMap(window.h.elements))).toBeNull();
+});
+
+it("AC-640 Apply brings a chart that is shown in class up to date, in the same one undo step", async () => {
+  const graph = await openChart(62, "class-chart");
+  fireEvent.click(screen.getByRole("tab", { name: "Present in class" }));
+  fireEvent.click(screen.getByLabelText("Show in class"));
+  const elementsMap = () => arrayToMap(window.h.elements);
+  expect(flowClassOf(graph()!, elementsMap())).not.toBeNull();
+  applyPulse();
+  expect(flowClassOf(graph()!, elementsMap())?.node).toBe("pulse");
+  Keyboard.undo();
+  expect(flowClassOf(graph()!, elementsMap())?.node).not.toBe("pulse");
+  expect(window.h.elements[0].customData?.flowPanelAnimation).toBeUndefined();
 });
