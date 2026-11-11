@@ -1,0 +1,88 @@
+.flow-panel-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.flow-panel-tabs [role="tab"] {
+  min-height: 2.25rem;
+  padding: 0.375rem 0.625rem;
+  border: 1px solid var(--color-border, #888);
+  border-radius: 0.375rem;
+  background: var(--island-bg-color);
+  color: var(--text-primary-color);
+  font: inherit;
+  cursor: pointer;
+}
+.flow-panel-tabs [aria-selected="true"] {
+  background: var(--color-primary, #6965db);
+  color: #fff;
+}
+.flow-panel-tabs button:focus-visible,
+.flow-expanded-window button:focus-visible {
+  outline: 2px solid var(--color-primary, #6965db);
+  outline-offset: 2px;
+}
+.flow-expanded-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--zIndex-modal, 1000);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 30%);
+  pointer-events: auto;
+}
+.flow-expanded-window {
+  box-sizing: border-box;
+  width: min(960px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  background: var(--island-bg-color);
+  color: var(--text-primary-color);
+  box-shadow: var(--shadow-island);
+  font-size: 0.875rem;
+}
+.flow-expanded-window h2 {
+  font-size: 1rem;
+}
+.flow-expanded-header,
+.flow-expanded-window footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.flow-expanded-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 1fr);
+  gap: 1rem;
+  padding-block: 1rem;
+}
+.flow-expanded-body section {
+  min-width: 0;
+}
+.flow-expanded-body label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-block: 0.75rem;
+  flex-wrap: wrap;
+}
+.flow-expanded-body canvas {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--color-border, #888);
+  border-radius: 0.375rem;
+}
+.flow-expanded-window button,
+.flow-expanded-window select,
+.flow-expanded-window input {
+  font: inherit;
+}
+@media (max-width: 640px) {
+  .flow-expanded-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

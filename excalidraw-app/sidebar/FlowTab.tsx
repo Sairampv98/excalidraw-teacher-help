@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   CaptureUpdateAction,
@@ -123,6 +123,15 @@ export const FlowTab = () => {
     readStoredCustomPresets,
   );
   const listing = useMemo(() => listFlowPresets(customs), [customs]);
+  useEffect(() => {
+    const refresh = () => setCustoms(readStoredCustomPresets());
+    window.addEventListener("flow-presets-changed", refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener("flow-presets-changed", refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, []);
 
   const [presetId, setPresetId] = useState<string>("process");
   const preset = listing.find((p) => p.id === presetId) ?? listing[0];

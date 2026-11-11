@@ -136,7 +136,7 @@ const select = (elements: ExcalidrawElement[]) =>
 
 const openLook = () =>
   act(() => {
-    fireEvent.click(screen.getByRole("button", { name: "Look" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Look" }));
   });
 
 const tick = () =>
@@ -313,17 +313,13 @@ describe("AC-219 the highlight colour", () => {
     // closed until it is opened: the bar is as small as it was
     expect(screen.queryByLabelText("Shape colour")).toBeNull();
     expect(
-      screen
-        .getByRole("button", { name: "Look" })
-        .getAttribute("aria-expanded"),
+      screen.getByRole("tab", { name: "Look" }).getAttribute("aria-selected"),
     ).toBe("false");
 
     openLook();
 
     expect(
-      screen
-        .getByRole("button", { name: "Look" })
-        .getAttribute("aria-expanded"),
+      screen.getByRole("tab", { name: "Look" }).getAttribute("aria-selected"),
     ).toBe("true");
 
     for (const label of [

@@ -64,7 +64,7 @@ const lookOpen = async () => {
     ]);
   });
   act(() => {
-    fireEvent.click(screen.getByRole("button", { name: "Look" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Look" }));
   });
 };
 

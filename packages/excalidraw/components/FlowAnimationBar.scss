@@ -64,6 +64,52 @@
   }
 }
 
+.excalidraw__flow-bar [hidden] {
+  display: none !important;
+}
+.excalidraw__flow-bar {
+  width: 520px;
+  box-sizing: border-box;
+  padding-right: 2.75rem;
+  font-size: 0.875rem;
+}
+.flow-panel-strip {
+  position: absolute;
+  right: 0.375rem;
+  top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+.flow-panel-strip button {
+  min-width: 1.75rem;
+  min-height: 1.75rem;
+}
+.flow-panel-content {
+  min-height: 0;
+  flex: 1 1 auto;
+  max-height: min(420px, 55vh);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.flow-panel-target {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.excalidraw__flow-editor.excalidraw__flow-editor--embedded {
+  position: static;
+  width: auto;
+  box-shadow: none;
+  padding: 0;
+  transform: none;
+}
+.flow-chart-preview {
+  margin: 0;
+}
+
 // A bar the teacher has moved stays where it was put: it is no longer centred
 // on the chart (D-197).
 .excalidraw__flow-bar--placed,

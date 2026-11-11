@@ -223,9 +223,13 @@ describe("AC-208 the animation controls are a floating bar", () => {
     await chartOnCanvas();
     select(shapes());
 
-    for (const name of ["Play", "Present steps", "Lay this out"]) {
+    for (const name of ["Play", "Present steps"]) {
       expect(screen.getByRole("button", { name })).not.toBeNull();
     }
+
+    fireEvent.click(screen.getByRole("tab", { name: "Look" }));
+    expect(screen.getByRole("button", { name: "Lay this out" })).not.toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Animation" }));
 
     expect(screen.getByLabelText("Node animation")).not.toBeNull();
     expect(screen.getByLabelText("Arrow animation")).not.toBeNull();

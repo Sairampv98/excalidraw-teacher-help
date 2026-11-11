@@ -143,7 +143,7 @@ const lookOpen = async () => {
     API.setSelectedElements([shapes()[0]]);
   });
   act(() => {
-    fireEvent.click(screen.getByRole("button", { name: "Look" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Look" }));
   });
 };
 

@@ -136,6 +136,11 @@ export const FlowExportPanel = ({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const stopped = useRef(false);
+  useEffect(() => {
+    return () => {
+      stopped.current = true;
+    };
+  }, []);
 
   const steps = graph.steps;
   const chart = useMemo(
@@ -257,6 +262,9 @@ export const FlowExportPanel = ({
         isStopped: () => stopped.current,
       });
 
+      if (stopped.current) {
+        return;
+      }
       const url = URL.createObjectURL(result.blob);
       const link = document.createElement("a");
 
