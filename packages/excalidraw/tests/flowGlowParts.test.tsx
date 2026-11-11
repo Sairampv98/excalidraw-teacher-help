@@ -121,7 +121,7 @@ const lookOpen = async () => {
     API.setSelectedElements([shapes()[0]]);
   });
   act(() => {
-    fireEvent.click(screen.getByRole("button", { name: "Look" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Look" }));
   });
 };
 
@@ -273,31 +273,34 @@ describe("AC-243 the neon glow is per part", () => {
     expect(sheet).toMatch(/flow-arrow-tube \{[^}]*stroke-width: 3/);
   });
 
-  it("AC-243 a preset and Classic set the switches", async () => {
+  it("AC-243 each neon switch is its own, and a colour does not touch them", async () => {
     await lookOpen();
 
     act(() => {
       fireEvent.click(screen.getByLabelText("Neon arrows"));
     });
     act(() => {
+      fireEvent.click(screen.getByLabelText("Neon shape"));
+    });
+    act(() => {
       fireEvent.click(
-        screen.getByRole("button", { name: "Colour preset: Cyan and pink" }),
+        screen.getByRole("radio", { name: "Shape colour: Blue" }),
       );
     });
 
-    // shape, text and animation on; the arrows as they were
+    // shape and arrows on, text and animation off, and the colour changed nothing else
     expect(state()).toMatchObject({
       glowShape: true,
-      glowText: true,
-      glowMark: true,
+      glowText: false,
+      glowMark: false,
       glowArrow: true,
     });
 
-    // Classic clears all four
     act(() => {
-      fireEvent.click(
-        screen.getByRole("button", { name: "Colour preset: Classic" }),
-      );
+      fireEvent.click(screen.getByLabelText("Neon arrows"));
+    });
+    act(() => {
+      fireEvent.click(screen.getByLabelText("Neon shape"));
     });
 
     expect(state()).toMatchObject({

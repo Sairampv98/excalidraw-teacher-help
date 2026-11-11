@@ -62,6 +62,7 @@ import {
 
 import { FlowExportPanel } from "./FlowExportPanel";
 import { FlowPreview } from "./FlowPreview";
+import { FlowPresetSave } from "./flowPanel/FlowPresetSave";
 
 import "./FlowScriptEditor.scss";
 
@@ -86,6 +87,9 @@ type FlowScriptEditorProps = {
   viewport: FlowViewport;
   /** a view-only editor (the presenter) has no panel to show */
   hidden?: boolean;
+  embeddedAnchorId?: string;
+  presetOnly?: boolean;
+  lookOnly?: boolean;
 };
 
 /** the ids that legacy charts are given, so that a chart keeps the id it will have */
@@ -161,11 +165,21 @@ export const FlowScriptEditor = ({
   camera,
   viewport,
   hidden,
+  embeddedAnchorId,
+  presetOnly,
+  lookOnly,
 }: FlowScriptEditorProps) => {
-  const { anchorId } = useAtomValue(flowScriptEditorAtom);
+  const editorState = useAtomValue(flowScriptEditorAtom);
+  const anchorId = embeddedAnchorId ?? editorState.anchorId;
   // the chart the panel is on, so that it stays on it when the chart is made
   // again and the shape it was opened on is gone
   const chartIdRef = useRef<string | null>(null);
+
+  // The legacy open request is consumed by the single flow panel. Its Script
+  // tab embeds this editor; App's old entry point must not make a second panel.
+  if (!embeddedAnchorId) {
+    return null;
+  }
 
   let anchor = anchorId ? elementsMap.get(anchorId) : undefined;
 
@@ -200,9 +214,19 @@ export const FlowScriptEditor = ({
       anchor={anchor}
       camera={camera}
       viewport={viewport}
+      embedded={!!embeddedAnchorId}
+      presetOnly={presetOnly}
+      lookOnly={lookOnly}
     />
   );
 };
+
+export const FlowEmbeddedScriptEditor = ({
+  anchorId,
+  ...props
+}: Omit<FlowScriptEditorProps, "embeddedAnchorId"> & { anchorId: string }) => (
+  <FlowScriptEditor {...props} embeddedAnchorId={anchorId} />
+);
 
 type EditorPanelProps = {
   app: AppClassProperties;
@@ -210,6 +234,9 @@ type EditorPanelProps = {
   anchor: ExcalidrawElement;
   camera: FlowAnimationCamera;
   viewport: FlowViewport;
+  embedded?: boolean;
+  presetOnly?: boolean;
+  lookOnly?: boolean;
 };
 
 type Press = {
@@ -225,6 +252,9 @@ const EditorPanel = ({
   anchor,
   camera,
   viewport,
+  embedded,
+  presetOnly,
+  lookOnly,
 }: EditorPanelProps) => {
   const { record } = chart;
   const draft = getFlowScriptDraft(chart.key);
@@ -597,27 +627,37 @@ const EditorPanel = ({
     };
   };
 
+  if (presetOnly) {
+    return <FlowPresetSave record={{ ...record, script, shape, arrows }} />;
+  }
+
   return (
     <div
       ref={panelRef}
-      className="excalidraw__flow-editor"
+      className={`excalidraw__flow-editor${
+        embedded ? " excalidraw__flow-editor--embedded" : ""
+      }`}
       role="dialog"
       aria-label="Edit chart"
       data-testid="flow-editor"
       data-dragging={dragging ? "" : undefined}
       data-flow-editor-placed={placed ? "" : undefined}
-      style={{
-        left: at.x,
-        top: at.y,
-        width: FLOW_EDITOR_SIZE.width,
-        // with the export open the window is taller than the screen: it scrolls
-        maxHeight: Math.max(240, viewport.height - at.y - 8),
-        overflowY: "auto",
-      }}
+      style={
+        embedded
+          ? undefined
+          : {
+              left: at.x,
+              top: at.y,
+              width: FLOW_EDITOR_SIZE.width,
+              // with the export open the window is taller than the screen: it scrolls
+              maxHeight: Math.max(240, viewport.height - at.y - 8),
+              overflowY: "auto",
+            }
+      }
       // the panel is not part of the canvas: a click on it is not a click on the scene
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <div className="excalidraw__flow-editor-header">
+      <div className="excalidraw__flow-editor-header" hidden={embedded}>
         <button
           type="button"
           className="excalidraw__flow-editor-grip"
@@ -759,6 +799,7 @@ const EditorPanel = ({
       </div>
 
       <textarea
+        hidden={lookOnly}
         className="excalidraw__flow-editor-script"
         aria-label="Script"
         rows={10}
@@ -771,6 +812,32 @@ const EditorPanel = ({
         // the canvas has single-key shortcuts; typing a script must not use them
         onKeyDown={(event) => event.stopPropagation()}
       />
+
+      {embedded && !lookOnly && (
+        <details>
+          <summary>Guide to scripts</summary>
+          <p>
+            Choose a kind of chart and use its example. The Flow sidebar guide
+            explains shapes and fit modes.
+          </p>
+          {choices.list.map((preset) => (
+            <div key={preset.id}>
+              <strong>{preset.name}</strong>
+              <p>{preset.description}</p>
+              <pre>{preset.example}</pre>
+              <button
+                type="button"
+                onClick={() => {
+                  setPresetId(preset.id);
+                  setScript(preset.example);
+                }}
+              >
+                Use this example: {preset.name}
+              </button>
+            </div>
+          ))}
+        </details>
+      )}
 
       <div className="excalidraw__flow-editor-check" aria-live="polite">
         {check.problems.length > 0 ? (

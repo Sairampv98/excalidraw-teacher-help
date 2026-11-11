@@ -136,7 +136,7 @@ const select = (elements: ExcalidrawElement[]) =>
 
 const openLook = () =>
   act(() => {
-    fireEvent.click(screen.getByRole("button", { name: "Look" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Look" }));
   });
 
 const tick = () =>
@@ -313,28 +313,32 @@ describe("AC-219 the highlight colour", () => {
     // closed until it is opened: the bar is as small as it was
     expect(screen.queryByLabelText("Shape colour")).toBeNull();
     expect(
-      screen
-        .getByRole("button", { name: "Look" })
-        .getAttribute("aria-expanded"),
+      screen.getByRole("tab", { name: "Look" }).getAttribute("aria-selected"),
     ).toBe("false");
 
     openLook();
 
     expect(
-      screen
-        .getByRole("button", { name: "Look" })
-        .getAttribute("aria-expanded"),
+      screen.getByRole("tab", { name: "Look" }).getAttribute("aria-selected"),
     ).toBe("true");
 
-    for (const label of [
-      "Shape colour",
-      "Text colour",
-      "Animation colour",
-      "Arrow colour",
-      "Highlight target",
-    ]) {
-      expect(screen.getByLabelText(label)).not.toBeNull();
+    // one pad serves the part chosen in the table of colours
+    for (const part of ["Shape", "Text", "Animation", "Arrow"]) {
+      act(() => {
+        fireEvent.click(
+          screen.getByRole("button", {
+            name: `Choose the ${part.toLowerCase()} colour`,
+          }),
+        );
+      });
+      expect(screen.getByLabelText(`${part} colour`)).not.toBeNull();
     }
+    act(() => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Choose the shape colour" }),
+      );
+    });
+    expect(screen.getByLabelText("Highlight target")).not.toBeNull();
 
     expect(screen.getByLabelText("Hide arrow")).not.toBeNull();
     for (const label of [

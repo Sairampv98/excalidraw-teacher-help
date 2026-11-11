@@ -9,6 +9,9 @@
  * tested on its own; what is checked here is what the panel asks of it.
  */
 
+import fs from "fs";
+import path from "path";
+
 import React from "react";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -91,7 +94,7 @@ const chartWithBar = async () => {
 
 const openPanel = async () => {
   await chartWithBar();
-  fireEvent.click(screen.getByTestId("flow-bar-export"));
+  fireEvent.click(screen.getByRole("tab", { name: "Export" }));
 
   return screen.findByTestId("flow-export-panel");
 };
@@ -128,10 +131,10 @@ describe("the export panel", () => {
 
     expect(screen.queryByTestId("flow-export-panel")).toBeNull();
 
-    fireEvent.click(screen.getByTestId("flow-bar-export"));
+    fireEvent.click(screen.getByRole("tab", { name: "Export" }));
     expect(await screen.findByTestId("flow-export-panel")).toBeTruthy();
     expect(
-      screen.getByTestId("flow-bar-export").getAttribute("aria-expanded"),
+      screen.getByRole("tab", { name: "Export" }).getAttribute("aria-selected"),
     ).toBe("true");
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
@@ -290,7 +293,7 @@ describe("the export panel", () => {
     act(() => {
       updateFlowAnimationSettings({ camera: true });
     });
-    fireEvent.click(screen.getByTestId("flow-bar-export"));
+    fireEvent.click(screen.getByRole("tab", { name: "Export" }));
     await screen.findByTestId("flow-export-panel");
 
     expect(box().checked).toBe(true);
@@ -387,11 +390,21 @@ describe("the export panel", () => {
     ).toBe("true");
 
     // the window is taller with the panel in it than the screen may be: it scrolls
-    expect(editor.style.overflowY).toBe("auto");
-    expect(parseFloat(editor.style.maxHeight)).toBeGreaterThanOrEqual(240);
-    expect(parseFloat(editor.style.maxHeight)).toBeLessThanOrEqual(
-      h.state.height,
+    // the panel is inside the bar, the bar is never taller than the screen,
+    // and the part that holds the window is the part that scrolls
+    expect(editor.closest(".flow-panel-content")).not.toBeNull();
+    expect(screen.getByTestId("flow-bar").contains(panel)).toBe(true);
+    expect(
+      parseFloat(screen.getByTestId("flow-bar").style.maxHeight),
+    ).toBeLessThanOrEqual(h.state.height);
+    expect(
+      parseFloat(screen.getByTestId("flow-bar").style.maxHeight),
+    ).toBeGreaterThanOrEqual(160);
+    const sheet = fs.readFileSync(
+      path.resolve(__dirname, "../components/FlowAnimationBar.scss"),
+      "utf8",
     );
+    expect(sheet).toMatch(/\.flow-panel-content\s*\{[^}]*overflow:\s*auto/);
 
     // it exports the chart that is edited: its four steps
     exportMock.mockResolvedValue({
@@ -567,7 +580,7 @@ describe("the export panel", () => {
       );
     });
     await screen.findByTestId("flow-bar");
-    fireEvent.click(screen.getByTestId("flow-bar-export"));
+    fireEvent.click(screen.getByRole("tab", { name: "Export" }));
     await screen.findByTestId("flow-export-panel");
 
     const set = (testid: string, value: string) =>
@@ -633,18 +646,21 @@ describe("the export panel", () => {
         ),
       );
 
-    // playing, arranging and choosing, and passing the chart on, are three rows
+    // playing, and arranging and choosing, are two rows; passing the chart on
+    // is the Export tab now, and editing it the Script tab
     const playing = rowWith("Play");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Look" }));
     const arranging = rowOf("flow-bar-select-arrows");
-    const passing = rowOf("flow-bar-export");
 
     expect(playing).toBeTruthy();
     expect(rowWith("Present steps")).toBe(playing);
     expect(rowWith("Lay this out")).toBe(arranging);
     expect(rowOf("flow-bar-select-nodes")).toBe(arranging);
-    expect(rowWith("Edit chart")).toBe(passing);
-    expect(rowWith("Look")).toBe(passing);
-    expect(new Set([playing, arranging, passing]).size).toBe(3);
+    expect(playing).not.toBe(arranging);
+    expect(screen.queryByRole("button", { name: "Edit chart" })).toBeNull();
+    expect(screen.getByRole("tab", { name: "Script" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Export" })).toBeTruthy();
 
     // the bar is as wide as the editor, at most: it wraps there
     const editorWidth = h.state.width;
@@ -876,7 +892,7 @@ describe("the export panel", () => {
 
     // a panel opened later starts there
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    fireEvent.click(screen.getByTestId("flow-bar-export"));
+    fireEvent.click(screen.getByRole("tab", { name: "Export" }));
     await screen.findByTestId("flow-export-panel");
 
     expect(
@@ -894,7 +910,7 @@ describe("the export panel", () => {
       FLOW_EXPORT_STORAGE_KEY,
       JSON.stringify({ format: "gif", fps: 60, longest: 999, shape: "wide" }),
     );
-    fireEvent.click(screen.getByTestId("flow-bar-export"));
+    fireEvent.click(screen.getByRole("tab", { name: "Export" }));
     await screen.findByTestId("flow-export-panel");
 
     // the panel keeps the state of its first reading, so a new one is read from storage

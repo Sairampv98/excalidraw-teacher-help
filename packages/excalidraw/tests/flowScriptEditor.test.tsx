@@ -23,6 +23,7 @@ import {
   flowEditorPosition,
 } from "../scene/flowEditorPlace";
 import { buildFlowPreset } from "../scene/flowPresets";
+import { FLOW_BAR_PLACE_KEY } from "../scene/flowBarPlace";
 
 import { API } from "./helpers/api";
 import { act, fireEvent, render, screen } from "./test-utils";
@@ -76,6 +77,8 @@ const script = () => screen.getByLabelText("Script") as HTMLTextAreaElement;
 
 beforeEach(() => {
   window.localStorage.removeItem(FLOW_EDITOR_PLACE_KEY);
+  window.localStorage.removeItem(FLOW_BAR_PLACE_KEY);
+  window.localStorage.removeItem("excalidraw-flow-panel-tab");
 });
 
 afterEach(() => {
@@ -110,9 +113,9 @@ describe("AC-248 the script editor opens beside the chart", () => {
 
     expect(panel()).toBeNull();
 
-    // the bar's button
+    // the panel's Script tab
     act(() => {
-      fireEvent.click(screen.getByRole("button", { name: "Edit chart" }));
+      fireEvent.click(screen.getByRole("tab", { name: "Script" }));
     });
 
     expect(panel()).not.toBeNull();
@@ -141,10 +144,11 @@ describe("AC-248 the script editor opens beside the chart", () => {
       openFlowScriptEditor(shapes()[0].id);
     });
 
-    const grip = screen.getByLabelText("Move the script editor");
+    const grip = screen.getByLabelText("Move the animation bar");
+    const floating = () => screen.getByTestId("flow-bar");
     const before = {
-      left: parseFloat(panel()!.style.left),
-      top: parseFloat(panel()!.style.top),
+      left: parseFloat(floating().style.left),
+      top: parseFloat(floating().style.top),
     };
 
     // dragged: pressed, moved, let go
@@ -153,22 +157,24 @@ describe("AC-248 the script editor opens beside the chart", () => {
     pointer(window, "pointerup", 560, 270);
 
     const after = {
-      left: parseFloat(panel()!.style.left),
-      top: parseFloat(panel()!.style.top),
+      left: parseFloat(floating().style.left),
+      top: parseFloat(floating().style.top),
     };
 
     expect(after.left).toBeCloseTo(before.left + 60, 0);
     expect(after.top).toBeCloseTo(before.top - 30, 0);
-    expect(panel()!.hasAttribute("data-flow-editor-placed")).toBe(true);
+    expect(floating().hasAttribute("data-flow-bar-placed")).toBe(true);
 
     // the place is kept in the window's storage
     expect(
-      JSON.parse(window.localStorage.getItem(FLOW_EDITOR_PLACE_KEY)!),
-    ).toEqual({ x: after.left, y: after.top });
+      JSON.parse(window.localStorage.getItem(FLOW_BAR_PLACE_KEY)!),
+    ).toMatchObject({ x: after.left, y: after.top });
 
     // the close button closes it
     act(() => {
-      fireEvent.click(screen.getByLabelText("Close the script editor"));
+      fireEvent.click(
+        screen.getByLabelText("Collapse the animation bar into a pill"),
+      );
     });
 
     expect(panel()).toBeNull();
@@ -178,8 +184,8 @@ describe("AC-248 the script editor opens beside the chart", () => {
       openFlowScriptEditor(shapes()[0].id);
     });
 
-    expect(parseFloat(panel()!.style.left)).toBeCloseTo(after.left, 0);
-    expect(parseFloat(panel()!.style.top)).toBeCloseTo(after.top, 0);
+    expect(parseFloat(floating().style.left)).toBeCloseTo(after.left, 0);
+    expect(parseFloat(floating().style.top)).toBeCloseTo(after.top, 0);
   });
 
   it("AC-248 the panel holds the script, the choices and Apply", async () => {
@@ -241,6 +247,46 @@ describe("AC-248 the script editor opens beside the chart", () => {
     expect(screen.getByRole("list", { name: "Problems" }).textContent).toMatch(
       /Line 2/,
     );
+  });
+
+  it("AC-638 the panel stays on its chart when Apply puts a long script on the page", async () => {
+    await mount();
+
+    act(() => {
+      fireEvent.click(screen.getByRole("tab", { name: "Script" }));
+    });
+
+    const hundred = Array.from({ length: 100 }, (_, i) => `Node ${i + 1}`).join(
+      "\n",
+    );
+
+    act(() => {
+      fireEvent.change(script(), { target: { value: hundred } });
+    });
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    });
+
+    // the chart was made again, and the click on the canvas that follows (or
+    // the ids that went with it) leaves nothing selected
+    expect(shapes().length).toBeGreaterThanOrEqual(100);
+    act(() => {
+      API.setSelectedElements([]);
+    });
+
+    // and the panel is still there, on the Script tab, on the new chart
+    expect(screen.getByTestId("flow-bar")).toBeTruthy();
+    expect(
+      screen.getByRole("tab", { name: "Script" }).getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(script().value).toBe(hundred);
+
+    // leaving the script tabs does not lose the chart either
+    act(() => {
+      fireEvent.click(screen.getByRole("tab", { name: "Animation" }));
+    });
+    expect(screen.getByTestId("flow-bar")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Play" })).toBeTruthy();
   });
 
   it("AC-248 typing does not reach the canvas's shortcuts", async () => {

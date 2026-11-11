@@ -519,7 +519,7 @@ describe("AC-240 it is clear how to exit the animation", () => {
       screen
         .getByLabelText("Collapse the animation bar into a pill")
         .getAttribute("title"),
-    ).toMatch(/Minimise/);
+    ).toMatch(/Close the panel into a pill/);
 
     collapse();
 
