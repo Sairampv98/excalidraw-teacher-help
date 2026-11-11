@@ -238,6 +238,31 @@ export const parseCapturePerf = (text: string): CapturePerf | null => {
   };
 };
 
+/** What the panel says while the picture is a copy of the screen (D-493). */
+export const SCREEN_COPY_NOTE =
+  "this picture is a copy of the screen: VS Code's window must be visible and not covered";
+
+/**
+ * Does the status say the picture is a copy of the screen (D-493)?
+ *
+ * `true` for SCREEN_COPY, `false` for SCREEN_COPY_OFF (PrintWindow works
+ * again), and `null` for everything else - SCREEN_COPY_COVERED included, which
+ * is a failure and is said as one.
+ */
+export const parseScreenCopyStatus = (line: string): boolean | null => {
+  const text = line.replace(/^STATUS\s+/i, "").trim();
+
+  if (text === "SCREEN_COPY") {
+    return true;
+  }
+
+  if (text === "SCREEN_COPY_OFF") {
+    return false;
+  }
+
+  return null;
+};
+
 /**
  * The reason the panel is told, for each thing the helper can say.
  *
@@ -270,6 +295,17 @@ export const captureReason = (line: string): string | null => {
     // the window is on screen, but it draws nothing: a black rectangle is
     // not a live view, so the helper says this instead of publishing it
     return "VS Code's window is not showing a picture - click on it";
+  }
+
+  if (text.startsWith("SCREEN_COPY_COVERED")) {
+    // Windows 7 only (D-493): the picture is a copy of the screen, so another
+    // window in front of the editor would be shown to the class
+    return "VS Code's window is covered by another window - bring it to the front and keep it uncovered";
+  }
+
+  if (text.startsWith("SCREEN_COPY")) {
+    // not a failure (D-493): the panel tells the person what a copy needs
+    return SCREEN_COPY_NOTE;
   }
 
   if (text.startsWith("SHOT_FAILED")) {
@@ -469,6 +505,11 @@ export interface WindowCaptureOptions {
   /** the capture cannot run, and this is why */
   onUnavailable?: (reason: string) => void;
   /**
+   * The picture is a copy of the screen (`true`) or is not any more (`false`):
+   * Windows 7 only, and only after PrintWindow drew nothing (D-493).
+   */
+  onScreenCopy?: (on: boolean) => void;
+  /**
    * The helper has EXITED.
    *
    * The exit is an **event**, not the end of the capture: a helper that died
@@ -516,6 +557,18 @@ export const createWindowCapture = (
     options.onUnavailable?.(reason);
   };
 
+  /** is the picture a copy of the screen? (D-493) */
+  let screenCopy = false;
+
+  const setScreenCopy = (on: boolean) => {
+    if (screenCopy === on) {
+      return;
+    }
+
+    screenCopy = on;
+    options.onScreenCopy?.(on);
+  };
+
   let child: CaptureProcess;
 
   try {
@@ -549,6 +602,15 @@ export const createWindowCapture = (
       height = size.height;
     },
     onLine: (line) => {
+      // a screen copy is not a failure: the frames go on, and the panel is
+      // told that they are a copy (D-493)
+      const copy = parseScreenCopyStatus(line);
+
+      if (copy !== null) {
+        setScreenCopy(copy);
+        return;
+      }
+
       // every line the helper says is a FACT, and the panel has to be able
       // to say it (D-75): "the window is not visible" is not "there is no
       // window", and neither of them is "broken" (D-113)
@@ -603,6 +665,9 @@ export const createWindowCapture = (
 
     exited = true;
 
+    // a helper that is gone copies nothing: the next one says it again
+    setScreenCopy(false);
+
     // The exit is an EVENT the extension acts on: a helper that died is
     // started again (D-112). It is not the end of the capture.
     options.onExit?.(code);
@@ -615,6 +680,7 @@ export const createWindowCapture = (
   return {
     stop: () => {
       stopped = true;
+      setScreenCopy(false);
       try {
         child.kill();
       } catch {

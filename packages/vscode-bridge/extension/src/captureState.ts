@@ -70,6 +70,12 @@ export interface CaptureStatePublisher {
    * machine has one (D-351)
    */
   setVirtual: (virtual: { on: boolean; available: boolean }) => void;
+  /**
+   * whether the picture is a copy of the screen (D-493): Windows 7 only, when
+   * the window's own picture is empty. The panel then says the window must be
+   * visible and not covered.
+   */
+  setScreenCopy: (on: boolean) => void;
   /** the state as it stands, or null when nothing has been published yet */
   readonly state: CaptureState | null;
 }
@@ -110,6 +116,9 @@ export const createCaptureStatePublisher = (
   /** is it on the virtual display, and is there one? (D-351) */
   let virtual = { on: false, available: false };
 
+  /** is the picture a copy of the screen? (D-493) */
+  let screenCopy = false;
+
   /** the last frame's number: the seq a re-published state carries. */
   let seq = 0;
 
@@ -129,6 +138,7 @@ export const createCaptureStatePublisher = (
       ...(parked ? { parked: true } : {}),
       ...(virtual.on ? { virtual: true } : {}),
       ...(virtual.available ? { virtualAvailable: true } : {}),
+      ...(screenCopy ? { screenCopy: true } : {}),
     });
   };
 
@@ -217,6 +227,18 @@ export const createCaptureStatePublisher = (
       }
 
       virtual = next;
+
+      if (state) {
+        send(state);
+      }
+    },
+
+    setScreenCopy: (next: boolean) => {
+      if (screenCopy === next) {
+        return;
+      }
+
+      screenCopy = next;
 
       if (state) {
         send(state);

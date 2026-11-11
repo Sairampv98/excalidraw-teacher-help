@@ -356,6 +356,10 @@ export const MirrorPanelSurface = ({
   const controlOn =
     !isReadOnly && Boolean(control?.onToggle) && controlState?.enabled === true;
   const parked = capture?.status === "live" && capture.parked === true;
+  // Windows 7 (D-493): the picture is a copy of the screen, so the window must
+  // stay visible and uncovered - the teacher is told, the class is not
+  const screenCopy =
+    !isReadOnly && capture?.status === "live" && capture.screenCopy === true;
   const virtualOn = capture?.status === "live" && capture.virtual === true;
   const virtualAvailable =
     capture?.status === "live" && capture.virtualAvailable === true;
@@ -640,6 +644,26 @@ export const MirrorPanelSurface = ({
         </label>
       ) : null}
 
+      {screenCopy ? (
+        <span
+          className="excalidraw__panel-code-screen-copy"
+          data-testid="code-panel-screen-copy"
+          role="status"
+          title={t("labels.mirror.screenCopy")}
+          style={{
+            fontSize: compact ? 11 : 12,
+            lineHeight: 1.3,
+            padding: "2px 8px",
+            borderRadius: 6,
+            border: `1px solid ${palette.accent}`,
+            color: palette.foreground,
+            maxWidth: "100%",
+          }}
+        >
+          {t("labels.mirror.screenCopy")}
+        </span>
+      ) : null}
+
       {canControl ? (
         <>
           <button
@@ -667,11 +691,15 @@ export const MirrorPanelSurface = ({
             data-testid="code-panel-park"
             data-panel-id={panel.id}
             data-parked={parked ? "yes" : "no"}
+            // a screen copy needs the window on the screen: it cannot be parked (D-493)
+            disabled={screenCopy && !parked}
             onClick={() =>
               control?.onWindow?.(panel.id, parked ? "bring-back" : "park")
             }
             title={
-              parked
+              screenCopy && !parked
+                ? t("labels.mirror.screenCopyNoPark")
+                : parked
                 ? t("labels.control.bringBackTitle")
                 : t("labels.control.parkTitle")
             }
@@ -970,6 +998,21 @@ export const MirrorPanelSurface = ({
       >
         {t("labels.panel.bridge.connect")}
       </button>
+      {bridge.onSetupEditor ? (
+        <button
+          type="button"
+          className="excalidraw__panel-bridge-setup"
+          data-testid="panel-bridge-setup"
+          onClick={() => bridge.onSetupEditor?.()}
+          style={{
+            ...tool({ wide: true }),
+            height: chrome.bridgeButtonHeight,
+            minWidth: chrome.bridgeButtonWidth,
+          }}
+        >
+          {t("labels.panel.bridge.setup")}
+        </button>
+      ) : null}
     </div>
   ) : null;
 

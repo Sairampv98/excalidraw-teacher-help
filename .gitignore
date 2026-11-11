@@ -85,5 +85,8 @@ __pycache__/
 # the engines the app carries (scripts/vendor/engines.mjs fetches them)
 /public/vendor/
 
+# the editor setup the page serves at /setup/ (scripts/setup/publish-editor-setup.mjs copies it)
+/public/setup/
+
 # the click-through installer, built by installer/gui/build-gui-installer.mjs
 /installer/gui/dist/

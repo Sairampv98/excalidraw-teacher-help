@@ -98,6 +98,15 @@ export interface BridgeServerOptions {
    * nothing has not presented the token, so it is refused like any other.
    */
   authTimeoutMs?: number;
+  /**
+   * The **pairing** (D-518): a connection that has no token may send
+   * `bridge:pair` as its first frame, and this decides whether its origin may
+   * connect - the editor asks the teacher. Without it pairing is not offered,
+   * and such a connection is refused like any other without the token.
+   */
+  onPair?: (origin: string) => Promise<boolean>;
+  /** How long the teacher has to answer the pairing prompt. */
+  pairTimeoutMs?: number;
   /** Called for every legal message a client sends. */
   onMessage?: (message: BridgeMessage, connection: BridgeConnection) => void;
   /** Called when a client has authenticated. */
@@ -204,6 +213,7 @@ export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
   const appName = options.appName ?? "";
   const allowedOrigins = options.allowedOrigins ?? [];
   const authTimeoutMs = options.authTimeoutMs ?? 5000;
+  const pairTimeoutMs = options.pairTimeoutMs ?? 60000;
   const logger = options.logger ?? (() => undefined);
 
   const connections = new Set<BridgeConnection>();
@@ -292,6 +302,8 @@ export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
 
     const id = `client-${++connectionCounter}`;
     let authenticated = false;
+    /** is the teacher being asked whether this origin may connect? (D-518) */
+    let pairing = false;
     let closed = false;
     let forgotten = false;
 
@@ -325,7 +337,7 @@ export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
 
     // a connection that never presents the token is refused like any other
     const authTimer = setTimeoutNode(() => {
-      if (!authenticated && !closed) {
+      if (!authenticated && !closed && !pairing) {
         logger(`refused ${id}: no token within ${authTimeoutMs}ms`);
         close(CLOSE_UNAUTHORIZED, "no token");
       }
@@ -372,6 +384,28 @@ export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
       close,
     };
 
+    /** the connection has shown the token, or the teacher allowed its origin */
+    const admit = () => {
+      authenticated = true;
+      clearTimeoutNode(authTimer);
+      connections.add(connection);
+
+      // The **capability** of THIS connection (D-86). It is the stream's
+      // authorisation, it is single-purpose, and it dies with the
+      // connection. The session token is never in a URL (D-50).
+      connection.capability = stream.createCapability();
+
+      send({
+        v: 1,
+        type: "bridge:hello",
+        version,
+        workspace,
+        appName,
+        streamUrl: stream.urlFor(connection.capability),
+      });
+      options.onConnect?.(connection);
+    };
+
     const decoder = createFrameDecoder((frame) => {
       if (frame.opcode === WS_OPCODE.close) {
         close(1000, "bye");
@@ -400,7 +434,58 @@ export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
       }
 
       if (!authenticated) {
-        // Rule 4: the FIRST frame must carry the token.
+        // The teacher is being asked: nothing the page says in the meantime
+        // is read, and nothing is answered
+        if (pairing) {
+          return;
+        }
+
+        // Rule 4: the FIRST frame must carry the token - or ask to be paired
+        // (D-518), which the teacher answers in the editor.
+        if (message.type === "bridge:pair") {
+          const onPair = options.onPair;
+
+          if (!onPair || !origin) {
+            logger(`refused ${id}: pairing is not offered`);
+            close(CLOSE_UNAUTHORIZED, "pairing is not offered");
+            return;
+          }
+
+          pairing = true;
+          clearTimeoutNode(authTimer);
+
+          const pairTimer = setTimeoutNode(() => {
+            if (!authenticated && !closed) {
+              logger(`refused ${id}: pairing was not answered`);
+              close(CLOSE_UNAUTHORIZED, "pairing was not answered");
+            }
+          }, pairTimeoutMs);
+          pairTimer.unref?.();
+
+          onPair(origin).then(
+            (allowed) => {
+              clearTimeoutNode(pairTimer);
+
+              if (closed) {
+                return;
+              }
+
+              if (!allowed) {
+                logger(`refused ${id}: pairing was not allowed`);
+                close(CLOSE_UNAUTHORIZED, "pairing was not allowed");
+                return;
+              }
+
+              admit();
+            },
+            () => {
+              clearTimeoutNode(pairTimer);
+              close(CLOSE_UNAUTHORIZED, "pairing failed");
+            },
+          );
+          return;
+        }
+
         if (message.type !== "bridge:auth") {
           logger(`refused ${id}: the first frame was not an auth frame`);
           close(CLOSE_UNAUTHORIZED, "the first frame must be bridge:auth");
@@ -411,24 +496,7 @@ export function createBridgeServer(options: BridgeServerOptions): BridgeServer {
           close(CLOSE_UNAUTHORIZED, "bad token");
           return;
         }
-        authenticated = true;
-        clearTimeoutNode(authTimer);
-        connections.add(connection);
-
-        // The **capability** of THIS connection (D-86). It is the stream's
-        // authorisation, it is single-purpose, and it dies with the
-        // connection. The session token is never in a URL (D-50).
-        connection.capability = stream.createCapability();
-
-        send({
-          v: 1,
-          type: "bridge:hello",
-          version,
-          workspace,
-          appName,
-          streamUrl: stream.urlFor(connection.capability),
-        });
-        options.onConnect?.(connection);
+        admit();
         return;
       }
 

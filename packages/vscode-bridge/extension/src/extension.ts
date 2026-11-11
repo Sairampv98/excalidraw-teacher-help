@@ -9,6 +9,7 @@ import {
 } from "../../bridge/src/protocol";
 
 import { createBridgeServer, type BridgeConnection } from "./bridge";
+import { createPairing, PAIRING_ALLOW } from "./pairing";
 import { createCaptureStatePublisher } from "./captureState";
 import { applyMirrorMessage, createMirrorStore } from "./mirrorRegion";
 import {
@@ -105,6 +106,9 @@ const CONFIG_SECTION = "excalidraw-bridge";
 let extensionVersion = "0.0.0";
 
 let bridgeServer: ReturnType<typeof createBridgeServer> | null = null;
+
+/** the key of the editor's own memory that holds the origins the teacher allowed (D-518) */
+const PAIRED_ORIGINS_KEY = "excalidraw-bridge.pairedOrigins";
 
 let captureSupervisor: WindowCaptureSupervisor | null = null;
 
@@ -325,6 +329,9 @@ export async function activate(
         // different fact from "there is no window" (D-113).
         captureState.unavailable(reason);
       },
+      // Windows 7 only (D-493): the picture is a copy of the screen, and the
+      // panel says the window must be visible and not covered
+      onScreenCopy: (on) => captureState.setScreenCopy(on),
     });
 
     captureSupervisor.ensureRunning();
@@ -1301,6 +1308,26 @@ export async function activate(
     );
   };
 
+  // The whiteboards the teacher allowed to connect without a token, remembered
+  // for each origin in the editor's own memory (D-518)
+  const pairing = createPairing({
+    store: {
+      read: () => context.globalState.get<string[]>(PAIRED_ORIGINS_KEY, []),
+      write: (origins) =>
+        context.globalState.update(PAIRED_ORIGINS_KEY, origins),
+    },
+    ask: async (question) =>
+      (await vscode.window.showInformationMessage(
+        question,
+        {
+          modal: true,
+          detail:
+            "It will see the text of your editor's open file and can run it. Allow it only if you opened the whiteboard yourself.",
+        },
+        PAIRING_ALLOW,
+      )) === PAIRING_ALLOW,
+  });
+
   bridgeServer = createBridgeServer({
     port,
     host: DEFAULT_BRIDGE_HOST,
@@ -1308,6 +1335,8 @@ export async function activate(
     workspace,
     version: extensionVersion,
     appName,
+    // A page with no token asks to be paired; the teacher answers here (D-518)
+    onPair: (origin) => pairing.decide(origin),
     onMessage: handleBridgeMessage,
     onConnect: sendEditorContentTo,
     // Control is off again when the connection that turned it on ends (D-327)
@@ -1490,6 +1519,20 @@ export async function activate(
     vscode.commands.registerCommand(
       "excalidraw-bridge.chooseInputRoute",
       chooseInputRoute,
+    ),
+    vscode.commands.registerCommand(
+      "excalidraw-bridge.forgetPairedWhiteboards",
+      async () => {
+        const count = await pairing.forget();
+
+        void vscode.window.showInformationMessage(
+          count
+            ? `Excalidraw Bridge: ${count} whiteboard${
+                count === 1 ? "" : "s"
+              } forgotten. Each will be asked about again.`
+            : "Excalidraw Bridge: no whiteboard was remembered.",
+        );
+      },
     ),
     vscode.commands.registerCommand("excalidraw-bridge.copyToken", async () => {
       await vscode.env.clipboard.writeText(token);

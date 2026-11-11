@@ -63,6 +63,10 @@
         "title": "Excalidraw Bridge: Copy the session token"
       },
       {
+        "command": "excalidraw-bridge.forgetPairedWhiteboards",
+        "title": "Excalidraw Bridge: Forget the whiteboards that were allowed to connect"
+      },
+      {
         "command": "excalidraw-bridge.openInputPanel",
         "title": "Excalidraw Bridge: Open the presenter's input panel"
       },

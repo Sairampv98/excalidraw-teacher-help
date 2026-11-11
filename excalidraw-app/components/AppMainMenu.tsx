@@ -13,6 +13,7 @@ import type { Theme } from "@excalidraw/element/types";
 
 import { LanguageList } from "../app-language/LanguageList";
 import { openPresenterView } from "../presenter/openPresenterView";
+import { openEditorSetup } from "../setup/editorSetupState";
 import { openTour } from "../tour/tourState";
 
 import { saveDebugState } from "./DebugCanvas";
@@ -43,6 +44,9 @@ export const AppMainMenu: React.FC<{
         onSelect={() => props.onInsertCodePanel("mirror")}
       >
         VS Code mirror (bridge)
+      </MainMenu.Item>
+      <MainMenu.Item icon={codeIcon} onSelect={openEditorSetup}>
+        Set up my editor
       </MainMenu.Item>
       <MainMenu.DefaultItems.SaveToActiveFile />
       <MainMenu.DefaultItems.Export />

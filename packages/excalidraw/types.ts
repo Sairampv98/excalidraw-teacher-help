@@ -1188,6 +1188,11 @@ export type PanelBridgeControls = {
   onPasteToken?: () => void;
   /** the teacher asked to connect with the token in the field */
   onConnect?: () => void;
+  /**
+   * the teacher asked to set the editor up (D-518): the host opens its
+   * "Set up my editor" dialog. Without it the panel offers no such button.
+   */
+  onSetupEditor?: () => void;
 };
 
 /**

@@ -58,6 +58,7 @@ export const BRIDGE_TASK_TYPE = "excalidraw-bridge.run";
 /** Every message type in the protocol. Used by the round-trip test (AC-62). */
 export const BRIDGE_MESSAGE_TYPES = [
   "bridge:auth",
+  "bridge:pair",
   "bridge:hello",
   "editor:content",
   "editor:capture",
@@ -533,6 +534,14 @@ export type BridgeCaptionTrack = {
 export type BridgeMessage =
   /** panel -> extension. The FIRST frame of every connection. */
   | { v: 1; type: "bridge:auth"; token: string }
+  /**
+   * panel -> extension. The FIRST frame instead of `bridge:auth` when the page
+   * has no token (D-518): the extension asks the teacher in the editor -
+   * "Allow the whiteboard at 127.0.0.1:3061 to connect?" - and an origin that
+   * was allowed once is remembered. It carries nothing: the extension takes
+   * the origin from the connection itself, where the browser puts it.
+   */
+  | { v: 1; type: "bridge:pair" }
   /** extension -> panel. Sent once, right after a successful auth. */
   | {
       v: 1;
@@ -649,6 +658,12 @@ export type BridgeMessage =
        */
       virtual?: boolean;
       virtualAvailable?: boolean;
+      /**
+       * Whether the picture is a **copy of the screen** (D-493): Windows 7
+       * only, when the window's own picture is empty. The window must then be
+       * visible and not covered, and the panel says so. Absent means no.
+       */
+      screenCopy?: boolean;
     }
   /**
    * panel -> extension. Control on or off (D-323).
@@ -976,6 +991,8 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
   switch (type) {
     case "bridge:auth":
       return typeof value.token === "string";
+    case "bridge:pair":
+      return true;
     case "bridge:hello":
       return (
         typeof value.version === "string" &&
@@ -1014,7 +1031,9 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
         (value.parked === undefined || typeof value.parked === "boolean") &&
         (value.virtual === undefined || typeof value.virtual === "boolean") &&
         (value.virtualAvailable === undefined ||
-          typeof value.virtualAvailable === "boolean")
+          typeof value.virtualAvailable === "boolean") &&
+        (value.screenCopy === undefined ||
+          typeof value.screenCopy === "boolean")
       );
     case "editor:control":
       return typeof value.enabled === "boolean";

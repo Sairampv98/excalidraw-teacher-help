@@ -11,6 +11,7 @@ import Sitemap from "vite-plugin-sitemap";
 
 import { woff2BrowserPlugin } from "../scripts/woff2/woff2-vite-plugins";
 import { ensureEngines } from "../scripts/vendor/engines.mjs";
+import { publishEditorSetup } from "../scripts/setup/publish-editor-setup.mjs";
 export default defineConfig(({ mode }) => {
   // To load .env variables
   const envVars = loadEnv(mode, `../`);
@@ -155,6 +156,14 @@ export default defineConfig(({ mode }) => {
         apply: "build",
         async buildStart() {
           await ensureEngines();
+        },
+      },
+      {
+        // the editor setup (D-518): the scripts and the extension are served at /setup/ by
+        // the dev server and carried by a build; both are copied from the repository
+        name: "editor-setup",
+        buildStart() {
+          publishEditorSetup();
         },
       },
       react(),
