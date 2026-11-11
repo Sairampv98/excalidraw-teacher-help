@@ -180,6 +180,7 @@ import { NodeMediaDrop } from "./sidebar/NodeMediaPanel";
 import { ExcalidrawPlusIframeExport } from "./ExcalidrawPlusIframeExport";
 import { isPresenterWindow } from "./presenter/presenterChannel";
 import { GuidedTourHost } from "./tour/GuidedTourHost";
+import { EditorSetupHost } from "./setup/EditorSetupDialog";
 import { openPresenterView } from "./presenter/openPresenterView";
 import { PresenterView } from "./presenter/PresenterView";
 import { usePresenterBroadcaster } from "./presenter/usePresenterBroadcaster";
@@ -1857,6 +1858,9 @@ const ExcalidrawWrapper = () => {
 
         {/* the tour of the first launch, and when the menu asks for it */}
         <GuidedTourHost />
+
+        {/* "Set up my editor": the link, the .cmd and the command (D-518) */}
+        <EditorSetupHost />
 
         {/* emoji and GIF bar: bundled stickers, dragged or clicked onto the page */}
         <StickerBar />

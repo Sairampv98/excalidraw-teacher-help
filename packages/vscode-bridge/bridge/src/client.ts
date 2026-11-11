@@ -51,7 +51,13 @@ export type WebSocketConstructor = new (url: string) => WebSocketLike;
 export interface BridgeClientOptions {
   /** The websocket URL. It must NOT carry the token - see below. */
   url: string;
-  /** The per-session token. It travels in the FIRST frame, never in the URL. */
+  /**
+   * The per-session token. It travels in the FIRST frame, never in the URL.
+   *
+   * An empty token means the page has none, and the first frame is
+   * `bridge:pair` instead (D-518): the editor asks the teacher whether to allow
+   * this page.
+   */
   token: string;
   /** Called for every legal message the bridge sends. */
   onMessage?: (message: BridgeMessage) => void;
@@ -90,6 +96,23 @@ const MESSAGES: Record<BridgeClientStatus, string> = {
     'VS Code did not accept this token - it may have a new one. In VS Code run "Excalidraw Bridge: Copy the session token", then press Paste here.',
   closed: "Disconnected from the Excalidraw Bridge.",
 };
+
+/** What the panel says while the teacher is being asked in the editor (D-518). */
+export const PAIRING_WAITING =
+  "Waiting for you in VS Code: choose Allow to let the whiteboard connect.";
+
+/** What the panel says when the pairing was not allowed (D-518). */
+export const PAIRING_REFUSED =
+  "VS Code did not allow the whiteboard. Press Connect and choose Allow in VS Code, or paste the session token instead.";
+
+/**
+ * What the panel says when the extension in the editor is from before the
+ * pairing (D-518): it cannot ask the teacher, and it says so by closing with
+ * "the first frame must be bridge:auth". Its picture of the window may also be
+ * cut off - the old helper does not know the screen's scale.
+ */
+export const PAIRING_OLD_EXTENSION =
+  'The bridge extension in VS Code is an old version and cannot ask you to allow the board. Press "Set up my editor" to update it, or paste the session token instead.';
 
 /**
  * The token must never travel in the URL (D-50, D-67): a URL ends up in the
@@ -168,7 +191,9 @@ export function createBridgeClient(options: BridgeClientOptions): BridgeClient {
     if (closedByUs) {
       return;
     }
-    setState("connecting");
+    const pairing = options.token === "";
+
+    setState("connecting", pairing ? PAIRING_WAITING : undefined);
     let next: WebSocketLike;
     try {
       next = new WebSocketImpl(options.url);
@@ -183,11 +208,11 @@ export function createBridgeClient(options: BridgeClientOptions): BridgeClient {
       // URL and never on a command line.
       try {
         next.send(
-          encodeBridgeMessage({
-            v: 1,
-            type: "bridge:auth",
-            token: options.token,
-          }),
+          encodeBridgeMessage(
+            pairing
+              ? { v: 1, type: "bridge:pair" }
+              : { v: 1, type: "bridge:auth", token: options.token },
+          ),
         );
       } catch {
         // the close handler takes it from here
@@ -213,10 +238,22 @@ export function createBridgeClient(options: BridgeClientOptions): BridgeClient {
       // The close event always follows; the reconnect is scheduled there.
     };
 
-    next.onclose = (event: { code?: number } | undefined) => {
+    next.onclose = (event: { code?: number; reason?: string } | undefined) => {
       socket = null;
       if (closedByUs) {
         setState("closed");
+        return;
+      }
+      // An extension from before the pairing does not know the pair request. Measured against the real 0.2.0: it
+      // closes with 1007 "not a bridge message" (a message it cannot read); a still older one with 1008 "the first
+      // frame must be bridge:auth". Asking again gets the same answer, so it is said once, with what to do.
+      if (
+        pairing &&
+        (event?.code === 1007 ||
+          /must be bridge:auth|not a bridge message/.test(event?.reason ?? ""))
+      ) {
+        clearTimer();
+        setState("refused", PAIRING_OLD_EXTENSION);
         return;
       }
       if (event?.code === BRIDGE_CLOSE_UNAUTHORIZED) {
@@ -224,7 +261,7 @@ export function createBridgeClient(options: BridgeClientOptions): BridgeClient {
         // again with the same one gets the same answer. The panel says what to
         // do, and a new token starts a new connection (D-333).
         clearTimer();
-        setState("refused");
+        setState("refused", pairing ? PAIRING_REFUSED : undefined);
         return;
       }
       scheduleReconnect();

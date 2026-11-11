@@ -32,7 +32,7 @@ Windows 7 **Service Pack 1** (build 7601). Without it the setup says so and stop
 ## What does not work on Windows 7
 
 - **The assistant** (the MCP server): it needs a newer Node.js than Windows 7 can run. The setup's first screen says so before anything is chosen.
-- **The picture of the editor's window** in the board says "Waiting for the editor's window": the helper scripts for it need PowerShell 3, and Windows 7 has 2. The text of the open file is mirrored all the same. A small update will fix this.
+- **The picture of the editor's window** in the board is a **copy of the screen** on Windows 7: the editor's window must be visible and not covered by another window (the board says so, and shows nothing while the window is covered), and it cannot be parked out of sight. The text of the open file is mirrored all the same.
 - **The better text reader (Indra OCR)** is not in this setup (it needs Python 3.12). The reader built into the board needs no Python.
 - Windows 7 itself is no longer updated by Microsoft. Use this setup on a computer that is not on a network you do not trust.
 

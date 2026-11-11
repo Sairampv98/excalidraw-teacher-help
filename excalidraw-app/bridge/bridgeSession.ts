@@ -128,6 +128,8 @@ export interface BridgeSession {
    * (D-111).
    */
   getToken: () => string;
+  /** did the editor allow this tab's page to connect without a token (D-518)? */
+  wasPaired: () => boolean;
   /** hold a token in memory. Does not connect. */
   setToken: (token: string) => void;
   /** connect with the token held in memory */
@@ -279,6 +281,43 @@ export const writeSessionToken = (token: string): boolean => {
 };
 
 /**
+ * The key the tab uses to remember that the editor allowed this page (D-518).
+ *
+ * It holds no secret - only "yes" - and it is the tab's, like the token: after
+ * a reload the page asks to be paired again by itself, and the editor, which
+ * remembers the origin, answers without asking the teacher again.
+ */
+export const BRIDGE_PAIRED_KEY = "excalidraw-bridge.paired";
+
+/** did the editor allow this tab's page to connect (D-518)? */
+export const readPaired = (): boolean => {
+  try {
+    return sessionMemory()?.getItem(BRIDGE_PAIRED_KEY) === "yes";
+  } catch {
+    return false;
+  }
+};
+
+/** the tab remembers that the editor allowed it, or forgets it (D-518) */
+export const writePaired = (paired: boolean): void => {
+  try {
+    const storage = sessionMemory();
+
+    if (!storage) {
+      return;
+    }
+
+    if (paired) {
+      storage.setItem(BRIDGE_PAIRED_KEY, "yes");
+    } else {
+      storage.removeItem(BRIDGE_PAIRED_KEY);
+    }
+  } catch {
+    // no memory: the teacher presses Connect again after a reload, which is all
+  }
+};
+
+/**
  * The app's bridge session.
  *
  * The token lives in this closure and in the **tab's** session memory and
@@ -346,9 +385,8 @@ export const createBridgeSession = (
   };
 
   const open = () => {
-    if (!token) {
-      return;
-    }
+    // With no token the page asks the editor to PAIR it (D-518): the teacher
+    // answers in the editor, and nothing is copied
 
     client?.disconnect();
 
@@ -364,7 +402,15 @@ export const createBridgeSession = (
       url,
       token,
       WebSocketImpl: options.WebSocketImpl,
-      onStateChange: publish,
+      onStateChange: (clientState) => {
+        // the editor did not allow this page: it is not asked again by itself
+        // on the next reload (D-518)
+        if (!token && clientState.status === "refused") {
+          writePaired(false);
+        }
+
+        publish();
+      },
       onMessage: (message) => {
         // the OCR answers belong to the OCR client, not to the panel's state
         if (message.type === "ocr:result") {
@@ -402,6 +448,12 @@ export const createBridgeSession = (
         // The stream's URL (D-85). It is part of the CONNECTION's state, so
         // the panel's live view follows the connection.
         if (message.type === "bridge:hello") {
+          // the editor allowed this page without a token: the tab remembers
+          // it, so a reload connects again by itself (D-518)
+          if (!token) {
+            writePaired(true);
+          }
+
           const next = message.streamUrl ?? null;
 
           if (next !== streamUrl) {
@@ -419,6 +471,8 @@ export const createBridgeSession = (
 
   return {
     getToken: () => token,
+
+    wasPaired: readPaired,
 
     setToken: (next: string) => {
       token = next;

@@ -227,6 +227,15 @@ declare module "vscode" {
 
   export interface ExtensionContext {
     readonly subscriptions: { dispose(): any }[];
+    /**
+     * The editor's own memory for the extension, kept across restarts.
+     *
+     * The whiteboards the teacher allowed to connect are kept here (D-518).
+     */
+    readonly globalState: {
+      get<T>(key: string, defaultValue: T): T;
+      update(key: string, value: unknown): Thenable<void>;
+    };
     readonly extension: { id: string; packageJSON: any };
     /**
      * The extension's own folder, as it is installed.
@@ -304,6 +313,12 @@ declare module "vscode" {
     ): Disposable;
     export function showInformationMessage(
       message: string,
+      ...items: string[]
+    ): Thenable<string | undefined>;
+    /** a message the teacher has to answer before anything else (D-518) */
+    export function showInformationMessage(
+      message: string,
+      options: { modal?: boolean; detail?: string },
       ...items: string[]
     ): Thenable<string | undefined>;
     export function showErrorMessage(

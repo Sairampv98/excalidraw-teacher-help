@@ -403,6 +403,8 @@ export const toPanelCapture = (
           // (D-351)
           ...(message.virtual ? { virtual: true } : {}),
           ...(message.virtualAvailable ? { virtualAvailable: true } : {}),
+          // and whether the picture is a copy of the screen (Windows 7, D-493)
+          ...(message.screenCopy ? { screenCopy: true } : {}),
         }
       : {
           status: "unavailable",

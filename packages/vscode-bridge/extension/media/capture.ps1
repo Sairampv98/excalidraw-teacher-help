@@ -57,13 +57,25 @@
 # Arguments: -ProcessName <name> -TitleLike <substring> -Fps <n> -Quality <n>
 #            -Scale <n> -MaxFrames <n>
 #   -MaxFrames 0 means "until the extension kills the helper".
+#
+# THE SCREEN COPY, on Windows 7 only (D-493):
+#
+#   On the Windows 7 test machines PrintWindow finds the editor's window and
+#   draws nothing (NO_PICTURE). Only THEN, and only on Windows 7 (6.1), the
+#   helper copies the window's client area from the SCREEN (CopyFromScreen at
+#   the client area's origin) and says STATUS SCREEN_COPY. A copy of the screen
+#   shows whatever is on top, so it is taken only when nothing of another window
+#   covers the client area; a covered window says STATUS SCREEN_COPY_COVERED and
+#   no picture is written. STATUS SCREEN_COPY_OFF says PrintWindow works again.
 param(
   [string]$ProcessName = 'Code',
   [string]$TitleLike = '',
   [int]$Fps = 12,
   [int]$Quality = 70,
   [double]$Scale = 1.0,
-  [int]$MaxFrames = 0
+  [int]$MaxFrames = 0,
+  # For a test only: which Windows this is said to be ('6.1' is Windows 7). Empty means the real one.
+  [string]$AssumeWindowsVersion = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -128,6 +140,49 @@ public class PwCap {
         return PrintWindow(hwnd, hdc, 1);
       } finally { g.ReleaseHdc(hdc); }
     }
+  }
+
+  // --- the screen copy, Windows 7 only (D-493) ---
+  [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT p);
+  [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr h, uint flags);
+
+  /// Windows 7 is 6.1 and nothing else: Windows 8 is 6.2 and 8.1 is 6.3, and
+  /// Windows 10 says 10.0.
+  public static bool IsWindows7() {
+    Version v = Environment.OSVersion.Version;
+    return v.Major == 6 && v.Minor == 1;
+  }
+
+  /// Is a window of ANOTHER program on top of any of five places of the client
+  /// area? A copy of the screen would show it.
+  public static bool Covered(IntPtr hwnd) {
+    int[] r = ClientRect(hwnd);
+    if (r[2] <= 0 || r[3] <= 0) return true;
+    IntPtr root = GetAncestor(hwnd, 2);
+    double[] fx = new double[] { 0.5, 0.1, 0.9, 0.1, 0.9 };
+    double[] fy = new double[] { 0.5, 0.1, 0.1, 0.9, 0.9 };
+    for (int i = 0; i < fx.Length; i++) {
+      POINT p = new POINT();
+      p.X = r[0] + (int)(r[2] * fx[i]);
+      p.Y = r[1] + (int)(r[3] * fy[i]);
+      IntPtr at = WindowFromPoint(p);
+      if (at == IntPtr.Zero) return true;
+      IntPtr top = GetAncestor(at, 2);
+      if (top != root && top != hwnd) return true;
+    }
+    return false;
+  }
+
+  /// The client area, copied from the screen into the bitmap (the same
+  /// rectangle PrintWindow draws). False when the window's size is not the
+  /// bitmap's.
+  public static bool ScreenCopy(IntPtr hwnd, Bitmap bmp) {
+    int[] r = ClientRect(hwnd);
+    if (r[2] != bmp.Width || r[3] != bmp.Height) return false;
+    using (Graphics g = Graphics.FromImage(bmp)) {
+      g.CopyFromScreen(r[0], r[1], 0, 0, new Size(r[2], r[3]));
+    }
+    return true;
   }
 
   // --- the window's own top-level windows (D-113) ---
@@ -195,6 +250,11 @@ Add-Type -TypeDefinition $code -ReferencedAssemblies 'System.Drawing'
 
 # before any window is read: the sizes are the real ones (see BeDpiAware)
 [PwCap]::BeDpiAware()
+
+# Is this Windows 7 (D-493)? The screen copy is for it alone.
+$isWin7 = if ($AssumeWindowsVersion) { $AssumeWindowsVersion -eq '6.1' } else { [PwCap]::IsWindows7() }
+# has the panel been told that the picture is a screen copy?
+$copyAnnounced = $false
 
 # The editor's OWN window, found BY RULE (D-113).
 #
@@ -483,7 +543,32 @@ for ($i = 0; ($MaxFrames -le 0) -or ($i -lt $MaxFrames); $i++) {
     continue
   }
 
-  if (Test-Empty $bmp) {
+  $empty = Test-Empty $bmp
+  $usedCopy = $false
+
+  if ($empty -and $isWin7) {
+    # THE SCREEN COPY (D-493): PrintWindow drew nothing, and this is Windows 7,
+    # where that is what the editor's window does on a machine with no graphics
+    # card. The client area is copied from the screen instead - but only when
+    # nothing of another window covers it, or the class would be shown that
+    # other window.
+    if ([PwCap]::Covered($hwnd)) {
+      $hwnd = [IntPtr]::Zero
+      if ($state -ne 'SCREEN_COPY_COVERED') {
+        $state = 'SCREEN_COPY_COVERED'
+        Write-Status $state
+      }
+      Start-Sleep -Milliseconds $delay
+      continue
+    }
+
+    if ([PwCap]::ScreenCopy($hwnd, $bmp) -and -not (Test-Empty $bmp)) {
+      $empty = $false
+      $usedCopy = $true
+    }
+  }
+
+  if ($empty) {
     # an EMPTY picture is not a picture: a black rectangle is not a live view
     $hwnd = [IntPtr]::Zero
     if ($state -ne 'NO_PICTURE') {
@@ -492,6 +577,17 @@ for ($i = 0; ($MaxFrames -le 0) -or ($i -lt $MaxFrames); $i++) {
     }
     Start-Sleep -Milliseconds $delay
     continue
+  }
+
+  # The panel is told BEFORE the first copied picture is written, so it never
+  # shows a copy of the screen without saying so, and again when PrintWindow
+  # works and the copy stops (D-493).
+  if ($usedCopy -and -not $copyAnnounced) {
+    Write-Status 'SCREEN_COPY'
+    $copyAnnounced = $true
+  } elseif ((-not $usedCopy) -and $copyAnnounced) {
+    Write-Status 'SCREEN_COPY_OFF'
+    $copyAnnounced = $false
   }
 
   if (($outW -eq $w) -and ($outH -eq $h)) {

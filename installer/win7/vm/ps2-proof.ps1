@@ -73,6 +73,9 @@ Check 'capture: the HEADER line comes first' ($head.StartsWith('HEADER ')) $head
 $jpegs = 0
 for ($i = 0; $i -lt $bytes.Length - 2; $i++) { if ($bytes[$i] -eq 255 -and $bytes[$i + 1] -eq 216 -and $bytes[$i + 2] -eq 255) { $jpegs++ } }
 Check 'capture: three JPEG frames' ($jpegs -ge 3) ('found ' + $jpegs + ' in ' + $bytes.Length + ' bytes; ' + $head)
+# D-493: Notepad draws itself for PrintWindow, so the screen copy must NOT be used for it (and never be said)
+$whole = [System.Text.Encoding]::ASCII.GetString($bytes)
+Check 'capture: a window that draws itself is not copied from the screen' (-not $whole.Contains('SCREEN_COPY')) 'SCREEN_COPY was said for Notepad'
 
 # input.ps1: it compiles, and a typed text gets a route
 $text = Helper 'input.ps1' @('-SelfTest')

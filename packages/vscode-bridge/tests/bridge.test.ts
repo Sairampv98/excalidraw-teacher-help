@@ -138,6 +138,7 @@ afterEach(async () => {
 describe("the bridge protocol", () => {
   const SAMPLES: BridgeMessage[] = [
     { v: 1, type: "bridge:auth", token: "a-token" },
+    { v: 1, type: "bridge:pair" },
     { v: 1, type: "bridge:hello", version: "0.1.0", workspace: "excalidraw" },
     {
       v: 1,

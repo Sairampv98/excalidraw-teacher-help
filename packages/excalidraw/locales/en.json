@@ -211,9 +211,10 @@
       },
       "bridge": {
         "label": "Bridge",
-        "placeholder": "Session token",
+        "placeholder": "Session token, or empty to ask VS Code",
         "paste": "Paste from clipboard",
-        "connect": "Connect"
+        "connect": "Connect",
+        "setup": "Set up my editor"
       },
       "code": {
         "noFile": "No file is open in the editor",
@@ -291,6 +292,8 @@
       "follow": "Follow the cursor",
       "following": "Stop following the cursor",
       "picker": "What is mirrored",
+      "screenCopy": "Screen copy: keep VS Code's window visible and not covered",
+      "screenCopyNoPark": "The picture is a copy of the screen, so the window cannot be parked out of sight",
       "apply": "Mirror this region",
       "wholeWindow": "Mirror the whole window",
       "cancel": "Cancel",
