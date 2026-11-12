@@ -1,13 +1,18 @@
 /**
  * AC-683 - the pre-gate (D-586) and AC-684 - the gate wrapper (D-587).
+ * AC-692 - a change of documents only is checked in seconds (D-595).
  */
 
+import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
 import {
   buildEnv,
+  docsOnlyTests,
+  isDocsOnly,
   kitArgs,
   logName,
   memoryAdvice,
@@ -164,5 +169,64 @@ describe("AC-684 the gate wrapper", () => {
     expect(
       logName({ kind: "close", task: null, folder: "my folder", at }),
     ).toBe("my_folder-close-2026-11-12-21-30-05.log");
+  });
+});
+
+describe("AC-692 a change of documents only is checked in seconds", () => {
+  it("is told by every changed file being a document", () => {
+    expect(isDocsOnly(["SPEC.md", "docs/next.md"])).toBe(true);
+    expect(isDocsOnly(["tasks/a.md", "sessions/b.md", "README.md"])).toBe(true);
+    expect(isDocsOnly(["docs/media/clip.gif"])).toBe(true);
+    expect(isDocsOnly(["docs/next.md", "scripts/ops/pregate.mjs"])).toBe(false);
+    expect(isDocsOnly(["SPEC.md", "package.json"])).toBe(false);
+    expect(isDocsOnly(["packages/excalidraw/a.ts"])).toBe(false);
+  });
+
+  it("is not told when nothing changed", () => {
+    expect(isDocsOnly([])).toBe(false);
+  });
+
+  it("leaves the typecheck out and keeps the SPEC lint and prettier", () => {
+    const steps = pregateSteps({
+      changed: [],
+      allChanged: ["SPEC.md", "docs/next.md"],
+      docsOnly: true,
+    });
+
+    expect(steps.map((step) => step.name)).toEqual(["spec lint", "prettier"]);
+  });
+
+  it("keeps the typecheck when the change is not only documents", () => {
+    const steps = pregateSteps({
+      changed: ["scripts/x.mjs"],
+      allChanged: ["scripts/x.mjs", "SPEC.md"],
+      docsOnly: false,
+    });
+
+    expect(steps.map((step) => step.name)).toContain("typecheck");
+  });
+
+  it("still runs the test of the handoff file when the handoff file changed, and nothing otherwise", () => {
+    expect(docsOnlyTests(["SPEC.md", "docs/next.md"])).toEqual([
+      {
+        name: "vitest handoff",
+        args: ["run", "scripts/public-sync/tests/handoff.test.mjs"],
+      },
+    ]);
+    expect(docsOnlyTests(["SPEC.md"])).toEqual([]);
+  });
+
+  it("the pre-gate script uses it, and does not walk the scripts' tests for it", () => {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const source = fs.readFileSync(
+      path.join(here, "..", "pregate.mjs"),
+      "utf8",
+    );
+
+    expect(source).toMatch(/isDocsOnly\(documents\)/);
+    expect(source).toMatch(/docsOnlyTests\(documents\)/);
+    expect(source).toMatch(/if \(!docsOnly\) \{\s*walk\(/);
+    // the base can be named (PREGATE_BASE), for a checkout whose own changes are not the task's
+    expect(source).toMatch(/process\.env\.PREGATE_BASE/);
   });
 });

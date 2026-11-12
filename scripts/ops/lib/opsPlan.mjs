@@ -10,12 +10,43 @@ import { cacheArgs } from "./gatePlan.mjs";
 const PRETTIER_FILES = /\.(css|scss|json|md|html|yml)$/;
 const ESLINT_FILES = /\.(js|ts|tsx)$/;
 
+/** a document: under docs, tasks or sessions, or any markdown file (the SPEC among them) */
+const DOCUMENT_FILE = /^(?:docs\/|tasks\/|sessions\/)|\.md$/;
+
+/**
+ * Whether a change is documents only (D-595): every changed file is a document.
+ * The typecheck and the tests of the code cannot be affected by it, so the
+ * pre-gate leaves them out. A change with no files is not "documents only".
+ */
+export const isDocsOnly = (allChanged) =>
+  allChanged.length > 0 && allChanged.every((file) => DOCUMENT_FILE.test(file));
+
+/**
+ * The tests that can still be affected by a change of documents: the rules
+ * about the handoff file read `docs/next.md`.
+ */
+export const docsOnlyTests = (allChanged) =>
+  allChanged.includes("docs/next.md")
+    ? [
+        {
+          name: "vitest handoff",
+          args: ["run", "scripts/public-sync/tests/handoff.test.mjs"],
+        },
+      ]
+    : [];
+
 /**
  * The checks of the pre-gate for what changed: the SPEC lint, prettier and
  * eslint on the files that changed (the gate checks all of them; a person
- * checks what they touched), the typecheck, and the tests a change reaches.
+ * checks what they touched), the typecheck (not for a change of documents
+ * only, D-595), and the tests a change reaches.
  */
-export const pregateSteps = ({ changed, allChanged = changed, cacheDir }) => {
+export const pregateSteps = ({
+  changed,
+  allChanged = changed,
+  cacheDir,
+  docsOnly = false,
+}) => {
   const caches = cacheDir ? cacheArgs(cacheDir) : {};
   const steps = [{ name: "spec lint", kind: "spec" }];
   const formatted = allChanged.filter((file) => PRETTIER_FILES.test(file));
@@ -43,11 +74,13 @@ export const pregateSteps = ({ changed, allChanged = changed, cacheDir }) => {
     });
   }
 
-  steps.push({
-    name: "typecheck",
-    cmd: "tsc",
-    args: [...(caches.typecheck ?? [])],
-  });
+  if (!docsOnly) {
+    steps.push({
+      name: "typecheck",
+      cmd: "tsc",
+      args: [...(caches.typecheck ?? [])],
+    });
+  }
 
   return steps;
 };

@@ -22,7 +22,7 @@ import {
   fastPlans,
   gateCacheDir,
 } from "./lib/gatePlan.mjs";
-import { pregateSteps } from "./lib/opsPlan.mjs";
+import { docsOnlyTests, isDocsOnly, pregateSteps } from "./lib/opsPlan.mjs";
 import { missingPublicSection, warningsForFile } from "./lib/publicLingo.mjs";
 import { isDenied } from "../public-sync/guard.mjs";
 
@@ -66,7 +66,11 @@ env[pathKey] = `${bin}${isWin ? ";" : ":"}${env[pathKey] ?? ""}`;
 
 const git = (args) =>
   spawnSync("git", args, { cwd: root, encoding: "utf8" }).stdout ?? "";
-const base = git(["merge-base", "HEAD", "main"]).trim() || "HEAD~1";
+// what the change is measured against: where the task left main, or PREGATE_BASE
+const base =
+  process.env.PREGATE_BASE ||
+  git(["merge-base", "HEAD", "main"]).trim() ||
+  "HEAD~1";
 const everything = changedSources(
   git(["diff", "--name-only", base]),
   git(["ls-files", "--others", "--exclude-standard"]),
@@ -79,10 +83,20 @@ const documents = [
   .map((line) => line.trim())
   .filter(Boolean);
 
+// a change of documents only cannot affect the typecheck or the tests of the code (D-595)
+const docsOnly = isDocsOnly(documents);
+
+if (docsOnly) {
+  console.log(
+    "pregate: documents only, so the typecheck and the tests of the code are left out",
+  );
+}
+
 const steps = pregateSteps({
   changed: everything,
   allChanged: documents,
   cacheDir: gateCacheDir(root, os.tmpdir()),
+  docsOnly,
 });
 
 fs.mkdirSync(gateCacheDir(root, os.tmpdir()), { recursive: true });
@@ -170,12 +184,16 @@ const walk = (dir) => {
   }
 };
 
-walk(path.join(root, "scripts"));
+if (!docsOnly) {
+  walk(path.join(root, "scripts"));
+}
 
-for (const plan of fastPlans({
-  changed: everything,
-  scriptsTests: scriptsTests.sort(),
-})) {
+for (const plan of docsOnly
+  ? docsOnlyTests(documents)
+  : fastPlans({
+      changed: everything,
+      scriptsTests: scriptsTests.sort(),
+    })) {
   run(plan.name, "vitest", plan.args);
 }
 
