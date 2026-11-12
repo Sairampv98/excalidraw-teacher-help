@@ -11,6 +11,7 @@ import { drawFlowFrame } from "../../scene/flowExport/compose";
 import { sceneRectOf } from "../../scene/flowExport/camera";
 import { placeChart } from "../../scene/flowExport/plan";
 import { chartScaleOf } from "../../scene/flowScale";
+import { arrowAnimates, nodeAnimates } from "../../scene/flowStyles";
 
 import type { FlowExportAnimation } from "../../scene/flowExport/exportAnimation";
 import type { FlowGraph } from "../../scene/flowOrder";
@@ -109,7 +110,8 @@ export const FlowChartPreview = React.memo(
           draw();
           if (
             loop &&
-            (animation.nodeStyle !== "none" || animation.arrowStyle !== "none")
+            (nodeAnimates(animation.nodeStyle) ||
+              arrowAnimates(animation.arrowStyle))
           ) {
             timer = setInterval(() => {
               if (!document.hidden) {

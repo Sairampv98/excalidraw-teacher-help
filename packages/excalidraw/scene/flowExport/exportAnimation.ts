@@ -14,6 +14,8 @@ import { restoreAppState } from "../../data/restore";
 import { exportToCanvas } from "../export";
 import { arrowLooksFor, elementForCanvas } from "../flowArrowLooks";
 import { chartScaleOf } from "../flowScale";
+import { nodeHighlightParts } from "../flowHighlight";
+import { nodeAnimates } from "../flowStyles";
 
 import { createFrameSource, createVideoEncoder } from "./browser";
 import { flightTransformAt, sceneRectOf } from "./camera";
@@ -32,6 +34,19 @@ import type { FlowLook } from "../flowLook";
 import type { FlowGraph, FlowStep } from "../flowOrder";
 import type { FlowArrowStyle, FlowNodeStyle } from "../flowStyles";
 import type { FlowExportFormat, FlowExportShape } from "./plan";
+
+/** a page colour a near-white neon core would vanish into */
+const isLightColor = (color: unknown) => {
+  const hex =
+    typeof color === "string" ? /^#([0-9a-f]{6})$/i.exec(color) : null;
+  if (!hex) {
+    return false;
+  }
+  const n = parseInt(hex[1], 16);
+  const luminance =
+    (0.2126 * (n >> 16) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
+  return luminance > 0.6;
+};
 
 /** what the person chose in the panel */
 export type FlowExportOptions = {
@@ -140,8 +155,9 @@ export const exportFlowAnimation = async (input: {
       offsetY: number;
     },
     timeMs = 0,
+    chartElements: readonly ExcalidrawElement[] = drawn,
   ) => {
-    const moment = await atMoment(drawn, files, media, timeMs);
+    const moment = await atMoment(chartElements, files, media, timeMs);
 
     return exportToCanvas(
       moment.elements as never,
@@ -166,12 +182,62 @@ export const exportFlowAnimation = async (input: {
     );
   };
 
-  const base = options.camera || media.length ? null : await renderBase(place);
-
   const elementsMap = arrayToMap(elements);
+
+  // the labels whose letters are lit are not drawn by the canvas on the screen
+  // (D-213), so the chart is drawn once more without them, and each lit label's
+  // place is filled from that picture
+  const litNodes =
+    nodeAnimates(animation.nodeStyle) ||
+    (animation.nodeStyle === "none" &&
+      !!(
+        animation.nodeColor ||
+        animation.textColor ||
+        animation.glowShape ||
+        animation.glowText
+      ));
+  const litLabels = litNodes
+    ? new Set(
+        steps
+          .map(
+            (step) =>
+              nodeHighlightParts(
+                step,
+                elementsMap as never,
+                animation.nodeTarget,
+              ).letters?.id,
+          )
+          .filter((id): id is string => !!id),
+      )
+    : new Set<string>();
+  const drawnBare = litLabels.size
+    ? chart.elements
+        .map((element) =>
+          elementForCanvas(
+            element,
+            litLabels.has(element.id)
+              ? new Map([...looks, [element.id, { hidden: true, color: null }]])
+              : looks,
+          ),
+        )
+        .filter((element): element is ExcalidrawElement => element !== null)
+    : null;
+  const renderBare = drawnBare
+    ? (
+        camera: { scale: number; offsetX: number; offsetY: number },
+        timeMs = 0,
+      ) => renderBase(camera, timeMs, drawnBare)
+    : undefined;
+
+  const base = options.camera || media.length ? null : await renderBase(place);
+  const bare =
+    !(options.camera || media.length) && renderBare
+      ? await renderBare(place)
+      : null;
 
   const source = createFrameSource({
     base,
+    bare,
     scene: {
       steps,
       graph,
@@ -182,6 +248,7 @@ export const exportFlowAnimation = async (input: {
       speed: animation.speed,
       durationMs: animation.durationMs,
       chartScale: chartScaleOf(graph, elementsMap as never),
+      lightPage: withBackground && isLightColor(restored.viewBackgroundColor),
     },
     transform: place,
     size,
@@ -201,6 +268,7 @@ export const exportFlowAnimation = async (input: {
               ? (timeMs) => mediaStateAt(media, timeMs)
               : undefined,
             renderBase,
+            renderBare,
           }
         : undefined,
   });

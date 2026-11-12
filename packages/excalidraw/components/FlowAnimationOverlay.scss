@@ -283,20 +283,34 @@
     .excalidraw__flow-node-outline {
     fill: none;
     fill-opacity: 0;
+    stroke-width: calc(2 * var(--flow-neon-w-shape, 1));
     stroke: var(
       --flow-node-core,
       color-mix(in srgb, var(--flow-node-color, var(--color-primary)) 25%, #fff)
     );
-    filter: drop-shadow(0 0 2px var(--flow-node-color, var(--color-primary)))
-      drop-shadow(0 0 6px var(--flow-node-color, var(--color-primary)))
-      drop-shadow(0 0 14px var(--flow-node-color, var(--color-primary)))
-      drop-shadow(0 0 28px var(--flow-node-color, var(--color-primary)));
+    filter: drop-shadow(
+        0 0 calc(2px * var(--flow-glow-k-shape, 1))
+          var(--flow-node-color, var(--color-primary))
+      )
+      drop-shadow(
+        0 0 calc(6px * var(--flow-glow-k-shape, 1))
+          var(--flow-node-color, var(--color-primary))
+      )
+      drop-shadow(
+        0 0 calc(14px * var(--flow-glow-k-shape, 1))
+          var(--flow-node-color, var(--color-primary))
+      )
+      drop-shadow(
+        0 0 calc(28px * var(--flow-glow-k-shape, 1))
+          var(--flow-node-color, var(--color-primary))
+      );
   }
 
   // the rectangle on a label's box
   [data-flow-glow-text] [data-flow-part="box"] .excalidraw__flow-node-outline {
     fill: none;
     fill-opacity: 0;
+    stroke-width: calc(2 * var(--flow-neon-w-text, 1));
     stroke: var(
       --flow-text-core,
       color-mix(
@@ -306,15 +320,15 @@
       )
     );
     filter: drop-shadow(
-        0 0 2px
+        0 0 calc(2px * var(--flow-glow-k-text, 1))
           var(--flow-text-color, var(--flow-node-color, var(--color-primary)))
       )
       drop-shadow(
-        0 0 6px
+        0 0 calc(6px * var(--flow-glow-k-text, 1))
           var(--flow-text-color, var(--flow-node-color, var(--color-primary)))
       )
       drop-shadow(
-        0 0 14px
+        0 0 calc(14px * var(--flow-glow-k-text, 1))
           var(--flow-text-color, var(--flow-node-color, var(--color-primary)))
       );
   }
@@ -329,13 +343,13 @@
         #fff
       )
     );
-    text-shadow: 0 0 2px
+    text-shadow: 0 0 calc(2px * var(--flow-glow-k-text, 1))
         var(--flow-text-color, var(--flow-node-color, var(--color-primary))),
-      0 0 6px
+      0 0 calc(6px * var(--flow-glow-k-text, 1))
         var(--flow-text-color, var(--flow-node-color, var(--color-primary))),
-      0 0 14px
+      0 0 calc(14px * var(--flow-glow-k-text, 1))
         var(--flow-text-color, var(--flow-node-color, var(--color-primary))),
-      0 0 28px
+      0 0 calc(28px * var(--flow-glow-k-text, 1))
         var(--flow-text-color, var(--flow-node-color, var(--color-primary)));
   }
 
@@ -346,9 +360,18 @@
     .excalidraw__flow-mark--dash,
     .excalidraw__flow-mark--pipe-flow,
     .excalidraw__flow-mark--token {
-      filter: drop-shadow(0 0 2px var(--flow-mark-color, var(--color-primary)))
-        drop-shadow(0 0 6px var(--flow-mark-color, var(--color-primary)))
-        drop-shadow(0 0 14px var(--flow-mark-color, var(--color-primary)));
+      filter: drop-shadow(
+          0 0 calc(2px * var(--flow-glow-k-mark, 1))
+            var(--flow-mark-color, var(--color-primary))
+        )
+        drop-shadow(
+          0 0 calc(6px * var(--flow-glow-k-mark, 1))
+            var(--flow-mark-color, var(--color-primary))
+        )
+        drop-shadow(
+          0 0 calc(14px * var(--flow-glow-k-mark, 1))
+            var(--flow-mark-color, var(--color-primary))
+        );
     }
 
     .excalidraw__flow-mark--base,
@@ -378,8 +401,14 @@
 
     // the pipe glows round its body
     .excalidraw__flow-mark--pipe-light {
-      filter: drop-shadow(0 0 4px var(--flow-mark-color, var(--color-primary)))
-        drop-shadow(0 0 12px var(--flow-mark-color, var(--color-primary)));
+      filter: drop-shadow(
+          0 0 calc(4px * var(--flow-glow-k-mark, 1))
+            var(--flow-mark-color, var(--color-primary))
+        )
+        drop-shadow(
+          0 0 calc(12px * var(--flow-glow-k-mark, 1))
+            var(--flow-mark-color, var(--color-primary))
+        );
     }
   }
 
@@ -395,17 +424,17 @@
         #fff
       )
     );
-    stroke-width: 3;
+    stroke-width: calc(3 * var(--flow-neon-w-arrow, 1));
     filter: drop-shadow(
-        0 0 2px
+        0 0 calc(2px * var(--flow-glow-k-arrow, 1))
           var(--flow-arrow-color, var(--flow-mark-color, var(--color-primary)))
       )
       drop-shadow(
-        0 0 6px
+        0 0 calc(6px * var(--flow-glow-k-arrow, 1))
           var(--flow-arrow-color, var(--flow-mark-color, var(--color-primary)))
       )
       drop-shadow(
-        0 0 14px
+        0 0 calc(14px * var(--flow-glow-k-arrow, 1))
           var(--flow-arrow-color, var(--flow-mark-color, var(--color-primary)))
       );
     pointer-events: none;

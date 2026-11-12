@@ -15,14 +15,21 @@ import {
   newArrowElement,
   newElement,
   newTextElement,
+  newElementWith,
+  isArrowElement,
+  flowRoutePoints,
+  isElbowArrow,
+  updateElbowArrowPoints,
 } from "@excalidraw/element";
 import { pointFrom } from "@excalidraw/math";
+import { randomId } from "@excalidraw/common";
 
 import type { LocalPoint } from "@excalidraw/math";
 import type {
   ExcalidrawArrowElement,
   ExcalidrawElement,
   ExcalidrawTextElement,
+  NonDeletedSceneElementsMap,
 } from "@excalidraw/element/types";
 
 import { PAGE_HEIGHT, PAGE_SPACING, PAGE_WIDTH } from "../types";
@@ -44,6 +51,7 @@ import type {
 } from "./flowScript";
 
 export type { FlowNodeShape, FlowPresetId } from "./flowScript";
+export { flowRoutePoints };
 
 /* ---------------------------------------------------------------- the presets */
 
@@ -486,7 +494,9 @@ const layoutLayers = (
         id: s.node.id,
         box: { x: 0, y: 0, width: s.width, height: s.height },
       })),
-      edges.map((e) => ({ from: e.from, to: e.to })),
+      edges
+        .filter((edge) => edge.from && edge.to)
+        .map((e) => ({ from: e.from, to: e.to })),
       { x: 0, y: 0 },
       {
         rankdir,
@@ -1063,22 +1073,281 @@ const withBound = (
  * made with, and what Apply makes new edges with (D-223): the caller names the
  * arrow on each shape's `boundElements`.
  */
+/** Convert an ordinary arrow selection into independently editable fork branches. */
+export const makeFlowFork = (
+  elements: readonly ExcalidrawElement[],
+  selectedIds: Readonly<Record<string, boolean>>,
+  count: number,
+): ExcalidrawElement[] => {
+  if (!Number.isSafeInteger(count) || count < 2) {
+    return [...elements];
+  }
+  const selected = elements.filter(
+    (element): element is ExcalidrawArrowElement =>
+      isArrowElement(element) &&
+      !element.isDeleted &&
+      !!selectedIds[element.id],
+  );
+  const first = selected[0];
+  if (!first) {
+    return [...elements];
+  }
+  const oldFork = first.customData?.flow?.fork;
+  const reverse = oldFork?.reverse === true;
+  const sourceId = reverse
+    ? first.endBinding?.elementId
+    : first.startBinding?.elementId;
+  if (
+    selected.some(
+      (arrow) =>
+        (reverse
+          ? arrow.endBinding?.elementId
+          : arrow.startBinding?.elementId) !== sourceId,
+    )
+  ) {
+    return [...elements];
+  }
+  const branches = oldFork
+    ? elements.filter(
+        (element): element is ExcalidrawArrowElement =>
+          isArrowElement(element) &&
+          !element.isDeleted &&
+          element.customData?.flow?.fork?.id === oldFork.id &&
+          (reverse
+            ? element.endBinding?.elementId
+            : element.startBinding?.elementId) === sourceId,
+      )
+    : selected;
+  const byId = new Map(elements.map((element) => [element.id, element]));
+  const source = sourceId && byId.get(sourceId);
+  const firstEnd = first.points[first.points.length - 1];
+  const horizontal = oldFork?.axis
+    ? oldFork.axis === "LR"
+    : Math.abs(firstEnd[0]) >= Math.abs(firstEnd[1]);
+  // the way the drops go: the way the trunk was drawn, so a fork drawn to the
+  // left or upward is a fork to the left or upward (1 = right or down)
+  const dir: 1 | -1 =
+    oldFork?.dir === -1 || oldFork?.dir === 1
+      ? oldFork.dir
+      : (horizontal ? firstEnd[0] : firstEnd[1]) < 0
+      ? -1
+      : 1;
+  // the side of the source the trunk leaves, and the side of a leaf it reaches
+  const out = reverse ? -dir : dir;
+  const start = source
+    ? horizontal
+      ? {
+          x: source.x + (out > 0 ? source.width : 0),
+          y: source.y + source.height / 2,
+        }
+      : {
+          x: source.x + source.width / 2,
+          y: source.y + (out > 0 ? source.height : 0),
+        }
+    : { x: first.x, y: first.y };
+  const gap =
+    Number.isFinite(oldFork?.gap) && oldFork.gap > 0 ? oldFork.gap : 48;
+  const bar = horizontal
+    ? { x: start.x + gap * out, y: start.y }
+    : { x: start.x, y: start.y + gap * out };
+  const trunkBinding: ExcalidrawArrowElement["startBinding"] = sourceId
+    ? {
+        elementId: sourceId,
+        fixedPoint: horizontal
+          ? [out > 0 ? 1 : 0, 0.5]
+          : [0.5, out > 0 ? 1 : 0],
+        mode: "orbit",
+      }
+    : reverse
+    ? first.endBinding
+    : first.startBinding;
+  const forkId = oldFork?.id ?? first.id;
+  const made: ExcalidrawArrowElement[] = [];
+  for (let index = 0; index < count; index++) {
+    const old = branches[index];
+    const leafBinding = reverse ? old?.startBinding : old?.endBinding;
+    const target = leafBinding && byId.get(leafBinding.elementId);
+    const endpoint = target
+      ? horizontal
+        ? {
+            x: target.x + (out > 0 ? 0 : target.width),
+            y: target.y + target.height / 2,
+          }
+        : {
+            x: target.x + target.width / 2,
+            y: target.y + (out > 0 ? 0 : target.height),
+          }
+      : horizontal
+      ? {
+          x: bar.x + gap * 2 * out,
+          y: start.y + (index - (count - 1) / 2) * gap,
+        }
+      : {
+          x: start.x + (index - (count - 1) / 2) * gap,
+          y: bar.y + gap * 2 * out,
+        };
+    const path = [
+      start,
+      bar,
+      horizontal ? { x: bar.x, y: endpoint.y } : { x: endpoint.x, y: bar.y },
+      endpoint,
+    ];
+    if (reverse) {
+      path.reverse();
+    }
+    const origin = path[0];
+    const arrow: ExcalidrawArrowElement = {
+      ...newArrowElement({
+        type: "arrow",
+        ...origin,
+        points: path.map((point) =>
+          pointFrom<LocalPoint>(point.x - origin.x, point.y - origin.y),
+        ),
+        roughness: 0,
+        endArrowhead: first.endArrowhead,
+        strokeColor: first.strokeColor,
+        strokeWidth: first.strokeWidth,
+        pageId: first.pageId,
+      }),
+      id: old?.id ?? randomId(),
+      width:
+        Math.max(...path.map((point) => point.x)) -
+        Math.min(...path.map((point) => point.x)),
+      height:
+        Math.max(...path.map((point) => point.y)) -
+        Math.min(...path.map((point) => point.y)),
+      startBinding: reverse ? old?.startBinding ?? null : trunkBinding,
+      endBinding: reverse ? trunkBinding : old?.endBinding ?? null,
+      // the branches are one group, so that a click selects the whole fork and
+      // a drag moves it whole, and the drops cannot be pulled apart by accident
+      groupIds: [`fork-${forkId}`],
+      customData: {
+        ...first.customData,
+        flow: {
+          ...first.customData?.flow,
+          role: "edge",
+          fork: {
+            id: forkId,
+            count,
+            index,
+            reverse,
+            loose: !target,
+            axis: horizontal ? "LR" : "TB",
+            dir,
+            gap,
+          },
+        },
+      },
+    };
+    const { id: _identity, ...properties } = arrow;
+    made.push(old ? newElementWith(old, properties) : arrow);
+  }
+  const replaced = new Map(made.map((arrow) => [arrow.id, arrow]));
+  const oldIds = new Set(branches.map((arrow) => arrow.id));
+  const result = elements.map(
+    (element) =>
+      replaced.get(element.id) ??
+      (oldIds.has(element.id)
+        ? newElementWith(element, { isDeleted: true })
+        : element),
+  );
+  result.push(...made.filter((arrow) => !oldIds.has(arrow.id)));
+  return result.map((element) => {
+    if (isArrowElement(element)) {
+      return element;
+    }
+    const links = made
+      .filter(
+        (arrow) =>
+          arrow.startBinding?.elementId === element.id ||
+          arrow.endBinding?.elementId === element.id,
+      )
+      .map((arrow) => ({ id: arrow.id, type: "arrow" as const }));
+    const boundElements = [
+      ...(element.boundElements ?? []).filter((bound) => !oldIds.has(bound.id)),
+      ...links,
+    ];
+    return JSON.stringify(boundElements) ===
+      JSON.stringify(element.boundElements ?? [])
+      ? element
+      : newElementWith(element, { boundElements });
+  });
+};
+
 export const buildEdge = (
   fromBox: FlowBox,
   toBox: FlowBox,
   fromShapeId: string,
   toShapeId: string,
-  edge: { from: string; to: string; label?: string },
+  edge: FlowScriptEdge,
   fontSize: number,
   ids: { id: (kind: string) => string; roughSeed: () => number },
   options: Pick<BuildFlowOptions, "pageId" | "palette"> & {
     /** a connector has no arrowhead (D-236) */
     noHead?: boolean;
+    path?: { x: number; y: number }[];
+    centre?: { x: number; y: number };
   },
 ): { arrowId: string; elements: ExcalidrawElement[] } => {
-  const [fromSide, toSide] = facingSides(fromBox, toBox);
-  const start = sidePoint(fromBox, fromSide);
-  const end = sidePoint(toBox, toSide);
+  let [fromSide, toSide] = facingSides(fromBox, toBox);
+  const native =
+    edge.route?.length === 1 && edge.route[0].kind === "elbow" && !edge.fork;
+  const side = native ? edge.route?.[0].side : undefined;
+  if (side) {
+    const dx = toBox.x + toBox.width / 2 - fromBox.x - fromBox.width / 2;
+    const dy = toBox.y + toBox.height / 2 - fromBox.y - fromBox.height / 2;
+    const normal = { x: dy, y: -dx };
+    let sign = side === "right" ? -1 : 1;
+    if ((side === "in" || side === "out") && options.centre) {
+      const toward =
+        (options.centre.x -
+          (fromBox.x + toBox.x + (fromBox.width + toBox.width) / 2) / 2) *
+          normal.x +
+        (options.centre.y -
+          (fromBox.y + toBox.y + (fromBox.height + toBox.height) / 2) / 2) *
+          normal.y;
+      sign = (toward >= 0 ? 1 : -1) * (side === "out" ? -1 : 1);
+    }
+    fromSide =
+      Math.abs(normal.x) > Math.abs(normal.y)
+        ? normal.x * sign >= 0
+          ? "right"
+          : "left"
+        : normal.y * sign >= 0
+        ? "bottom"
+        : "top";
+    toSide = fromSide;
+  }
+  const start = options.path?.[0] ?? sidePoint(fromBox, fromSide);
+  const end =
+    options.path?.[options.path.length - 1] ?? sidePoint(toBox, toSide);
+  let path =
+    options.path ??
+    flowRoutePoints(start, end, edge.route ?? [], options.centre);
+  if (native && side) {
+    const normal =
+      fromSide === "top"
+        ? { x: 0, y: -1 }
+        : fromSide === "bottom"
+        ? { x: 0, y: 1 }
+        : fromSide === "left"
+        ? { x: -1, y: 0 }
+        : { x: 1, y: 0 };
+    const gap = fontSize * 1.5;
+    const outside = normal.x
+      ? normal.x > 0
+        ? Math.max(start.x, end.x) + gap
+        : Math.min(start.x, end.x) - gap
+      : normal.y > 0
+      ? Math.max(start.y, end.y) + gap
+      : Math.min(start.y, end.y) - gap;
+    path = [
+      start,
+      normal.x ? { x: outside, y: start.y } : { x: start.x, y: outside },
+      normal.x ? { x: outside, y: end.y } : { x: end.x, y: outside },
+      end,
+    ];
+  }
 
   const arrowId = ids.id("arrow");
   const arrow = newArrowElement({
@@ -1086,13 +1355,30 @@ export const buildEdge = (
     seed: ids.roughSeed(),
     x: start.x,
     y: start.y,
-    points: [
-      pointFrom<LocalPoint>(0, 0),
-      pointFrom<LocalPoint>(end.x - start.x, end.y - start.y),
-    ],
+    points: path.map((point) =>
+      pointFrom<LocalPoint>(point.x - start.x, point.y - start.y),
+    ),
+    elbowed: native,
+    ...(edge.route || edge.fork ? { roughness: 0 } : {}),
     endArrowhead: options.noHead ? null : "arrow",
-    strokeColor: outlineOf(options),
-    customData: { flow: { role: "edge", from: edge.from, to: edge.to } },
+    strokeColor: edge.look?.outline ?? outlineOf(options),
+    customData: {
+      flow: {
+        role: "edge",
+        from: edge.from,
+        to: edge.to,
+        ...(edge.route ? { route: edge.route } : {}),
+        ...(edge.fork ? { fork: edge.fork } : {}),
+        ...(edge.look
+          ? {
+              look: {
+                ...edge.look,
+                ...(edge.look.fill ? { markColor: edge.look.fill } : {}),
+              },
+            }
+          : {}),
+      },
+    },
     pageId: options.pageId,
   });
 
@@ -1101,18 +1387,26 @@ export const buildEdge = (
     id: arrowId,
     // the constructor leaves the size at zero, and a resize scales the points
     // by it: an arrow that says it is zero wide is scaled down to nothing
-    width: Math.abs(end.x - start.x),
-    height: Math.abs(end.y - start.y),
-    startBinding: {
-      elementId: fromShapeId,
-      fixedPoint: FIXED_POINT[fromSide],
-      mode: "orbit",
-    },
-    endBinding: {
-      elementId: toShapeId,
-      fixedPoint: FIXED_POINT[toSide],
-      mode: "orbit",
-    },
+    width:
+      Math.max(...path.map((point) => point.x)) -
+      Math.min(...path.map((point) => point.x)),
+    height:
+      Math.max(...path.map((point) => point.y)) -
+      Math.min(...path.map((point) => point.y)),
+    startBinding: fromShapeId
+      ? {
+          elementId: fromShapeId,
+          fixedPoint: FIXED_POINT[fromSide],
+          mode: "orbit",
+        }
+      : null,
+    endBinding: toShapeId
+      ? {
+          elementId: toShapeId,
+          fixedPoint: FIXED_POINT[toSide],
+          mode: "orbit",
+        }
+      : null,
   };
 
   if (!edge.label) {
@@ -1350,8 +1644,9 @@ const buildElements = (
         type: elementTypeOf(shapeOfNode(p.node, options.shape)),
         seed: ids.roughSeed(),
         ...box,
-        strokeColor: outlineOf(options),
+        strokeColor: p.node.look?.outline ?? outlineOf(options),
         backgroundColor:
+          p.node.look?.fill ??
           tierFill ??
           galleryFill(p, index, flow, options) ??
           fillOf(p.node.kind, isNoBranch, options),
@@ -1366,6 +1661,7 @@ const buildElements = (
             role: "node",
             nodeId: p.node.id,
             shape: shapeOfNode(p.node, options.shape),
+            ...(p.node.look ? { look: p.node.look } : {}),
           },
         },
         pageId: options.pageId,
@@ -1413,26 +1709,124 @@ const buildElements = (
   // with no arrows nothing is drawn between the shapes (D-231); a hierarchy's
   // connectors have no arrowhead (D-236)
   for (const edge of options.arrows === "none" ? [] : flow.edges) {
+    const fork = edge.fork;
+    let path: { x: number; y: number }[] | undefined;
+    let fromBox = boxes.get(edge.from);
+    let toBox = boxes.get(edge.to);
+    if (fork) {
+      const trunk = boxes.get(fork.reverse ? edge.to : edge.from)!;
+      const branches = flow.edges.filter(
+        (candidate) => candidate.fork?.id === fork.id,
+      );
+      const attached = branches
+        .map((candidate) =>
+          boxes.get(fork.reverse ? candidate.from : candidate.to),
+        )
+        .filter((box): box is FlowBox => !!box);
+      const meanX =
+        attached.reduce((sum, box) => sum + box.x + box.width / 2, 0) /
+        Math.max(1, attached.length);
+      const meanY =
+        attached.reduce((sum, box) => sum + box.y + box.height / 2, 0) /
+        Math.max(1, attached.length);
+      const horizontal = options.direction
+        ? options.direction === "LR"
+        : Math.abs(meanX - trunk.x - trunk.width / 2) >=
+          Math.abs(meanY - trunk.y - trunk.height / 2);
+      Object.assign(fork, {
+        axis: horizontal ? "LR" : "TB",
+        gap: fontSize * 1.5,
+      });
+      const start = horizontal
+        ? {
+            x: trunk.x + (fork.reverse ? 0 : trunk.width),
+            y: trunk.y + trunk.height / 2,
+          }
+        : {
+            x: trunk.x + trunk.width / 2,
+            y: trunk.y + (fork.reverse ? 0 : trunk.height),
+          };
+      const target = horizontal
+        ? {
+            x: fork.reverse
+              ? Math.min(start.x - fontSize * 4, meanX)
+              : Math.max(start.x + fontSize * 4, meanX),
+            y: start.y + (fork.index - (fork.count - 1) / 2) * fontSize * 3,
+          }
+        : {
+            x: start.x + (fork.index - (fork.count - 1) / 2) * fontSize * 3,
+            y: fork.reverse
+              ? Math.min(start.y - fontSize * 4, meanY)
+              : Math.max(start.y + fontSize * 4, meanY),
+          };
+      const branch = boxes.get(fork.reverse ? edge.from : edge.to);
+      const end = branch
+        ? horizontal
+          ? {
+              x: branch.x + (fork.reverse ? branch.width : 0),
+              y: branch.y + branch.height / 2,
+            }
+          : {
+              x: branch.x + branch.width / 2,
+              y: branch.y + (fork.reverse ? branch.height : 0),
+            }
+        : target;
+      const bar = horizontal
+        ? { x: start.x + fontSize * 1.5 * (fork.reverse ? -1 : 1), y: start.y }
+        : { x: start.x, y: start.y + fontSize * 1.5 * (fork.reverse ? -1 : 1) };
+      path = [
+        start,
+        bar,
+        horizontal ? { x: bar.x, y: end.y } : { x: end.x, y: bar.y },
+        end,
+      ];
+      const looseBox = { x: end.x, y: end.y, width: 0, height: 0 };
+      fromBox = fromBox ?? looseBox;
+      toBox = toBox ?? looseBox;
+      if (fork.reverse) {
+        path.reverse();
+      }
+    }
     const made = buildEdge(
-      boxes.get(edge.from)!,
-      boxes.get(edge.to)!,
-      shapeIds.get(edge.from)!,
-      shapeIds.get(edge.to)!,
+      fromBox!,
+      toBox!,
+      shapeIds.get(edge.from) ?? "",
+      shapeIds.get(edge.to) ?? "",
       edge,
       fontSize,
       ids,
-      { ...options, noHead: flow.preset === "hierarchy" },
+      {
+        ...options,
+        path,
+        centre: options.center ?? {
+          x:
+            [...boxes.values()].reduce(
+              (sum, box) => sum + box.x + box.width / 2,
+              0,
+            ) / boxes.size,
+          y:
+            [...boxes.values()].reduce(
+              (sum, box) => sum + box.y + box.height / 2,
+              0,
+            ) / boxes.size,
+        },
+        noHead: flow.preset === "hierarchy",
+      },
     );
 
     // both sides of the binding: the shapes name the arrow back
-    shapes.set(
-      edge.from,
-      withBound(shapes.get(edge.from)!, { id: made.arrowId, type: "arrow" }),
-    );
-    shapes.set(
-      edge.to,
-      withBound(shapes.get(edge.to)!, { id: made.arrowId, type: "arrow" }),
-    );
+    if (shapes.has(edge.from)) {
+      shapes.set(
+        edge.from,
+        withBound(shapes.get(edge.from)!, { id: made.arrowId, type: "arrow" }),
+      );
+    }
+    if (shapes.has(edge.to)) {
+      shapes.set(
+        edge.to,
+        withBound(shapes.get(edge.to)!, { id: made.arrowId, type: "arrow" }),
+      );
+    }
 
     arrows.push(...made.elements);
   }
@@ -1444,13 +1838,42 @@ const buildElements = (
     ordered.push(shapes.get(p.node.id)!, texts[i]);
   });
 
-  return [
+  return routeNativeFlowArrows([
     ...ordered,
     ...arrows,
     ...(flow.preset === "timeline"
       ? timelineElements(placed, shapeIds, origin, fontSize, ids, options)
       : []),
-  ];
+  ]);
+};
+
+/** Ask the native router to honour the actual bound-node shapes at creation too. */
+export const routeNativeFlowArrows = (
+  elements: readonly ExcalidrawElement[],
+  chartId?: string,
+): ExcalidrawElement[] => {
+  const map = new Map(
+    elements
+      .filter((element) => !element.isDeleted)
+      .map((element) => [element.id, element]),
+  ) as NonDeletedSceneElementsMap;
+  return elements.map((element) =>
+    !element.isDeleted &&
+    isElbowArrow(element) &&
+    element.customData?.flow?.route &&
+    (!chartId || element.customData.flow.chartId === chartId)
+      ? newElementWith(
+          element,
+          updateElbowArrowPoints(element, map, {
+            points: [
+              element.points[0],
+              element.points[element.points.length - 1],
+            ],
+            fixedSegments: null,
+          }),
+        )
+      : element,
+  );
 };
 
 /* ---------------------------------------------------------------------- build */
@@ -1469,8 +1892,64 @@ const remembered = (
   preset: FlowPresetId,
   script: string,
   options: BuildFlowOptions,
-) =>
-  options.chartId
+) => {
+  const parsed = parseFlowScript(preset, script);
+  if (parsed.ok && parsed.settings) {
+    const settings = parsed.settings;
+    let first = true;
+    elements = elements.map((element) => {
+      if (first && element.customData?.flow.role === "node") {
+        first = false;
+        return {
+          ...element,
+          customData: {
+            ...element.customData,
+            flow: { ...element.customData.flow, scriptSettings: settings },
+            flowPanelAnimation: {
+              nodeStyle: "focus",
+              arrowStyle: "none",
+              speed: 240,
+              durationMs: 1200,
+              loop: true,
+              camera: false,
+              ...settings,
+            },
+          },
+        };
+      }
+      return element;
+    });
+    if (typeof settings.background === "string") {
+      const pages = new Set(elements.map((element) => element.pageId));
+      const backgrounds: ExcalidrawElement[] = [];
+      for (const pageId of pages) {
+        const group = elements.filter((element) => element.pageId === pageId);
+        const left = Math.min(...group.map((element) => element.x)) - 24;
+        const top = Math.min(...group.map((element) => element.y)) - 24;
+        const right =
+          Math.max(...group.map((element) => element.x + element.width)) + 24;
+        const bottom =
+          Math.max(...group.map((element) => element.y + element.height)) + 24;
+        backgrounds.push(
+          newElement({
+            type: "rectangle",
+            x: left,
+            y: top,
+            width: right - left,
+            height: bottom - top,
+            backgroundColor: settings.background,
+            strokeColor: "transparent",
+            fillStyle: "solid",
+            roughness: 0,
+            pageId,
+            customData: { flow: { role: "background" } },
+          }),
+        );
+      }
+      elements = [...backgrounds, ...elements];
+    }
+  }
+  return options.chartId
     ? stampChart(elements, {
         id: options.chartId,
         preset: options.custom?.id ?? preset,
@@ -1481,6 +1960,7 @@ const remembered = (
         arrows: options.arrows ?? "own",
       })
     : elements;
+};
 
 const TOO_BIG_ERROR =
   "That is too much for one page at a size that can be read from the back of the room. Spread it over pages, or allow it to be larger than the page.";
@@ -1969,6 +2449,25 @@ export const buildFlowPreset = (
 
   if (!parsed.ok) {
     return { ok: false, error: parsed.error };
+  }
+
+  const settings = parsed.settings;
+  if (settings) {
+    options = {
+      ...options,
+      ...(typeof settings.shape === "string"
+        ? { shape: settings.shape as FlowChartShape }
+        : {}),
+      ...(typeof settings.fit === "string"
+        ? { fit: settings.fit as FlowFitMode }
+        : {}),
+      ...(typeof settings.arrows === "string"
+        ? { arrows: settings.arrows as "own" | "none" }
+        : {}),
+      ...(settings.layout === "LR" || settings.layout === "TB"
+        ? { direction: settings.layout }
+        : {}),
+    };
   }
 
   const page = options.page ?? {

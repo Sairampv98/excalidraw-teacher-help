@@ -15,7 +15,8 @@ export type FlowHighlightTarget =
   | "shape-box"
   | "shape-text"
   | "box"
-  | "letters";
+  | "letters"
+  | "all";
 
 /** the choices, in the order the bar offers them, with the names it gives them */
 export const FLOW_HIGHLIGHT_TARGETS: readonly {
@@ -27,6 +28,7 @@ export const FLOW_HIGHLIGHT_TARGETS: readonly {
   { id: "shape-text", label: "Shape + text" },
   { id: "box", label: "Text box" },
   { id: "letters", label: "Text" },
+  { id: "all", label: "Shape + text box + text" },
 ];
 
 /** the colour the highlight and the marks have always had: the accent colour */
@@ -158,6 +160,113 @@ export type FlowLook = {
   /** the arrows themselves are drawn as neon tubes while it plays */
   glowArrow: boolean;
   nodeTarget: FlowHighlightTarget;
+} & FlowGlowLevels;
+
+/** the parts that have a neon of their own */
+export const FLOW_GLOW_PARTS = ["shape", "text", "mark", "arrow"] as const;
+export type FlowGlowPart = typeof FLOW_GLOW_PARTS[number];
+export type FlowGlowWidth = "small" | "normal" | "large";
+
+/**
+ * The bright core of a neon line: the colour lightened (soft, what neon always
+ * had), pure white, or the colour itself.
+ */
+export type FlowGlowCore = "soft" | "white" | "colour";
+export const FLOW_GLOW_CORES: readonly { id: FlowGlowCore; label: string }[] = [
+  { id: "soft", label: "Soft" },
+  { id: "white", label: "White" },
+  { id: "colour", label: "Colour" },
+];
+export const readGlowCore = (value: unknown): FlowGlowCore =>
+  FLOW_GLOW_CORES.find((each) => each.id === value)?.id ?? "soft";
+export const FLOW_GLOW_WIDTHS: readonly FlowGlowWidth[] = [
+  "small",
+  "normal",
+  "large",
+];
+
+/**
+ * How far each part's neon reaches (1 to 100, the pen's Glow; 50 is the old
+ * look) and how thick its lines are (the pen's width), for the shape, the text,
+ * what travels and the arrows, each by itself.
+ */
+export type FlowGlowLevels = {
+  glowShapeStrength?: number;
+  glowShapeWidth?: FlowGlowWidth;
+  glowTextStrength?: number;
+  glowTextWidth?: FlowGlowWidth;
+  glowMarkStrength?: number;
+  glowMarkWidth?: FlowGlowWidth;
+  glowArrowStrength?: number;
+  glowArrowWidth?: FlowGlowWidth;
+  glowShapeCore?: FlowGlowCore;
+  glowTextCore?: FlowGlowCore;
+  glowMarkCore?: FlowGlowCore;
+  glowArrowCore?: FlowGlowCore;
+};
+type GlowKey = keyof FlowGlowLevels;
+
+const cap = (part: FlowGlowPart) => part[0].toUpperCase() + part.slice(1);
+export const glowStrengthKey = (part: FlowGlowPart) =>
+  `glow${cap(part)}Strength` as GlowKey;
+export const glowWidthKey = (part: FlowGlowPart) =>
+  `glow${cap(part)}Width` as GlowKey;
+export const glowCoreKey = (part: FlowGlowPart) =>
+  `glow${cap(part)}Core` as GlowKey;
+
+/** the core colour of a neon line of this colour, as the part's core choice says */
+export const glowCoreColor = (
+  color: string,
+  core: unknown,
+  lightPage = false,
+) => {
+  const mode = readGlowCore(core);
+
+  if (mode === "white") {
+    return "#ffffff";
+  }
+
+  return mode === "colour" || lightPage ? color : neonCore(color);
+};
+
+/** how many times the normal line a width is: the difference must be seen */
+export const FLOW_GLOW_WIDTH_FACTOR: Record<FlowGlowWidth, number> = {
+  small: 0.65,
+  normal: 1,
+  large: 2.5,
+};
+export const FLOW_GLOW_STRENGTH_DEFAULT = 50;
+export const readGlowStrength = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value)
+    ? Math.min(100, Math.max(1, Math.round(value)))
+    : FLOW_GLOW_STRENGTH_DEFAULT;
+export const readGlowWidth = (value: unknown): FlowGlowWidth =>
+  FLOW_GLOW_WIDTHS.find((each) => each === value) ?? "normal";
+/** the reach of the glow as a multiple of the old one (50 is 1) */
+export const glowReachOf = (strength: unknown) =>
+  readGlowStrength(strength) / FLOW_GLOW_STRENGTH_DEFAULT;
+export const glowWidthFactorOf = (width: unknown) =>
+  FLOW_GLOW_WIDTH_FACTOR[readGlowWidth(width)];
+
+/** the reach and the width factor of one part of a look */
+export const glowLevelOf = (look: FlowGlowLevels, part: FlowGlowPart) => ({
+  reach: glowReachOf(look[glowStrengthKey(part)]),
+  widthK: glowWidthFactorOf(look[glowWidthKey(part)]),
+});
+
+/** the eight levels of a look, each read defensively */
+export const readGlowLevels = (source: unknown): FlowGlowLevels => {
+  const entry =
+    source && typeof source === "object"
+      ? (source as Record<string, unknown>)
+      : {};
+  const out: Record<string, unknown> = {};
+  for (const part of FLOW_GLOW_PARTS) {
+    out[glowStrengthKey(part)] = readGlowStrength(entry[glowStrengthKey(part)]);
+    out[glowWidthKey(part)] = readGlowWidth(entry[glowWidthKey(part)]);
+    out[glowCoreKey(part)] = readGlowCore(entry[glowCoreKey(part)]);
+  }
+  return out as FlowGlowLevels;
 };
 
 export const FLOW_LOOK_DEFAULTS: FlowLook = {
@@ -171,6 +280,7 @@ export const FLOW_LOOK_DEFAULTS: FlowLook = {
   glowMark: false,
   glowArrow: false,
   nodeTarget: "shape",
+  ...readGlowLevels({}),
 };
 
 const glowOf = (own: unknown, legacy: unknown) =>
@@ -196,6 +306,7 @@ export const readFlowLook = (source: unknown): FlowLook => {
     glowMark: glowOf(entry.glowMark, entry.glow),
     glowArrow: typeof entry.glowArrow === "boolean" ? entry.glowArrow : false,
     nodeTarget: readFlowTarget(entry.nodeTarget),
+    ...readGlowLevels(entry),
   };
 };
 
@@ -205,9 +316,29 @@ export const readFlowLook = (source: unknown): FlowLook => {
  * accent colour - and the cores and the pipe's shades are only set when there is
  * a colour to make them from.
  */
+/**
+ * The core colour for the stylesheet: the colour's own soft core when there is
+ * a colour and the choice is soft; white; or the colour itself - which, with no
+ * colour chosen, is the accent the stylesheet uses.
+ */
+const coreVarOf = (color: string | null | undefined, core: unknown) => {
+  const mode = readGlowCore(core);
+
+  if (mode === "white") {
+    return "#ffffff";
+  }
+
+  if (mode === "colour") {
+    return color ?? "var(--color-primary)";
+  }
+
+  return color ? neonCore(color) : undefined;
+};
+
 export const flowLookVars = (
   look: Pick<FlowLook, "nodeColor" | "textColor" | "markColor"> &
-    Partial<Pick<FlowLook, "arrowColor">>,
+    Partial<Pick<FlowLook, "arrowColor">> &
+    FlowGlowLevels,
 ): Record<string, string | undefined> => {
   const arrow = look.arrowColor ?? look.markColor;
   const text = look.textColor ?? look.nodeColor;
@@ -217,11 +348,20 @@ export const flowLookVars = (
     "--flow-node-color": look.nodeColor ?? undefined,
     "--flow-text-color": look.textColor ?? undefined,
     "--flow-mark-color": look.markColor ?? undefined,
-    "--flow-node-core": look.nodeColor ? neonCore(look.nodeColor) : undefined,
-    "--flow-text-core": text ? neonCore(text) : undefined,
-    "--flow-mark-core": look.markColor ? neonCore(look.markColor) : undefined,
+    "--flow-node-core": coreVarOf(look.nodeColor, look.glowShapeCore),
+    "--flow-text-core": coreVarOf(text, look.glowTextCore),
+    "--flow-mark-core": coreVarOf(look.markColor, look.glowMarkCore),
+    ...Object.fromEntries(
+      FLOW_GLOW_PARTS.flatMap((part) => {
+        const { reach, widthK } = glowLevelOf(look, part);
+        return [
+          [`--flow-glow-k-${part}`, String(reach)],
+          [`--flow-neon-w-${part}`, String(widthK)],
+        ];
+      }),
+    ),
     "--flow-arrow-color": arrow ?? undefined,
-    "--flow-arrow-core": arrow ? neonCore(arrow) : undefined,
+    "--flow-arrow-core": coreVarOf(arrow, look.glowArrowCore),
     "--flow-pipe-dark": pipe?.dark,
     "--flow-pipe-light": pipe?.body,
     "--flow-pipe-flow": pipe?.flow,

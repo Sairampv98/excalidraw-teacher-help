@@ -780,12 +780,16 @@ describe("the look of the animation and playing a chart", () => {
       "shape-text",
       "box",
       "letters",
+      "all",
     ]);
-    expect(look.choices.nodeStyles).toEqual(["none", "focus", "pulse"]);
+    expect(look.choices.nodeStyles).toEqual(["off", "none", "focus", "pulse"]);
     expect(look.choices.arrowStyles).toEqual([
+      "off",
       "none",
       "beam",
       "marching",
+      "marching-beam",
+      "marching-token",
       "pipe",
       "token",
     ]);

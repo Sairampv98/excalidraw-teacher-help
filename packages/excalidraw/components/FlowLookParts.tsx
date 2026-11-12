@@ -7,7 +7,7 @@ import type { ExcalidrawTextElement } from "@excalidraw/element/types";
 import { flowLookVars } from "../scene/flowLook";
 
 import type { HighlightShape } from "../scene/flowHighlight";
-import type { FlowLook } from "../scene/flowLook";
+import type { FlowGlowLevels, FlowLook } from "../scene/flowLook";
 
 /** the width of the outline's stroke, in scene units: the stylesheet's (D-211) */
 export const OUTLINE_STROKE = 2;
@@ -170,7 +170,8 @@ export const LabelText = ({
  */
 export const lookVars = (
   look: Pick<FlowLook, "nodeColor" | "textColor" | "markColor"> &
-    Partial<Pick<FlowLook, "arrowColor">>,
+    Partial<Pick<FlowLook, "arrowColor">> &
+    FlowGlowLevels,
 ): React.CSSProperties => flowLookVars(look) as React.CSSProperties;
 
 /**
@@ -180,19 +181,35 @@ export const lookVars = (
 export const ArrowTubes = ({
   arrows,
 }: {
-  arrows: readonly { id: string; path: readonly { x: number; y: number }[] }[];
+  arrows: readonly {
+    id: string;
+    path: readonly { x: number; y: number }[];
+    heads?: readonly (readonly { x: number; y: number }[])[];
+  }[];
 }) => (
   <>
     {arrows.map((arrow) => (
-      <polyline
-        key={arrow.id}
-        data-flow-arrow-tube={arrow.id}
-        className="excalidraw__flow-arrow-tube"
-        points={arrow.path.map((p) => `${p.x},${p.y}`).join(" ")}
-        fill="none"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <React.Fragment key={arrow.id}>
+        <polyline
+          data-flow-arrow-tube={arrow.id}
+          className="excalidraw__flow-arrow-tube"
+          points={arrow.path.map((p) => `${p.x},${p.y}`).join(" ")}
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {(arrow.heads ?? []).map((head, i) => (
+          <polyline
+            key={i}
+            data-flow-arrow-head={arrow.id}
+            className="excalidraw__flow-arrow-tube"
+            points={head.map((p) => `${p.x},${p.y}`).join(" ")}
+            fill="none"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ))}
+      </React.Fragment>
     ))}
   </>
 );

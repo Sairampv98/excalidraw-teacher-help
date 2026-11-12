@@ -28,12 +28,37 @@ import type { AppClassProperties } from "../../types";
 export const panelAnimationOf = (
   value: unknown,
   fallback: FlowAnimationSettings,
-): FlowAnimationSettings => {
+): FlowAnimationSettings & {
+  spacing?: number;
+  dashGap?: number;
+  marchingStyle?: string;
+} => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return fallback;
   }
-  const data = value as Partial<FlowAnimationSettings>;
+  const data = value as Partial<FlowAnimationSettings> & {
+    spacing?: number;
+    dashGap?: number;
+    marchingStyle?: string;
+  };
   return {
+    dashGap:
+      typeof data.dashGap === "number" &&
+      Number.isFinite(data.dashGap) &&
+      data.dashGap >= 2
+        ? data.dashGap
+        : 10,
+    spacing:
+      typeof data.spacing === "number" &&
+      Number.isFinite(data.spacing) &&
+      data.spacing >= 16
+        ? data.spacing
+        : 150,
+    marchingStyle: ["marching", "marching-beam", "marching-token"].includes(
+      data.marchingStyle ?? "",
+    )
+      ? data.marchingStyle
+      : "none",
     ...readFlowLook(data),
     nodeStyle: FLOW_NODE_STYLES.some((style) => style.id === data.nodeStyle)
       ? data.nodeStyle!
@@ -86,6 +111,64 @@ export const useFlowPanelAnimation = (
   }, [anchor, data, json]);
 };
 
+/**
+ * Saves the panel's animation choices on the chart as one undo step, and on a
+ * chart marked for class as its class look too. Returns what to tell the
+ * teacher when it could not be done, and `null` when it was.
+ */
+export const applyPanelAnimation = (
+  app: AppClassProperties,
+  graph: FlowGraph,
+  initial: unknown,
+  draft: ReturnType<typeof panelAnimationOf>,
+): string | null => {
+  const anchorId = graph.steps[0]?.containerId;
+  const current = app.scene.getElementsIncludingDeleted();
+  const anchor = current.find(
+    (element) => element.id === anchorId && !element.isDeleted,
+  );
+  if (!anchor) {
+    return "This chart changed while the window was open. Close it, select a remaining chart or add a new one, and open options again.";
+  }
+  if (JSON.stringify(draft) === JSON.stringify(initial)) {
+    return null;
+  }
+  const marked = !!flowClassOf(
+    graph,
+    app.scene.getNonDeletedElementsMap() as ElementsMap,
+  );
+  const nodes = new Set(graph.steps.map((step) => step.containerId));
+  const settings = {
+    ...readFlowLook(draft),
+    node: draft.nodeStyle,
+    arrow: draft.arrowStyle,
+    speed: draft.speed,
+    stepMs: draft.durationMs,
+    loop: draft.loop,
+  };
+  const updated = current.map((element) => {
+    if (element.isDeleted) {
+      return element;
+    }
+    let customData = element.customData;
+    if (marked && nodes.has(element.id)) {
+      customData = withFlowClass(element, settings);
+    }
+    if (element.id === anchorId) {
+      customData = { ...customData, flowPanelAnimation: draft };
+    }
+    return customData !== element.customData
+      ? newElementWith(element, { customData })
+      : element;
+  });
+  app.api.updateScene({
+    elements: updated,
+    captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+  });
+  updateFlowAnimationSettings(draft);
+  return null;
+};
+
 export const FlowAnimationOptions = ({
   app,
   graph,
@@ -109,61 +192,28 @@ export const FlowAnimationOptions = ({
       initial={initial}
       onClose={onClose}
       onApply={(draft) => {
-        const anchorId = graph.steps[0]?.containerId;
-        const current = app.scene.getElementsIncludingDeleted();
-        const anchor = current.find(
-          (element) => element.id === anchorId && !element.isDeleted,
-        );
-        if (!anchor) {
-          setMessage(
-            "This chart changed while the window was open. Close it, select a remaining chart or add a new one, and open options again.",
-          );
+        const problem = applyPanelAnimation(app, graph, initial, draft);
+        if (problem) {
+          setMessage(problem);
           return;
         }
-        if (JSON.stringify(draft) === JSON.stringify(initial)) {
-          onClose();
-          return;
-        }
-        const marked = !!flowClassOf(
-          graph,
-          app.scene.getNonDeletedElementsMap() as ElementsMap,
-        );
-        const nodes = new Set(graph.steps.map((step) => step.containerId));
-        const settings = {
-          ...readFlowLook(draft),
-          node: draft.nodeStyle,
-          arrow: draft.arrowStyle,
-          speed: draft.speed,
-          stepMs: draft.durationMs,
-          loop: draft.loop,
-        };
-        const updated = current.map((element) => {
-          if (element.isDeleted) {
-            return element;
-          }
-          let customData = element.customData;
-          if (marked && nodes.has(element.id)) {
-            customData = withFlowClass(element, settings);
-          }
-          if (element.id === anchorId) {
-            customData = { ...customData, flowPanelAnimation: draft };
-          }
-          return customData !== element.customData
-            ? newElementWith(element, { customData })
-            : element;
-        });
-        app.api.updateScene({
-          elements: updated,
-          captureUpdate: CaptureUpdateAction.IMMEDIATELY,
-        });
-        updateFlowAnimationSettings(draft);
         onClose();
       }}
       preview={(draft) => (
         <>
           {message && <p role="alert">{message}</p>}
           <FlowChartPreview
-            elements={snapshot}
+            elements={snapshot.map((element) =>
+              element.id === graph.steps[0]?.containerId
+                ? {
+                    ...element,
+                    customData: {
+                      ...element.customData,
+                      flowPanelAnimation: draft,
+                    },
+                  }
+                : element,
+            )}
             graph={graph}
             appState={app.state}
             files={app.files}
@@ -292,6 +342,59 @@ export const FlowAnimationOptions = ({
                 value={draft.markColor}
                 onChange={(markColor) => update({ ...draft, markColor })}
               />
+              <label>
+                Marching marks alongside the step
+                <select
+                  aria-label="Marching marks alongside the step"
+                  value={draft.marchingStyle ?? "none"}
+                  onChange={(event) =>
+                    update({ ...draft, marchingStyle: event.target.value })
+                  }
+                >
+                  <option value="none">None</option>
+                  <option value="marching">Marching dashes</option>
+                  <option value="marching-beam">Marching beams</option>
+                  <option value="marching-token">Marching tokens</option>
+                </select>
+              </label>
+              <label>
+                Gap between dashes
+                <input
+                  aria-label="Gap between dashes"
+                  type="number"
+                  min={2}
+                  step={2}
+                  defaultValue={draft.dashGap ?? 10}
+                  onBlur={(event) => {
+                    event.target.value = String(draft.dashGap ?? 10);
+                  }}
+                  onChange={(event) => {
+                    const dashGap = Number(event.target.value);
+                    if (Number.isFinite(dashGap) && dashGap >= 2) {
+                      update({ ...draft, dashGap });
+                    }
+                  }}
+                />
+              </label>
+              <label>
+                Marching spacing
+                <input
+                  aria-label="Marching spacing"
+                  type="number"
+                  min={16}
+                  step={10}
+                  defaultValue={draft.spacing ?? 150}
+                  onBlur={(event) => {
+                    event.target.value = String(draft.spacing ?? 150);
+                  }}
+                  onChange={(event) => {
+                    const spacing = Number(event.target.value);
+                    if (Number.isFinite(spacing) && spacing >= 16) {
+                      update({ ...draft, spacing });
+                    }
+                  }}
+                />
+              </label>
             </>
           ),
         },

@@ -85,6 +85,7 @@ import type { Scene } from "@excalidraw/element";
 import type { CaptureUpdateActionType } from "@excalidraw/element";
 
 import { trackEvent } from "../analytics";
+import { makeFlowFork } from "../scene/flowPresets";
 import { ButtonIcon } from "../components/ButtonIcon";
 import { PanelActions } from "../components/PanelActions";
 import { RadioSelection } from "../components/RadioSelection";
@@ -2182,11 +2183,70 @@ export const actionChangePage = register<PageChange>({
   },
 });
 
-export const actionChangeArrowType = register<keyof typeof ARROW_TYPE>({
+type ForkToolPreference = {
+  count: number;
+  armed: boolean;
+  pending: string | null;
+};
+const forkToolPreferences = new WeakMap<
+  AppClassProperties,
+  ForkToolPreference
+>();
+
+const forkToolFor = (app: AppClassProperties) => {
+  const saved = forkToolPreferences.get(app);
+  if (saved) {
+    return saved;
+  }
+  const preference: ForkToolPreference = {
+    count: 2,
+    armed: false,
+    pending: null,
+  };
+  forkToolPreferences.set(app, preference);
+  // This observer outlives the compact properties popup. App flushes it before
+  // capturing history and clears it when the editor unmounts.
+  app.onStateChange("newElement", (element) => {
+    if (!preference.armed) {
+      preference.pending = null;
+    } else if (element && isArrowElement(element)) {
+      preference.pending = element.id;
+    } else if (!element && preference.pending) {
+      const id = preference.pending;
+      preference.pending = null;
+      const elements = app.scene.getElementsIncludingDeleted();
+      // one fork for one press of Fork: the next arrow is an ordinary arrow
+      preference.armed = false;
+      if (elements.some((arrow) => arrow.id === id && !arrow.isDeleted)) {
+        app.api.updateScene({
+          elements: makeFlowFork(elements, { [id]: true }, preference.count),
+          captureUpdate: CaptureUpdateAction.EVENTUALLY,
+        });
+      }
+    }
+  });
+  app.onEvent("editor:unmount", () => forkToolPreferences.delete(app));
+  return preference;
+};
+
+export const actionChangeArrowType = register<
+  keyof typeof ARROW_TYPE | { fork: number }
+>({
   name: "changeArrowType",
   label: "Change arrow types",
   trackEvent: false,
   perform: (elements, appState, value, app) => {
+    if (typeof value === "object") {
+      return {
+        elements: makeFlowFork(
+          elements,
+          appState.selectedElementIds,
+          value.fork,
+        ),
+        appState: { ...appState, selectedLinearElement: null },
+        captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+      };
+    }
     const newElements = changeProperty(elements, appState, (el) => {
       if (!isArrowElement(el)) {
         return el;
@@ -2213,8 +2273,23 @@ export const actionChangeArrowType = register<keyof typeof ARROW_TYPE>({
             : null,
         elbowed: value === ARROW_TYPE.elbow,
         angle: value === ARROW_TYPE.elbow ? (0 as Radians) : el.angle,
+        ...(el.customData?.flow?.fork || el.customData?.flow?.route
+          ? {
+              customData: {
+                ...el.customData,
+                flow: {
+                  ...el.customData.flow,
+                  fork: undefined,
+                  route: undefined,
+                },
+              },
+            }
+          : {}),
         points:
-          value === ARROW_TYPE.elbow || el.elbowed
+          value === ARROW_TYPE.elbow ||
+          el.elbowed ||
+          el.customData?.flow?.fork ||
+          el.customData?.flow?.route
             ? [
                 LinearElementEditor.pointFromAbsoluteCoords(
                   {
@@ -2373,9 +2448,127 @@ export const actionChangeArrowType = register<keyof typeof ARROW_TYPE>({
     };
   },
   PanelComponent: ({ elements, appState, updateData, app }) => {
+    const selected = elements.filter(
+      (element) =>
+        isArrowElement(element) &&
+        !element.isDeleted &&
+        appState.selectedElementIds[element.id],
+    );
+    const preference = forkToolFor(app);
+    const [count, setCount] = useState(preference.count);
+    const [branchText, setBranchText] = useState(String(preference.count));
+    // armed lives in the preference, which the tool's observer clears after
+    // one fork; the panel only redraws
+    const [, redraw] = useState(0);
+    const armed = preference.armed;
+    const setArmed = (value: boolean) => {
+      preference.armed = value;
+      redraw((n) => n + 1);
+    };
+    const chooseCount = (value: number) => {
+      setCount(value);
+      preference.count = value;
+      setBranchText(String(value));
+      setArmed(true);
+      if (selected.length) {
+        updateData({ fork: value });
+      }
+    };
+    const selectedFork = selected[0]?.customData?.flow?.fork;
+    useEffect(() => {
+      if (Number.isSafeInteger(selectedFork?.count)) {
+        setCount(selectedFork.count);
+        setBranchText(String(selectedFork.count));
+        preference.count = selectedFork.count;
+      }
+    }, [selectedFork?.count, preference]);
+    const canCombine =
+      selected.length > 1 &&
+      selected.every(
+        (arrow) =>
+          isArrowElement(arrow) &&
+          arrow.startBinding?.elementId &&
+          arrow.startBinding.elementId ===
+            (selected[0] as ExcalidrawLinearElement).startBinding?.elementId,
+      );
     return (
       <fieldset>
         <legend>{t("labels.arrowtypes")}</legend>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+          <button
+            type="button"
+            aria-pressed={!!selectedFork || armed}
+            disabled={
+              !Number.isSafeInteger(Number(branchText)) ||
+              Number(branchText) < 2
+            }
+            onClick={() => {
+              if (armed && !selected.length) {
+                // pressing it again puts it down
+                setArmed(false);
+                return;
+              }
+              setArmed(true);
+              if (selected.length) {
+                updateData({ fork: count });
+              }
+            }}
+          >
+            Fork
+          </button>
+          {[2, 3, 4, 5].map((value) => (
+            <button
+              type="button"
+              key={value}
+              aria-label={`Fork with ${value} branches`}
+              aria-pressed={(armed || !!selectedFork) && count === value}
+              onClick={() => chooseCount(value)}
+            >
+              {value}
+            </button>
+          ))}
+          <label>
+            Branches
+            <input
+              aria-label="Fork branches"
+              style={{ width: "5rem" }}
+              type="number"
+              min={2}
+              step={1}
+              value={branchText}
+              onChange={(event) => {
+                setBranchText(event.target.value);
+                const value = Number(event.target.value);
+                if (Number.isSafeInteger(value) && value >= 2) {
+                  setCount(value);
+                  preference.count = value;
+                  if (selectedFork) {
+                    updateData({ fork: value });
+                  }
+                }
+              }}
+            />
+          </label>
+          {canCombine && (
+            <button
+              type="button"
+              onClick={() => {
+                setCount(selected.length);
+                preference.count = selected.length;
+                setBranchText(String(selected.length));
+                updateData({ fork: selected.length });
+              }}
+            >
+              Make fork
+            </button>
+          )}
+          {armed && !selected.length && (
+            <p>
+              Draw an arrow for the trunk. Its extra branches start loose; drag
+              their ends onto nodes.
+            </p>
+          )}
+        </div>
         <div className="buttonList">
           <RadioSelection
             group="arrowtypes"
@@ -2417,7 +2610,10 @@ export const actionChangeArrowType = register<keyof typeof ARROW_TYPE>({
               (hasSelection) =>
                 hasSelection ? null : appState.currentItemArrowType,
             )}
-            onChange={(value) => updateData(value)}
+            onChange={(value) => {
+              setArmed(false);
+              updateData(value);
+            }}
           />
         </div>
       </fieldset>

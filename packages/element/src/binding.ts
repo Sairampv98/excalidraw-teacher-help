@@ -26,6 +26,8 @@ import type { AppState } from "@excalidraw/excalidraw/types";
 import type { MapEntry, Mutable } from "@excalidraw/common/utility-types";
 import type { Bounds } from "@excalidraw/common";
 
+import type { FlowRouteBend } from "@excalidraw/excalidraw/scene/flowScript";
+
 import { getCenterForBounds } from "./bounds";
 import {
   getAllHoveredElementAtPoint,
@@ -1193,6 +1195,151 @@ export const updateBoundElements = (
         !!startBindingElement &&
         startBindingElement?.id === endBindingElement?.id,
     });
+
+    // The endpoints were updated by ordinary binding above. Interior flow
+    // geometry belongs to the same scene mutation and therefore the same undo.
+    const route = element.customData?.flow?.route;
+    const fork = element.customData?.flow?.fork;
+    if (!isElbowArrow(element) && fork && Number.isSafeInteger(fork.index)) {
+      const trunkBinding = fork.reverse
+        ? element.endBinding
+        : element.startBinding;
+      const trunk = trunkBinding && elementsMap.get(trunkBinding.elementId);
+      if (trunk && !trunk.isDeleted) {
+        const peers = [...elementsMap.values()].filter(
+          (candidate): candidate is ExcalidrawArrowElement =>
+            isArrowElement(candidate) &&
+            !candidate.isDeleted &&
+            candidate.customData?.flow?.fork?.id === fork.id &&
+            (fork.reverse
+              ? candidate.endBinding?.elementId
+              : candidate.startBinding?.elementId) === trunk.id,
+        );
+        const horizontal =
+          fork.axis === "LR" ||
+          (!fork.axis &&
+            Math.abs(element.points[element.points.length - 1][0]) >=
+              Math.abs(element.points[element.points.length - 1][1]));
+        const gap = Number.isFinite(fork.gap) ? fork.gap : 36;
+        const start = horizontal
+          ? {
+              x: trunk.x + (fork.reverse ? 0 : trunk.width),
+              y: trunk.y + trunk.height / 2,
+            }
+          : {
+              x: trunk.x + trunk.width / 2,
+              y: trunk.y + (fork.reverse ? 0 : trunk.height),
+            };
+        const bar = horizontal
+          ? { x: start.x + gap * (fork.reverse ? -1 : 1), y: start.y }
+          : { x: start.x, y: start.y + gap * (fork.reverse ? -1 : 1) };
+        for (const peer of peers) {
+          if (isElbowArrow(peer)) {
+            continue;
+          }
+          const branchBinding = fork.reverse
+            ? peer.startBinding
+            : peer.endBinding;
+          const target =
+            branchBinding && elementsMap.get(branchBinding.elementId);
+          const endpoint = LinearElementEditor.getPointAtIndexGlobalCoordinates(
+            peer,
+            fork.reverse ? 0 : -1,
+            elementsMap,
+          );
+          const end = target
+            ? horizontal
+              ? {
+                  x: target.x + (fork.reverse ? target.width : 0),
+                  y: target.y + target.height / 2,
+                }
+              : {
+                  x: target.x + target.width / 2,
+                  y: target.y + (fork.reverse ? target.height : 0),
+                }
+            : { x: endpoint[0], y: endpoint[1] };
+          const path = [
+            start,
+            bar,
+            horizontal ? { x: bar.x, y: end.y } : { x: end.x, y: bar.y },
+            end,
+          ];
+          if (fork.reverse) {
+            path.reverse();
+          }
+          const origin = path[0];
+          scene.mutateElement(peer, {
+            x: origin.x,
+            y: origin.y,
+            angle: 0 as Radians,
+            points: path.map((point) =>
+              pointFrom<LocalPoint>(point.x - origin.x, point.y - origin.y),
+            ),
+            width:
+              Math.max(...path.map((point) => point.x)) -
+              Math.min(...path.map((point) => point.x)),
+            height:
+              Math.max(...path.map((point) => point.y)) -
+              Math.min(...path.map((point) => point.y)),
+          });
+        }
+      }
+    }
+    if (
+      !isElbowArrow(element) &&
+      Array.isArray(route) &&
+      route.length &&
+      route.every(
+        (bend) => bend && ["elbow", "curve", "straight"].includes(bend.kind),
+      )
+    ) {
+      const start = LinearElementEditor.getPointAtIndexGlobalCoordinates(
+        element,
+        0,
+        elementsMap,
+      );
+      const end = LinearElementEditor.getPointAtIndexGlobalCoordinates(
+        element,
+        -1,
+        elementsMap,
+      );
+      const chartId = element.customData?.flow?.chartId;
+      const nodes = [...elementsMap.values()].filter(
+        (candidate) =>
+          candidate.customData?.flow?.role === "node" &&
+          candidate.customData.flow.chartId === chartId,
+      );
+      const centre = nodes.length
+        ? {
+            x:
+              nodes.reduce((sum, node) => sum + node.x + node.width / 2, 0) /
+              nodes.length,
+            y:
+              nodes.reduce((sum, node) => sum + node.y + node.height / 2, 0) /
+              nodes.length,
+          }
+        : undefined;
+      const path = flowRoutePoints(
+        { x: start[0], y: start[1] },
+        { x: end[0], y: end[1] },
+        route as FlowRouteBend[],
+        centre,
+      );
+      scene.mutateElement(element, {
+        x: start[0],
+        y: start[1],
+        angle: 0 as Radians,
+        points: path.map((point) =>
+          pointFrom<LocalPoint>(point.x - start[0], point.y - start[1]),
+        ),
+        width:
+          Math.max(...path.map((point) => point.x)) -
+          Math.min(...path.map((point) => point.x)),
+        height:
+          Math.max(...path.map((point) => point.y)) -
+          Math.min(...path.map((point) => point.y)),
+      });
+    }
 
     const boundText = getBoundTextElement(element, elementsMap);
     if (boundText && !boundText.isDeleted) {
@@ -2938,4 +3085,90 @@ export const getBindingSideMidPoint = (
 
 const getMidPoint = (p1: GlobalPoint, p2: GlobalPoint): GlobalPoint => {
   return pointFrom((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2);
+};
+
+/** Ordinary polyline routes, with sampled quadratic turns only at curve words. */
+export const flowRoutePoints = (
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  route: readonly FlowRouteBend[],
+  centre = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 },
+): { x: number; y: number }[] => {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.max(1, Math.hypot(dx, dy));
+  const normal = { x: dy / length, y: -dx / length };
+  const points = [start];
+  const bends = route.filter((bend) => bend.kind !== "straight");
+  const horizontal = bends[0]?.side
+    ? Math.abs(normal.x) >= Math.abs(normal.y)
+    : Math.abs(dx) >= Math.abs(dy);
+  bends.forEach((bend, index) => {
+    const fraction = (index + 1) / (bends.length + 1);
+    let side = bend.side === "right" ? -1 : 1;
+    const middle = { x: start.x + dx * fraction, y: start.y + dy * fraction };
+    if (bend.side === "in" || bend.side === "out") {
+      const toward =
+        (centre.x - middle.x) * normal.x + (centre.y - middle.y) * normal.y;
+      side = (toward >= 0 ? 1 : -1) * (bend.side === "out" ? -1 : 1);
+    }
+    const changeX = horizontal ? index % 2 === 0 : index % 2 !== 0;
+    const previous = points[points.length - 1];
+    const progress =
+      (Math.floor(index / 2) + 1) /
+      Math.ceil((bends.length + (index % 2 === 0 ? 1 : 0)) / 2);
+    const corner = { ...previous };
+    if (changeX) {
+      corner.x =
+        start.x +
+        dx * progress +
+        (bend.side &&
+        (progress < 1 || (bends.length === 1 && bend.kind === "curve")) &&
+        Math.abs(normal.x) > 0.01
+          ? ((normal.x * length) / (bends.length + 1)) * side
+          : 0);
+    } else {
+      corner.y =
+        start.y +
+        dy * progress +
+        (bend.side &&
+        (progress < 1 || (bends.length === 1 && bend.kind === "curve")) &&
+        Math.abs(normal.y) > 0.01
+          ? ((normal.y * length) / (bends.length + 1)) * side
+          : 0);
+    }
+    points.push(corner);
+  });
+  points.push(end);
+  const result = [start];
+  for (let index = 1; index < points.length - 1; index++) {
+    const corner = points[index];
+    const previous = points[index - 1];
+    const next = points[index + 1];
+    if (bends[index - 1]?.kind !== "curve") {
+      result.push(corner);
+      continue;
+    }
+    const enter = {
+      x: (previous.x + corner.x) / 2,
+      y: (previous.y + corner.y) / 2,
+    };
+    const leave = { x: (next.x + corner.x) / 2, y: (next.y + corner.y) / 2 };
+    result.push(enter);
+    for (let sample = 1; sample <= 32; sample++) {
+      const t = sample / 32;
+      result.push({
+        x:
+          (1 - t) ** 2 * enter.x +
+          2 * (1 - t) * t * corner.x +
+          t ** 2 * leave.x,
+        y:
+          (1 - t) ** 2 * enter.y +
+          2 * (1 - t) * t * corner.y +
+          t ** 2 * leave.y,
+      });
+    }
+  }
+  result.push(end);
+  return result;
 };

@@ -121,6 +121,8 @@ export const nodeHighlightParts = (
       return { outline: null, box: label, letters: null };
     case "letters":
       return { outline: null, box: null, letters: label };
+    case "all":
+      return { outline: container, box: label, letters: label };
     default:
       return { outline: container, box: null, letters: null };
   }
@@ -173,7 +175,7 @@ export const drawnLabelIds = ({
     ids.push(...arrowLabelsOf(graph, elementsMap).map((label) => label.id));
   }
 
-  if (step && nodeStyle !== "none") {
+  if (step && (nodeStyle === "focus" || nodeStyle === "pulse")) {
     const letters = nodeHighlightParts(step, elementsMap, nodeTarget).letters;
 
     if (letters) {
@@ -198,3 +200,30 @@ export const stepHoldsMedia = (
 
     return !!member && mediaOf(member) !== null;
   });
+
+/**
+ * Every node of a chart lit at once, for a colour or a glow chosen while the
+ * node animation is "none": the parts of all the steps, each once.
+ */
+export const staticNodeParts = (
+  steps: readonly FlowStep[],
+  elementsMap: ElementsMap,
+  target: FlowHighlightTarget,
+): { element: ExcalidrawElement; letters: boolean }[] => {
+  const seen = new Set<string>();
+  const out: { element: ExcalidrawElement; letters: boolean }[] = [];
+  const add = (element: ExcalidrawElement | null, letters: boolean) => {
+    const key = `${element?.id}:${letters}`;
+    if (element && !seen.has(key)) {
+      seen.add(key);
+      out.push({ element, letters });
+    }
+  };
+  for (const step of steps) {
+    const parts = nodeHighlightParts(step, elementsMap, target);
+    add(parts.outline, false);
+    add(parts.box, false);
+    add(parts.letters, true);
+  }
+  return out;
+};

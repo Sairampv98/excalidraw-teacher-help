@@ -15,7 +15,14 @@
  * moves (D-166).
  */
 
-import type { ExcalidrawLinearElement } from "@excalidraw/element/types";
+import { getArrowheadAngle, getArrowheadSize } from "@excalidraw/element";
+import { generateLinearCollisionShape } from "@excalidraw/element/shape";
+import { isElbowArrow } from "@excalidraw/element/typeChecks";
+
+import type {
+  ElementsMap,
+  ExcalidrawLinearElement,
+} from "@excalidraw/element/types";
 
 export type PathPoint = { x: number; y: number };
 
@@ -24,6 +31,8 @@ export type FlowStyle =
   | "focus"
   | "beam"
   | "marching"
+  | "marching-beam"
+  | "marching-token"
   | "pipe"
   | "token"
   | "pulse";
@@ -32,6 +41,8 @@ export const FLOW_STYLES: readonly { id: FlowStyle; label: string }[] = [
   { id: "focus", label: "Focus" },
   { id: "beam", label: "Beam" },
   { id: "marching", label: "Marching dashes" },
+  { id: "marching-beam", label: "Marching beams" },
+  { id: "marching-token", label: "Marching tokens" },
   { id: "pipe", label: "Pipe" },
   { id: "token", label: "Token" },
   { id: "pulse", label: "Pulse" },
@@ -68,13 +79,126 @@ export const FLOW_TOKEN_RADIUS = 8;
  * The points are stored relative to the arrow's position, and the arrow may be
  * rotated: the library rotates an element about the centre of its own bounds.
  */
+/**
+ * The arrowheads of an arrow as polylines (the two wings, or the whole bar), at
+ * the end of its path and at its start, so that a neon arrow glows along its
+ * head too. The head is laid out as the editor lays it out: its size, capped at
+ * half of the last section, and its angle either side of the way the arrow goes.
+ */
+export const arrowheadsOf = (
+  arrow: ExcalidrawLinearElement,
+  path: readonly PathPoint[],
+): PathPoint[][] => {
+  const heads: PathPoint[][] = [];
+  const ends: [
+    PathPoint,
+    PathPoint,
+    ExcalidrawLinearElement["endArrowhead"],
+  ][] = [];
+
+  if (path.length >= 2) {
+    ends.push([
+      path[path.length - 1],
+      path[path.length - 2],
+      arrow.endArrowhead,
+    ]);
+    ends.push([path[0], path[1], arrow.startArrowhead]);
+  }
+
+  for (const [tip, before, head] of ends) {
+    if (!head || head === "circle" || head === "circle_outline") {
+      continue;
+    }
+
+    const length = Math.hypot(tip.x - before.x, tip.y - before.y);
+
+    if (length < 0.001) {
+      continue;
+    }
+
+    // from the tip back along the arrow
+    const bx = (before.x - tip.x) / length;
+    const by = (before.y - tip.y) / length;
+    const size = Math.min(getArrowheadSize(head), length * 0.5);
+    const angle = (getArrowheadAngle(head) * Math.PI) / 180;
+    const wing = (sign: number) => {
+      const cos = Math.cos(angle * sign);
+      const sin = Math.sin(angle * sign);
+
+      return {
+        x: tip.x + (bx * cos - by * sin) * size,
+        y: tip.y + (bx * sin + by * cos) * size,
+      };
+    };
+
+    heads.push([wing(1), tip, wing(-1)]);
+  }
+
+  return heads;
+};
+
 export const getArrowPath = (arrow: ExcalidrawLinearElement): PathPoint[] => {
+  const routed = !!(
+    arrow.customData?.flow?.route || arrow.customData?.flow?.fork
+  );
+  const saved = routed ? curvePaths.get(arrow) : undefined;
+  if (saved && saved.version === arrow.version) {
+    return saved.path;
+  }
+  if (arrow.roundness || isElbowArrow(arrow)) {
+    const cached = curvePaths.get(arrow);
+    if (cached?.version === arrow.version) {
+      return cached.path;
+    }
+    const ops = generateLinearCollisionShape(
+      arrow,
+      new Map([[arrow.id, arrow]]) as ElementsMap,
+    );
+    const sampled: PathPoint[] = [];
+    for (const op of ops) {
+      if (op.op === "move" || op.op === "lineTo") {
+        sampled.push({ x: arrow.x + op.data[0], y: arrow.y + op.data[1] });
+      } else if (op.op === "bcurveTo" && sampled.length) {
+        const from = sampled[sampled.length - 1];
+        const [ax, ay, bx, by, cx, cy] = op.data;
+        const controlLength =
+          Math.hypot(arrow.x + ax - from.x, arrow.y + ay - from.y) +
+          Math.hypot(bx - ax, by - ay) +
+          Math.hypot(cx - bx, cy - by);
+        const count = Math.max(
+          32,
+          Math.min(4096, Math.ceil(controlLength / 2 / 2) * 2),
+        );
+        for (let index = 1; index <= count; index++) {
+          const t = index / count;
+          const u = 1 - t;
+          sampled.push({
+            x:
+              u ** 3 * from.x +
+              3 * u ** 2 * t * (arrow.x + ax) +
+              3 * u * t ** 2 * (arrow.x + bx) +
+              t ** 3 * (arrow.x + cx),
+            y:
+              u ** 3 * from.y +
+              3 * u ** 2 * t * (arrow.y + ay) +
+              3 * u * t ** 2 * (arrow.y + by) +
+              t ** 3 * (arrow.y + cy),
+          });
+        }
+      }
+    }
+    curvePaths.set(arrow, { version: arrow.version, path: sampled });
+    return sampled;
+  }
   const path = arrow.points.map(([px, py]) => ({
     x: arrow.x + px,
     y: arrow.y + py,
   }));
 
   if (!arrow.angle) {
+    if (routed) {
+      curvePaths.set(arrow, { version: arrow.version, path });
+    }
     return path;
   }
 
@@ -83,11 +207,20 @@ export const getArrowPath = (arrow: ExcalidrawLinearElement): PathPoint[] => {
   const cos = Math.cos(arrow.angle);
   const sin = Math.sin(arrow.angle);
 
-  return path.map(({ x, y }) => ({
+  const rotated = path.map(({ x, y }) => ({
     x: cx + (x - cx) * cos - (y - cy) * sin,
     y: cy + (x - cx) * sin + (y - cy) * cos,
   }));
+  if (routed) {
+    curvePaths.set(arrow, { version: arrow.version, path: rotated });
+  }
+  return rotated;
 };
+
+const curvePaths = new WeakMap<
+  ExcalidrawLinearElement,
+  { version: number; path: PathPoint[] }
+>();
 
 export const pathLength = (path: readonly PathPoint[]) => {
   let length = 0;
@@ -184,6 +317,12 @@ export type FlowMarks = { strokes: FlowStroke[]; dots: FlowDot[] };
 
 /** what the marks are drawn with: the chart's size and how fast they travel */
 export type FlowMarkOptions = {
+  /** repeated marks' separation, before chart scale; default 150 scene units */
+  spacing?: number;
+  /** the gap between two marching dashes, before chart scale; default 10 */
+  dashGap?: number;
+  /** how many times the normal width the neon marks are drawn (small, large) */
+  widthK?: number;
   /** the chart scale of D-175; marks are drawn this much larger */
   scale?: number;
   /** scene units a second before the scale, between the limits (D-179) */
@@ -197,10 +336,15 @@ const travelled = (elapsedMs: number, options?: FlowMarkOptions) =>
   (options?.scale ?? 1);
 
 /** the dash and the gap, at the chart's size */
-const dashFor = (options?: FlowMarkOptions): readonly [number, number] => [
-  FLOW_DASH[0] * (options?.scale ?? 1),
-  FLOW_DASH[1] * (options?.scale ?? 1),
-];
+const dashFor = (options?: FlowMarkOptions): readonly [number, number] => {
+  const requested = options?.dashGap;
+  const gap =
+    typeof requested === "number" && Number.isFinite(requested)
+      ? Math.max(2, requested)
+      : FLOW_DASH[1];
+
+  return [FLOW_DASH[0] * (options?.scale ?? 1), gap * (options?.scale ?? 1)];
+};
 
 /** the dash pattern's offset after `elapsedMs`: it runs toward the arrow's end */
 const flowingOffset = (elapsedMs: number, options?: FlowMarkOptions) => {
@@ -216,7 +360,30 @@ const flowingOffset = (elapsedMs: number, options?: FlowMarkOptions) => {
  * treatments of the step.
  */
 export const flowMarksFor = (
-  style: FlowStyle | "none",
+  style: FlowStyle | "none" | "off",
+  path: readonly PathPoint[],
+  elapsedMs: number,
+  options?: FlowMarkOptions,
+): FlowMarks => {
+  const marks = rawMarksFor(style, path, elapsedMs, options);
+  const k = options?.widthK;
+
+  // the neon width: small, normal or large lines (1 leaves the marks alone)
+  if (typeof k !== "number" || !Number.isFinite(k) || k === 1 || k <= 0) {
+    return marks;
+  }
+
+  return {
+    strokes: marks.strokes.map((stroke) => ({
+      ...stroke,
+      width: stroke.width * k,
+    })),
+    dots: marks.dots.map((dot) => ({ ...dot, radius: dot.radius * k })),
+  };
+};
+
+const rawMarksFor = (
+  style: FlowStyle | "none" | "off",
   path: readonly PathPoint[],
   elapsedMs: number,
   options?: FlowMarkOptions,
@@ -232,6 +399,34 @@ export const flowMarksFor = (
   const beamLength = FLOW_BEAM_LENGTH * scale;
 
   switch (style) {
+    case "marching-beam":
+    case "marching-token": {
+      const requested = options?.spacing;
+      const spacing =
+        (Number.isFinite(requested) && requested! > 0
+          ? Math.max(16, requested!)
+          : 150) * scale;
+      const phase = travelled(elapsedMs, options) % spacing;
+      const count = Math.ceil(length / spacing);
+      const marks: FlowMarks = { strokes: [], dots: [] };
+      for (let index = 0; index < count; index++) {
+        const head = phase + index * spacing;
+        if (style === "marching-token") {
+          marks.dots.push({
+            ...pointAtDistance(path, head),
+            radius: head <= length ? FLOW_TOKEN_RADIUS * scale : 0,
+            role: "token",
+          });
+        } else {
+          marks.strokes.push({
+            points: subPath(path, head - beamLength, Math.min(head, length)),
+            width: 5 * scale,
+            role: "beam",
+          });
+        }
+      }
+      return marks;
+    }
     case "beam": {
       // the streak enters at the start, crosses, and leaves at the end
       const head = travelled(elapsedMs, options) % (length + beamLength);
@@ -301,13 +496,30 @@ export const flowMarksFor = (
 /* ------------------------------------------------- the two animations (D-178) */
 
 /** what the shapes do while a step is current */
-export type FlowNodeStyle = "none" | "focus" | "pulse";
+export type FlowNodeStyle = "off" | "none" | "focus" | "pulse";
+
+/** the arrow styles that draw something: not "none" and not "off" */
+export const arrowAnimates = (style: unknown) =>
+  style !== "none" && style !== "off";
+
+/** the node styles that move: the highlight follows the step */
+export const nodeAnimates = (style: unknown) =>
+  style === "focus" || style === "pulse";
 
 /** what the arrows do: the marks drawn along them */
-export type FlowArrowStyle = "none" | "beam" | "marching" | "pipe" | "token";
+export type FlowArrowStyle =
+  | "off"
+  | "none"
+  | "beam"
+  | "marching"
+  | "marching-beam"
+  | "marching-token"
+  | "pipe"
+  | "token";
 
 export const FLOW_NODE_STYLES: readonly { id: FlowNodeStyle; label: string }[] =
   [
+    { id: "off", label: "Off" },
     { id: "none", label: "None" },
     { id: "focus", label: "Focus" },
     { id: "pulse", label: "Pulse" },
@@ -317,9 +529,12 @@ export const FLOW_ARROW_STYLES: readonly {
   id: FlowArrowStyle;
   label: string;
 }[] = [
+  { id: "off", label: "Off" },
   { id: "none", label: "None" },
   { id: "beam", label: "Beam" },
   { id: "marching", label: "Marching dashes" },
+  { id: "marching-beam", label: "Marching beams" },
+  { id: "marching-token", label: "Marching tokens" },
   { id: "pipe", label: "Pipe" },
   { id: "token", label: "Token" },
 ];
