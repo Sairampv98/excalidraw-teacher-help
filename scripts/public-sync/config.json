@@ -18,6 +18,7 @@
     "AGENTS.md",
     "tins.json",
     "scripts/tins-gate.mjs",
+    "scripts/ops/",
     "scripts/rowcheck.mjs",
     "scripts/public-sync/",
     "scripts/public-sync.mjs",

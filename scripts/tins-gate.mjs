@@ -38,8 +38,24 @@ import { cpus, freemem, tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  TEST_FILE,
+  buildResult,
+  cacheArgs,
+  changedSources,
+  excludeArgs,
+  fastPlans,
+  gateCacheDir,
+  resultFile,
+  selectTier,
+  shouldRunTests,
+} from "./ops/lib/gatePlan.mjs";
+
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
+
+// D-583: GATE_FAST=1 runs what a change can reach; the default runs everything
+const tier = selectTier(process.env);
 
 /** The nearest node_modules/.bin at or above `start`. */
 function findBinDir(start) {
@@ -185,7 +201,13 @@ const takeLock = () => {
       try {
         writeFileSync(
           LOCK_FILE,
-          JSON.stringify({ pid: process.pid, startedAt: Date.now() }),
+          // the checkout and the tier are said so that a watcher can tell whose gate it is (D-588)
+          JSON.stringify({
+            pid: process.pid,
+            startedAt: Date.now(),
+            root,
+            tier,
+          }),
           "utf8",
         );
       } catch {
@@ -447,7 +469,7 @@ const workersFromEnv = () => {
 // ---------------------------------------------------------------------------
 
 const TEST_DIRS = ["packages", "excalidraw-app"];
-const TEST_FILE = /(\.|_)(test|spec)\.[jt]sx?$/;
+// TEST_FILE (from scripts/ops/lib/gatePlan.mjs) names the test files, `.mjs` ones included
 
 /** every test file under the repository, relative to it */
 const collectTestFiles = (dir, found = []) => {
@@ -532,7 +554,22 @@ process.stdout.write(
   `gate: ${READ_STEPS.map((s) => s.name).join(", ")} ... running in parallel\n`,
 );
 
-const readResults = await Promise.all(READ_STEPS.map(runStep));
+// the three static checks keep a cache outside the repository (D-584);
+// GATE_NO_CACHE=1 runs them without one
+const caches = process.env.GATE_NO_CACHE
+  ? {}
+  : cacheArgs(gateCacheDir(root, tmpdir()));
+
+if (!process.env.GATE_NO_CACHE) {
+  mkdirSync(gateCacheDir(root, tmpdir()), { recursive: true });
+}
+
+const cachedStep = (step) => ({
+  ...step,
+  args: [...step.args, ...(caches[step.name] ?? [])],
+});
+
+const readResults = await Promise.all(READ_STEPS.map(cachedStep).map(runStep));
 
 // reported in the order the steps are declared, not the order they finished
 for (const step of READ_STEPS) {
@@ -548,67 +585,139 @@ const freeBeforeVitest = freeMemoryMB();
 const computedWorkers = computeWorkers(freeBeforeVitest);
 const workers = workersFromEnv() ?? computedWorkers;
 
-const vitestArgs = [
-  ...VITEST_STEP.args,
-  `--maxWorkers=${workers}`,
-  "--minWorkers=1",
-];
-
-const vitestResult = await runStep({
-  ...VITEST_STEP,
-  args: vitestArgs,
-  note: `${VITEST_STEP.note} --maxWorkers=${workers} --minWorkers=1`,
-});
-
+// the tests that measure time are measured alone, and are left out of the big
+// run, where a loaded machine would fail them for the wrong reason (D-581)
 const timingTests = findTimingTests();
-let timingResult = null;
+const skipped = [];
 
-if (timingTests.length) {
-  // the measurement is taken on its own, with a single worker, so it is not
-  // distorted by the rest of the suite
+const record = (result) => {
+  report(result);
+  results.push(result);
+  if (!result.ok) {
+    failed++;
+  }
+};
+
+const git = (args) =>
+  spawnSync("git", args, { cwd: root, encoding: "utf8" }).stdout ?? "";
+
+if (
+  !shouldRunTests({
+    staticFailed: readResults.some((result) => !result.ok),
+    env: process.env,
+  })
+) {
+  // typecheck, lint or format has failed: minutes of tests would only repeat the bad news (D-582)
+  skipped.push("vitest (a static check failed)");
   process.stdout.write(
-    `gate: timing test ... ${timingTests.join(", ")} (single worker)\n`,
+    "gate: vitest ... skipped, a static check failed (GATE_KEEP_GOING=1 runs it anyway)\n",
+  );
+} else if (tier === "fast") {
+  // D-583: the tests a change can reach, and the tests of the scripts
+  const base = git(["merge-base", "HEAD", "main"]).trim() || "HEAD~1";
+  const changed = changedSources(
+    git(["diff", "--name-only", base]),
+    git(["ls-files", "--others", "--exclude-standard"]),
+  );
+  const scriptsTests = collectTestFiles(join(root, "scripts"))
+    .map((file) => relative(root, file).split(sep).join("/"))
+    .sort();
+
+  process.stdout.write(
+    `gate: fast tier, ${changed.length} changed file(s) since ${base.slice(
+      0,
+      7,
+    )}\n`,
   );
 
-  timingResult = await runStep({
-    ...VITEST_STEP,
-    name: "timing test",
-    args: [
-      ...VITEST_STEP.args,
-      ...timingTests,
-      "--maxWorkers=1",
-      "--minWorkers=1",
-    ],
-    note: `vitest run ${timingTests.join(" ")} --maxWorkers=1`,
-  });
-}
+  for (const plan of fastPlans({ changed, scriptsTests })) {
+    record(
+      await runStep({
+        ...VITEST_STEP,
+        name: plan.name,
+        args: [...plan.args, `--maxWorkers=${workers}`, "--minWorkers=1"],
+        note: `vitest ${plan.args[0]} (fast tier) --maxWorkers=${workers}`,
+      }),
+    );
+  }
 
-report(vitestResult);
-results.push(vitestResult);
-if (!vitestResult.ok) {
-  failed++;
-}
+  skipped.push("the timing tests and the unrelated tests (fast tier)");
+} else {
+  record(
+    await runStep({
+      ...VITEST_STEP,
+      args: [
+        ...VITEST_STEP.args,
+        ...excludeArgs(timingTests),
+        `--maxWorkers=${workers}`,
+        "--minWorkers=1",
+      ],
+      note: `${VITEST_STEP.note} --maxWorkers=${workers} --minWorkers=1, timing tests left out`,
+    }),
+  );
 
-if (timingResult) {
-  report(timingResult);
-  if (!timingResult.ok) {
-    failed++;
+  if (timingTests.length) {
+    // the measurement is taken on its own, with a single worker, so it is not
+    // distorted by the rest of the suite
+    process.stdout.write(
+      `gate: timing test ... ${timingTests.join(", ")} (single worker)\n`,
+    );
+
+    record(
+      await runStep({
+        ...VITEST_STEP,
+        name: "timing test",
+        args: [
+          ...VITEST_STEP.args,
+          ...timingTests,
+          "--maxWorkers=1",
+          "--minWorkers=1",
+        ],
+        note: `vitest run ${timingTests.join(" ")} --maxWorkers=1`,
+      }),
+    );
   }
 }
 
 const totalMinutes = (Date.now() - startedAt) / 60000;
 
 const summary =
-  `gate: workers ${workers}, free ${freeBeforeVitest}MB before vitest, ` +
+  `gate: ${tier} tier, workers ${workers}, free ${freeBeforeVitest}MB before vitest, ` +
   `total ${totalMinutes.toFixed(1)}min` +
-  (timingTests.length ? `, ${timingTests.length} timing test(s) isolated` : "");
+  (timingTests.length && tier === "full"
+    ? `, ${timingTests.length} timing test(s) isolated`
+    : "") +
+  (skipped.length ? `, skipped: ${skipped.join("; ")}` : "");
 
 process.stdout.write(summary + "\n");
 
-// The kit shows only PASS or FAIL, so the numbers go to a file as well.
+// The kit shows only PASS or FAIL, so the numbers go to files as well: the
+// summary line, and a record the watcher and the people can read (D-585). The
+// record is kept in the shared folder of the temp folder, not in the checkout,
+// where the kit's commit at close would take it for a change outside the task.
 const stateDir = join(root, ".tins");
 if (!existsSync(stateDir)) mkdirSync(stateDir, { recursive: true });
 writeFileSync(join(stateDir, "state-gate-summary.txt"), summary + "\n");
+const recordFile = resultFile(tmpdir(), root);
+mkdirSync(dirname(recordFile), { recursive: true });
+writeFileSync(
+  recordFile,
+  JSON.stringify(
+    buildResult({
+      root,
+      tier,
+      steps: results,
+      workers,
+      freeMB: freeBeforeVitest,
+      startedAt,
+      endedAt: Date.now(),
+      timingTests,
+      skipped,
+    }),
+    null,
+    2,
+  ) + "\n",
+);
 
 // TAP summary: the verification recipe reads `# tests`, `# pass`, `# fail`.
 const tap = [
