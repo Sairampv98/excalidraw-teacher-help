@@ -219,6 +219,20 @@ const wrap = (text, width, first, rest) => {
 const BULLET = /^(\s*(?:[-*+]|\d+[.)])\s+|\s*@\w+\s*)/;
 
 /**
+ * A partner line (D-592). A comment that has to name the method (a row, a task,
+ * the kit) is written twice by its author: once for the private source, and once
+ * in public wording right under it, the second beginning with `public:` (at the
+ * start of the line, in lowercase, followed by a space, so that ordinary text
+ * such as "public: the visibility" in the middle of a sentence is not taken).
+ * In the public text the public wording REPLACES the comment text directly
+ * above it (back to a blank line or the previous `public:`), and its marker is
+ * dropped. The public wording runs on until a blank comment line, so two pairs
+ * in one comment have a blank comment line between them. Without a partner the
+ * rules below apply as ever.
+ */
+const PUBLIC_MARK = /^\s*public:[ \t]+\S/;
+
+/**
  * Takes the sentences that name the method out of lines of text (the comment
  * leaders already off). Returns the lines that are left, or null when none had
  * to go. A paragraph is the lines up to a blank one, and a bullet or a tag
@@ -239,7 +253,10 @@ const dropSentences = (textLines) => {
     if (line.trim() === "") {
       flush();
       paragraphs.push({ lines: [line], blank: true });
-    } else if (BULLET.test(line) && current.length) {
+    } else if (
+      (PUBLIC_MARK.test(line) || BULLET.test(line)) &&
+      current.length
+    ) {
       flush();
       current.push(line);
     } else {
@@ -249,10 +266,38 @@ const dropSentences = (textLines) => {
 
   flush();
 
-  let changed = false;
+  // the partner lines: what stands above one is replaced by it (D-592)
+  let paired = false;
+  let from = 0;
+
+  paragraphs.forEach((paragraph, k) => {
+    if (paragraph.blank || !PUBLIC_MARK.test(paragraph.lines[0])) {
+      return;
+    }
+
+    paired = true;
+    paragraph.lines[0] = paragraph.lines[0].replace(
+      /^(\s*)public:[ \t]+/,
+      "$1",
+    );
+
+    // the text directly above it, back to a blank line or the previous partner
+    for (let j = k - 1; j >= from && !paragraphs[j].blank; j--) {
+      paragraphs[j].replaced = true;
+    }
+
+    from = k + 1;
+  });
+
+  let changed = paired;
   const kept = [];
 
   for (const paragraph of paragraphs) {
+    if (paragraph.replaced) {
+      kept.push({ lines: [], blank: false, replaced: true });
+      continue;
+    }
+
     const joined = paragraph.lines.join(" ");
 
     if (paragraph.blank || !(matchesMethod(joined) || OWNER_RE.test(joined))) {
@@ -303,6 +348,11 @@ const dropSentences = (textLines) => {
 
   for (let i = 0; i < kept.length; i++) {
     const paragraph = kept[i];
+
+    // a private comment that has its public partner leaves no blank line behind
+    if (paragraph.replaced) {
+      continue;
+    }
 
     if (paragraph.removed) {
       if (kept[i + 1]?.blank) {
