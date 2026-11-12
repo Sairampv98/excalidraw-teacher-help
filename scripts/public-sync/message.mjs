@@ -16,9 +16,19 @@ const MAX_SUBJECT = 72;
 export const taskIdOf = (message) =>
   /^Tins-(?:Merge|Task):[ \t]*(\S+)/m.exec(message)?.[1] ?? null;
 
-/** the description in a task file: everything after its front matter */
-export const taskBody = (taskText) =>
-  taskText.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "").trim();
+/** what the kit writes in a new task file until someone describes the task */
+export const PLACEHOLDER_BODY = "(describe the task here)";
+
+/**
+ * The description in a task file: everything after its front matter. The kit's
+ * placeholder is no description: a public commit must not say it (D-590), so it
+ * counts as none and the message is written from the paths that changed.
+ */
+export const taskBody = (taskText) => {
+  const body = taskText.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "").trim();
+
+  return body === PLACEHOLDER_BODY ? "" : body;
+};
 
 /** the first sentence, or the first clause that fits a subject line */
 const subjectOf = (text) => {
