@@ -310,8 +310,14 @@ describe("AC-209 the node and arrow animations are combined", () => {
     await chartOnCanvas();
     select(shapes());
 
-    expect(optionsOf("Node animation")).toEqual(["none", "focus", "pulse"]);
+    expect(optionsOf("Node animation")).toEqual([
+      "off",
+      "none",
+      "focus",
+      "pulse",
+    ]);
     expect(optionsOf("Arrow animation")).toEqual([
+      "off",
       "none",
       "beam",
       "marching",

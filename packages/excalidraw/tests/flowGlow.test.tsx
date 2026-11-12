@@ -236,9 +236,11 @@ describe("AC-234 the glow is a neon tube", () => {
     expect(outline).toMatch(/stroke:\s*var\(\s*--flow-node-core/);
 
     // layered shadows of growing reach, so that it blooms
-    const reaches = [...outline.matchAll(/drop-shadow\(\s*0 0 (\d+)px/g)].map(
-      (match) => Number(match[1]),
-    );
+    const reaches = [
+      ...outline.matchAll(
+        /drop-shadow\(\s*0 0 calc\((\d+)px \* var\(--flow-glow-k-(?:shape|text|mark|arrow), 1\)\)/g,
+      ),
+    ].map((match) => Number(match[1]));
 
     expect(reaches.length).toBeGreaterThanOrEqual(3);
     expect([...reaches].sort((a, b) => a - b)).toEqual(reaches);
@@ -557,7 +559,7 @@ describe("AC-236 the pipe is made from the animation colour", () => {
 
   it("AC-236 the pipe glows when glow is on", () => {
     expect(glowRule(".excalidraw__flow-mark--pipe-light")).toMatch(
-      /drop-shadow\(0 0 \d+px var\(--flow-mark-color/,
+      /drop-shadow\(\s*0 0 calc\(\d+px \* var\(--flow-glow-k-(?:shape|text|mark|arrow), 1\)\)\s*var\(--flow-mark-color/,
     );
   });
 });

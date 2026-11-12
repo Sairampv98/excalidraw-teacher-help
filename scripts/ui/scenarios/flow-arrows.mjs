@@ -13,9 +13,8 @@ export default defineScenario({
     "AC-599",
     "AC-602",
   ],
-  title: "routes, fork branches, marching marks and editor class playback",
+  title: "routes, fork branches, marching marks and the class loop preview",
   async run(ui) {
-    console.log(`UI browser: ${ui.app.browser.version()}`);
     const panel = ui.page.getByTestId("flow-bar");
     await ui.step("insert a network at projector size", async () => {
       await ui.page.setViewportSize({ width: 1280, height: 720 });
@@ -111,23 +110,32 @@ export default defineScenario({
           .click();
       },
     );
-    await ui.step("show in class starts the editor without Play", async () => {
-      await panel
-        .getByRole("tab", { name: "Present in class", exact: true })
-        .click();
-      await panel.getByLabel("Show in class", { exact: true }).check();
-      ui.expect(await ui.page.locator("[data-flow-class]").isVisible(), {
-        expected: "automatic editor loop",
-        observed: "no class loop",
-      });
-      await ui.wait(450);
-    });
     await ui.step(
-      "unticking show in class removes the editor loop",
+      "show in class alone does not play in the editor",
       async () => {
-        await panel.getByLabel("Show in class", { exact: true }).uncheck();
+        await panel
+          .getByRole("tab", { name: "Present in class", exact: true })
+          .click();
+        await panel.getByLabel("Show in class", { exact: true }).check();
+        await ui.wait(450);
         ui.expect((await ui.page.locator("[data-flow-class]").count()) === 0, {
-          expected: "loop stops when unticked",
+          expected: "no class loop in the editor",
+          observed: "the class loop is drawn in the editor",
+        });
+      },
+    );
+    await ui.step(
+      "Preview class loop plays it, unticking stops it",
+      async () => {
+        await panel.getByLabel("Preview class loop", { exact: true }).check();
+        ui.expect(await ui.page.locator("[data-flow-class]").isVisible(), {
+          expected: "the preview loop",
+          observed: "no class loop",
+        });
+        await ui.wait(450);
+        await panel.getByLabel("Preview class loop", { exact: true }).uncheck();
+        ui.expect((await ui.page.locator("[data-flow-class]").count()) === 0, {
+          expected: "loop stops when the preview is unticked",
           observed: "loop still drawn",
         });
       },

@@ -25,8 +25,11 @@ import {
   arrowLabelsOf,
   nodeHighlightParts,
   stepHoldsMedia,
+  staticNodeParts,
 } from "../scene/flowHighlight";
 import { chartScaleOf } from "../scene/flowScale";
+import { glowLevelOf } from "../scene/flowLook";
+import { arrowAnimates, nodeAnimates } from "../scene/flowStyles";
 
 import { useAtomValue } from "../editor-jotai";
 
@@ -111,7 +114,7 @@ export const FlowClassOverlay = ({
   const animation = useAtomValue(flowAnimationStateAtom);
   // the editor can preview what the class gets, in the edit view (D-193)
   const preview = useAtomValue(flowClassPreviewAtom);
-  const playing = active || preview || !displayOnly;
+  const playing = active || preview;
   const [visible, setVisible] = useState(() => !document.hidden);
   useEffect(() => {
     const changed = () => setVisible(!document.hidden);
@@ -217,6 +220,9 @@ export const FlowClassOverlay = ({
         const options = {
           scale: chartScaleOf(flow.graph, mapRef.current),
           speed: flow.settings.speed,
+          widthK: flow.settings.glowMark
+            ? glowLevelOf(flow.settings, "mark").widthK
+            : 1,
         };
 
         for (const arrow of arrowsFor(
@@ -272,7 +278,7 @@ export const FlowClassOverlay = ({
           nodeStyle: flow.settings.node,
           nodeTarget: flow.settings.nodeTarget,
           arrowsAnimated:
-            flow.settings.arrow !== "none" ||
+            arrowAnimates(flow.settings.arrow) ||
             flow.settings.hideArrow ||
             flow.settings.glowArrow ||
             !!flow.settings.arrowColor,
@@ -326,6 +332,7 @@ export const FlowClassOverlay = ({
                 flow.graph.steps[indices[flow.key] ?? 0],
                 elementsMap,
                 flow.settings.glowArrow,
+                flow.settings.arrow,
               ).map((arrow) => (
                 <g
                   key={`tube-${arrow.id}`}
@@ -395,6 +402,9 @@ const ClassMarks = ({
   const options = {
     scale: chartScaleOf(flow.graph, elementsMap),
     speed: flow.settings.speed,
+    widthK: flow.settings.glowMark
+      ? glowLevelOf(flow.settings, "mark").widthK
+      : 1,
   };
 
   return (
@@ -459,31 +469,44 @@ const ClassNodes = ({
   }
   const ownStyle = elementsMap.get(step.containerId)?.customData?.flow?.look
     ?.nodeStyle;
-  if (["none", "focus", "pulse"].includes(ownStyle)) {
+  if (["off", "none", "focus", "pulse"].includes(ownStyle)) {
     flow = { ...flow, settings: { ...flow.settings, node: ownStyle } };
   }
 
   // what is highlighted: the outline, the box of the label, its letters (D-201)
-  const parts =
-    flow.settings.node === "none"
-      ? { outline: null, box: null, letters: null }
-      : nodeHighlightParts(step, elementsMap, flow.settings.nodeTarget);
+  const parts = !nodeAnimates(flow.settings.node)
+    ? { outline: null, box: null, letters: null }
+    : nodeHighlightParts(step, elementsMap, flow.settings.nodeTarget);
+  // a colour or a glow for the nodes and the text shows with the node
+  // animation "none" too: every node is lit all the time, without moving
+  const lit =
+    flow.settings.node === "none" &&
+    (flow.settings.nodeColor ||
+      flow.settings.textColor ||
+      flow.settings.glowShape ||
+      flow.settings.glowText)
+      ? staticNodeParts(flow.graph.steps, elementsMap, flow.settings.nodeTarget)
+      : null;
 
   return (
     <>
-      {[
-        ...[parts.outline, parts.box]
-          .filter((element): element is ExcalidrawElement => Boolean(element))
-          .map((element) => ({ element, letters: false })),
-        ...(parts.letters ? [{ element: parts.letters, letters: true }] : []),
-      ].map(({ element, letters }) => {
+      {(
+        lit ?? [
+          ...[parts.outline, parts.box]
+            .filter((element): element is ExcalidrawElement => Boolean(element))
+            .map((element) => ({ element, letters: false })),
+          ...(parts.letters ? [{ element: parts.letters, letters: true }] : []),
+        ]
+      ).map(({ element, letters }) => {
         // the node's own box and outline, rotated about its centre (D-192)
         const box = highlightBoxOf(element);
 
         return (
           <div
             // the index is in the key so the entrance restarts on every step
-            key={`${index}-${element.id}-${letters ? "letters" : "outline"}`}
+            key={`${lit ? "all" : index}-${element.id}-${
+              letters ? "letters" : "outline"
+            }`}
             className="excalidraw__flow-animation-shape"
             data-flow-class-node={flow.settings.node}
             data-flow-media={stepHoldsMedia(step, elementsMap) ? "" : undefined}
@@ -533,7 +556,7 @@ const ClassNodes = ({
       })}
 
       {/* the labels of the arrows are drawn above what is animated (D-203) */}
-      {(flow.settings.arrow !== "none" ||
+      {(arrowAnimates(flow.settings.arrow) ||
         flow.settings.hideArrow ||
         flow.settings.glowArrow ||
         !!flow.settings.arrowColor) &&

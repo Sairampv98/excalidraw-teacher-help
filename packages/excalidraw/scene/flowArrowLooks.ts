@@ -30,10 +30,21 @@ export const NO_ARROW_LOOKS: ArrowLooks = new Map();
 /** the looks a flow gives to its arrows, from its look (D-190, D-204) */
 export const arrowLooksFor = (
   graph: FlowGraph,
-  look: { hideArrow: boolean; arrowColor: string | null; glowArrow?: boolean },
+  look: {
+    hideArrow: boolean;
+    arrowColor: string | null;
+    glowArrow?: boolean;
+    arrowStyle?: string;
+  },
 ): [string, ArrowLook][] => {
-  // an arrow the overlay draws as a neon tube is not drawn by the canvas (D-217)
-  const hidden = look.hideArrow || !!look.glowArrow;
+  // the arrow animation is off: the arrows are as they are drawn
+  if (look.arrowStyle === "off") {
+    return [];
+  }
+
+  // a neon arrow keeps its own drawing - its shape, its head - and the tube is
+  // the glow laid along it; only "Hide arrow" takes the arrow away
+  const hidden = look.hideArrow;
 
   return !hidden && !look.arrowColor
     ? []

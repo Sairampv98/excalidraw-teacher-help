@@ -24,7 +24,10 @@ This register describes usable entry points. Assistant tool names below are prop
 | Marching tokens | D-485 | packages/excalidraw/scene/flowStyles.ts | Repeat the stepped token on every arrow | set_flow_animation |
 | Marching marks alongside the step | D-485 | packages/excalidraw/components/flowPanel/FlowAnimationOptions.tsx | Combine a stepped token with marching beams | set_flow_animation |
 | Marching spacing (default 150 scene units) | D-485 | packages/excalidraw/components/flowPanel/FlowAnimationOptions.tsx | Spread repeated marks apart in the preview | set_flow_animation |
-| Show in class automatically loops in the editor | D-486 | packages/excalidraw/components/FlowClassOverlay.tsx | Tick once, edit through the loop, untick to stop | set_flow_class_visibility |
+| Show in class (class view and presenter only) and Preview class loop (editor) | D-486 | packages/excalidraw/components/FlowClassOverlay.tsx | Mark a chart, then tick Preview class loop to see what the class sees | set_flow_class_visibility |
+| Mark spacing box in the Animation tab (dash gap, beam and token spacing) | D-485 | packages/excalidraw/components/FlowAnimationBar.tsx | Widen the gaps and watch the dashes spread | set_flow_animation |
+| Gap between dashes (expanded Arrow window) | D-485 | packages/excalidraw/components/flowPanel/FlowAnimationOptions.tsx | Tighten the dashes | set_flow_animation |
+| A node colour or glow with node animation none lights every node all the time | D-501 | packages/excalidraw/components/FlowAnimationOverlay.tsx | Colour a chart with no animation | set_flow_look |
 | `@fill:#ffe3e3` | D-501 | packages/excalidraw/scene/flowScript.ts | Colour one node from the script | set_flow_look |
 | `@outline:#862e9c` | D-501 | packages/excalidraw/scene/flowScript.ts | Colour one node or arrow outline | set_flow_look |
 | `@glow` | D-501 | packages/excalidraw/components/FlowAnimationOverlay.tsx | Give a node or arrow marks their own glow | set_flow_look |
@@ -45,6 +48,12 @@ This register describes usable entry points. Assistant tool names below are prop
 | `loop:` | D-501 | packages/excalidraw/scene/flowScript.ts | Stop at the last step or repeat | set_flow_animation |
 | `spacing:` | D-501 | packages/excalidraw/scene/flowScript.ts | Set the repeated marks' spacing | set_flow_animation |
 | `marching:` (none, marching-dashes, marching-beams or marching-tokens) | D-501 | packages/excalidraw/scene/flowScript.ts | Add a repeated layer beside a stepped animation | set_flow_animation |
+| Neon glow slider for each part (Look tab) and `glow-shape-strength:`, `glow-text-strength:`, `glow-mark-strength:`, `glow-arrow-strength:` | D-501 | packages/excalidraw/components/FlowAnimationBar.tsx | Widen the neon of one part from faint to fierce | set_flow_look |
+| Neon width Small (0.65), Normal, Large (2.5) for each part and `glow-<part>-width:` | D-501 | packages/excalidraw/components/FlowAnimationBar.tsx | Thin and thick neon lines | set_flow_look |
+| Neon core Soft, White, Colour for each part and `glow-<part>-core:` | D-501 | packages/excalidraw/components/FlowAnimationBar.tsx | Change the bright middle of the neon | set_flow_look |
+| Node and Arrow animation `off` (draws nothing; `none` lights every node and keeps the neon) | D-485, D-501 | packages/excalidraw/scene/flowStyles.ts | Compare None and Off with a colour set | set_flow_animation |
+| Highlight on `all` (shape, text box and text) and `highlight: all` | D-501 | packages/excalidraw/scene/flowLook.ts | Light a whole node | set_flow_look |
+| A neon arrow keeps its own drawing and head, and the head glows | D-501 | packages/excalidraw/scene/flowStyles.ts | Neon arrows with heads | set_flow_look |
 | `background:` | D-501 | packages/excalidraw/scene/flowPresets.ts | Give a chart a coloured backing in the drawing | set_flow_look |
 | `order: reverse` or `order: forward` | D-501 | packages/excalidraw/scene/flowOrder.ts | Read the steps in reverse order | set_flow_order |
 | `node-color:` | D-501 | packages/excalidraw/scene/flowScript.ts | Match the Shape colour chip from a script | set_flow_colours |

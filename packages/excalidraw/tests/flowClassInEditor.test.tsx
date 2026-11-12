@@ -11,9 +11,10 @@ import { buildFlowPreset } from "../scene/flowPresets";
 import { FLOW_CLASS_DEFAULTS, withFlowClass } from "../scene/flowClass";
 
 import { EditorJotaiProvider, editorJotaiStore } from "../editor-jotai";
+import { setFlowClassPreview } from "../components/FlowAnimationState";
 
-describe("AC-583 editor class loop", () => {
-  it("plays with no click; unticking and unmounting cancel its clock", async () => {
+describe("AC-583 the class loop in the editor", () => {
+  it("Show in class alone does not play in the editor; Preview class loop does, takes no click, and its untick, a hidden tab and unmounting cancel the clock", async () => {
     const built = buildFlowPreset("process", "Teach\nPractise", { seed: 20 });
     if (!built.ok) {
       throw new Error(built.error);
@@ -49,6 +50,10 @@ describe("AC-583 editor class loop", () => {
         ),
       },
     );
+    // marked for class, but the editor only shows it when asked to preview
+    expect(view.container.querySelector("[data-flow-class]")).toBeNull();
+    expect(AnimationController.running("flow-class")).toBe(false);
+    act(() => setFlowClassPreview(true));
     expect(view.container.querySelector("[data-flow-class]")).not.toBeNull();
     expect(AnimationController.running("flow-class")).toBe(true);
     const descriptor = Object.getOwnPropertyDescriptor(document, "hidden");
@@ -108,6 +113,10 @@ describe("AC-583 editor class loop", () => {
         displayOnly={false}
       />,
     );
+    expect(AnimationController.running("flow-class")).toBe(true);
+    act(() => setFlowClassPreview(false));
+    expect(AnimationController.running("flow-class")).toBe(false);
+    act(() => setFlowClassPreview(true));
     expect(AnimationController.running("flow-class")).toBe(true);
     view.unmount();
     expect(AnimationController.running("flow-class")).toBe(false);

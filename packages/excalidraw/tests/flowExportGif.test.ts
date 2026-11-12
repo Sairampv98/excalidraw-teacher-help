@@ -212,7 +212,9 @@ describe("the GIF's palette", () => {
       [250, 250, 250],
       [10, 5, 5],
       [123, 123, 123, 0],
-      [127, 127, 127, 127],
+      [127, 127, 127, 100],
+      // more than half opaque is solid: a clean cut-out edge
+      [10, 10, 10, 200],
     ]);
 
     expect([...indexPicture(picture, palette, transparentIndex)]).toEqual([
@@ -220,6 +222,7 @@ describe("the GIF's palette", () => {
       1,
       transparentIndex,
       transparentIndex,
+      1,
     ]);
   });
 });

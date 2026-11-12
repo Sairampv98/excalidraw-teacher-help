@@ -33,14 +33,20 @@ import {
 import {
   FLOW_ACCENT_HEX,
   neonCore,
+  glowCoreColor,
+  glowCoreKey,
+  glowLevelOf,
   pipeColorsFor,
   isFlowColor,
 } from "../flowLook";
 
+import { nodeAnimates } from "../flowStyles";
+
 import { stepAt } from "./plan";
 
-import type { FlowLook } from "../flowLook";
+import type { FlowGlowPart, FlowLook } from "../flowLook";
 import type { FlowGraph, FlowStep } from "../flowOrder";
+
 import type { FlowArrowStyle, FlowNodeStyle, FlowStroke } from "../flowStyles";
 
 /** what a frame is drawn from: the animation as it was set when the export began */
@@ -57,6 +63,8 @@ export type FlowFrameScene = {
   durationMs: number;
   /** the chart scale the marks are drawn at */
   chartScale: number;
+  /** the page the picture is on is light: neon cores are the colour, not white */
+  lightPage?: boolean;
 };
 
 /** scene units to pixels: `x * scale + offsetX` */
@@ -77,6 +85,77 @@ const OUTLINE_STROKE = 2;
 
 /** what a shadow of `px` looks like once the picture is `scale` times the scene */
 const blurOf = (px: number, scale: number) => px * Math.max(0.5, scale);
+
+/**
+ * The bright core of a neon tube. On a light page a near-white core vanishes
+ * into the paper and only the blur is left, so the core is the colour itself
+ * there; drawFlowFrame sets which, once for each frame.
+ */
+let coreOf: (color: string, part: FlowGlowPart) => string = (color) =>
+  neonCore(color);
+
+/**
+ * The chart drawn without the labels whose letters are lit, and where it lies
+ * on the picture. On the screen the canvas does not draw a label that the
+ * overlay draws again (D-213); the picture is one for all moments, so the lit
+ * label's place is cleared and filled from this one before its letters are
+ * drawn, and the label is never seen twice.
+ */
+let bareChart: {
+  image: CanvasImageSource;
+  transform: FlowFrameTransform;
+  size: { width: number; height: number };
+} | null = null;
+
+/**
+ * The neon of the screen is a stack of drop-shadows of 2, 6 and 14 pixels (28
+ * as well on a node); a canvas shadow of twice the blur has the same spread, and
+ * one pass of one blur is far dimmer than the stack. So the stroke is drawn once
+ * for each of the screen's shadows, and the halo is as bright as the editor's.
+ */
+/**
+ * The screen's neon is a chain of CSS drop-shadows, each one cast by the result
+ * of the one before; the canvas takes the very same filter, so the halo is the
+ * same size and as dense. The radii are in the picture's pixels: the screen's
+ * pixels times how many pixels a scene unit is. A browser with no canvas filter
+ * falls back to one soft shadow for each radius.
+ */
+export const neonFilter = (
+  color: string,
+  scale: number,
+  radii: readonly number[],
+  reach = 1,
+) =>
+  radii
+    .map(
+      (radius) =>
+        `drop-shadow(0 0 ${(radius * reach * scale).toFixed(2)}px ${color})`,
+    )
+    .join(" ");
+
+const neonStroke = (
+  ctx: CanvasRenderingContext2D,
+  color: string,
+  scale: number,
+  radii: readonly number[],
+  reach = 1,
+  paint: () => void = () => ctx.stroke(),
+) => {
+  if (typeof (ctx as { filter?: unknown }).filter === "string") {
+    ctx.filter = neonFilter(color, scale, radii, reach);
+    paint();
+    ctx.filter = "none";
+    return;
+  }
+
+  for (const radius of radii) {
+    ctx.shadowColor = color;
+    ctx.shadowBlur = blurOf(radius * 2 * reach, scale);
+    paint();
+  }
+};
+const NEON_MARK_RADII = [2, 6, 14] as const;
+const NEON_NODE_RADII = [2, 6, 14, 28] as const;
 
 const colorOr = (value: string | null | undefined, fallback: string) =>
   value && isFlowColor(value) ? value : fallback;
@@ -175,12 +254,20 @@ const drawStroke = (
   ctx.setLineDash(stroke.dash ? [stroke.dash[0], stroke.dash[1]] : []);
   ctx.lineDashOffset = stroke.dashOffset ?? 0;
   ctx.globalAlpha = alpha;
-  ctx.strokeStyle = neon ? neonCore(color) : color;
+  ctx.strokeStyle = neon ? coreOf(color, "mark") : color;
 
   if (neon) {
-    ctx.shadowColor = color;
-    ctx.shadowBlur = blurOf(14, scale);
-  } else if (glow) {
+    neonStroke(
+      ctx,
+      color,
+      scale,
+      NEON_MARK_RADII,
+      glowLevelOf(look, "mark").reach,
+    );
+    ctx.restore();
+    return;
+  }
+  if (glow) {
     ctx.shadowColor = color;
     ctx.shadowBlur = blurOf(glow, scale);
   }
@@ -256,7 +343,12 @@ const drawOutline = (
   ctx: CanvasRenderingContext2D,
   scene: FlowFrameScene,
   where: ReturnType<typeof outlineOf>,
-  options: { color: string; glow: boolean; wash: boolean },
+  options: {
+    color: string;
+    glow: boolean;
+    wash: boolean;
+    part: "shape" | "text";
+  },
   sinceStepMs: number,
   scale: number,
 ) => {
@@ -284,13 +376,24 @@ const drawOutline = (
       }
 
       ctx.globalAlpha = came;
-      ctx.lineWidth = OUTLINE_STROKE;
-      ctx.strokeStyle = options.glow ? neonCore(options.color) : options.color;
+      ctx.lineWidth =
+        OUTLINE_STROKE *
+        (options.glow ? glowLevelOf(scene.look, options.part).widthK : 1);
+      ctx.strokeStyle = options.glow
+        ? coreOf(options.color, options.part)
+        : options.color;
 
       if (options.glow) {
-        ctx.shadowColor = options.color;
-        ctx.shadowBlur = blurOf(14, scale);
-      } else if (scene.nodeStyle === "pulse") {
+        neonStroke(
+          ctx,
+          options.color,
+          scale,
+          NEON_NODE_RADII,
+          glowLevelOf(scene.look, options.part).reach,
+        );
+        return;
+      }
+      if (scene.nodeStyle === "pulse") {
         ctx.shadowColor = options.color;
         ctx.shadowBlur = blurOf(8 * pulseGlow(sinceStepMs), scale);
       }
@@ -298,6 +401,36 @@ const drawOutline = (
       ctx.stroke();
     },
   );
+};
+
+/**
+ * Takes a lit label's original letters off the picture (see `bareChart`). It is
+ * done before the neon is drawn, so the glow lies over the place and the node's
+ * own colour is not brought back over it.
+ */
+const coverLabel = (
+  ctx: CanvasRenderingContext2D,
+  label: ExcalidrawTextElement,
+) => {
+  const box = highlightBoxOf(label);
+
+  if (bareChart) {
+    const { image, transform, size } = bareChart;
+    const pad = 3;
+    const left = Math.floor(box.x * transform.scale + transform.offsetX) - pad;
+    const top = Math.floor(box.y * transform.scale + transform.offsetY) - pad;
+    const width = Math.ceil(box.width * transform.scale) + pad * 2;
+    const height = Math.ceil(box.height * transform.scale) + pad * 2;
+
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.beginPath();
+    ctx.rect(left, top, width, height);
+    ctx.clip();
+    ctx.clearRect(left, top, width, height);
+    ctx.drawImage(image, 0, 0, size.width, size.height);
+    ctx.restore();
+  }
 };
 
 /** the letters of a label, drawn again in the colour of the highlight */
@@ -310,6 +443,7 @@ const drawLetters = (
   scale: number,
 ) => {
   const box = highlightBoxOf(label);
+
   const lines = label.text.replace(/\r\n?/g, "\n").split("\n");
   const lineHeightPx = label.fontSize * label.lineHeight;
   const verticalOffset = getVerticalOffset(
@@ -347,26 +481,35 @@ const drawLetters = (
           : 0;
 
       ctx.globalAlpha = came;
-      ctx.fillStyle = options.glow ? neonCore(options.color) : options.color;
+      ctx.fillStyle = options.glow
+        ? coreOf(options.color, "text")
+        : options.color;
 
-      if (options.glow) {
-        ctx.shadowColor = options.color;
-        ctx.shadowBlur = blurOf(10, scale);
+      // the screen's text-shadow: 2, 6, 14 and 28 pixels, each its own shadow
+      const reach = glowLevelOf(scene.look, "text").reach;
+      const radii = options.glow ? [2, 6, 14, 28] : [0];
+
+      for (const radius of radii) {
+        if (options.glow) {
+          ctx.shadowColor = options.color;
+          ctx.shadowBlur = radius * reach * scale;
+        }
+
+        lines.forEach((line, index) => {
+          ctx.fillText(line, x, index * lineHeightPx + verticalOffset);
+        });
       }
-
-      lines.forEach((line, index) => {
-        ctx.fillText(line, x, index * lineHeightPx + verticalOffset);
-      });
     },
   );
 };
 
-const drawHighlight = (
+const drawStepHighlight = (
   ctx: CanvasRenderingContext2D,
   scene: FlowFrameScene,
   step: FlowStep,
   sinceStepMs: number,
   scale: number,
+  lit = false,
 ) => {
   scene = {
     ...scene,
@@ -377,10 +520,10 @@ const drawHighlight = (
   };
   const ownStyle = scene.elementsMap.get(step.containerId)?.customData?.flow
     ?.look?.nodeStyle;
-  if (["none", "focus", "pulse"].includes(ownStyle)) {
+  if (["off", "none", "focus", "pulse"].includes(ownStyle)) {
     scene = { ...scene, nodeStyle: ownStyle };
   }
-  if (scene.nodeStyle === "none") {
+  if (!nodeAnimates(scene.nodeStyle) && !lit) {
     return;
   }
 
@@ -390,6 +533,9 @@ const drawHighlight = (
     scene.elementsMap,
     scene.look.nodeTarget,
   );
+  if (parts.letters) {
+    coverLabel(ctx, parts.letters);
+  }
   const nodeColor = colorOr(scene.look.nodeColor, FLOW_ACCENT_HEX);
   const textColor = colorOr(
     scene.look.textColor ?? scene.look.nodeColor,
@@ -402,7 +548,12 @@ const drawHighlight = (
       ctx,
       scene,
       outlineOf(parts.outline, step.box),
-      { color: nodeColor, glow: scene.look.glowShape, wash: !media },
+      {
+        color: nodeColor,
+        glow: scene.look.glowShape,
+        wash: !media,
+        part: "shape",
+      },
       sinceStepMs,
       scale,
     );
@@ -413,7 +564,12 @@ const drawHighlight = (
       ctx,
       scene,
       outlineOf(parts.box, step.box),
-      { color: textColor, glow: scene.look.glowText, wash: true },
+      {
+        color: textColor,
+        glow: scene.look.glowText,
+        wash: true,
+        part: "text",
+      },
       sinceStepMs,
       scale,
     );
@@ -432,6 +588,37 @@ const drawHighlight = (
 };
 
 /**
+ * The highlight of the step. With the node animation "none" a chosen colour or
+ * glow still shows: every node of the chart is lit all the time, as the screen
+ * does, and nothing moves.
+ */
+const drawHighlight = (
+  ctx: CanvasRenderingContext2D,
+  scene: FlowFrameScene,
+  step: FlowStep,
+  sinceStepMs: number,
+  scale: number,
+) => {
+  const look = scene.look;
+  const ownStyle = scene.elementsMap.get(step.containerId)?.customData?.flow
+    ?.look?.nodeStyle;
+  const style = ["off", "none", "focus", "pulse"].includes(ownStyle)
+    ? ownStyle
+    : scene.nodeStyle;
+  if (
+    style === "none" &&
+    (look.nodeColor || look.textColor || look.glowShape || look.glowText)
+  ) {
+    // long after the entrance, so that the highlight is whole
+    for (const each of scene.steps) {
+      drawStepHighlight(ctx, scene, each, 1e6, scale, true);
+    }
+    return;
+  }
+  drawStepHighlight(ctx, scene, step, sinceStepMs, scale);
+};
+
+/**
  * The arrows of the flow as neon tubes (the look's neon arrows): a thin bright
  * core with a halo in the arrow's colour. The canvas does not draw them then.
  */
@@ -446,6 +633,7 @@ const drawArrowTubes = (
     step,
     scene.elementsMap,
     scene.look.glowArrow,
+    scene.arrowStyle,
   )) {
     const color = colorOr(
       (typeof arrow.look?.outline === "string" ? arrow.look.outline : null) ??
@@ -453,28 +641,33 @@ const drawArrowTubes = (
         scene.look.markColor,
       FLOW_ACCENT_HEX,
     );
-    // three halos, one over another, as three drop shadows in a row
-    for (const halo of [2, 6, 14]) {
-      ctx.save();
-      ctx.beginPath();
+    // the tube: a bright core with the screen's three drop-shadows in a chain;
+    // the arrow's heads are part of it
+    ctx.save();
+    ctx.beginPath();
 
-      arrow.path.forEach((point, i) => {
+    for (const line of [arrow.path, ...(arrow.heads ?? [])]) {
+      line.forEach((point, i) => {
         if (i === 0) {
           ctx.moveTo(point.x, point.y);
         } else {
           ctx.lineTo(point.x, point.y);
         }
       });
-
-      ctx.lineWidth = 3;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.strokeStyle = neonCore(color);
-      ctx.shadowColor = color;
-      ctx.shadowBlur = blurOf(halo, scale);
-      ctx.stroke();
-      ctx.restore();
     }
+
+    ctx.lineWidth = 3 * glowLevelOf(scene.look, "arrow").widthK;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = coreOf(color, "arrow");
+    neonStroke(
+      ctx,
+      color,
+      scale,
+      NEON_MARK_RADII,
+      glowLevelOf(scene.look, "arrow").reach,
+    );
+    ctx.restore();
   }
 };
 
@@ -490,7 +683,11 @@ export const drawFlowFrame = (
   transform: FlowFrameTransform,
   base: CanvasImageSource | null,
   size: { width: number; height: number },
+  bare: CanvasImageSource | null = null,
 ): { stepIndex: number } => {
+  bareChart = bare ? { image: bare, transform, size } : null;
+  coreOf = (color, part) =>
+    glowCoreColor(color, scene.look[glowCoreKey(part)], !!scene.lightPage);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, size.width, size.height);
 
@@ -534,6 +731,7 @@ export const drawFlowFrame = (
     const marks = marksForArrow(arrow, scene.arrowStyle, sinceStepMs, {
       scale: scene.chartScale,
       speed: scene.speed,
+      widthK: scene.look.glowMark ? glowLevelOf(scene.look, "mark").widthK : 1,
     });
 
     for (const stroke of marks.strokes) {
@@ -551,10 +749,21 @@ export const drawFlowFrame = (
       ctx.save();
       ctx.beginPath();
       ctx.arc(dot.x, dot.y, dot.radius, 0, Math.PI * 2);
-      ctx.fillStyle = look.glowMark ? neonCore(color) : color;
-      ctx.shadowColor = color;
-      ctx.shadowBlur = blurOf(look.glowMark ? 14 : 5, transform.scale);
-      ctx.fill();
+      ctx.fillStyle = look.glowMark ? coreOf(color, "mark") : color;
+      if (look.glowMark) {
+        neonStroke(
+          ctx,
+          color,
+          transform.scale,
+          NEON_MARK_RADII,
+          glowLevelOf(look, "mark").reach,
+          () => ctx.fill(),
+        );
+      } else {
+        ctx.shadowColor = color;
+        ctx.shadowBlur = blurOf(5, transform.scale);
+        ctx.fill();
+      }
       ctx.restore();
     }
   }

@@ -233,8 +233,9 @@ describe("AC-243 the neon glow is per part", () => {
       }
     ).elementsMap;
 
+    // a neon arrow keeps its own drawing; the tube is laid along it
     for (const arrow of arrows()) {
-      expect(drawn.has(arrow.id)).toBe(false);
+      expect(drawn.has(arrow.id)).toBe(true);
     }
 
     // the labels of those arrows are the overlay's, above them
@@ -270,7 +271,7 @@ describe("AC-243 the neon glow is per part", () => {
     expect(sheet).toMatch(
       /--flow-arrow-color, var\(--flow-mark-color, var\(--color-primary\)\)/,
     );
-    expect(sheet).toMatch(/flow-arrow-tube \{[^}]*stroke-width: 3/);
+    expect(sheet).toMatch(/flow-arrow-tube \{[^}]*stroke-width: calc\(3 /);
   });
 
   it("AC-243 each neon switch is its own, and a colour does not touch them", async () => {

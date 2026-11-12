@@ -349,7 +349,8 @@ describe("AC-219 the highlight colour", () => {
     ]) {
       expect(screen.getByLabelText(label)).not.toBeNull();
     }
-    expect(screen.getByLabelText("Preview class loop")).not.toBeNull();
+    // Preview class loop and Loop live in the Present in class tab (2026-11-12)
+    expect(screen.queryByLabelText("Preview class loop")).toBeNull();
 
     // and a control there changes the setting
     // a swatch sets the colour
@@ -673,9 +674,11 @@ describe("AC-223 the editor can preview the class loop", () => {
     await mount(chart(null));
     select([shapes()[1]]);
     tick();
+    // marking no longer starts the preview (D-486): the teacher ticks it
+    act(() => setFlowClassPreview(true));
   };
 
-  it("AC-223 ticking show in class turns the preview on", async () => {
+  it("AC-223 ticking show in class does not turn the preview on; Preview class loop does (D-486)", async () => {
     await mount(chart(null));
 
     expect(editorJotaiStore.get(flowClassPreviewAtom)).toBe(false);
@@ -684,7 +687,11 @@ describe("AC-223 the editor can preview the class loop", () => {
     select([shapes()[1]]);
     tick();
 
-    expect(editorJotaiStore.get(flowClassPreviewAtom)).toBe(true);
+    expect(editorJotaiStore.get(flowClassPreviewAtom)).toBe(false);
+    expect(classOverlay()).toBeNull();
+
+    act(() => setFlowClassPreview(true));
+
     expect(classOverlay()).not.toBeNull();
   });
 

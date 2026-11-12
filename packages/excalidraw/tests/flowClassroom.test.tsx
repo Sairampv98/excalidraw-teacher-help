@@ -149,12 +149,12 @@ afterEach(() => {
 /* ------------------------------------------------------------------ AC-213 */
 
 describe("AC-213 the edit view and the class view differ", () => {
-  it("AC-213 superseded by AC-583: a marked chart also animates in edit view", async () => {
+  it("AC-213 in the edit view a marked chart does not animate by itself", async () => {
     await mount(chart(SETTINGS));
 
-    expect(classOverlay()).not.toBeNull();
+    expect(classOverlay()).toBeNull();
     expect(animationOverlay()).toBeNull();
-    expect(AnimationController.running("flow-class")).toBe(true);
+    expect(AnimationController.running("flow-class")).toBe(false);
   });
 
   it("AC-213 in view mode it loops with nothing selected and no bar", async () => {
@@ -172,15 +172,15 @@ describe("AC-213 the edit view and the class view differ", () => {
     expect(AnimationController.running("flow-class")).toBe(true);
   });
 
-  it("AC-213 superseded by AC-583: leaving view mode keeps the marked loop", async () => {
+  it("AC-213 leaving view mode stops it", async () => {
     await mount(chart(SETTINGS), { viewModeEnabled: true });
 
     expect(classOverlay()).not.toBeNull();
 
     viewMode(false);
 
-    expect(classOverlay()).not.toBeNull();
-    expect(AnimationController.running("flow-class")).toBe(true);
+    expect(classOverlay()).toBeNull();
+    expect(AnimationController.running("flow-class")).toBe(false);
   });
 
   it("AC-213 playing from the bar still writes nothing into the document", async () => {

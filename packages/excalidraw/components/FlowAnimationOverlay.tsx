@@ -23,6 +23,7 @@ import {
   reachedIndices,
 } from "../scene/flowPresent";
 import { chartScaleOf } from "../scene/flowScale";
+import { glowLevelOf } from "../scene/flowLook";
 import {
   highlightBoxOf,
   stepHoldsMedia,
@@ -30,11 +31,15 @@ import {
   highlightShapeOf,
   arrowLabelsOf,
   nodeHighlightParts,
+  staticNodeParts,
 } from "../scene/flowHighlight";
 import { arrowLooksFor } from "../scene/flowArrowLooks";
 
 import {
   FLOW_ARROW_STYLES,
+  arrowAnimates,
+  arrowheadsOf,
+  nodeAnimates,
   flowMarksFor,
   getArrowPath,
 } from "../scene/flowStyles";
@@ -111,6 +116,9 @@ export type MarkedArrow = {
   path: PathPoint[];
   styles?: FlowArrowStyle[];
   spacing?: number;
+  dashGap?: number;
+  /** the arrow's heads as polylines, for the neon along them */
+  heads?: PathPoint[][];
   look?: Record<string, unknown>;
 };
 
@@ -125,6 +133,7 @@ export const marksForArrow = (
     const marks = flowMarksFor(style, arrow.path, elapsedMs, {
       ...options,
       spacing: arrow.spacing ?? options.spacing,
+      dashGap: arrow.dashGap ?? options.dashGap,
     });
     result.strokes.push(...marks.strokes);
     result.dots.push(...marks.dots);
@@ -212,6 +221,7 @@ export const arrowsFor = (
         (entry): entry is FlowArrowStyle =>
           FLOW_ARROW_STYLES.some((candidate) => candidate.id === entry) &&
           entry !== "none" &&
+          entry !== "off" &&
           (!(entry === "beam" || entry === "token") ||
             edge.from === step.containerId),
       );
@@ -224,7 +234,9 @@ export const arrowsFor = (
         id: edge.arrowId,
         styles: [...new Set(styles)],
         spacing: typeof panel?.spacing === "number" ? panel.spacing : undefined,
+        dashGap: typeof panel?.dashGap === "number" ? panel.dashGap : undefined,
         look,
+        heads: arrowheadsOf(element as ExcalidrawLinearElement, path),
         path:
           (style === "beam" || style === "token") &&
           element.customData?.flow?.role === "timeline-segment"
@@ -242,10 +254,14 @@ export const glowingArrowsFor = (
   step: FlowStep | undefined,
   map: ElementsMap,
   glow: boolean,
+  style?: FlowArrowStyle,
 ) =>
-  arrowsFor("marching", graph, step, map, true).filter(
-    (arrow) => glow || arrow.look?.glowArrow,
-  );
+  // "off" is the arrow animation off altogether: no marks and no neon either
+  style === "off"
+    ? []
+    : arrowsFor("marching", graph, step, map, true).filter(
+        (arrow) => glow || arrow.look?.glowArrow,
+      );
 
 export const pointsAttr = (points: readonly PathPoint[]) =>
   points.map((p) => `${p.x},${p.y}`).join(" ");
@@ -356,6 +372,7 @@ export const FlowAnimationOverlay = ({
         ? chartScaleOf(current.graph, elementsMapRef.current)
         : 1,
       speed: current.speed,
+      widthK: current.glowMark ? glowLevelOf(current, "mark").widthK : 1,
     };
   };
 
@@ -366,7 +383,9 @@ export const FlowAnimationOverlay = ({
   const scriptedNodeStyle =
     step &&
     elementsMap.get(step.containerId)?.customData?.flow?.look?.nodeStyle;
-  const nodeStyle = ["none", "focus", "pulse"].includes(scriptedNodeStyle)
+  const nodeStyle = ["off", "none", "focus", "pulse"].includes(
+    scriptedNodeStyle,
+  )
     ? scriptedNodeStyle
     : state.nodeStyle;
 
@@ -657,7 +676,7 @@ export const FlowAnimationOverlay = ({
               nodeStyle: state.nodeStyle,
               nodeTarget: state.nodeTarget,
               arrowsAnimated:
-                state.arrowStyle !== "none" ||
+                arrowAnimates(state.arrowStyle) ||
                 state.hideArrow ||
                 state.glowArrow ||
                 !!state.arrowColor,
@@ -701,6 +720,15 @@ export const FlowAnimationOverlay = ({
   const outlined = [parts.outline, parts.box].filter(
     (element): element is ExcalidrawElement => Boolean(element),
   );
+
+  // a colour or a glow chosen for the nodes and the text shows with the node
+  // animation "none" too: every node of the chart is lit all the time, without
+  // moving. Only the current step is drawn otherwise.
+  const staticNodes =
+    nodeStyle === "none" &&
+    (state.nodeColor || state.textColor || state.glowShape || state.glowText)
+      ? staticNodeParts(state.steps, elementsMap, state.nodeTarget)
+      : null;
 
   // a step that holds media (D-246) is only outlined: a wash of the colour over
   // the picture would change it
@@ -789,6 +817,7 @@ export const FlowAnimationOverlay = ({
             state.steps[state.index],
             elementsMap,
             state.glowArrow,
+            state.arrowStyle,
           ).map((arrow) => (
             <g
               key={`tube-${arrow.id}`}
@@ -867,11 +896,15 @@ export const FlowAnimationOverlay = ({
         </g>
       </svg>
 
-      {nodeStyle !== "none" &&
-        [
-          ...outlined.map((element) => ({ element, letters: false })),
-          ...(parts.letters ? [{ element: parts.letters, letters: true }] : []),
-        ].map(({ element, letters }) => {
+      {(nodeAnimates(nodeStyle) || staticNodes) &&
+        (
+          staticNodes ?? [
+            ...outlined.map((element) => ({ element, letters: false })),
+            ...(parts.letters
+              ? [{ element: parts.letters, letters: true }]
+              : []),
+          ]
+        ).map(({ element, letters }) => {
           // the node's own box and outline, rotated about its centre (D-192)
           const elementBox = highlightBoxOf(element);
 
@@ -879,7 +912,7 @@ export const FlowAnimationOverlay = ({
             <div
               // the index is part of the key so that the entrance animation
               // restarts on every step, the loop included
-              key={`${state.index}-${element.id}-${
+              key={`${staticNodes ? "all" : state.index}-${element.id}-${
                 letters ? "letters" : "outline"
               }`}
               className="excalidraw__flow-animation-shape"
@@ -927,7 +960,7 @@ export const FlowAnimationOverlay = ({
         })}
 
       {/* the labels of the arrows are drawn above what is animated (D-203) */}
-      {(state.arrowStyle !== "none" ||
+      {(arrowAnimates(state.arrowStyle) ||
         state.hideArrow ||
         state.glowArrow ||
         !!state.arrowColor) &&

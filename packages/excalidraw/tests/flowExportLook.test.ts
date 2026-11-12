@@ -303,7 +303,7 @@ describe("the highlight of the text", () => {
 });
 
 describe("the arrows as neon tubes", () => {
-  it("AC-446 the look's neon arrows are three halos of one thin bright line along each arrow, in the arrow's colour", () => {
+  it("AC-446 the look's neon arrows are one thin bright line along each arrow with three halos (a filter chain, or three shadows where there is no canvas filter), in the arrow's colour", () => {
     const tubes = (look: Partial<FlowFrameScene["look"]>) => {
       const log = draw(scene({ nodeStyle: "none", ...look }), 200);
 
@@ -325,10 +325,10 @@ describe("the arrows as neon tubes", () => {
 
     expect(
       log.filter((e) => e[0] === "set:lineWidth").map((e) => e[1]),
-    ).toEqual([3, 3, 3]);
+    ).toEqual([3]);
     expect(
       log.filter((e) => e[0] === "set:strokeStyle").map((e) => e[1]),
-    ).toEqual(Array(3).fill(neonCore("#1971c2")));
+    ).toEqual([neonCore("#1971c2")]);
     expect(
       log.filter((e) => e[0] === "set:shadowColor").map((e) => e[1]),
     ).toEqual(Array(3).fill("#1971c2"));
@@ -471,11 +471,16 @@ describe("the arrows the canvas is given", () => {
     expect(coloured.find((e) => e.id === "n1")!.strokeColor).toBe("#1e1e1e");
   });
 
-  it("AC-446 an arrow drawn as a neon tube is not given: the tube is drawn over the picture instead", async () => {
+  it("AC-446 a neon arrow keeps its own drawing: the tube is laid along it", async () => {
     expect((await run({ glowArrow: true })).map((e) => e.id).sort()).toEqual([
+      "a1",
       "n1",
       "n2",
     ]);
+    // only Hide arrow takes the arrow off the picture
+    expect(
+      (await run({ glowArrow: true, hideArrow: true })).map((e) => e.id).sort(),
+    ).toEqual(["n1", "n2"]);
   });
 
   it("AC-446 the element on the page is never changed by an export", async () => {

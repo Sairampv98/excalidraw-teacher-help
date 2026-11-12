@@ -2215,6 +2215,8 @@ const forkToolFor = (app: AppClassProperties) => {
       const id = preference.pending;
       preference.pending = null;
       const elements = app.scene.getElementsIncludingDeleted();
+      // one fork for one press of Fork: the next arrow is an ordinary arrow
+      preference.armed = false;
       if (elements.some((arrow) => arrow.id === id && !arrow.isDeleted)) {
         app.api.updateScene({
           elements: makeFlowFork(elements, { [id]: true }, preference.count),
@@ -2455,7 +2457,23 @@ export const actionChangeArrowType = register<
     const preference = forkToolFor(app);
     const [count, setCount] = useState(preference.count);
     const [branchText, setBranchText] = useState(String(preference.count));
-    const [armed, setArmed] = useState(preference.armed);
+    // armed lives in the preference, which the tool's observer clears after
+    // one fork; the panel only redraws
+    const [, redraw] = useState(0);
+    const armed = preference.armed;
+    const setArmed = (value: boolean) => {
+      preference.armed = value;
+      redraw((n) => n + 1);
+    };
+    const chooseCount = (value: number) => {
+      setCount(value);
+      preference.count = value;
+      setBranchText(String(value));
+      setArmed(true);
+      if (selected.length) {
+        updateData({ fork: value });
+      }
+    };
     const selectedFork = selected[0]?.customData?.flow?.fork;
     useEffect(() => {
       if (Number.isSafeInteger(selectedFork?.count)) {
@@ -2485,8 +2503,12 @@ export const actionChangeArrowType = register<
               Number(branchText) < 2
             }
             onClick={() => {
+              if (armed && !selected.length) {
+                // pressing it again puts it down
+                setArmed(false);
+                return;
+              }
               setArmed(true);
-              preference.armed = true;
               if (selected.length) {
                 updateData({ fork: count });
               }
@@ -2494,6 +2516,17 @@ export const actionChangeArrowType = register<
           >
             Fork
           </button>
+          {[2, 3, 4, 5].map((value) => (
+            <button
+              type="button"
+              key={value}
+              aria-label={`Fork with ${value} branches`}
+              aria-pressed={(armed || !!selectedFork) && count === value}
+              onClick={() => chooseCount(value)}
+            >
+              {value}
+            </button>
+          ))}
           <label>
             Branches
             <input
@@ -2579,7 +2612,6 @@ export const actionChangeArrowType = register<
             )}
             onChange={(value) => {
               setArmed(false);
-              preference.armed = false;
               updateData(value);
             }}
           />

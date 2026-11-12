@@ -448,11 +448,13 @@ describe("the export panel", () => {
     expect(arrows().value).toBe("marching");
     expect(step().value).toBe("2000");
     expect([...nodes().options].map((option) => option.value)).toEqual([
+      "off",
       "none",
       "focus",
       "pulse",
     ]);
     expect([...arrows().options].map((option) => option.value)).toEqual([
+      "off",
       "none",
       "beam",
       "marching",

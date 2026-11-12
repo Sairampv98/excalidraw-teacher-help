@@ -12,6 +12,13 @@
 const key555 = (r: number, g: number, b: number) =>
   ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
 
+/**
+ * A GIF pixel is clear or solid. A pixel less opaque than this is clear and the
+ * rest are solid, so the chart is cut out cleanly on a clear background; the
+ * soft part of a neon glow cannot be kept (WebP keeps it).
+ */
+export const GIF_CLEAR_BELOW = 128;
+
 type Entry = { r: number; g: number; b: number; count: number };
 
 /**
@@ -27,7 +34,7 @@ export const buildPalette = (
 
   for (const rgba of pictures) {
     for (let i = 0; i < rgba.length; i += 4) {
-      if (rgba[i + 3] < 128) {
+      if (rgba[i + 3] < GIF_CLEAR_BELOW) {
         continue;
       }
 
@@ -163,7 +170,7 @@ export const indexPicture = (
   for (let p = 0; p < count; p++) {
     const i = p * 4;
 
-    if (rgba[i + 3] < 128) {
+    if (rgba[i + 3] < GIF_CLEAR_BELOW) {
       out[p] = transparentIndex ?? 0;
       continue;
     }

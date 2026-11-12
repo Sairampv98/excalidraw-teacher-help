@@ -8,6 +8,15 @@ import React, {
 
 import type { ElementsMap, ExcalidrawElement } from "@excalidraw/element/types";
 
+import {
+  FLOW_GLOW_CORES,
+  glowCoreKey,
+  glowStrengthKey,
+  glowWidthKey,
+  readGlowCore,
+  readGlowStrength,
+  readGlowWidth,
+} from "../scene/flowLook";
 import { actionFlowClass } from "../actions/actionFlowClass";
 import {
   actionFlowLayout,
@@ -62,6 +71,8 @@ import {
 } from "./flowPanel/FlowPanelTabs";
 import {
   FlowAnimationOptions,
+  applyPanelAnimation,
+  panelAnimationOf,
   useFlowPanelAnimation,
 } from "./flowPanel/FlowAnimationOptions";
 import { FlowHexInput } from "./flowPanel/FlowHexInput";
@@ -235,6 +246,13 @@ export const FlowAnimationBar = ({
     useState<typeof FLOW_LOOK_ROWS[number]["id"]>("shape");
   const lookRow =
     FLOW_LOOK_ROWS.find((row) => row.id === colourRow) ?? FLOW_LOOK_ROWS[0];
+  // the glow and the width are each part's own: the row chosen is the part
+  const glowPart = (
+    { shape: "shape", text: "text", animation: "mark", arrow: "arrow" } as const
+  )[lookRow.id];
+  const glowStrengthOf = readGlowStrength(state[glowStrengthKey(glowPart)]);
+  const glowWidthOf = readGlowWidth(state[glowWidthKey(glowPart)]);
+  const glowCoreOf = readGlowCore(state[glowCoreKey(glowPart)]);
   const [expanded, setExpanded] = useState(false);
   const [comboNotice, setComboNotice] = useState(false);
   const chooseTab = (next: FlowPanelTab) => {
@@ -498,6 +516,34 @@ export const FlowAnimationBar = ({
 
   const follow = flowBarPosition({ box, camera, viewport, barHeight });
   const marked = !!flowClassOf(graph, elementsMap);
+  // the distance between marching marks lives in the chart's saved animation
+  // choices: the gap between dashes, or the spacing of beams and tokens
+  const savedPanel = panelAnimationOf(
+    {
+      // what the bar shows now wins over what was saved earlier; only the
+      // spacing and the dash gap come from the record
+      ...(graph
+        ? elementsMap.get(graph.steps[0]?.containerId)?.customData
+            ?.flowPanelAnimation
+        : undefined),
+      ...state,
+      spacing: (graph
+        ? elementsMap.get(graph.steps[0]?.containerId)?.customData
+            ?.flowPanelAnimation?.spacing
+        : undefined) as number | undefined,
+      dashGap: (graph
+        ? elementsMap.get(graph.steps[0]?.containerId)?.customData
+            ?.flowPanelAnimation?.dashGap
+        : undefined) as number | undefined,
+    },
+    state,
+  );
+  const dashesOnly =
+    state.arrowStyle === "marching" ||
+    (state.arrowStyle === "none" && savedPanel.marchingStyle === "marching");
+  const markSpacing = dashesOnly
+    ? savedPanel.dashGap ?? 10
+    : savedPanel.spacing ?? 150;
 
   // a setting the class plays is brought up to date in the chart as well, while
   // the chart is marked: what the bar shows is what the class gets (D-183)
@@ -649,6 +695,7 @@ export const FlowAnimationBar = ({
       onPointerDown={(event) => event.stopPropagation()}
     >
       <div className="flow-panel-head">
+        <FlowPanelTabs value={tab} onChange={chooseTab} />
         <select
           className="flow-panel-chart"
           aria-label="Chart or combo"
@@ -658,7 +705,6 @@ export const FlowAnimationBar = ({
         >
           <option value="this">This chart</option>
         </select>
-        <FlowPanelTabs value={tab} onChange={chooseTab} />
       </div>
       {comboNotice && (
         <p role="status">
@@ -933,6 +979,47 @@ export const FlowAnimationBar = ({
               {state.speed}
             </span>
           </label>
+          {graph && (
+            <label className="excalidraw__flow-bar-field">
+              <span>Mark spacing</span>
+              <input
+                type="number"
+                aria-label="Mark spacing"
+                title="The distance between two marching dashes (the gap), beams or tokens"
+                min={dashesOnly ? 2 : 16}
+                step={dashesOnly ? 2 : 10}
+                key={`${dashesOnly}-${markSpacing}`}
+                defaultValue={markSpacing}
+                // the number is typed whole and saved when the box is left or
+                // Enter is pressed; the digits are not shortcuts of the board
+                onKeyDown={(event) => {
+                  event.stopPropagation();
+                  if (event.key === "Enter") {
+                    event.currentTarget.blur();
+                  }
+                }}
+                onBlur={(event) => {
+                  const value = Number(event.target.value);
+                  if (
+                    !Number.isFinite(value) ||
+                    value < (dashesOnly ? 2 : 16) ||
+                    value === markSpacing
+                  ) {
+                    event.target.value = String(markSpacing);
+                    return;
+                  }
+                  applyPanelAnimation(
+                    app,
+                    graph,
+                    savedPanel,
+                    dashesOnly
+                      ? { ...savedPanel, dashGap: value }
+                      : { ...savedPanel, spacing: value },
+                  );
+                }}
+              />
+            </label>
+          )}
         </div>
 
         <div className="excalidraw__flow-bar-row">
@@ -981,18 +1068,15 @@ export const FlowAnimationBar = ({
                   enabled: event.target.checked,
                 });
 
-                // marking a chart has a visible effect: the class loop is
-                // previewed in the editor, once (D-193)
-                if (event.target.checked) {
-                  setFlowClassPreview(true);
-                }
+                // marking does not start the preview: the editor shows the loop
+                // only while Preview class loop is ticked (D-486)
               }}
             />
             <span>{t("labels.flowAnimationClass")}</span>
           </label>
           <label
             className="excalidraw__flow-bar-field"
-            hidden={tab !== "Animation"}
+            hidden={tab !== "Present in class"}
           >
             <input
               type="checkbox"
@@ -1047,13 +1131,7 @@ export const FlowAnimationBar = ({
           <label className="excalidraw__flow-bar-field">
             <input
               type="checkbox"
-              checked={marked || preview}
-              disabled={marked}
-              title={
-                marked
-                  ? "Charts marked Show in class already loop automatically in the editor."
-                  : undefined
-              }
+              checked={preview}
               onChange={(event) => setFlowClassPreview(event.target.checked)}
             />
             Preview class loop
@@ -1163,15 +1241,84 @@ export const FlowAnimationBar = ({
                 />
                 <span>Hide arrow</span>
               </label>
+            </div>
+            <div className="excalidraw__flow-bar-row">
               <label className="excalidraw__flow-bar-field">
+                <span>{lookRow.name} glow</span>
                 <input
-                  type="checkbox"
-                  checked={preview}
+                  type="range"
+                  aria-label="Neon glow"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={glowStrengthOf}
+                  onKeyDown={(event) => event.stopPropagation()}
                   onChange={(event) =>
-                    setFlowClassPreview(event.target.checked)
+                    change({
+                      [glowStrengthKey(glowPart)]: Number(event.target.value),
+                    })
                   }
                 />
-                <span>Preview class loop</span>
+                <span
+                  className="excalidraw__flow-bar-value"
+                  aria-label="Neon glow value"
+                >
+                  {glowStrengthOf}
+                </span>
+              </label>
+              <div
+                className="excalidraw__flow-bar-field"
+                role="group"
+                aria-label="Neon width"
+              >
+                <span>{lookRow.name} width</span>
+                {(["small", "normal", "large"] as const).map((width) => {
+                  const chosen = glowWidthOf === width;
+
+                  return (
+                    <button
+                      type="button"
+                      key={width}
+                      aria-pressed={chosen}
+                      style={
+                        chosen
+                          ? {
+                              background: "var(--color-primary, #6965db)",
+                              color: "#fff",
+                              fontWeight: 700,
+                            }
+                          : undefined
+                      }
+                      onClick={() =>
+                        change({ [glowWidthKey(glowPart)]: width })
+                      }
+                    >
+                      {chosen ? "✓ " : ""}
+                      {width[0].toUpperCase() + width.slice(1)}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="excalidraw__flow-bar-row">
+              <label className="excalidraw__flow-bar-field">
+                <span>{lookRow.name} neon core</span>
+                <select
+                  aria-label="Neon core"
+                  title="The bright middle of a neon line: the colour lightened, pure white, or the colour itself"
+                  value={glowCoreOf}
+                  onChange={(event) =>
+                    change({
+                      [glowCoreKey(glowPart)]: readGlowCore(event.target.value),
+                    })
+                  }
+                >
+                  {FLOW_GLOW_CORES.map((core) => (
+                    <option key={core.id} value={core.id}>
+                      {core.label}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
           </div>

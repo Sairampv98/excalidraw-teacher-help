@@ -122,4 +122,36 @@ describe("AC-582 marching marks", () => {
       flowMarksFor("marching-token", path, 100, { spacing: NaN }).dots.length,
     ).toBeLessThan(100);
   });
+
+  it("pins the default spacing (150) and the least (16) for beams and tokens", () => {
+    // a 400-long arrow: marks every 150 are three; the default is 150
+    expect(flowMarksFor("marching-token", path, 0).dots).toHaveLength(3);
+    expect(
+      flowMarksFor("marching-token", path, 0, { spacing: 200 }).dots,
+    ).toHaveLength(2);
+    // nothing closer than 16: a request for 1 is drawn as 16
+    expect(
+      flowMarksFor("marching-token", path, 0, { spacing: 1 }).dots,
+    ).toHaveLength(
+      flowMarksFor("marching-token", path, 0, { spacing: 16 }).dots.length,
+    );
+    expect(
+      flowMarksFor("marching-beam", path, 0, { spacing: 1 }).strokes,
+    ).toHaveLength(25);
+  });
+
+  it("the gap between marching dashes is a setting and its default is the old one", () => {
+    const dashOf = (options?: { dashGap?: number; scale?: number }) =>
+      flowMarksFor("marching", path, 0, options).strokes[0].dash;
+    expect(dashOf()).toEqual([10, 10]);
+    expect(dashOf({ dashGap: 30 })).toEqual([10, 30]);
+    expect(dashOf({ dashGap: 0 })).toEqual([10, 2]);
+    expect(dashOf({ dashGap: 30, scale: 2 })).toEqual([20, 60]);
+    // the dashes still run: a bigger gap is a longer period
+    const at = (gap: number, ms: number) =>
+      flowMarksFor("marching", path, ms, { dashGap: gap, speed: 240 })
+        .strokes[0].dashOffset ?? 0;
+    expect(at(30, 0)).toBeCloseTo(0);
+    expect(at(30, 300)).not.toBeCloseTo(at(10, 300));
+  });
 });

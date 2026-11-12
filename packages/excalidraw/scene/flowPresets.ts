@@ -1124,28 +1124,38 @@ export const makeFlowFork = (
   const horizontal = oldFork?.axis
     ? oldFork.axis === "LR"
     : Math.abs(firstEnd[0]) >= Math.abs(firstEnd[1]);
+  // the way the drops go: the way the trunk was drawn, so a fork drawn to the
+  // left or upward is a fork to the left or upward (1 = right or down)
+  const dir: 1 | -1 =
+    oldFork?.dir === -1 || oldFork?.dir === 1
+      ? oldFork.dir
+      : (horizontal ? firstEnd[0] : firstEnd[1]) < 0
+      ? -1
+      : 1;
+  // the side of the source the trunk leaves, and the side of a leaf it reaches
+  const out = reverse ? -dir : dir;
   const start = source
     ? horizontal
       ? {
-          x: source.x + (reverse ? 0 : source.width),
+          x: source.x + (out > 0 ? source.width : 0),
           y: source.y + source.height / 2,
         }
       : {
           x: source.x + source.width / 2,
-          y: source.y + (reverse ? 0 : source.height),
+          y: source.y + (out > 0 ? source.height : 0),
         }
     : { x: first.x, y: first.y };
   const gap =
     Number.isFinite(oldFork?.gap) && oldFork.gap > 0 ? oldFork.gap : 48;
   const bar = horizontal
-    ? { x: start.x + gap * (reverse ? -1 : 1), y: start.y }
-    : { x: start.x, y: start.y + gap * (reverse ? -1 : 1) };
+    ? { x: start.x + gap * out, y: start.y }
+    : { x: start.x, y: start.y + gap * out };
   const trunkBinding: ExcalidrawArrowElement["startBinding"] = sourceId
     ? {
         elementId: sourceId,
         fixedPoint: horizontal
-          ? [reverse ? 0 : 1, 0.5]
-          : [0.5, reverse ? 0 : 1],
+          ? [out > 0 ? 1 : 0, 0.5]
+          : [0.5, out > 0 ? 1 : 0],
         mode: "orbit",
       }
     : reverse
@@ -1160,21 +1170,21 @@ export const makeFlowFork = (
     const endpoint = target
       ? horizontal
         ? {
-            x: target.x + (reverse ? target.width : 0),
+            x: target.x + (out > 0 ? 0 : target.width),
             y: target.y + target.height / 2,
           }
         : {
             x: target.x + target.width / 2,
-            y: target.y + (reverse ? target.height : 0),
+            y: target.y + (out > 0 ? 0 : target.height),
           }
       : horizontal
       ? {
-          x: bar.x + gap * 2 * (reverse ? -1 : 1),
+          x: bar.x + gap * 2 * out,
           y: start.y + (index - (count - 1) / 2) * gap,
         }
       : {
           x: start.x + (index - (count - 1) / 2) * gap,
-          y: bar.y + gap * 2 * (reverse ? -1 : 1),
+          y: bar.y + gap * 2 * out,
         };
     const path = [
       start,
@@ -1208,6 +1218,9 @@ export const makeFlowFork = (
         Math.min(...path.map((point) => point.y)),
       startBinding: reverse ? old?.startBinding ?? null : trunkBinding,
       endBinding: reverse ? trunkBinding : old?.endBinding ?? null,
+      // the branches are one group, so that a click selects the whole fork and
+      // a drag moves it whole, and the drops cannot be pulled apart by accident
+      groupIds: [`fork-${forkId}`],
       customData: {
         ...first.customData,
         flow: {
@@ -1220,6 +1233,7 @@ export const makeFlowFork = (
             reverse,
             loose: !target,
             axis: horizontal ? "LR" : "TB",
+            dir,
             gap,
           },
         },

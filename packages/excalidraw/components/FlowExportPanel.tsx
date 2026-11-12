@@ -24,7 +24,12 @@ import {
   sizeHint,
 } from "../scene/flowExport/plan";
 import { FlowExportStopped } from "../scene/flowExport/runner";
-import { FLOW_ARROW_STYLES, FLOW_NODE_STYLES } from "../scene/flowStyles";
+import {
+  FLOW_ARROW_STYLES,
+  FLOW_NODE_STYLES,
+  arrowAnimates,
+  nodeAnimates,
+} from "../scene/flowStyles";
 
 import { flowAnimationStateAtom } from "./FlowAnimationState";
 
@@ -171,8 +176,8 @@ export const FlowExportPanel = ({
   const picturesPlay = movingPictures > 0 && canReadFrames();
   // nothing moves: no highlight, nothing along the arrows, no camera, no GIF
   const nothingMoves =
-    animation.nodeStyle === "none" &&
-    animation.arrowStyle === "none" &&
+    !nodeAnimates(animation.nodeStyle) &&
+    !arrowAnimates(animation.arrowStyle) &&
     !options.camera &&
     !picturesPlay;
   const background = backgroundChoicesOf(options.format);
@@ -449,6 +454,15 @@ export const FlowExportPanel = ({
         {!background.transparent && (
           <em data-testid="flow-export-background-note">{background.reason}</em>
         )}
+        {background.transparent &&
+          !options.withBackground &&
+          options.format === "gif" && (
+            <em data-testid="flow-export-gif-clear-note">
+              A GIF pixel is clear or solid, so a soft neon glow is cut away
+              without a background. Choose WebP for a soft glow on a clear
+              background.
+            </em>
+          )}
       </label>
 
       <label

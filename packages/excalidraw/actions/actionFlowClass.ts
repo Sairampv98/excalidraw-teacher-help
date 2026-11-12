@@ -12,6 +12,8 @@ import { CaptureUpdateAction } from "@excalidraw/element";
 
 import type { ExcalidrawElement } from "@excalidraw/element/types";
 
+import { readGlowLevels } from "../scene/flowLook";
+
 import { editorJotaiStore } from "../editor-jotai";
 import { withFlowClass } from "../scene/flowClass";
 import { flowOfSelection } from "../scene/flowSelection";
@@ -43,6 +45,7 @@ export const currentFlowClassSettings = (): FlowClassSettings => {
     glowText: state.glowText,
     glowMark: state.glowMark,
     glowArrow: state.glowArrow,
+    ...readGlowLevels(state),
     markColor: state.markColor,
     arrowColor: state.arrowColor,
     hideArrow: state.hideArrow,

@@ -193,6 +193,18 @@ export const FLOW_SCRIPT_LOOK_WORDS: Record<string, string> = {
   "glow-text": "glowText",
   "glow-mark": "glowMark",
   "glow-arrow": "glowArrow",
+  "glow-shape-strength": "glowShapeStrength",
+  "glow-shape-width": "glowShapeWidth",
+  "glow-text-strength": "glowTextStrength",
+  "glow-text-width": "glowTextWidth",
+  "glow-mark-strength": "glowMarkStrength",
+  "glow-mark-width": "glowMarkWidth",
+  "glow-arrow-strength": "glowArrowStrength",
+  "glow-shape-core": "glowShapeCore",
+  "glow-text-core": "glowTextCore",
+  "glow-mark-core": "glowMarkCore",
+  "glow-arrow-core": "glowArrowCore",
+  "glow-arrow-width": "glowArrowWidth",
   "hide-arrow": "hideArrow",
   highlight: "nodeTarget",
   animation: "arrowStyle",
@@ -212,6 +224,7 @@ export const FLOW_SCRIPT_LOOK_WORDS: Record<string, string> = {
 };
 
 const arrowStyles = [
+  "off",
   "none",
   "beam",
   "token",
@@ -221,6 +234,7 @@ const arrowStyles = [
   "pipe",
 ];
 export const FLOW_SCRIPT_NODE_STYLES = [
+  "off",
   "none",
   "focus",
   "pulse",
@@ -911,17 +925,29 @@ export const parseFlowScript = (
         advice = "Use a hexadecimal colour such as #e7f5ff.";
         valid = valid && scriptColor(value);
       } else if (
-        key.startsWith("glow") ||
+        (key.startsWith("glow") &&
+          !key.endsWith("Strength") &&
+          !key.endsWith("Width") &&
+          !key.endsWith("Core")) ||
         key === "hideArrow" ||
         key === "loop"
       ) {
         valid = valid && ["true", "false"].includes(value);
         advice = "Use true or false.";
         read = value === "true";
+      } else if (key.endsWith("Strength")) {
+        read = Number(value);
+        valid = valid && Number.isInteger(read) && read >= 1 && read <= 100;
+        advice = "Use a whole number from 1 to 100 (50 is the usual glow).";
       } else if (["speed", "durationMs", "spacing"].includes(key)) {
         advice = "Use a positive finite number.";
         read = Number(value) * (key === "speed" ? 240 : 1);
         valid = valid && Number.isFinite(read) && read > 0;
+        if (key === "spacing" && valid && read < 16) {
+          // the engine never draws marks closer than 16, so say it here
+          valid = false;
+          advice = "Use 16 or more: marks closer than that run together.";
+        }
       } else {
         const allowed: Record<string, readonly string[]> = {
           arrowStyle: arrowStyles,
@@ -932,12 +958,25 @@ export const parseFlowScript = (
             "marching-token",
           ],
           nodeStyle: FLOW_SCRIPT_NODE_STYLES,
-          nodeTarget: ["shape", "shape-box", "shape-text", "box", "letters"],
+          nodeTarget: [
+            "shape",
+            "shape-box",
+            "shape-text",
+            "box",
+            "letters",
+            "all",
+          ],
           order: ["forward", "reverse"],
           shape: ["own", ...FLOW_NODE_SHAPES],
           fit: ["page", "spread", "larger"],
           arrows: ["own", "none"],
           layout: ["TB", "LR"],
+          ...Object.fromEntries(
+            ["Shape", "Text", "Mark", "Arrow"].flatMap((part) => [
+              [`glow${part}Width`, ["small", "normal", "large"]],
+              [`glow${part}Core`, ["soft", "white", "colour"]],
+            ]),
+          ),
         };
         valid = valid && (allowed[key]?.includes(value) ?? false);
         advice = `Use ${(allowed[key] ?? []).join(", ")}.`;
