@@ -1,12 +1,17 @@
 /**
  * AC-545 and AC-546 - the pieces of the UI gate: what it reads from the requirements file,
  * how it judges a scenario, what it refuses and what it tells the owner.
+ *
+ * AC-646 - the gate and the clips drive a Chromium of Playwright's own and close it (D-543).
  */
 
+import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { findBrowser } from "../lib/app.mjs";
 import { isLocalUrl, outsideByHost } from "../lib/guard.mjs";
 import { replayCommand, reproCard } from "../lib/report.mjs";
 import { defineScenario, runScenario } from "../lib/scenario.mjs";
@@ -100,5 +105,90 @@ describe("AC-546 the gate stays on this computer and in its folder", () => {
       resolveInside(root, "/..%2f..%2fsecret").startsWith(root + path.sep),
     ).toBe(true);
     expect(resolveInside(root, "/a.js")).toBe(path.join(root, "a.js"));
+  });
+});
+
+describe("AC-646 the gate and the clips drive a Chromium of Playwright's own", () => {
+  const env = { LOCALAPPDATA: path.join("C:", "Users", "someone", "Local") };
+  const root = path.join(env.LOCALAPPDATA, "ms-playwright");
+  const listing = [
+    "ffmpeg-1011",
+    "chromium-999",
+    "chromium-1243",
+    "chromium_headless_shell-1100",
+    "chromium_headless_shell-1243",
+    "winldd-1007",
+  ];
+  const pick = (extra = {}) =>
+    findBrowser({ env, listDir: () => listing, exists: () => true, ...extra });
+  const chromeOfTheComputer = (candidate) =>
+    candidate.includes("Google/Chrome/Application");
+
+  it("a run with no window takes the newest headless shell", () => {
+    expect(pick()).toBe(
+      path.join(
+        root,
+        "chromium_headless_shell-1243",
+        "chrome-headless-shell-win64",
+        "chrome-headless-shell.exe",
+      ),
+    );
+  });
+
+  it("a run with a window takes the newest whole Chromium, by its number and not by its spelling", () => {
+    expect(pick({ headed: true })).toBe(
+      path.join(root, "chromium-1243", "chrome-win64", "chrome.exe"),
+    );
+  });
+
+  it("Playwright's Chromium comes before the Chrome of the computer, which is the fall-back", () => {
+    expect(pick()).not.toContain("Google");
+    expect(
+      findBrowser({
+        env,
+        listDir: () => listing,
+        exists: chromeOfTheComputer,
+      }),
+    ).toBe("C:/Program Files/Google/Chrome/Application/chrome.exe");
+  });
+
+  it("with no folder of Playwright's builds, the fall-back is used", () => {
+    expect(
+      findBrowser({
+        env,
+        listDir: () => {
+          throw new Error("no such folder");
+        },
+        exists: chromeOfTheComputer,
+      }),
+    ).toBe("C:/Program Files/Google/Chrome/Application/chrome.exe");
+  });
+
+  it("the browser the person names wins, and PLAYWRIGHT_BROWSERS_PATH moves the folder looked in", () => {
+    expect(pick({ env: { ...env, UI_BROWSER: "X:/mine/browser.exe" } })).toBe(
+      "X:/mine/browser.exe",
+    );
+    expect(
+      pick({ env: { PLAYWRIGHT_BROWSERS_PATH: path.join("D:", "pw") } }),
+    ).toBe(
+      path.join(
+        "D:",
+        "pw",
+        "chromium_headless_shell-1243",
+        "chrome-headless-shell-win64",
+        "chrome-headless-shell.exe",
+      ),
+    );
+  });
+
+  it("no browser at all is said plainly, with what to do", () => {
+    expect(() => pick({ exists: () => false })).toThrow(/UI_BROWSER/);
+  });
+
+  it("the UI gate closes its browser whatever a scenario does", () => {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const source = fs.readFileSync(path.join(here, "..", "run.mjs"), "utf8");
+
+    expect(source).toMatch(/finally\s*\{\s*await app\.close\(\);\s*\}/);
   });
 });

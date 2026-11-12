@@ -141,61 +141,64 @@ export const main = async (argv) => {
       slowMo: args.slow,
       showTour: Boolean(scenario.tour),
     });
-    const shoot = async (label) => {
-      const file = path.join(shotsDir, `${safe(label)}.png`);
+    // the browser is closed whatever happens in the scenario (D-543)
+    try {
+      const shoot = async (label) => {
+        const file = path.join(shotsDir, `${safe(label)}.png`);
 
-      await app.page.screenshot({ path: file });
+        await app.page.screenshot({ path: file });
 
-      return path.relative(out, file).replace(/\\/g, "/");
-    };
+        return path.relative(out, file).replace(/\\/g, "/");
+      };
 
-    console.log(`\n${scenario.id}  (${scenario.title})`);
+      console.log(`\n${scenario.id}  (${scenario.title})`);
 
-    const result = await runScenario(
-      scenario,
-      (base) => ({
-        ...base,
-        app,
-        page: app.page,
-        context: app.context,
-        faults: app.faults,
-        baseUrl: server.url,
-        wait: (ms) => app.page.waitForTimeout(ms),
-      }),
-      { shoot },
-    );
-
-    result.faults = {
-      console: app.realConsoleErrors().length,
-      outside: app.faults.outside.length,
-    };
-    results.push(result);
-
-    for (const step of result.steps) {
-      console.log(`  ${step.ok ? "ok  " : "FAIL"} ${step.n}. ${step.text}`);
-    }
-    console.log(
-      `  => ${result.status}${
-        result.failure?.expected
-          ? `: expected ${result.failure.expected}, saw ${result.failure.observed}`
-          : result.failure?.message
-          ? `: ${result.failure.message}`
-          : ""
-      }`,
-    );
-
-    if (result.status !== "pass") {
-      fs.writeFileSync(
-        path.join(out, "cards", `${scenario.id}.md`),
-        reproCard(result, rows),
+      const result = await runScenario(
+        scenario,
+        (base) => ({
+          ...base,
+          app,
+          page: app.page,
+          context: app.context,
+          faults: app.faults,
+          baseUrl: server.url,
+          wait: (ms) => app.page.waitForTimeout(ms),
+        }),
+        { shoot },
       );
-    }
 
-    if (args.headed && args.hold > 0) {
-      await app.page.waitForTimeout(args.hold * 1000);
-    }
+      result.faults = {
+        console: app.realConsoleErrors().length,
+        outside: app.faults.outside.length,
+      };
+      results.push(result);
 
-    await app.close();
+      for (const step of result.steps) {
+        console.log(`  ${step.ok ? "ok  " : "FAIL"} ${step.n}. ${step.text}`);
+      }
+      console.log(
+        `  => ${result.status}${
+          result.failure?.expected
+            ? `: expected ${result.failure.expected}, saw ${result.failure.observed}`
+            : result.failure?.message
+            ? `: ${result.failure.message}`
+            : ""
+        }`,
+      );
+
+      if (result.status !== "pass") {
+        fs.writeFileSync(
+          path.join(out, "cards", `${scenario.id}.md`),
+          reproCard(result, rows),
+        );
+      }
+
+      if (args.headed && args.hold > 0) {
+        await app.page.waitForTimeout(args.hold * 1000);
+      }
+    } finally {
+      await app.close();
+    }
   }
 
   await server.close();
