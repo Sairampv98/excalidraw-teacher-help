@@ -456,6 +456,8 @@ describe("the export panel", () => {
       "none",
       "beam",
       "marching",
+      "marching-beam",
+      "marching-token",
       "pipe",
       "token",
     ]);

@@ -309,6 +309,18 @@ describe("AC-220 the arrow is hidden and recoloured by the canvas", () => {
 
     viewMode(false);
 
+    // AC-583: a marked editor keeps the look until Show in class is unticked.
+    expect(lastDrawn(spy).has(arrows()[0].id)).toBe(false);
+    act(() => {
+      for (const element of h.elements) {
+        if (!element.isDeleted && element.customData?.flow?.class) {
+          API.updateElement(element, {
+            customData: withFlowClass(element, null),
+          });
+        }
+      }
+    });
+
     // every arrow is back, and it is the arrow itself
     for (const arrow of arrows()) {
       expect(lastDrawn(spy).get(arrow.id)).toBe(arrow);

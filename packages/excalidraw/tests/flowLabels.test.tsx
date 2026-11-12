@@ -338,7 +338,7 @@ describe("AC-231 the labels of arrows are above the animation", () => {
     // marked, but nothing is animated along the arrows
     await mount(chart({ ...SETTINGS, arrow: "none" }));
 
-    // the edit view: nothing animates at all
+    // The marked editor also has no arrow animation (AC-583).
     expect(arrowLabelCopies()).toHaveLength(0);
 
     // the class view: the nodes animate, the arrows do not
@@ -358,8 +358,19 @@ describe("AC-231 the labels of arrows are above the animation", () => {
 
     expect(arrowLabelCopies().length).toBeGreaterThan(0);
 
-    // and when the animation is gone, so are they
+    // Leaving class view keeps a marked chart playing in the editor (AC-583).
     viewMode(false);
+    expect(arrowLabelCopies().length).toBeGreaterThan(0);
+    act(() => {
+      for (const element of live()) {
+        if (element.customData?.flow?.class) {
+          API.updateElement(element, {
+            customData: withFlowClass(element, null),
+          });
+        }
+      }
+    });
+    // Unmarking stops the overlay and returns its labels to the canvas.
     expect(arrowLabelCopies()).toHaveLength(0);
   });
 
@@ -568,6 +579,17 @@ describe("AC-239 a label is never seen twice", () => {
 
     viewMode(true);
     viewMode(false);
+
+    expect(arrowLabelCopies()).toHaveLength(arrowLabels().length);
+    act(() => {
+      for (const element of live()) {
+        if (element.customData?.flow?.class) {
+          API.updateElement(element, {
+            customData: withFlowClass(element, null),
+          });
+        }
+      }
+    });
 
     const drawn = lastDrawn(spy);
 

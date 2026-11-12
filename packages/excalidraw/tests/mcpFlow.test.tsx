@@ -786,6 +786,8 @@ describe("the look of the animation and playing a chart", () => {
       "none",
       "beam",
       "marching",
+      "marching-beam",
+      "marching-token",
       "pipe",
       "token",
     ]);

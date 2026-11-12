@@ -315,6 +315,8 @@ describe("AC-209 the node and arrow animations are combined", () => {
       "none",
       "beam",
       "marching",
+      "marching-beam",
+      "marching-token",
       "pipe",
       "token",
     ]);
