@@ -27,8 +27,31 @@ export const PLACEHOLDER_BODY = "(describe the task here)";
 export const taskBody = (taskText) => {
   const body = taskText.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "").trim();
 
-  return body === PLACEHOLDER_BODY ? "" : body;
+  if (body === PLACEHOLDER_BODY) {
+    return "";
+  }
+
+  // the part written for the public, when the author wrote one (D-593)
+  return publicSection(body) || body;
 };
+
+/**
+ * The text under a `## Public` heading of a description, up to the next `##`
+ * heading: the author's own words for the public message, written in public
+ * wording when the task was described. Empty when there is none.
+ */
+export const publicSection = (body) => {
+  const match =
+    /^##[ \t]+Public[ \t]*\r?\n([\s\S]*?)(?=^##[ \t]|(?![\s\S]))/im.exec(body);
+
+  return match ? match[1].trim() : "";
+};
+
+/** whether a task file has such a section with something in it */
+export const hasPublicSection = (taskText) =>
+  publicSection(
+    taskText.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "").trim(),
+  ) !== "";
 
 /** the first sentence, or the first clause that fits a subject line */
 const subjectOf = (text) => {

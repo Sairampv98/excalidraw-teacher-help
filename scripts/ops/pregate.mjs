@@ -23,6 +23,8 @@ import {
   gateCacheDir,
 } from "./lib/gatePlan.mjs";
 import { pregateSteps } from "./lib/opsPlan.mjs";
+import { missingPublicSection, warningsForFile } from "./lib/publicLingo.mjs";
+import { isDenied } from "../public-sync/guard.mjs";
 
 const root = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -177,5 +179,66 @@ for (const plan of fastPlans({
   run(plan.name, "vitest", plan.args);
 }
 
-console.log(failed ? `pregate: FAIL (${failed} check(s))` : "pregate: PASS");
+// the public wording (D-594): warnings only, they never fail the pre-gate
+const config = JSON.parse(
+  fs.readFileSync(path.join(root, "scripts/public-sync/config.json"), "utf8"),
+);
+const map = JSON.parse(
+  fs.readFileSync(
+    path.join(root, "scripts/public-sync/rewrite-map.json"),
+    "utf8",
+  ),
+);
+const published = documents.filter(
+  (file) =>
+    !isDenied(file, config.deny) && fs.existsSync(path.join(root, file)),
+);
+const warnings = [];
+
+for (const file of published) {
+  if (!/\.(?:[cm]?[jt]sx?|s?css|md|ya?ml|sh|ps1|py)$/i.test(file)) {
+    continue;
+  }
+
+  warnings.push(
+    ...warningsForFile({
+      path: file,
+      oldText: git(["show", `${base}:${file}`]),
+      newText: fs.readFileSync(path.join(root, file), "utf8"),
+      map,
+    }),
+  );
+}
+
+const branch = git(["branch", "--show-current"]).trim();
+const taskFile = path.join(
+  root,
+  "tasks",
+  `${branch.replace(/^task\//, "")}.md`,
+);
+
+if (branch.startsWith("task/") && fs.existsSync(taskFile)) {
+  warnings.push(
+    ...missingPublicSection({
+      taskText: fs.readFileSync(taskFile, "utf8"),
+      publishedFiles: published,
+    }),
+  );
+}
+
+for (const warning of warnings) {
+  console.log(`pregate: WARN ${warning}`);
+}
+
+console.log(
+  failed
+    ? `pregate: FAIL (${failed} check(s)${
+        warnings.length ? `, ${warnings.length} warning(s)` : ""
+      })`
+    : `pregate: PASS${
+        warnings.length
+          ? ` (${warnings.length} warning(s) about public wording)`
+          : ""
+      }`,
+);
 process.exit(failed ? 1 : 0);
